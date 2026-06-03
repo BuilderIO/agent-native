@@ -9,6 +9,8 @@ const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   prefillMessage: vi.fn(),
   setComposerContextItem: vi.fn(),
+  removeComposerContextItem: vi.fn(),
+  clearComposerContextItems: vi.fn(),
   sendRecoveryMessage: vi.fn(),
   queueMessage: vi.fn(),
   focusComposer: vi.fn(),
@@ -93,6 +95,8 @@ vi.mock("./AssistantChat.js", async () => {
         sendMessage: chatHandleMocks.sendMessage,
         prefillMessage: chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
+        removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
+        clearComposerContextItems: chatHandleMocks.clearComposerContextItems,
         sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
         queueMessage: chatHandleMocks.queueMessage,
         isRunning: () => false,
@@ -204,6 +208,46 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       title: "Selected Element",
       context: "<button>Buy</button>",
     });
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+  });
+
+  it("removes keyed context from the active composer", () => {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.removeChatContext",
+            data: {
+              key: "selected-element",
+            },
+          },
+          origin: window.location.origin,
+        }),
+      );
+    });
+
+    expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
+      "selected-element",
+    );
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+  });
+
+  it("clears context from the active composer", () => {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.clearChatContext",
+            data: {},
+          },
+          origin: window.location.origin,
+        }),
+      );
+    });
+
+    expect(chatHandleMocks.clearComposerContextItems).toHaveBeenCalled();
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });

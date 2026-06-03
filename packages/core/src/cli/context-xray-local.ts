@@ -54,6 +54,7 @@ const COLORS = {
   metadata: "#9aa3ad",
   other: "#c3c8ce",
 };
+const MAX_EVENT_SAMPLES = 80;
 
 function parseArgs(argv) {
   const out = {
@@ -224,6 +225,27 @@ function pathCounts(text) {
   return out;
 }
 
+function eventPreview(text) {
+  return cleanTitle(String(text || "")).slice(0, 240);
+}
+
+function inferMcpTool(toolName) {
+  const value = String(toolName || "");
+  if (value.startsWith("mcp__")) {
+    const rest = value.slice(5);
+    const split = rest.indexOf("__");
+    if (split !== -1) return { server: rest.slice(0, split), tool: rest.slice(split + 2) };
+    const dot = rest.indexOf(".");
+    if (dot !== -1) return { server: rest.slice(0, dot), tool: rest.slice(dot + 1) };
+  }
+  if (value.startsWith("mcp_")) {
+    const rest = value.slice(4);
+    const split = rest.indexOf("_");
+    if (split !== -1) return { server: rest.slice(0, split), tool: rest.slice(split + 1) };
+  }
+  return { server: "", tool: "" };
+}
+
 function codexTitle(id) {
   const index = path.join(CODEX_DIR, "session_index.jsonl");
   for (const record of readJsonl(index)) {
@@ -260,25 +282,40 @@ function classifyCodex(record) {
   const ptype = String(payload.type || "");
   let category = "other";
   const tools = {};
+  let toolName = "";
   if (top === "session_meta") category = "metadata";
   else if (top === "turn_context") category = "instructions";
   else if (top === "event_msg") category = ptype === "user_message" ? "user" : "metadata";
   else if (top === "response_item") {
     if (["function_call", "custom_tool_call", "web_search_call", "tool_search_call", "tool_call"].includes(ptype) || payload.name && payload.call_id) {
       category = "tool_call";
+      toolName = payload.name ? String(payload.name) : ptype || "tool_call";
       if (payload.name) addCounter(tools, String(payload.name), 1);
-    } else if (["function_call_output", "custom_tool_call_output", "tool_search_output", "tool_result"].includes(ptype) || Object.prototype.hasOwnProperty.call(payload, "output")) category = "tool_output";
+    } else if (["function_call_output", "custom_tool_call_output", "tool_search_output", "tool_result"].includes(ptype) || Object.prototype.hasOwnProperty.call(payload, "output")) {
+      category = "tool_output";
+      toolName = payload.name ? String(payload.name) : "tool output";
+    }
     else if (ptype === "reasoning" || payload.summary) category = "reasoning";
     else if (payload.role === "assistant") category = "assistant";
     else if (payload.role === "user" || payload.role === "developer") category = "user";
   }
   const text = textFrom(record, 0) || (category === "metadata" ? compact(record) : "");
-  return { category, chars: text.length, tools, paths: pathCounts(text) };
+  return {
+    category,
+    chars: text.length,
+    tools,
+    paths: pathCounts(text),
+    toolName,
+    mcp: inferMcpTool(toolName),
+    metadataType: top + (ptype ? ":" + ptype : ""),
+    preview: eventPreview(text),
+  };
 }
 
 function classifyClaude(record) {
   let category = "other";
   const tools = {};
+  let toolName = "";
   const message = record.message && typeof record.message === "object" ? record.message : null;
   let text = "";
   if (message) {
@@ -290,8 +327,12 @@ function classifyClaude(record) {
       if (part && typeof part === "object") {
         if (part.type === "tool_use") {
           category = "tool_call";
+          toolName = part.name ? String(part.name) : "tool_use";
           if (part.name) addCounter(tools, String(part.name), 1);
-        } else if (part.type === "tool_result") category = "tool_output";
+        } else if (part.type === "tool_result") {
+          category = "tool_output";
+          toolName = "tool_result";
+        }
         else if (part.type === "thinking") category = "reasoning";
       }
       parts.push(textFrom(part, 0));
@@ -299,6 +340,7 @@ function classifyClaude(record) {
     text = parts.join("\n");
   } else if (record.toolUseResult) {
     category = "tool_output";
+    toolName = "toolUseResult";
     text = textFrom(record.toolUseResult, 0);
   } else if (record.attachment) {
     category = "attachment";
@@ -306,7 +348,16 @@ function classifyClaude(record) {
   } else {
     text = textFrom(record, 0);
   }
-  return { category, chars: text.length, tools, paths: pathCounts(text) };
+  return {
+    category,
+    chars: text.length,
+    tools,
+    paths: pathCounts(text),
+    toolName,
+    mcp: inferMcpTool(toolName),
+    metadataType: String(record.type || message && message.role || "record"),
+    preview: eventPreview(text),
+  };
 }
 
 function summarizeCodex(file) {
@@ -321,7 +372,13 @@ function summarizeCodex(file) {
     updatedAt: "",
     categories: {},
     tools: {},
+    toolTokens: {},
     paths: {},
+    metadata: {},
+    mcpUsage: {},
+    mcpTools: {},
+    toolEvents: [],
+    metadataEvents: [],
     observedTokens: 0,
     bytes: stat.size,
     mtime: stat.mtimeMs,
@@ -340,6 +397,39 @@ function summarizeCodex(file) {
     const stats = classifyCodex(record);
     addCounter(summary.categories, stats.category, stats.chars);
     mergeCounter(summary.tools, stats.tools);
+    if (stats.toolName && stats.category === "tool_call") {
+      addCounter(summary.toolTokens, stats.toolName, estimateTokens(stats.chars));
+      if (stats.mcp.server) {
+        addCounter(summary.mcpUsage, stats.mcp.server, 1);
+        addCounter(summary.mcpTools, stats.mcp.server + " / " + (stats.mcp.tool || stats.toolName), 1);
+      }
+      if (summary.toolEvents.length < MAX_EVENT_SAMPLES) {
+        summary.toolEvents.push({
+          source: "codex",
+          sessionId: summary.sessionId,
+          timestamp: String(record.timestamp || payload.timestamp || ""),
+          category: stats.category,
+          tool: stats.toolName,
+          mcpServer: stats.mcp.server,
+          mcpTool: stats.mcp.tool,
+          tokens: estimateTokens(stats.chars),
+          preview: stats.preview,
+        });
+      }
+    }
+    if (stats.category === "metadata") {
+      addCounter(summary.metadata, stats.metadataType, stats.chars);
+      if (summary.metadataEvents.length < MAX_EVENT_SAMPLES) {
+        summary.metadataEvents.push({
+          source: "codex",
+          sessionId: summary.sessionId,
+          timestamp: String(record.timestamp || payload.timestamp || ""),
+          type: stats.metadataType,
+          tokens: estimateTokens(stats.chars),
+          preview: stats.preview,
+        });
+      }
+    }
     mergeCounter(summary.paths, stats.paths);
   }
   summary.title = codexTitle(summary.sessionId) || summary.sessionId;
@@ -358,7 +448,13 @@ function summarizeClaude(file) {
     updatedAt: "",
     categories: {},
     tools: {},
+    toolTokens: {},
     paths: {},
+    metadata: {},
+    mcpUsage: {},
+    mcpTools: {},
+    toolEvents: [],
+    metadataEvents: [],
     observedTokens: 0,
     bytes: stat.size,
     mtime: stat.mtimeMs,
@@ -378,6 +474,39 @@ function summarizeClaude(file) {
     const stats = classifyClaude(record);
     addCounter(summary.categories, stats.category, stats.chars);
     mergeCounter(summary.tools, stats.tools);
+    if (stats.toolName && stats.category === "tool_call") {
+      addCounter(summary.toolTokens, stats.toolName, estimateTokens(stats.chars));
+      if (stats.mcp.server) {
+        addCounter(summary.mcpUsage, stats.mcp.server, 1);
+        addCounter(summary.mcpTools, stats.mcp.server + " / " + (stats.mcp.tool || stats.toolName), 1);
+      }
+      if (summary.toolEvents.length < MAX_EVENT_SAMPLES) {
+        summary.toolEvents.push({
+          source: "claude",
+          sessionId: summary.sessionId,
+          timestamp: String(record.timestamp || ""),
+          category: stats.category,
+          tool: stats.toolName,
+          mcpServer: stats.mcp.server,
+          mcpTool: stats.mcp.tool,
+          tokens: estimateTokens(stats.chars),
+          preview: stats.preview,
+        });
+      }
+    }
+    if (stats.category === "metadata") {
+      addCounter(summary.metadata, stats.metadataType, stats.chars);
+      if (summary.metadataEvents.length < MAX_EVENT_SAMPLES) {
+        summary.metadataEvents.push({
+          source: "claude",
+          sessionId: summary.sessionId,
+          timestamp: String(record.timestamp || ""),
+          type: stats.metadataType,
+          tokens: estimateTokens(stats.chars),
+          preview: stats.preview,
+        });
+      }
+    }
     mergeCounter(summary.paths, stats.paths);
   }
   if (!summary.title) summary.title = summary.sessionId;
@@ -467,11 +596,21 @@ function collectSessions(args) {
 }
 
 function aggregate(sessions) {
-  const out = { categories: {}, tools: {}, paths: {} };
+  const out = { categories: {}, tools: {}, toolTokens: {}, paths: {}, metadata: {}, mcpUsage: {}, mcpTools: {}, toolEvents: [], metadataEvents: [] };
   for (const session of sessions) {
     mergeCounter(out.categories, session.categories);
     mergeCounter(out.tools, session.tools);
+    mergeCounter(out.toolTokens, session.toolTokens);
     mergeCounter(out.paths, session.paths);
+    mergeCounter(out.metadata, session.metadata);
+    mergeCounter(out.mcpUsage, session.mcpUsage);
+    mergeCounter(out.mcpTools, session.mcpTools);
+    for (const event of session.toolEvents || []) {
+      if (out.toolEvents.length < 500) out.toolEvents.push(Object.assign({ sessionTitle: session.title, cwd: session.cwd, sessionPath: session.path }, event));
+    }
+    for (const event of session.metadataEvents || []) {
+      if (out.metadataEvents.length < 500) out.metadataEvents.push(Object.assign({ sessionTitle: session.title, cwd: session.cwd, sessionPath: session.path }, event));
+    }
   }
   return out;
 }
@@ -489,15 +628,15 @@ function recommendations(sessions) {
   const instructions = pct(agg.categories.instructions || 0, total);
   const assistant = pct(agg.categories.assistant || 0, total);
   const maxSession = sessions.reduce((a, b) => a.tokens > b.tokens ? a : b);
-  if (toolOutput > 45) tips.push("Tool output dominates context. Prefer targeted rg/sed ranges, cap logs, and ask agents to summarize failing blocks instead of pasting full output.");
-  if (instructions > 25) tips.push("Instructions are a large share. Move stable workflow rules into skills or AGENTS/CLAUDE files and keep per-turn prompts short.");
-  if (assistant > 45) tips.push("Assistant prose is heavy. Ask for terse progress updates during long runs and save rationale only when it changes decisions.");
-  if (maxSession.tokens > 80000) tips.push("The largest session is about " + fmtTokens(maxSession.tokens) + " " + maxSession.tokenMethod + " tokens. Compact or start a fresh handoff before another big implementation pass.");
+  if (toolOutput > 45) tips.push("Tool output dominates context. In your prompt, ask the agent to keep command output capped, summarize failures, and only expand logs when the exact lines matter.");
+  if (instructions > 25) tips.push("Instructions are a large share. Move durable workflow preferences into a skill, AGENTS.md, or CLAUDE.md so each thread can start with a shorter task prompt.");
+  if (assistant > 45) tips.push("Assistant prose is heavy. Ask for brief progress updates and a final decision log, instead of detailed narration during every loop.");
+  if (maxSession.tokens > 80000) tips.push("The largest session is about " + fmtTokens(maxSession.tokens) + " " + maxSession.tokenMethod + " tokens. Ask for a handoff summary, then continue in a fresh thread before the next large implementation pass.");
   const topTool = sortedEntries(agg.tools, 1)[0];
-  if (topTool && topTool[1] > 20) tips.push(topTool[0] + " appears " + topTool[1] + " times. Batch independent inspection and use parallel reads/searches.");
+  if (topTool && topTool[1] > 20) tips.push(topTool[0] + " appears " + topTool[1] + " times. Tell the agent to batch independent inspection and avoid rerunning diagnostics unless state changed.");
   const topPath = sortedEntries(agg.paths, 1)[0];
-  if (topPath && topPath[1] > 12) tips.push(topPath[0] + " appears repeatedly (" + topPath[1] + " mentions). Pin a short role summary instead of rereading it.");
-  return tips.length ? tips.slice(0, 6) : ["Recent sessions look balanced. Keep using focused reads, compact after milestones, and preserve decisions in a skill or repo doc."];
+  if (topPath && topPath[1] > 12) tips.push(topPath[0] + " appears repeatedly (" + topPath[1] + " mentions). Ask the agent to keep a short file-role summary and reopen the file only when it needs exact lines.");
+  return tips.length ? tips.slice(0, 6) : ["Recent sessions look balanced. Keep giving scoped tasks, ask for compaction after milestones, and preserve reusable decisions in a skill or repo doc."];
 }
 
 function escapeHtml(value) {
@@ -519,43 +658,339 @@ function categoryBar(categories) {
   }).join("") + "</div>";
 }
 
-function renderHtml(sessions, args) {
-  const agg = aggregate(sessions);
-  const totalTokens = sessions.reduce((sum, s) => sum + s.tokens, 0);
-  const tips = recommendations(sessions);
-  const categoryRows = CATEGORIES.map((cat) => {
-    const chars = agg.categories[cat] || 0;
-    if (!chars) return "";
-    return "<tr><td>" + escapeHtml(LABELS[cat]) + "</td><td>" + fmtTokens(estimateTokens(chars)) + "</td><td>" + pct(chars, Object.values(agg.categories).reduce((sum, value) => sum + value, 0)).toFixed(0) + "%</td></tr>";
-  }).join("");
-  const sessionCards = sessions.map((session) => {
-    const cats = Object.entries(session.categories).sort((a, b) => b[1] - a[1]).map((entry) => "<tr><td>" + escapeHtml(LABELS[entry[0]] || entry[0]) + "</td><td>" + fmtTokens(estimateTokens(entry[1])) + "</td><td>" + pct(entry[1], session.totalChars).toFixed(0) + "%</td></tr>").join("");
-    const tools = sortedEntries(session.tools, 6).map((entry) => "<span class=\"badge\">" + escapeHtml(entry[0]) + " x" + entry[1] + "</span>").join("");
-    const paths = sortedEntries(session.paths, 5).map((entry) => "<span class=\"badge muted\">" + escapeHtml(entry[0]) + " x" + entry[1] + "</span>").join("");
-    return "<article class=\"card session\"><div class=\"session-head\"><div><div class=\"eyebrow\">" + escapeHtml(session.source) + " - " + escapeHtml(session.updatedAt || "unknown time") + "</div><h3>" + escapeHtml(session.title || session.sessionId) + "</h3><p class=\"path\">" + escapeHtml(session.cwd || session.path) + "</p></div><div class=\"token-big\">" + fmtTokens(session.tokens) + "</div></div>" + categoryBar(session.categories) + "<div class=\"session-grid\"><table><tbody>" + cats + "</tbody></table><div><div class=\"mini-label\">Frequent tools</div><div class=\"badges\">" + (tools || "<span class=\"muted-text\">none detected</span>") + "</div><div class=\"mini-label\">Repeated paths</div><div class=\"badges\">" + (paths || "<span class=\"muted-text\">none detected</span>") + "</div></div></div></article>";
-  }).join("");
-  const topTools = sortedEntries(agg.tools, 10).map((entry) => "<tr><td>" + escapeHtml(entry[0]) + "</td><td>" + entry[1] + "</td></tr>").join("");
-  const topPaths = sortedEntries(agg.paths, 10).map((entry) => "<tr><td>" + escapeHtml(entry[0]) + "</td><td>" + entry[1] + "</td></tr>").join("");
-  const sourceCounts = sessions.reduce((counts, s) => (counts[s.source] = (counts[s.source] || 0) + 1, counts), {});
-  return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Context X-Ray</title><style>" +
-    "body{margin:0;background:#0e1116;color:#f3f5f8;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.45}main{max-width:1180px;margin:0 auto;padding:32px 20px 56px}header{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;margin-bottom:24px}h1{margin:0;font-size:clamp(28px,5vw,52px);letter-spacing:0}h2{margin:0 0 14px;font-size:18px}h3{margin:3px 0 4px;font-size:17px}p{margin:0}.muted,.path,.eyebrow,.muted-text{color:#9aa3ad}.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:11px}.summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.card{background:linear-gradient(180deg,#151922,#1c2230);border:1px solid #2a3140;border-radius:8px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.22)}.stat strong{display:block;font-size:28px;line-height:1.1}.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);gap:16px;align-items:start}.bar{display:flex;overflow:hidden;height:14px;border-radius:999px;background:#252b37;margin:12px 0}.bar span{display:block;min-width:2px}.tips li{margin:0 0 9px}.session{margin-top:14px}.session-head{display:flex;justify-content:space-between;gap:16px}.token-big{font-weight:700;font-size:28px;color:#8ba8ff;white-space:nowrap}.session-grid{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;margin-top:12px}table{width:100%;border-collapse:collapse;font-size:13px}td{border-top:1px solid #2a3140;padding:7px 0;vertical-align:top}td:last-child{text-align:right;color:#9aa3ad}.mini-label{margin:7px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#9aa3ad}.badges{display:flex;flex-wrap:wrap;gap:6px}.badge{display:inline-flex;border:1px solid #2a3140;border-radius:999px;padding:3px 8px;font-size:12px;background:rgba(255,255,255,.04)}.badge.muted{color:#9aa3ad}footer{color:#9aa3ad;margin-top:24px;font-size:12px}@media(max-width:840px){header,.grid,.session-grid{grid-template-columns:1fr;display:grid}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}}" +
-    "</style></head><body><main><header><div><div class=\"eyebrow\">Local coding context profile</div><h1>Context X-Ray</h1><p class=\"muted\">Generated " + escapeHtml(new Date().toLocaleString()) + " - mode=" + escapeHtml(args.mode) + " - source=" + escapeHtml(args.source) + " - since=" + escapeHtml(args.since) + "</p></div></header><section class=\"summary\"><div class=\"card stat\"><span class=\"muted\">Sessions</span><strong>" + sessions.length + "</strong></div><div class=\"card stat\"><span class=\"muted\">Observed/estimated tokens</span><strong>" + fmtTokens(totalTokens) + "</strong></div><div class=\"card stat\"><span class=\"muted\">Codex</span><strong>" + (sourceCounts.codex || 0) + "</strong></div><div class=\"card stat\"><span class=\"muted\">Claude</span><strong>" + (sourceCounts.claude || 0) + "</strong></div></section><section class=\"card\"><h2>Where The Context Is Going</h2>" + categoryBar(agg.categories) + "<table><tbody>" + categoryRows + "</tbody></table></section><div class=\"grid\" style=\"margin-top:16px\"><section class=\"card tips\"><h2>Warnings And Optimizations</h2><ol>" + tips.map((tip) => "<li>" + escapeHtml(tip) + "</li>").join("") + "</ol></section><section class=\"card\"><h2>Hotspots</h2><div class=\"mini-label\">Top tools</div><table><tbody>" + (topTools || "<tr><td>None detected</td><td></td></tr>") + "</tbody></table><div class=\"mini-label\">Top paths</div><table><tbody>" + (topPaths || "<tr><td>None detected</td><td></td></tr>") + "</tbody></table></section></div><section style=\"margin-top:16px\"><h2>Sessions</h2>" + sessionCards + "</section><footer>Reads local transcript files only. No transcript content is uploaded.</footer></main></body></html>";
+function readJsonFile(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
-function writeJson(sessions, args, file) {
+function safeUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.origin + url.pathname;
+  } catch {
+    return String(value || "").split(/[?#]/)[0].slice(0, 120);
+  }
+}
+
+function mcpTarget(definition) {
+  if (!definition || typeof definition !== "object") return "configured";
+  if (definition.url) return safeUrl(definition.url);
+  if (definition.command) return String(definition.command);
+  if (definition.transport) return String(definition.transport);
+  return "configured";
+}
+
+function addMcpServer(out, name, source, definition) {
+  if (!name) return;
+  const key = source + ":" + name;
+  if (out.some((server) => server.key === key)) return;
+  out.push({
+    key,
+    name: String(name),
+    source,
+    target: mcpTarget(definition),
+  });
+}
+
+function readMcpJson(file, source, out) {
+  const json = readJsonFile(file);
+  if (!json || typeof json !== "object") return;
+  const servers = json.mcpServers || json.mcp_servers || json.servers;
+  if (!servers || typeof servers !== "object") return;
+  for (const name of Object.keys(servers)) addMcpServer(out, name, source, servers[name]);
+}
+
+function readCodexTomlServers(file, out) {
+  let text = "";
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return;
+  }
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const match = lines[index].match(/^\s*\[mcp_servers\.(?:"([^"]+)"|([^\]]+))\]\s*$/);
+    if (!match) continue;
+    const name = match[1] || match[2] || "";
+    const section = {};
+    for (let cursor = index + 1; cursor < lines.length; cursor++) {
+      if (/^\s*\[/.test(lines[cursor])) break;
+      const pair = lines[cursor].match(/^\s*([A-Za-z0-9_-]+)\s*=\s*"?([^"]+)"?\s*$/);
+      if (pair) section[pair[1]] = pair[2];
+    }
+    addMcpServer(out, name, "Codex config", section);
+  }
+}
+
+function readMcpServers(project) {
+  const out = [];
+  readCodexTomlServers(path.join(CODEX_DIR, "config.toml"), out);
+  readMcpJson(path.join(HOME, ".claude.json"), "Claude user config", out);
+  readMcpJson(path.join(CLAUDE_DIR, "settings.json"), "Claude settings", out);
+  readMcpJson(path.join(path.resolve(project), ".mcp.json"), "Project .mcp.json", out);
+  readMcpJson(path.join(path.resolve(project), ".cursor", "mcp.json"), "Project Cursor MCP", out);
+  readMcpJson(path.join(HOME, ".cowork", "mcp.json"), "Cowork MCP", out);
+  return out.sort((a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source));
+}
+
+function sourceCounts(sessions) {
+  return sessions.reduce((counts, session) => {
+    counts[session.source] = (counts[session.source] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function buildReport(sessions, args) {
   const agg = aggregate(sessions);
-  fs.writeFileSync(file, JSON.stringify({
+  return {
     generatedAt: new Date().toISOString(),
+    generatedLabel: new Date().toLocaleString(),
     mode: args.mode,
     source: args.source,
     since: args.since,
+    project: path.resolve(args.project),
+    sessionCount: sessions.length,
+    sourceCounts: sourceCounts(sessions),
     totalTokens: sessions.reduce((sum, s) => sum + s.tokens, 0),
     categories: agg.categories,
-    tools: sortedEntries(agg.tools, 25),
-    paths: sortedEntries(agg.paths, 25),
+    tools: sortedEntries(agg.tools, 50),
+    toolTokens: sortedEntries(agg.toolTokens, 50),
+    paths: sortedEntries(agg.paths, 50),
+    metadata: sortedEntries(agg.metadata, 50),
+    mcpUsage: sortedEntries(agg.mcpUsage, 50),
+    mcpTools: sortedEntries(agg.mcpTools, 50),
+    mcpServers: readMcpServers(args.project),
     recommendations: recommendations(sessions),
+    toolEvents: agg.toolEvents,
+    metadataEvents: agg.metadataEvents,
     sessions,
-  }, null, 2));
+  };
+}
+
+function jsonScript(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function overviewEnhancementScript() {
+  return "(" + function () {
+    const dataEl = document.getElementById("xray-data");
+    if (!dataEl) return;
+    const report = JSON.parse(dataEl.textContent || "{}");
+    const cats = ["user", "assistant", "tool_call", "tool_output", "reasoning", "instructions", "attachment", "metadata", "other"];
+    const labels = {
+      user: "User asks",
+      assistant: "Assistant text",
+      tool_call: "Tool calls",
+      tool_output: "Tool output",
+      reasoning: "Reasoning",
+      instructions: "Instructions/context",
+      attachment: "Attachments",
+      metadata: "Metadata",
+      other: "Other",
+    };
+    const colors = {
+      user: "#8ba8ff",
+      assistant: "#55b982",
+      tool_call: "#f0a85b",
+      tool_output: "#e06b73",
+      reasoning: "#a77be8",
+      instructions: "#6ac3d5",
+      attachment: "#d6a85a",
+      metadata: "#9aa3ad",
+      other: "#c3c8ce",
+    };
+
+    function esc(value) {
+      return String(value || "").replace(/[&<>"']/g, function (ch) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch];
+      });
+    }
+
+    function fmt(value) {
+      const number = Number(value) || 0;
+      if (number >= 1000000) return (number / 1000000).toFixed(1) + "m";
+      if (number >= 1000) return (number / 1000).toFixed(1) + "k";
+      return String(number);
+    }
+
+    function tok(chars) {
+      chars = Number(chars) || 0;
+      return chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : 0;
+    }
+
+    function totalCounter(counter) {
+      return Object.keys(counter || {}).reduce(function (sum, key) {
+        return sum + (Number(counter[key]) || 0);
+      }, 0);
+    }
+
+    function pct(part, total) {
+      return total > 0 ? Math.max(0, Math.min(100, (part / total) * 100)) : 0;
+    }
+
+    function actionRow(kind, value, title, subtitle, right, farRight, color) {
+      return "<button class=\"row-button\" data-overview-kind=\"" + esc(kind) + "\" data-overview-value=\"" + esc(value) + "\"><span><span class=\"row-title\">" + (color ? "<span class=\"badge\"><span class=\"dot\" style=\"background:" + esc(color) + "\"></span>" + esc(title) + "</span>" : esc(title)) + "</span><span class=\"meta\">" + esc(subtitle) + "</span></span><span class=\"row-meta\">" + esc(right) + "</span><span class=\"row-meta\">" + esc(farRight || "") + "</span></button>";
+    }
+
+    function bar(counter) {
+      const total = totalCounter(counter);
+      if (!total) return "<div class=\"bar\"></div>";
+      return "<div class=\"bar\">" + cats.map(function (cat) {
+        const value = (counter || {})[cat] || 0;
+        if (!value) return "";
+        return "<button type=\"button\" data-overview-kind=\"category\" data-overview-value=\"" + esc(cat) + "\" title=\"" + esc(labels[cat]) + "\" style=\"width:" + Math.max(1, pct(value, total)).toFixed(2) + "%;background:" + colors[cat] + ";border:0;padding:0;display:block;min-width:2px;cursor:pointer\"></button>";
+      }).join("") + "</div>";
+    }
+
+    function topTools(limit) {
+      return (report.tools || []).slice(0, limit || 8);
+    }
+
+    function toolTokens(name) {
+      const found = (report.toolTokens || []).filter(function (entry) {
+        return entry[0] === name;
+      })[0];
+      return found ? found[1] : 0;
+    }
+
+    function sessionMatches(kind, value) {
+      return (report.sessions || []).filter(function (session) {
+        if (kind === "category") return !!((session.categories || {})[value]);
+        if (kind === "path") return !!((session.paths || {})[value]);
+        return false;
+      }).sort(function (a, b) {
+        const left = kind === "path" ? (a.paths || {})[value] || 0 : (a.categories || {})[value] || 0;
+        const right = kind === "path" ? (b.paths || {})[value] || 0 : (b.categories || {})[value] || 0;
+        return right - left;
+      });
+    }
+
+    function sampleCards(events) {
+      events = (events || []).slice(0, 8);
+      if (!events.length) return "<p class=\"empty\">No sampled records for this item.</p>";
+      return "<div class=\"detail-list\">" + events.map(function (event) {
+        return "<article class=\"sample\"><div class=\"sample-top\"><span>" + esc(event.source) + " · " + esc(event.sessionTitle || event.sessionId) + "</span><span>" + fmt(event.tokens || 0) + " tok</span></div><p>" + esc(event.preview || "No preview captured.") + "</p></article>";
+      }).join("") + "</div>";
+    }
+
+    function sessionCards(sessions, kind, value) {
+      sessions = (sessions || []).slice(0, 8);
+      if (!sessions.length) return "<p class=\"empty\">No matching sessions for this item.</p>";
+      return "<div class=\"detail-list\">" + sessions.map(function (session) {
+        const amount = kind === "path" ? (session.paths || {})[value] || 0 : tok((session.categories || {})[value] || 0);
+        const unit = kind === "path" ? "mentions" : "tok";
+        return "<article class=\"sample\"><div class=\"sample-top\"><span>" + esc(session.source) + " · " + esc(session.updatedAt || "unknown time") + "</span><span>" + esc(fmt(amount) + " " + unit) + "</span></div><p><strong>" + esc(session.title || session.sessionId) + "</strong></p><p class=\"meta\">" + esc(session.cwd || session.path) + "</p></article>";
+      }).join("") + "</div>";
+    }
+
+    function openDetailTab(tab, selector, value) {
+      const tabButton = document.querySelector("[data-tab=\"" + tab + "\"]");
+      if (tabButton) tabButton.click();
+      if (!selector) return;
+      window.setTimeout(function () {
+        const rows = Array.prototype.slice.call(document.querySelectorAll(selector));
+        const row = rows.filter(function (item) {
+          return item.getAttribute(selector.slice(1, -1)) === value;
+        })[0];
+        if (row) row.click();
+      }, 0);
+    }
+
+    function jumpButton(tab, label, selector, value) {
+      return "<button class=\"row-button\" data-overview-jump=\"" + esc(tab) + "\" data-overview-selector=\"" + esc(selector) + "\" data-overview-value=\"" + esc(value || "") + "\"><span><span class=\"row-title\">" + esc(label) + "</span><span class=\"meta\">Open the full detail tab</span></span><span class=\"row-meta\">open</span><span class=\"row-meta\"></span></button>";
+    }
+
+    function setDetail(kind, value) {
+      const el = document.getElementById("overview-drilldown");
+      if (!el) return;
+      if (kind === "tool") {
+        const events = (report.toolEvents || []).filter(function (event) {
+          return event.tool === value;
+        });
+        el.innerHTML = "<div class=\"section-head\"><div><h2>" + esc(value) + "</h2><p class=\"meta\">Sampled calls from the selected sessions.</p></div></div>" + sampleCards(events) + "<div class=\"mini-label\">More</div>" + jumpButton("tools", "Open Tool Calls", "[data-tool]", value);
+      } else if (kind === "metadata") {
+        const events = (report.metadataEvents || []).filter(function (event) {
+          return event.type === value;
+        });
+        el.innerHTML = "<div class=\"section-head\"><div><h2>" + esc(value) + "</h2><p class=\"meta\">Sampled metadata records from transcripts.</p></div></div>" + sampleCards(events) + "<div class=\"mini-label\">More</div>" + jumpButton("metadata", "Open Metadata", "[data-meta]", value);
+      } else if (kind === "path") {
+        el.innerHTML = "<div class=\"section-head\"><div><h2>" + esc(value) + "</h2><p class=\"meta\">Sessions where this path repeats.</p></div></div>" + sessionCards(sessionMatches("path", value), "path", value) + "<div class=\"mini-label\">More</div>" + jumpButton("sessions", "Open Sessions", "", "");
+      } else {
+        const chars = (report.categories || {})[value] || 0;
+        const sessions = sessionMatches("category", value);
+        let extra = "";
+        if (value === "tool_call") {
+          extra = "<div class=\"mini-label\">Top tools</div>" + topTools(6).map(function (entry) {
+            return actionRow("tool", entry[0], entry[0], "Click for sampled calls", "x" + entry[1], fmt(toolTokens(entry[0])) + " tok");
+          }).join("");
+        } else if (value === "metadata") {
+          extra = "<div class=\"mini-label\">Metadata types</div>" + (report.metadata || []).slice(0, 6).map(function (entry) {
+            return actionRow("metadata", entry[0], entry[0], "Click for sampled records", fmt(tok(entry[1])) + " tok", fmt(entry[1]) + " ch");
+          }).join("");
+        }
+        el.innerHTML = "<div class=\"section-head\"><div><h2>" + esc(labels[value] || value) + "</h2><p class=\"meta\">" + esc(fmt(tok(chars)) + " estimated tokens across " + sessions.length + " session(s).") + "</p></div></div>" + (extra || sessionCards(sessions, "category", value));
+      }
+      bindOverview();
+    }
+
+    function bindOverview() {
+      Array.prototype.forEach.call(document.querySelectorAll("[data-overview-kind]"), function (button) {
+        button.onclick = function () {
+          setDetail(button.getAttribute("data-overview-kind"), button.getAttribute("data-overview-value"));
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll("[data-overview-jump]"), function (button) {
+        button.onclick = function () {
+          const selector = button.getAttribute("data-overview-selector");
+          const value = button.getAttribute("data-overview-value");
+          openDetailTab(button.getAttribute("data-overview-jump"), selector, value);
+        };
+      });
+    }
+
+    function renderOverview() {
+      const panel = document.getElementById("panel-overview");
+      if (!panel) return;
+      const total = totalCounter(report.categories);
+      const categoryRows = cats.map(function (cat) {
+        const chars = (report.categories || {})[cat] || 0;
+        if (!chars) return "";
+        return actionRow("category", cat, labels[cat], "Click for sessions and hotspots", fmt(tok(chars)) + " tok", pct(chars, total).toFixed(0) + "%", colors[cat]);
+      }).join("");
+      const toolRows = topTools(8).map(function (entry) {
+        return actionRow("tool", entry[0], entry[0], "Click for sampled calls", "x" + entry[1], fmt(toolTokens(entry[0])) + " tok");
+      }).join("") || "<p class=\"empty\">No tool calls detected.</p>";
+      const pathRows = (report.paths || []).slice(0, 8).map(function (entry) {
+        return actionRow("path", entry[0], entry[0], "Click for matching sessions", "x" + entry[1], "");
+      }).join("") || "<p class=\"empty\">No repeated paths detected.</p>";
+      const metadataRows = (report.metadata || []).slice(0, 8).map(function (entry) {
+        return actionRow("metadata", entry[0], entry[0], "Click for sampled records", fmt(tok(entry[1])) + " tok", fmt(entry[1]) + " ch");
+      }).join("") || "<p class=\"empty\">No metadata-heavy records detected.</p>";
+      panel.innerHTML = "<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Where The Context Is Going</h2><p class=\"meta\">Click a segment or row to inspect it.</p></div></div>" + bar(report.categories) + "<div>" + categoryRows + "</div></section><section class=\"card\" id=\"overview-drilldown\"><div class=\"section-head\"><div><h2>Warnings And Optimizations</h2><p class=\"meta\">Promptable changes you control.</p></div></div><ol class=\"tips\">" + (report.recommendations || []).map(function (tip) { return "<li>" + esc(tip) + "</li>"; }).join("") + "</ol></section></div><div class=\"grid equal\" style=\"margin-top:14px\"><section class=\"card\"><h2>Tool Hotspots</h2>" + toolRows + "</section><section class=\"card\"><h2>Top Paths</h2>" + pathRows + "</section></div><section class=\"card\" style=\"margin-top:14px\"><h2>Metadata Types</h2>" + metadataRows + "</section>";
+      bindOverview();
+    }
+
+    renderOverview();
+  }.toString() + ")();";
+}
+
+function renderHtml(sessions, args) {
+  const report = buildReport(sessions, args);
+  return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Context X-Ray</title><style>" +
+    "@import url(\"https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap\");" +
+    ":root{--background:0 0% 100%;--foreground:220 10% 10%;--card:0 0% 100%;--muted:220 10% 95%;--muted-foreground:220 5% 45%;--accent:220 10% 92%;--border:220 10% 90%;--ring:220 10% 55%;--destructive:0 84% 60%;--radius:.5rem;--shadow:0 1px 2px rgba(16,24,40,.06);}" +
+    "@media(prefers-color-scheme:dark){:root{--background:220 10% 7%;--foreground:220 8% 92%;--card:220 9% 9%;--muted:220 8% 15%;--muted-foreground:220 6% 64%;--accent:220 8% 17%;--border:220 8% 18%;--ring:220 8% 54%;--destructive:0 72% 51%;--shadow:none;}}" +
+    "*{box-sizing:border-box}html{background:hsl(var(--background))}body{margin:0;background:hsl(var(--background));color:hsl(var(--foreground));font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-feature-settings:\"cv02\",\"cv03\",\"cv04\",\"cv11\";line-height:1.45}button{font:inherit;color:inherit}main{max-width:1180px;margin:0 auto;padding:20px 18px 44px}.topbar{border-bottom:1px solid hsl(var(--border));background:hsl(var(--background));position:sticky;top:0;z-index:10}.topbar-inner{max-width:1180px;margin:0 auto;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.title-row{display:flex;align-items:center;gap:9px}.logo-dot{width:10px;height:10px;border-radius:999px;background:#38bdf8;box-shadow:0 0 0 4px rgba(56,189,248,.12)}h1{font-size:20px;line-height:1.1;margin:0;font-weight:650;letter-spacing:0}h2{font-size:15px;line-height:1.2;margin:0;font-weight:650}h3{font-size:14px;line-height:1.3;margin:0;font-weight:600}p{margin:0}.muted,.eyebrow,.meta,.empty{color:hsl(var(--muted-foreground))}.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:650}.meta{font-size:12px}.tabs{display:inline-flex;align-items:center;gap:2px;border:1px solid hsl(var(--border));background:hsl(var(--muted)/.35);border-radius:8px;padding:2px}.tab{border:0;background:transparent;border-radius:6px;padding:6px 10px;font-size:12px;line-height:1.1;cursor:pointer}.tab:hover{background:hsl(var(--accent)/.5)}.tab.active{background:hsl(var(--background));box-shadow:var(--shadow)}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0}.card{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:8px;padding:14px;box-shadow:var(--shadow)}.stat-value{display:block;font-size:28px;line-height:1.1;font-weight:700;margin-top:6px}.panel{display:none}.panel.active{display:block}.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.8fr);gap:14px;align-items:start}.grid.equal{grid-template-columns:repeat(2,minmax(0,1fr))}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}.bar{display:flex;overflow:hidden;height:10px;border-radius:999px;background:hsl(var(--muted));margin:10px 0 12px}.bar span{display:block;min-width:2px}.table{width:100%;border-collapse:collapse;font-size:12px}.table th{text-align:left;color:hsl(var(--muted-foreground));font-weight:600;border-bottom:1px solid hsl(var(--border));padding:7px 8px}.table td{border-bottom:1px solid hsl(var(--border));padding:8px;vertical-align:top}.table th:last-child,.table td:last-child{text-align:right}.row-button{width:100%;display:grid;grid-template-columns:minmax(0,1fr) 74px 70px;gap:10px;align-items:center;text-align:left;border:1px solid transparent;background:transparent;border-radius:6px;padding:8px;cursor:pointer}.row-button:hover,.row-button.active{border-color:hsl(var(--border));background:hsl(var(--accent)/.35)}.row-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-meta{font-size:12px;color:hsl(var(--muted-foreground));text-align:right}.badge-list{display:flex;flex-wrap:wrap;gap:6px}.badge{display:inline-flex;align-items:center;gap:5px;border:1px solid hsl(var(--border));border-radius:999px;padding:3px 7px;font-size:11px;background:hsl(var(--background));max-width:100%}.badge .dot{width:7px;height:7px;border-radius:999px;flex:0 0 auto}.tips{margin:0;padding-left:20px}.tips li{margin:0 0 8px}.detail{min-height:228px}.detail-list{display:grid;gap:8px;margin-top:10px}.sample{border:1px solid hsl(var(--border));border-radius:8px;padding:10px;background:hsl(var(--muted)/.22)}.sample-top{display:flex;justify-content:space-between;gap:10px;margin-bottom:5px;font-size:11px;color:hsl(var(--muted-foreground))}.sample p{font-size:12px;color:hsl(var(--foreground));overflow-wrap:anywhere}.session-card{border:1px solid hsl(var(--border));border-radius:8px;background:hsl(var(--card));margin-bottom:10px;overflow:hidden}.session-card summary{list-style:none;display:flex;justify-content:space-between;gap:14px;cursor:pointer;padding:13px 14px}.session-card summary::-webkit-details-marker{display:none}.session-body{border-top:1px solid hsl(var(--border));padding:12px 14px}.session-title{font-size:13px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.session-path{font-size:12px;color:hsl(var(--muted-foreground));margin-top:3px;overflow-wrap:anywhere}.token-big{font-size:20px;font-weight:700;white-space:nowrap}.mini-label{margin:10px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:650;color:hsl(var(--muted-foreground))}.footer{margin-top:20px;color:hsl(var(--muted-foreground));font-size:12px}.hidden{display:none!important}@media(max-width:840px){.topbar-inner{align-items:flex-start;flex-direction:column}.stats,.grid,.grid.equal{grid-template-columns:1fr}.tabs{width:100%;overflow:auto}.tab{white-space:nowrap}.row-button{grid-template-columns:minmax(0,1fr) 64px 58px}.session-card summary{align-items:flex-start;flex-direction:column}}" +
+    "</style></head><body><header class=\"topbar\"><div class=\"topbar-inner\"><div><div class=\"title-row\"><span class=\"logo-dot\"></span><h1>Context X-Ray</h1></div><p class=\"meta\">Generated " + escapeHtml(report.generatedLabel) + " · mode=" + escapeHtml(report.mode) + " · source=" + escapeHtml(report.source) + " · since=" + escapeHtml(report.since) + "</p></div><nav class=\"tabs\" aria-label=\"Report views\"><button class=\"tab active\" data-tab=\"overview\">Overview</button><button class=\"tab\" data-tab=\"tools\">Tool Calls</button><button class=\"tab\" data-tab=\"mcp\">MCP</button><button class=\"tab\" data-tab=\"metadata\">Metadata</button><button class=\"tab\" data-tab=\"sessions\">Sessions</button></nav></div></header><main><section class=\"stats\" id=\"stats\"></section><section class=\"panel active\" id=\"panel-overview\"></section><section class=\"panel\" id=\"panel-tools\"></section><section class=\"panel\" id=\"panel-mcp\"></section><section class=\"panel\" id=\"panel-metadata\"></section><section class=\"panel\" id=\"panel-sessions\"></section><p class=\"footer\">Reads local transcript and MCP config files only. No transcript content is uploaded.</p></main><script type=\"application/json\" id=\"xray-data\">" + jsonScript(report) + "</script><script>" +
+    "(function(){var report=JSON.parse(document.getElementById('xray-data').textContent);var cats=['user','assistant','tool_call','tool_output','reasoning','instructions','attachment','metadata','other'];var labels={user:'User asks',assistant:'Assistant text',tool_call:'Tool calls',tool_output:'Tool output',reasoning:'Reasoning',instructions:'Instructions/context',attachment:'Attachments',metadata:'Metadata',other:'Other'};var colors={user:'#8ba8ff',assistant:'#55b982',tool_call:'#f0a85b',tool_output:'#e06b73',reasoning:'#a77be8',instructions:'#6ac3d5',attachment:'#d6a85a',metadata:'#9aa3ad',other:'#c3c8ce'};function esc(v){return String(v||'').replace(/[&<>\"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch];});}function fmt(n){n=Number(n)||0;if(n>=1000000)return(n/1000000).toFixed(1)+'m';if(n>=1000)return(n/1000).toFixed(1)+'k';return String(n);}function tok(chars){chars=Number(chars)||0;return chars>0?Math.max(1,Math.ceil(chars/4)):0;}function pc(part,total){return total>0?Math.max(0,Math.min(100,(part/total)*100)):0;}function totalCounter(counter){return Object.keys(counter||{}).reduce(function(sum,key){return sum+(Number(counter[key])||0);},0);}function bar(counter){var total=totalCounter(counter);if(!total)return'<div class=\"bar\"></div>';return'<div class=\"bar\">'+cats.map(function(cat){var value=counter[cat]||0;if(!value)return'';return'<span title=\"'+esc(labels[cat])+'\" style=\"width:'+Math.max(1,pc(value,total)).toFixed(2)+'%;background:'+colors[cat]+'\"></span>';}).join('')+'</div>';}function metric(label,value){return'<article class=\"card\"><div class=\"eyebrow\">'+esc(label)+'</div><span class=\"stat-value\">'+esc(value)+'</span></article>';}function tableRows(entries,kind){if(!entries||!entries.length)return'<tr><td>None detected</td><td></td></tr>';return entries.map(function(entry){var value=entry[1];var shown=kind==='chars'?fmt(tok(value)):(kind==='tokens'?fmt(value):String(value));return'<tr><td>'+esc(entry[0])+'</td><td>'+esc(shown)+'</td></tr>';}).join('');}function toolToken(name){var found=(report.toolTokens||[]).filter(function(entry){return entry[0]===name;})[0];return found?found[1]:0;}function renderStats(){var counts=report.sourceCounts||{};document.getElementById('stats').innerHTML=metric('Sessions',report.sessionCount)+metric('Observed/estimated tokens',fmt(report.totalTokens))+metric('Codex',counts.codex||0)+metric('Claude',counts.claude||0);}function renderOverview(){var categoryTotal=totalCounter(report.categories);var categoryRows=cats.map(function(cat){var chars=(report.categories||{})[cat]||0;if(!chars)return'';return'<tr><td><span class=\"badge\"><span class=\"dot\" style=\"background:'+colors[cat]+'\"></span>'+esc(labels[cat])+'</span></td><td>'+fmt(tok(chars))+'</td><td>'+pc(chars,categoryTotal).toFixed(0)+'%</td></tr>';}).join('');document.getElementById('panel-overview').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Where The Context Is Going</h2><p class=\"meta\">Approximate contribution by transcript bucket.</p></div></div>'+bar(report.categories)+'<table class=\"table\"><tbody>'+categoryRows+'</tbody></table></section><section class=\"card\"><div class=\"section-head\"><div><h2>Warnings And Optimizations</h2><p class=\"meta\">Promptable changes you control.</p></div></div><ol class=\"tips\">'+(report.recommendations||[]).map(function(tip){return'<li>'+esc(tip)+'</li>';}).join('')+'</ol></section></div><div class=\"grid equal\" style=\"margin-top:14px\"><section class=\"card\"><h2>Top Paths</h2><table class=\"table\"><tbody>'+tableRows(report.paths,'count')+'</tbody></table></section><section class=\"card\"><h2>Metadata Types</h2><table class=\"table\"><tbody>'+tableRows(report.metadata,'chars')+'</tbody></table></section></div>';}function renderTools(){var rows=(report.tools||[]).map(function(entry,index){var name=entry[0];var count=entry[1];return'<button class=\"row-button'+(index===0?' active':'')+'\" data-tool=\"'+esc(name)+'\"><span><span class=\"row-title\">'+esc(name)+'</span><span class=\"meta\">Click to inspect sampled calls</span></span><span class=\"row-meta\">x'+count+'</span><span class=\"row-meta\">'+fmt(toolToken(name))+' tok</span></button>';}).join('')||'<div class=\"empty\">No tool calls detected in these sessions.</div>';document.getElementById('panel-tools').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Tool Calls</h2><p class=\"meta\">Calls are clickable; samples are capped so the report stays light.</p></div></div><div>'+rows+'</div></section><aside class=\"card detail\" id=\"tool-detail\"></aside></div>';Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'),function(btn){btn.addEventListener('click',function(){Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'),function(item){item.classList.remove('active');});btn.classList.add('active');renderToolDetail(btn.getAttribute('data-tool'));});});if((report.tools||[]).length)renderToolDetail(report.tools[0][0]);else document.getElementById('tool-detail').innerHTML='<h2>Tool Detail</h2><p class=\"empty\">Nothing to inspect yet.</p>';}function renderToolDetail(name){var events=(report.toolEvents||[]).filter(function(event){return event.tool===name;}).slice(0,30);document.getElementById('tool-detail').innerHTML='<div class=\"section-head\"><div><h2>'+esc(name)+'</h2><p class=\"meta\">'+events.length+' sampled call'+(events.length===1?'':'s')+'</p></div></div><div class=\"detail-list\">'+(events.map(function(event){return'<article class=\"sample\"><div class=\"sample-top\"><span>'+esc(event.source)+' · '+esc(event.sessionTitle||event.sessionId)+'</span><span>'+fmt(event.tokens||0)+' tok</span></div><p>'+esc(event.preview||'No preview captured.')+'</p></article>';}).join('')||'<p class=\"empty\">No sampled call payloads for this tool.</p>')+'</div>';}function renderMcp(){var servers=report.mcpServers||[];var usage=report.mcpUsage||[];var configured=servers.map(function(server){return'<button class=\"row-button\" data-mcp=\"'+esc(server.name)+'\"><span><span class=\"row-title\">'+esc(server.name)+'</span><span class=\"meta\">'+esc(server.source)+' · '+esc(server.target)+'</span></span><span class=\"row-meta\">config</span><span class=\"row-meta\"></span></button>';}).join('')||'<div class=\"empty\">No MCP server config found in the common local config files.</div>';var detected=usage.map(function(entry,index){return'<button class=\"row-button'+(!servers.length&&index===0?' active':'')+'\" data-mcp=\"'+esc(entry[0])+'\"><span><span class=\"row-title\">'+esc(entry[0])+'</span><span class=\"meta\">Detected from mcp__server__tool style names</span></span><span class=\"row-meta\">x'+entry[1]+'</span><span class=\"row-meta\"></span></button>';}).join('')||'<div class=\"empty\">No MCP-prefixed tool calls detected in the selected sessions.</div>';document.getElementById('panel-mcp').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>MCP Servers</h2><p class=\"meta\">Configured locally plus inferred calls from transcripts.</p></div></div><div class=\"mini-label\">Configured</div>'+configured+'<div class=\"mini-label\">Detected usage</div>'+detected+'</section><aside class=\"card detail\" id=\"mcp-detail\"></aside></div>';Array.prototype.forEach.call(document.querySelectorAll('[data-mcp]'),function(btn){btn.addEventListener('click',function(){Array.prototype.forEach.call(document.querySelectorAll('[data-mcp]'),function(item){item.classList.remove('active');});btn.classList.add('active');renderMcpDetail(btn.getAttribute('data-mcp'));});});if(usage.length)renderMcpDetail(usage[0][0]);else if(servers.length)renderMcpDetail(servers[0].name);else document.getElementById('mcp-detail').innerHTML='<h2>MCP Detail</h2><p class=\"empty\">Install or run sessions with MCP tools to see usage here.</p>';}function renderMcpDetail(name){var server=(report.mcpServers||[]).filter(function(item){return item.name===name;})[0];var tools=(report.mcpTools||[]).filter(function(entry){return entry[0].indexOf(name+' / ')===0;});var events=(report.toolEvents||[]).filter(function(event){return event.mcpServer===name;}).slice(0,25);document.getElementById('mcp-detail').innerHTML='<div class=\"section-head\"><div><h2>'+esc(name)+'</h2><p class=\"meta\">'+(server?esc(server.source+' · '+server.target):'Detected from tool call names')+'</p></div></div><div class=\"mini-label\">Tools</div><table class=\"table\"><tbody>'+tableRows(tools,'count')+'</tbody></table><div class=\"mini-label\">Sample calls</div><div class=\"detail-list\">'+(events.map(function(event){return'<article class=\"sample\"><div class=\"sample-top\"><span>'+esc(event.mcpTool||event.tool)+'</span><span>'+fmt(event.tokens||0)+' tok</span></div><p>'+esc(event.preview||'No preview captured.')+'</p></article>';}).join('')||'<p class=\"empty\">No sampled MCP calls for this server in the selected sessions.</p>')+'</div>';}function renderMetadata(){var rows=(report.metadata||[]).map(function(entry,index){return'<button class=\"row-button'+(index===0?' active':'')+'\" data-meta=\"'+esc(entry[0])+'\"><span><span class=\"row-title\">'+esc(entry[0])+'</span><span class=\"meta\">Click to inspect sampled records</span></span><span class=\"row-meta\">'+fmt(tok(entry[1]))+' tok</span><span class=\"row-meta\">'+fmt(entry[1])+' ch</span></button>';}).join('')||'<div class=\"empty\">No metadata-heavy records detected.</div>';document.getElementById('panel-metadata').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Metadata</h2><p class=\"meta\">Breakdown by transcript record type.</p></div></div>'+rows+'</section><aside class=\"card detail\" id=\"metadata-detail\"></aside></div>';Array.prototype.forEach.call(document.querySelectorAll('[data-meta]'),function(btn){btn.addEventListener('click',function(){Array.prototype.forEach.call(document.querySelectorAll('[data-meta]'),function(item){item.classList.remove('active');});btn.classList.add('active');renderMetadataDetail(btn.getAttribute('data-meta'));});});if((report.metadata||[]).length)renderMetadataDetail(report.metadata[0][0]);else document.getElementById('metadata-detail').innerHTML='<h2>Metadata Detail</h2><p class=\"empty\">Nothing to inspect yet.</p>';}function renderMetadataDetail(type){var events=(report.metadataEvents||[]).filter(function(event){return event.type===type;}).slice(0,30);document.getElementById('metadata-detail').innerHTML='<div class=\"section-head\"><div><h2>'+esc(type)+'</h2><p class=\"meta\">'+events.length+' sampled record'+(events.length===1?'':'s')+'</p></div></div><div class=\"detail-list\">'+(events.map(function(event){return'<article class=\"sample\"><div class=\"sample-top\"><span>'+esc(event.source)+' · '+esc(event.sessionTitle||event.sessionId)+'</span><span>'+fmt(event.tokens||0)+' tok</span></div><p>'+esc(event.preview||'No preview captured.')+'</p></article>';}).join('')||'<p class=\"empty\">No sampled records for this metadata type.</p>')+'</div>';}function renderSessions(){document.getElementById('panel-sessions').innerHTML=(report.sessions||[]).map(function(session,index){var catRows=Object.keys(session.categories||{}).sort(function(a,b){return session.categories[b]-session.categories[a];}).map(function(cat){var chars=session.categories[cat];return'<tr><td>'+esc(labels[cat]||cat)+'</td><td>'+fmt(tok(chars))+'</td><td>'+pc(chars,session.totalChars||0).toFixed(0)+'%</td></tr>';}).join('');var tools=(session.tools?Object.keys(session.tools):[]).sort(function(a,b){return session.tools[b]-session.tools[a];}).slice(0,8).map(function(name){return'<span class=\"badge\">'+esc(name)+' x'+session.tools[name]+'</span>';}).join('')||'<span class=\"empty\">none detected</span>';var paths=(session.paths?Object.keys(session.paths):[]).sort(function(a,b){return session.paths[b]-session.paths[a];}).slice(0,8).map(function(name){return'<span class=\"badge\">'+esc(name)+' x'+session.paths[name]+'</span>';}).join('')||'<span class=\"empty\">none detected</span>';return'<details class=\"session-card\"'+(index===0?' open':'')+'><summary><span><span class=\"eyebrow\">'+esc(session.source)+' · '+esc(session.updatedAt||'unknown time')+'</span><span class=\"session-title\">'+esc(session.title||session.sessionId)+'</span><span class=\"session-path\">'+esc(session.cwd||session.path)+'</span></span><span class=\"token-big\">'+fmt(session.tokens)+'</span></summary><div class=\"session-body\">'+bar(session.categories)+'<div class=\"grid equal\"><div><div class=\"mini-label\">Buckets</div><table class=\"table\"><tbody>'+catRows+'</tbody></table></div><div><div class=\"mini-label\">Frequent tools</div><div class=\"badge-list\">'+tools+'</div><div class=\"mini-label\">Repeated paths</div><div class=\"badge-list\">'+paths+'</div></div></div></div></details>';}).join('')||'<section class=\"card\"><p class=\"empty\">No matching sessions found.</p></section>';}function activate(name){Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(tab){tab.classList.toggle('active',tab.getAttribute('data-tab')===name);});Array.prototype.forEach.call(document.querySelectorAll('.panel'),function(panel){panel.classList.toggle('active',panel.id==='panel-'+name);});if(location.hash!=='#'+name)history.replaceState(null,'','#'+name);}Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(tab){tab.addEventListener('click',function(){activate(tab.getAttribute('data-tab'));});});renderStats();renderOverview();renderTools();renderMcp();renderMetadata();renderSessions();var initial=(location.hash||'#overview').slice(1);if(document.getElementById('panel-'+initial))activate(initial);})();" +
+    "</script><script>" + overviewEnhancementScript() + "</script></body></html>";
+}
+
+function writeJson(sessions, args, file) {
+  fs.writeFileSync(file, JSON.stringify(buildReport(sessions, args), null, 2));
 }
 
 function openUrl(url) {
@@ -648,13 +1083,16 @@ background report server running.
 
 ## Interpret
 
-- Tool output heavy: use narrower commands, smaller file ranges, and summarized
-  logs.
+- Tool output heavy: ask the agent to cap command output, summarize failures,
+  and only expand logs when exact lines matter.
 - Instructions heavy: move stable behavior into skills or AGENTS/CLAUDE files.
-- Assistant prose heavy: ask for shorter status updates during long runs.
-- One huge session: compact or start a follow-up thread with a handoff summary.
-- Repeated path: pin a short file-role summary instead of rereading the file.
-- Repeated tool: batch independent searches or delegate parallel inspection.
+- Assistant prose heavy: ask for brief progress updates and a final decision
+  log.
+- One huge session: ask for a handoff summary, then continue in a fresh thread.
+- Repeated path: ask the agent to keep a short file-role summary and reopen the
+  file only when exact lines are needed.
+- Repeated tool: ask the agent to batch independent inspection and avoid
+  rerunning diagnostics unless state changed.
 `;
 
 export const CONTEXT_XRAY_COMMAND_MD = `---
@@ -691,7 +1129,7 @@ After the command finishes, summarize:
 - sessions analyzed
 - the largest context bucket
 - the most important warning
-- two or three concrete ways to improve this thread
+- two or three promptable ways to improve this thread
 `;
 
 function codexHome(): string {

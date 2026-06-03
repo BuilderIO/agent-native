@@ -44,6 +44,14 @@ export type RecorderState =
   | "complete"
   | "error";
 
+const RECORDING_AT_RISK_STATES = new Set<RecorderState>([
+  "recording",
+  "paused",
+  "stopping",
+  "compressing",
+  "uploading",
+]);
+
 export interface RecorderEngineOptions {
   /** Server-assigned recording id. Required before `start()`. */
   recordingId: string;
@@ -431,6 +439,15 @@ export class RecorderEngine {
 
   canDownloadBufferedRecording(): boolean {
     return this.localChunks.length > 0;
+  }
+
+  hasRecordingAtRisk(): boolean {
+    return (
+      this.localChunks.length > 0 ||
+      this.recorder?.state === "recording" ||
+      this.recorder?.state === "paused" ||
+      RECORDING_AT_RISK_STATES.has(this.state)
+    );
   }
 
   getBufferedRecordingDownload(): { blob: Blob; filename: string } | null {

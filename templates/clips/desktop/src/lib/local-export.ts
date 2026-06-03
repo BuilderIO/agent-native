@@ -58,6 +58,15 @@ interface PreparedLocalTarget {
   writeQueue: Promise<void>;
 }
 
+interface WebmDurationPatchTarget {
+  role: LocalRecordingFileRole;
+  relativePath: string;
+  fileName: string;
+  mimeType: string;
+  bytes: number;
+  failed?: Error | null;
+}
+
 export const LOCAL_EXPORT_FOLDER = "Clips";
 
 function pickRecordingMimeType(): string {
@@ -165,6 +174,17 @@ export async function exportBlobChunksToLocalRecordingFile({
     throw new Error("Saved recording export was empty");
   }
 
+  const patchTarget: WebmDurationPatchTarget = {
+    role,
+    relativePath,
+    fileName,
+    mimeType: normalizedMimeType,
+    bytes,
+    failed: null,
+  };
+  await finalizeWebmDuration(patchTarget, durationMs);
+  bytes = patchTarget.bytes;
+
   return {
     folderPath,
     folderName: resolvedFolderName,
@@ -259,7 +279,7 @@ const MAX_DURATION_FIX_BYTES = 1_500 * 1024 * 1024;
  * (working, slightly-short) file untouched — never a corrupted recording.
  */
 async function finalizeWebmDuration(
-  target: PreparedLocalTarget,
+  target: WebmDurationPatchTarget,
   durationMs: number,
 ): Promise<void> {
   if (target.failed) return;

@@ -74,12 +74,16 @@ export {
 
 // Client
 export {
-  addContextToAgentChat,
   appendAgentChatContextToMessage,
+  clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
+  listAgentChatContext,
+  refreshAgentChatContext,
+  removeAgentChatContextItem,
   sendToAgentChat,
-  setContextToAgentChat,
+  setAgentChatContextItem,
   isEmbedMcpChatBridgeActive,
+  useAgentChatContext,
   useAgentChatGenerating,
   useDevMode,
   useSendToAgentChat,
@@ -100,7 +104,10 @@ export {
   useProductionAgent,
   ProductionAgentPanel,
   type AgentChatContextItem,
-  type AgentChatContextMessage,
+  type AgentChatContextMutationOptions,
+  type AgentChatContextRemoveOptions,
+  type AgentChatContextSetOptions,
+  type AgentChatContextState,
   type AgentChatMessage,
   type AgentNativeMcpAppHostMessageType,
   type McpAppDisplayMode,
@@ -115,6 +122,7 @@ export {
   type ProductionAgentMessage,
   type UseProductionAgentResult,
   type ProductionAgentPanelProps,
+  type UseAgentChatContextResult,
   useActionQuery,
   useActionMutation,
 } from "./client/index.js";

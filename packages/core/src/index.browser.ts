@@ -2,12 +2,16 @@
 
 // Client
 export {
-  addContextToAgentChat,
   appendAgentChatContextToMessage,
+  clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
+  listAgentChatContext,
+  refreshAgentChatContext,
+  removeAgentChatContextItem,
   sendToAgentChat,
-  setContextToAgentChat,
+  setAgentChatContextItem,
   isEmbedMcpChatBridgeActive,
+  useAgentChatContext,
   useAgentChatGenerating,
   useDevMode,
   useSendToAgentChat,
@@ -25,7 +29,10 @@ export {
   cn,
   ApiKeySettings,
   type AgentChatContextItem,
-  type AgentChatContextMessage,
+  type AgentChatContextMutationOptions,
+  type AgentChatContextRemoveOptions,
+  type AgentChatContextSetOptions,
+  type AgentChatContextState,
   type AgentChatMessage,
   type AgentNativeMcpAppHostMessageType,
   type McpAppDisplayMode,
@@ -37,6 +44,7 @@ export {
   type McpAppModelContextUpdate,
   type CodeRequiredDialogProps,
   type AuthSession,
+  type UseAgentChatContextResult,
 } from "./client/index.js";
 
 // Shared (isomorphic)

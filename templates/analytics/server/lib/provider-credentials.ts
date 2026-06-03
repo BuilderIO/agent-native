@@ -29,6 +29,7 @@ export interface ResolveProviderCredentialOptions {
   keys: string | readonly string[];
   ctx: CredentialContext;
   workspaceConnection?: boolean;
+  connectionId?: string | null;
 }
 
 function normalizeKey(key: string): string {
@@ -74,16 +75,20 @@ async function resolveViaCoreHelper({
   provider,
   keys,
   ctx,
+  connectionId,
 }: {
   provider: string;
   keys: string[];
   ctx: CredentialContext;
+  connectionId?: string | null;
 }): Promise<AnalyticsProviderCredential | null> {
+  const normalizedConnectionId = connectionId?.trim() || undefined;
   for (const key of keys) {
     const result = await resolveWorkspaceConnectionCredentialForApp({
       appId: ANALYTICS_APP_ID,
       provider,
       key,
+      connectionId: normalizedConnectionId,
       userEmail: ctx.userEmail,
       orgId: ctx.orgId,
     });
@@ -108,6 +113,7 @@ export async function resolveWorkspaceConnectionProviderCredential(
     provider: options.provider,
     keys,
     ctx: options.ctx,
+    connectionId: options.connectionId,
   });
 }
 
@@ -132,10 +138,11 @@ export async function resolveLocalAnalyticsProviderCredential(
 export async function resolveAnalyticsProviderCredential(
   options: ResolveProviderCredentialOptions,
 ): Promise<AnalyticsProviderCredential | null> {
-  return (
-    (await resolveWorkspaceConnectionProviderCredential(options)) ??
-    (await resolveLocalAnalyticsProviderCredential(options))
-  );
+  const workspaceCredential =
+    await resolveWorkspaceConnectionProviderCredential(options);
+  if (workspaceCredential) return workspaceCredential;
+  if (options.connectionId?.trim()) return null;
+  return resolveLocalAnalyticsProviderCredential(options);
 }
 
 export async function hasAnalyticsProviderCredential(

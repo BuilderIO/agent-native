@@ -1759,7 +1759,7 @@ export default function RecordRoute() {
       void engine?.cancel();
     };
     const warnBeforeDiscard = (event: BeforeUnloadEvent) => {
-      if (!engineRef.current?.canDownloadBufferedRecording()) return;
+      if (!engineRef.current?.hasRecordingAtRisk()) return;
       event.preventDefault();
       event.returnValue = "";
     };

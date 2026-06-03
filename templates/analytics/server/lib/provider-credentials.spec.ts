@@ -104,6 +104,34 @@ describe("analytics provider credentials", () => {
     });
   });
 
+  it("binds workspace lookup to a requested connection without local fallback", async () => {
+    mocks.coreResult = {
+      available: false,
+      status: "not_available",
+      reason: "Connection not granted",
+      provider: "slack",
+      key: "SLACK_BOT_TOKEN",
+      provenance: null,
+      checked: [],
+    };
+    mocks.localCredentials.set("SLACK_BOT_TOKEN", "local-token");
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "slack",
+        keys: ["SLACK_BOT_TOKEN"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "conn-specific",
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.coreResolverCalls[0]).toMatchObject({
+      appId: "analytics",
+      provider: "slack",
+      key: "SLACK_BOT_TOKEN",
+      connectionId: "conn-specific",
+    });
+  });
+
   it("supports the HubSpot catalog key and legacy Analytics key locally", async () => {
     mocks.localCredentials.set("HUBSPOT_ACCESS_TOKEN", "legacy-hubspot-token");
 

@@ -81,7 +81,7 @@ export default defineNitroPlugin(async (nitroApp) => {
 | `readResource`, `writeResource`              | Read/write resources (from `@agent-native/core/resources`)                 |
 | `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
 | `sendToAgentChat`                            | Send or prefill messages in the agent chat from UI (client-side)           |
-| `setContextToAgentChat`                      | Stage keyed context chips for the next agent chat prompt from UI           |
+| Agent chat context state helpers             | Optional advanced helpers for two-way sync with staged context chips       |
 | `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
 
 ## Adding a Script
@@ -102,18 +102,12 @@ sendToAgentChat({
 });
 ```
 
-To add hidden context without submitting or filling the prompt text, stage
-keyed context nuggets. Multiple nuggets stack; using the same `key` replaces the
-previous nugget.
-
-```ts
-import { setContextToAgentChat } from "@agent-native/core";
-setContextToAgentChat({
-  key: "selected-record",
-  title: "Selected Record",
-  context: JSON.stringify(record, null, 2),
-});
-```
+For most UI handoffs, pass hidden context directly with `sendToAgentChat()`. Use
+`submit: false` when the user should review the draft first. Use
+`useAgentChatContext`, `setAgentChatContextItem`, `listAgentChatContext`,
+`removeAgentChatContextItem`, and `clearAgentChatContext` only for advanced UI
+that needs to read, mirror, stage, remove, or clear staged context chips as local
+interface state.
 
 **From scripts:**
 
