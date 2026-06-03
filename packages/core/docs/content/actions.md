@@ -199,10 +199,7 @@ export default defineAction({
     const screen: Record<string, unknown> = { navigation };
 
     if (navigation?.view === "inbox") {
-      const res = await fetch(
-        `${process.env.APP_URL}/api/emails?label=${navigation.label}`,
-      );
-      screen.emailList = await res.json();
+      screen.emailList = await listEmailsForLabel(navigation.label);
     }
 
     return screen;

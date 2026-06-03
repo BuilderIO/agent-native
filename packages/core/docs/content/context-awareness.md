@@ -122,17 +122,15 @@ The production agent injects that key into the next turn as immediate selection 
 Custom editors can write the same key when their selection is not represented by native browser selection:
 
 ```tsx
-await fetch(
-  agentNativePath("/_agent-native/application-state/pending-selection-context"),
+import { setClientAppState } from "@agent-native/core/client";
+
+await setClientAppState(
+  "pending-selection-context",
   {
-    method: "PUT",
-    keepalive: true,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: selectedMarkdown,
-      capturedAt: Date.now(),
-    }),
+    text: selectedMarkdown,
+    capturedAt: Date.now(),
   },
+  { keepalive: true },
 );
 ```
 
@@ -263,15 +261,17 @@ The UI polls for this command and navigates when it appears:
 
 ```ts
 // UI side -- poll for navigate commands
+import {
+  deleteClientAppState,
+  readClientAppState,
+} from "@agent-native/core/client";
+
 const { data: navCommand } = useQuery({
   queryKey: ["navigate-command"],
   queryFn: async () => {
-    const res = await fetch("/_agent-native/application-state/navigate");
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await readClientAppState<NavigateCommand>("navigate");
     if (data) {
-      // Delete the one-shot command after reading
-      fetch("/_agent-native/application-state/navigate", { method: "DELETE" });
+      await deleteClientAppState("navigate");
       return data;
     }
     return null;

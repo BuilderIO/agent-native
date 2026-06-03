@@ -109,15 +109,17 @@ await writeAppState("navigate", { view: "inbox", threadId: "abc123" });
 **UI side** — the hook polls for the command:
 
 ```ts
+import {
+  deleteClientAppState,
+  readClientAppState,
+} from "@agent-native/core/client";
+
 const { data: navCommand } = useQuery({
   queryKey: ["navigate-command"],
   queryFn: async () => {
-    const res = await fetch("/_agent-native/application-state/navigate");
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await readClientAppState<NavigateCommand>("navigate");
     if (data) {
-      // Delete the one-shot command after reading
-      fetch("/_agent-native/application-state/navigate", { method: "DELETE" });
+      await deleteClientAppState("navigate");
       return data;
     }
     return null;
