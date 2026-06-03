@@ -41,7 +41,7 @@ describe("client application-state helpers", () => {
     );
   });
 
-  it("writes app state with JSON, keepalive, request source, and encoded keys", async () => {
+  it("writes app state with JSON, keepalive, request source, and safe scoped keys", async () => {
     vi.stubGlobal("window", {
       location: { pathname: "/plans/_agent-native/auth/session" },
     });
@@ -57,7 +57,7 @@ describe("client application-state helpers", () => {
     ).resolves.toEqual(value);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/plans/_agent-native/application-state/selection%3Aprimary",
+      "/plans/_agent-native/application-state/selection:primary",
       {
         method: "PUT",
         headers: {
@@ -137,6 +137,17 @@ describe("client application-state helpers", () => {
 
     await expect(writeClientAppState("selection", undefined)).rejects.toThrow(
       "Application state values must be JSON-serializable",
+    );
+  });
+
+  it("rejects keys the application-state route would sanitize", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    await expect(readClientAppState("selection/primary")).rejects.toThrow(
+      "Application state keys may only contain",
+    );
+    await expect(writeClientAppState("selection primary", {})).rejects.toThrow(
+      "Application state keys may only contain",
     );
   });
 });

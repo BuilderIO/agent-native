@@ -1,5 +1,7 @@
 import { agentNativePath } from "./api-path.js";
 
+const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
+
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
 }
@@ -11,9 +13,12 @@ export interface ClientAppStateWriteOptions {
 }
 
 function appStateUrl(key: string): string {
-  return agentNativePath(
-    `/_agent-native/application-state/${encodeURIComponent(key)}`,
-  );
+  if (!APP_STATE_KEY_PATTERN.test(key)) {
+    throw new TypeError(
+      "Application state keys may only contain letters, numbers, underscores, hyphens, and colons.",
+    );
+  }
+  return agentNativePath(`/_agent-native/application-state/${key}`);
 }
 
 function buildHeaders(requestSource?: string): Record<string, string> {
