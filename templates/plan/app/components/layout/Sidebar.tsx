@@ -49,21 +49,26 @@ export function Sidebar({
       <div
         className={cn(
           "flex h-12 shrink-0 items-center border-b border-border",
-          collapsed ? "justify-center px-2" : "gap-2 px-3",
+          collapsed ? "justify-center px-0" : "gap-2 px-3",
         )}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-2",
+            collapsed ? "justify-center" : "flex-1",
+          )}
+        >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
+            className="block h-4 w-auto max-w-7 shrink-0 dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
+            className="hidden h-4 w-auto max-w-7 shrink-0 dark:block"
           />
           {!collapsed && (
             <span className="truncate text-sm font-semibold tracking-tight">
@@ -71,25 +76,6 @@ export function Sidebar({
             </span>
           )}
         </div>
-        {collapsible && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-8 shrink-0 text-muted-foreground"
-                onClick={() => onCollapsedChange?.(!collapsed)}
-                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              >
-                <ToggleIcon className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            </TooltipContent>
-          </Tooltip>
-        )}
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
@@ -135,6 +121,33 @@ export function Sidebar({
             <OrgSwitcher />
           </div>
         </>
+      )}
+
+      {collapsible && (
+        <div
+          className={cn(
+            "border-t border-border px-2 py-2",
+            collapsed ? "flex justify-center" : "flex justify-end",
+          )}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8 shrink-0 text-muted-foreground"
+                onClick={() => onCollapsedChange?.(!collapsed)}
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                <ToggleIcon className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
       )}
     </aside>
   );

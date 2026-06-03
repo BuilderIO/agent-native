@@ -72,6 +72,16 @@ type PlanAnnotationAnchor = {
   tagName?: string;
 };
 
+type RuntimeAnnotation = {
+  id: string;
+  index: number;
+  message: string;
+  kind: string;
+  status: string;
+  createdAt?: string;
+  anchor: PlanAnnotationAnchor;
+};
+
 type InlineCommentPosition = {
   left: number;
   top: number;
@@ -151,6 +161,10 @@ export function PlansPage() {
     useState<PlanAnnotationAnchor | null>(null);
   const [inlineCommentPosition, setInlineCommentPosition] =
     useState<InlineCommentPosition | null>(null);
+  const [activeAnnotation, setActiveAnnotation] = useState<{
+    annotation: RuntimeAnnotation;
+    position: InlineCommentPosition;
+  } | null>(null);
   const plansQuery = usePlans();
   const plans = plansQuery.data ?? [];
   const selectedId = params.id;
@@ -208,16 +222,29 @@ export function PlansPage() {
         | {
             type?: string;
             anchor?: PlanAnnotationAnchor;
+            comment?: RuntimeAnnotation;
             href?: string;
             state?: PlanDocumentState;
           }
         | undefined;
       if (data?.type === "agent-native-plan-annotate" && data.anchor) {
+        setActiveAnnotation(null);
         setPendingAnnotation(data.anchor);
         setInlineCommentPosition(getPositionFromAnchor(data.anchor));
       }
-      if (data?.type === "agent-native-plan-open-comments") {
-        setAnnotationsOpen(true);
+      if (
+        data?.type === "agent-native-plan-open-comment" &&
+        data.comment?.anchor
+      ) {
+        const position = getPositionFromAnchor(data.comment.anchor);
+        if (position) {
+          closeInlineComment();
+          setAnnotationsOpen(false);
+          setActiveAnnotation({ annotation: data.comment, position });
+        }
+      }
+      if (data?.type === "agent-native-plan-close-comment-popover") {
+        setActiveAnnotation(null);
       }
       if (data?.type === "agent-native-plan-link-blocked") {
         toast.info(
@@ -226,6 +253,11 @@ export function PlansPage() {
       }
       if (data?.type === "agent-native-plan-doc-state" && data.state) {
         documentStateRef.current = data.state;
+        setActiveAnnotation((current) => {
+          if (!current) return current;
+          const position = getPositionFromAnchor(current.annotation.anchor);
+          return position ? { ...current, position } : current;
+        });
       }
     };
     window.addEventListener("message", onMessage);
@@ -252,6 +284,7 @@ export function PlansPage() {
     const doc = documentStateRef.current;
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
+    setActiveAnnotation(null);
     const x = doc
       ? ((clickX + doc.scrollX) / Math.max(doc.scrollWidth, 1)) * 100
       : (clickX / Math.max(rect.width, 1)) * 100;
@@ -524,6 +557,7 @@ export function PlansPage() {
                           closeInlineComment();
                           return;
                         }
+                        setActiveAnnotation(null);
                         setAnnotationsOpen(false);
                         setAnnotateMode(true);
                       }}
@@ -568,7 +602,7 @@ export function PlansPage() {
               {pendingAnnotation && inlineCommentPosition && (
                 <>
                   <div
-                    className="pointer-events-none absolute z-20 flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-primary/50 bg-foreground text-[11px] font-semibold text-background shadow-2xl"
+                    className="pointer-events-none absolute z-20 flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/25 bg-[#00B5FF] text-[11px] font-semibold text-black shadow-2xl shadow-black/35"
                     style={{
                       left: inlineCommentPosition.pinLeft,
                       top: inlineCommentPosition.pinTop,
@@ -584,6 +618,12 @@ export function PlansPage() {
                     onSubmit={submitInlineComment}
                   />
                 </>
+              )}
+              {activeAnnotation && (
+                <AnnotationPopover
+                  annotation={activeAnnotation.annotation}
+                  position={activeAnnotation.position}
+                />
               )}
               {annotationsOpen && (
                 <AnnotationsPanel
@@ -921,6 +961,38 @@ function InlineCommentPopover({
   );
 }
 
+function AnnotationPopover({
+  annotation,
+  position,
+}: {
+  annotation: RuntimeAnnotation;
+  position: InlineCommentPosition;
+}) {
+  return (
+    <div
+      className="pointer-events-auto absolute z-30 max-h-[min(280px,calc(100%-24px))] overflow-auto rounded-xl border border-border/80 bg-background/96 p-3 shadow-2xl backdrop-blur-xl"
+      style={{ left: position.left, top: position.top, width: position.width }}
+    >
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#00B5FF] text-[10px] font-bold text-black">
+          {annotation.index}
+        </span>
+        <IconMessageCircle className="size-4" />
+        <span className="font-medium uppercase tracking-[0.14em]">Comment</span>
+      </div>
+      {annotation.anchor.snippet && (
+        <blockquote className="mt-2 rounded-md bg-muted/50 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
+          "{annotation.anchor.snippet}"
+        </blockquote>
+      )}
+      <p className="mt-2 text-sm leading-6">{annotation.message}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {formatAnchorLabel(annotation.anchor)}
+      </p>
+    </div>
+  );
+}
+
 function AnnotationsPanel({
   bundle,
   onClose,
@@ -1027,6 +1099,7 @@ function injectAnnotationRuntime(
       message: comment.message,
       kind: comment.kind,
       status: comment.status,
+      createdAt: comment.createdAt,
       anchor: parseAnchor(comment.anchor),
     }))
     .filter((comment) => comment.anchor);
@@ -1054,8 +1127,8 @@ function injectAnnotationRuntime(
       --soft: #4b4b4b;
       --muted: #70706c;
       --faint: #999992;
-      --accent: #188b83;
-      --accent-soft: rgba(24, 139, 131, .11);
+      --accent: #00B5FF;
+      --accent-soft: rgba(0, 181, 255, .11);
       --shadow: 0 24px 70px rgba(29, 29, 24, .08);
     }
     :root[data-agent-native-theme="light"] body { background: var(--bg) !important; color: var(--text) !important; }
@@ -1076,10 +1149,17 @@ function injectAnnotationRuntime(
     :root[data-agent-native-theme="light"] .doc-line,
     :root[data-agent-native-theme="light"] .panel i,
     :root[data-agent-native-theme="light"] .pill { background: #d8d8d2 !important; }
+    ::selection { background: rgba(0,181,255,.32); }
     .an-plan-annotating, .an-plan-annotating * { cursor: crosshair !important; }
     .an-plan-annotation-layer { position: absolute; inset: 0; z-index: 2147483000; pointer-events: none; }
-    .an-plan-marker { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: #f3f3f4; color: #0a0a0b; font: 700 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 28px rgba(0,0,0,.36); pointer-events: auto; }
+    .an-plan-marker { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: #00B5FF; color: #031018; font: 800 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 28px rgba(0,0,0,.36); pointer-events: auto; }
     .an-plan-marker[data-status="resolved"] { opacity: .46; }
+    .an-plan-selection-toolbar { position: absolute; z-index: 2147483001; display: none; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,.16); border-radius: 14px; background: rgba(16,16,18,.96); padding: 5px; box-shadow: 0 14px 42px rgba(0,0,0,.34); backdrop-filter: blur(16px); }
+    :root[data-agent-native-theme="light"] .an-plan-selection-toolbar { border-color: rgba(0,0,0,.12); background: rgba(255,255,255,.97); box-shadow: 0 14px 42px rgba(29,29,24,.13); }
+    .an-plan-selection-toolbar button { height: 34px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 10px; background: transparent; color: var(--text); padding: 0 11px; font: 650 13px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
+    .an-plan-selection-toolbar button:hover { background: rgba(255,255,255,.08); }
+    :root[data-agent-native-theme="light"] .an-plan-selection-toolbar button:hover { background: rgba(0,0,0,.06); }
+    .an-plan-selection-toolbar svg { width: 17px; height: 17px; color: #00B5FF; }
   </style><script>
     (() => {
       const state = ${payload};
@@ -1115,6 +1195,9 @@ function injectAnnotationRuntime(
         const text = (target.innerText || target.textContent || "").replace(/\\s+/g, " ").trim();
         return text.slice(0, 90);
       }
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
       function ensureLayer() {
         let layer = document.querySelector(".an-plan-annotation-layer");
         if (!layer) {
@@ -1124,6 +1207,83 @@ function injectAnnotationRuntime(
           document.body.appendChild(layer);
         }
         return layer;
+      }
+      function sectionForNode(node) {
+        const element = node instanceof Element ? node : node?.parentElement;
+        return closestSection(element);
+      }
+      function sectionTitle(section) {
+        return section?.querySelector?.("h1,h2,h3,[data-plan-section-title]")?.textContent?.replace(/\\s+/g, " ").trim() || "";
+      }
+      function anchorFromRange(range, selectedText) {
+        const rect = range.getBoundingClientRect();
+        if (!rect || (!rect.width && !rect.height)) return null;
+        const doc = document.documentElement;
+        const section = sectionForNode(range.commonAncestorContainer);
+        return {
+          x: pct(rect.left + window.scrollX + rect.width / 2, doc.scrollWidth),
+          y: pct(rect.top + window.scrollY + rect.height / 2, Math.max(doc.scrollHeight, document.body.scrollHeight)),
+          sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
+          sectionTitle: sectionTitle(section) || undefined,
+          snippet: selectedText.slice(0, 160),
+          tagName: "selection"
+        };
+      }
+      function ensureSelectionToolbar() {
+        let toolbar = document.querySelector(".an-plan-selection-toolbar");
+        if (!toolbar) {
+          toolbar = document.createElement("div");
+          toolbar.className = "an-plan-selection-toolbar";
+          toolbar.innerHTML = '<button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9h8"/><path d="M8 13h6"/><path d="M12 20l-3-3H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v4.5"/><path d="M19 16v6"/><path d="M16 19h6"/></svg><span>Comment</span></button>';
+          const button = toolbar.querySelector("button");
+          button?.addEventListener("mousedown", (event) => event.preventDefault());
+          button?.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+            const selectedText = selection.toString().replace(/\\s+/g, " ").trim();
+            if (!selectedText) return;
+            const anchor = anchorFromRange(selection.getRangeAt(0), selectedText);
+            if (!anchor) return;
+            toolbar.style.display = "none";
+            window.parent.postMessage({ type: "agent-native-plan-annotate", anchor }, "*");
+          });
+          document.body.appendChild(toolbar);
+        }
+        return toolbar;
+      }
+      function hideSelectionToolbar() {
+        const toolbar = document.querySelector(".an-plan-selection-toolbar");
+        if (toolbar) toolbar.style.display = "none";
+      }
+      function updateSelectionToolbar() {
+        if (state.annotateMode) {
+          hideSelectionToolbar();
+          return;
+        }
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+          hideSelectionToolbar();
+          return;
+        }
+        const selectedText = selection.toString().replace(/\\s+/g, " ").trim();
+        if (!selectedText) {
+          hideSelectionToolbar();
+          return;
+        }
+        const rect = selection.getRangeAt(0).getBoundingClientRect();
+        if (!rect || (!rect.width && !rect.height)) {
+          hideSelectionToolbar();
+          return;
+        }
+        const toolbar = ensureSelectionToolbar();
+        toolbar.style.display = "flex";
+        const width = toolbar.offsetWidth || 124;
+        const left = clamp(rect.left + window.scrollX + rect.width / 2 - width / 2, window.scrollX + 10, window.scrollX + document.documentElement.clientWidth - width - 10);
+        const top = Math.max(window.scrollY + 10, rect.top + window.scrollY - (toolbar.offsetHeight || 44) - 10);
+        toolbar.style.left = left + "px";
+        toolbar.style.top = top + "px";
       }
       const layer = ensureLayer();
       for (const item of state.annotations) {
@@ -1140,10 +1300,13 @@ function injectAnnotationRuntime(
         button.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          window.parent.postMessage({ type: "agent-native-plan-open-comments", commentId: item.id }, "*");
+          window.parent.postMessage({ type: "agent-native-plan-open-comment", comment: item }, "*");
         });
         layer.appendChild(button);
       }
+      document.addEventListener("selectionchange", () => requestAnimationFrame(updateSelectionToolbar));
+      document.addEventListener("mouseup", () => setTimeout(updateSelectionToolbar, 0));
+      document.addEventListener("keyup", updateSelectionToolbar);
       document.addEventListener("click", (event) => {
         const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
         if (!state.annotateMode && link) {
@@ -1155,20 +1318,25 @@ function injectAnnotationRuntime(
             return;
           }
         }
+        if (!state.annotateMode) {
+          if (event.target instanceof Element && event.target.closest(".an-plan-selection-toolbar")) return;
+          window.parent.postMessage({ type: "agent-native-plan-close-comment-popover" }, "*");
+          return;
+        }
         if (!state.annotateMode) return;
         if (event.target instanceof Element && event.target.closest("[data-agent-native-plan-marker]")) return;
+        hideSelectionToolbar();
         event.preventDefault();
         event.stopPropagation();
         const doc = document.documentElement;
         const section = closestSection(event.target);
-        const sectionTitle = section?.querySelector?.("h1,h2,h3,[data-plan-section-title]")?.textContent?.replace(/\\s+/g, " ").trim() || "";
         window.parent.postMessage({
           type: "agent-native-plan-annotate",
           anchor: {
             x: pct(event.pageX, doc.scrollWidth),
             y: pct(event.pageY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
             sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
-            sectionTitle: sectionTitle || undefined,
+            sectionTitle: sectionTitle(section) || undefined,
             snippet: textSnippet(event.target),
             tagName: event.target instanceof Element ? event.target.tagName.toLowerCase() : undefined
           }
