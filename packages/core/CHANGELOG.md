@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.35.2
+
+### Patch Changes
+
+- 2dccc2a: Exclude `pnpm-lock.yaml` from CLI scaffolding so a freshly created app does not ship a stale lockfile copied from the source template.
+
 ## 0.35.1
 
 ### Patch Changes
