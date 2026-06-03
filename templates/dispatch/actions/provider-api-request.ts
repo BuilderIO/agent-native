@@ -1,26 +1,26 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import {
-  ANALYTICS_PROVIDER_API_IDS,
+  DISPATCH_PROVIDER_API_IDS,
   executeProviderApiRequest,
-} from "../server/lib/provider-api";
+} from "../server/lib/provider-api.js";
 
-const ProviderSchema = z.enum(ANALYTICS_PROVIDER_API_IDS);
+const ProviderSchema = z.enum(DISPATCH_PROVIDER_API_IDS);
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
 export default defineAction({
   description:
-    "Make an arbitrary authenticated HTTP request to a configured Analytics provider API. Use this as the flexible escape hatch when a canned integration action cannot express the needed endpoint, filters, pagination, payload, or API version. The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses.",
+    "Make an arbitrary authenticated HTTP request to a shared workspace integration or configured provider API. Use this as the flexible escape hatch when Dispatch needs a provider endpoint, filter, pagination mode, payload, or API version that no canned action models. The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses.",
   schema: z.object({
     provider: ProviderSchema.describe(
-      "Configured provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, gcloud, grafana, sentry.",
+      "Configured provider API to call, e.g. slack, github, notion, hubspot, gmail, google_drive, google_calendar, granola, stripe, jira.",
     ),
     method: MethodSchema.default("GET").describe("HTTP method to use."),
     path: z
       .string()
       .min(1)
       .describe(
-        "Provider API path such as /crm/v3/objects/deals/search, or a full URL on an allowed provider host. Use placeholders from provider-api-catalog such as {projectId}, {propertyId}, or {orgSlug}.",
+        "Provider API path such as /search.messages, /repos/org/repo/issues, /crm/v3/objects/deals/search, or a full URL on an allowed provider host. Use placeholders from provider-api-catalog when provided.",
       ),
     query: z
       .unknown()

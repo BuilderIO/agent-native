@@ -72,6 +72,29 @@ When you need app data or a mutation:
 
 Do not build an umbrella REST API to make actions "easier" to call. Actions are already callable by agents, CLIs, React hooks, HTTP, MCP/A2A exposure, and external hosts through the framework.
 
+## Flexible Provider APIs
+
+For provider integrations used in ad hoc analysis, querying, reporting, or
+cross-source research, do not hardcode every provider endpoint as a separate
+rigid action. Expose the shared provider API action trio instead:
+
+- `provider-api-catalog`: lists provider base URLs, auth style, credential keys,
+  docs/spec URLs, placeholders, and examples without exposing secrets.
+- `provider-api-docs`: fetches registered provider docs/spec URLs when the
+  exact endpoint, filter operator, payload shape, or pagination contract is
+  uncertain.
+- `provider-api-request`: makes a constrained authenticated HTTP request to the
+  provider host, injects configured credentials, blocks private/internal URLs,
+  and redacts secrets.
+
+Use `@agent-native/core/provider-api` as the shared substrate. A template should
+only add a thin credential adapter when it has app-specific credential lookup
+rules. Keep `provider-api-request` `http: false` unless you have a separate UI
+permission model for arbitrary provider writes. Specific actions such as
+`hubspot-deals`, `search-emails`, or `sync-source` are convenience shortcuts,
+not capability limits; agents should fall back to the provider API trio when a
+question requires an endpoint or filter that the shortcut does not model.
+
 ### The `http` Option
 
 Controls how the action is exposed as an HTTP endpoint:
