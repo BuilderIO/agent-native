@@ -473,6 +473,9 @@ const BUILT_IN_APP_SKILLS = {
   },
   "visual-plans": {
     skillName: "visual-plans",
+    extraSkills: {
+      "visualize-plan": VISUALIZE_PLAN_SKILL_MD,
+    },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
@@ -495,12 +498,22 @@ const BUILT_IN_APP_SKILLS = {
           action: "create-visual-plan",
           path: "/plans",
         },
+        {
+          id: "visualize-plan",
+          action: "visualize-plan",
+          path: "/plans",
+        },
       ],
       skills: [
         {
           path: "skills/visual-plans",
           visibility: "exported",
           exportAs: "visual-plans",
+        },
+        {
+          path: "skills/visualize-plan",
+          visibility: "exported",
+          exportAs: "visualize-plan",
         },
       ],
       hostAdapters: [
@@ -553,6 +566,7 @@ const BUILT_IN_APP_SKILLS = {
     manifest: AppSkillManifest;
     skillMarkdown: string;
     skillName: string;
+    extraSkills?: Record<string, string>;
     localOnly?: boolean;
   }
 >;
@@ -577,6 +591,8 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "agent-native-design-exploration": "design",
   "visual-plans": "visual-plans",
   "visual-plan": "visual-plans",
+  "visualize-plan": "visual-plans",
+  "visualize-plans": "visual-plans",
   plans: "visual-plans",
   plan: "visual-plans",
   "html-plan": "visual-plans",
@@ -607,6 +623,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   ],
   "visual-plans": [
     "plans",
+    "visualize-plan",
     "html-plan",
     "plannotate",
     "contracts",
@@ -722,6 +739,18 @@ function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
 ): boolean {
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
+}
+
+function builtInExtraSkills(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): Record<string, string> {
+  return "extraSkills" in entry && entry.extraSkills ? entry.extraSkills : {};
+}
+
+function builtInSkillNames(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): string[] {
+  return [entry.skillName, ...Object.keys(builtInExtraSkills(entry))];
 }
 
 function normalizeClientIds(values: unknown): ClientId[] {
@@ -914,6 +943,7 @@ function loadSkillTarget(target: string): SkillInstallTarget {
   const knownTarget = normalizeKnownSkillTarget(target);
   if (knownTarget) {
     const builtIn = BUILT_IN_APP_SKILLS[knownTarget];
+    const skillNames = builtInSkillNames(builtIn);
     return {
       id: builtIn.manifest.id,
       displayName: builtIn.manifest.displayName,
@@ -922,15 +952,21 @@ function loadSkillTarget(target: string): SkillInstallTarget {
         file: `<built-in:${builtIn.manifest.id}>`,
         dir: process.cwd(),
       },
-      skillNames: [builtIn.skillName],
+      skillNames,
       materializeInstructions(outDir) {
-        const skillDir = path.join(outDir, "skills", builtIn.skillName);
-        fs.mkdirSync(skillDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(skillDir, "SKILL.md"),
-          builtIn.skillMarkdown,
-          "utf-8",
-        );
+        const skills: Record<string, string> = {
+          [builtIn.skillName]: builtIn.skillMarkdown,
+          ...builtInExtraSkills(builtIn),
+        };
+        for (const [skillName, skillMarkdown] of Object.entries(skills)) {
+          const skillDir = path.join(outDir, "skills", skillName);
+          fs.mkdirSync(skillDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(skillDir, "SKILL.md"),
+            skillMarkdown,
+            "utf-8",
+          );
+        }
         return outDir;
       },
     };
