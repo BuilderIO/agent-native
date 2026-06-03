@@ -1215,12 +1215,6 @@ export function App() {
             }
           } finally {
             applyingTransition = false;
-            // Push the authoritative paused state back to the pill so its
-            // Pause/Resume button reflects reality even when a transition
-            // failed (the pill sets its own state optimistically on click).
-            emit("clips:pill-set-paused", { paused: session.paused }).catch(
-              () => {},
-            );
           }
           // The desired state may have changed while we were awaiting (e.g. the
           // user clicked pause during a resume); reconcile again.
