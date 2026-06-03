@@ -103,6 +103,14 @@ export function RecordingPill() {
         setError(ev.payload?.error ?? "An error occurred.");
       }),
     );
+    // Authoritative paused state from the meeting session state machine. The
+    // button is set optimistically on click, but if a pause/resume transition
+    // fails this corrects it back to the real state.
+    trackListen(
+      listen<{ paused: boolean }>("clips:pill-set-paused", (ev) => {
+        setPaused(!!ev.payload?.paused);
+      }),
+    );
     trackListen(
       listen<{ detached: boolean }>("clips:pill-detached", (ev) => {
         setDetached(!!ev.payload?.detached);

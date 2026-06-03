@@ -1176,7 +1176,19 @@ export function App() {
                   await invoke("native_speech_stop");
                 }
               } catch (err) {
-                console.warn("[clips-popover] meeting audio pause failed:", err);
+                // Could not stop audio — it may still be running, so do NOT
+                // claim the session is paused. Revert to running and bring the
+                // silence detector back up.
+                console.warn(
+                  "[clips-popover] meeting audio pause failed; staying live:",
+                  err,
+                );
+                desiredPaused = false;
+                session.paused = false;
+                await invoke("silence_detector_start", {
+                  config: silenceDetectorConfig,
+                }).catch(() => {});
+                return;
               }
               // Persist whatever was captured before the pause.
               await flushMeetingTranscript().catch(() => {});
@@ -1203,6 +1215,12 @@ export function App() {
             }
           } finally {
             applyingTransition = false;
+            // Push the authoritative paused state back to the pill so its
+            // Pause/Resume button reflects reality even when a transition
+            // failed (the pill sets its own state optimistically on click).
+            emit("clips:pill-set-paused", { paused: session.paused }).catch(
+              () => {},
+            );
           }
           // The desired state may have changed while we were awaiting (e.g. the
           // user clicked pause during a resume); reconcile again.
