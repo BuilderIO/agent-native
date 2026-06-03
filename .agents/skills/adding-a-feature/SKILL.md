@@ -54,6 +54,12 @@ contract is incomplete, or create a new `defineAction` if the agent and UI both
 need the capability. Do not add pass-through `/api/*` routes that re-export
 actions.
 
+For provider-backed analysis/query/reporting integrations, do not turn every
+provider endpoint or filter into a rigid action. Prefer the shared
+`provider-api-catalog` / `provider-api-docs` / `provider-api-request` pattern
+from `@agent-native/core/provider-api`, then add narrow convenience actions only
+for workflows that truly deserve a first-class shortcut.
+
 **If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents and MCP hosts (Claude / ChatGPT / Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. If a compatible MCP host should render an inline review/edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real React app route instead of a one-off HTML UI. The `link` builder and `mcpApp` metadata must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
 
 ### 3. Skills / Instructions

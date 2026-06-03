@@ -127,6 +127,11 @@ one a precise, single-purpose sentence:
 - One responsibility per action. If a description needs "and also…", split it.
 - Mark read-only actions (`readOnly: true` / `http: { method: "GET" }`) so the
   agent knows they're safe to call freely.
+- For provider-backed shortcuts, make clear they are convenience paths, not
+  capability ceilings. If arbitrary provider endpoints/filters may matter,
+  point instructions to `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request` instead of implying the shortcut is all the agent can
+  do.
 
 ```ts
 defineAction({
