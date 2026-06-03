@@ -159,19 +159,26 @@ export function RecordingPill() {
   // canvas is hidden by the JSX below, but the rAF loop still runs over
   // whichever canvas refs are mounted.
   useEffect(() => {
+    const N_PTS = 8;
     const setups: Array<{
-      canvas: HTMLCanvasElement;
       W: number;
       H: number;
+      centerY: number;
       ctx2d: CanvasRenderingContext2D;
       rng: number[];
+      pts: Array<{ x: number; y: number }>;
+      grad: CanvasGradient;
       levelRef: React.MutableRefObject<number>;
-      color: string;
+      shadowColor: string;
+      gain: number;
     }> = [];
+
     const mount = (
       canvas: HTMLCanvasElement | null,
       levelRef: React.MutableRefObject<number>,
       color: string,
+      shadowColor: string,
+      gain: number,
     ) => {
       if (!canvas) return;
       const dpr = window.devicePixelRatio || 1;
@@ -182,38 +189,99 @@ export function RecordingPill() {
       const ctx2d = canvas.getContext("2d");
       if (!ctx2d) return;
       ctx2d.scale(dpr, dpr);
+      // Derive zero-alpha edge color from the full color to avoid duplicate strings.
+      const color0 = color.replace(/[\d.]+\)$/, "0)");
+      const grad = ctx2d.createLinearGradient(0, 0, W, 0);
+      grad.addColorStop(0, color0);
+      grad.addColorStop(0.1, color);
+      grad.addColorStop(0.9, color);
+      grad.addColorStop(1, color0);
+      const centerY = H / 2;
+      // Pre-allocate pts; mutated in tick to avoid per-frame allocation.
+      const pts = Array.from({ length: N_PTS }, (_, i) => ({
+        x: (i / (N_PTS - 1)) * W,
+        y: centerY,
+      }));
       setups.push({
-        canvas,
         W,
         H,
+        centerY,
         ctx2d,
-        rng: Array.from({ length: 6 }, () => 0.2),
+        rng: Array(N_PTS).fill(0.5),
+        pts,
+        grad,
         levelRef,
-        color,
+        shadowColor,
+        gain,
       });
     };
-    // Mic = warm amber-ish white, system = cool sky tint. Subtle so the pill
-    // stays calm.
-    mount(micCanvasRef.current, micLevelRef, "rgba(252, 211, 77, 0.9)");
-    mount(sysCanvasRef.current, sysLevelRef, "rgba(125, 211, 252, 0.9)");
+
+    // Mic (top, amber). Sys (bottom, sky blue) with 2× gain — system levels run lower.
+    mount(
+      micCanvasRef.current,
+      micLevelRef,
+      "rgba(252, 196, 60, 0.90)",
+      "rgba(252, 196, 60, 0.5)",
+      1.0,
+    );
+    mount(
+      sysCanvasRef.current,
+      sysLevelRef,
+      "rgba(125, 211, 252, 0.85)",
+      "rgba(125, 211, 252, 0.5)",
+      2.0,
+    );
+
+    // Hoisted outside tick — no closure recreation per frame.
+    const drawWavePath = (
+      ctx2d: CanvasRenderingContext2D,
+      pts: Array<{ x: number; y: number }>,
+      W: number,
+    ) => {
+      ctx2d.moveTo(0, pts[0].y);
+      for (let i = 0; i < pts.length - 1; i += 1) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2;
+        const my = (pts[i].y + pts[i + 1].y) / 2;
+        ctx2d.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      }
+      ctx2d.lineTo(W, pts[pts.length - 1].y);
+    };
+
+    const startMs = Date.now();
     const tick = () => {
+      // Modulo prevents float precision loss on long recordings.
+      const t = (Date.now() - startMs) % 1_000_000;
       for (const s of setups) {
-        const target = s.levelRef.current;
-        s.rng = s.rng.map(
-          (v) => v * 0.7 + (target * 0.6 + Math.random() * 0.4) * 0.3,
-        );
-        s.ctx2d.clearRect(0, 0, s.W, s.H);
-        s.ctx2d.fillStyle = s.color;
-        const bw = 2;
-        const gap = 2;
-        const total = 6 * bw + 5 * gap;
-        const startX = (s.W - total) / 2;
-        for (let i = 0; i < 6; i += 1) {
-          const h = Math.max(2, s.rng[i] * (s.H - 4));
-          const x = startX + i * (bw + gap);
-          const y = (s.H - h) / 2;
-          s.ctx2d.fillRect(x, y, bw, h);
+        const target = Math.min(1, s.levelRef.current * s.gain);
+        for (let i = 0; i < N_PTS; i += 1) {
+          const phase = t * 0.004 + i * (Math.PI * 0.65);
+          const waveTarget = 0.5 + Math.sin(phase) * target * 0.42;
+          s.rng[i] = s.rng[i] * 0.8 + waveTarget * 0.2;
+          s.pts[i].y = s.centerY - (s.rng[i] - 0.5) * s.H * 0.88;
         }
+
+        s.ctx2d.clearRect(0, 0, s.W, s.H);
+
+        // Fill between wave and center line.
+        s.ctx2d.beginPath();
+        drawWavePath(s.ctx2d, s.pts, s.W);
+        s.ctx2d.lineTo(s.W, s.centerY);
+        s.ctx2d.lineTo(0, s.centerY);
+        s.ctx2d.closePath();
+        s.ctx2d.globalAlpha = 0.2;
+        s.ctx2d.fillStyle = s.grad;
+        s.ctx2d.fill();
+        s.ctx2d.globalAlpha = 1;
+
+        // Stroke the wave line.
+        s.ctx2d.beginPath();
+        drawWavePath(s.ctx2d, s.pts, s.W);
+        s.ctx2d.lineWidth = 1.5;
+        s.ctx2d.strokeStyle = s.grad;
+        s.ctx2d.shadowColor = s.shadowColor;
+        s.ctx2d.shadowBlur = 5;
+        s.ctx2d.stroke();
+        s.ctx2d.shadowBlur = 0;
       }
       rafRef.current = requestAnimationFrame(tick);
     };
