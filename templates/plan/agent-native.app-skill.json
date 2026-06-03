@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan and /visualize-plan skills plus the Plans MCP connector. Authenticate only when you want account-backed sharing or hosted access."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {

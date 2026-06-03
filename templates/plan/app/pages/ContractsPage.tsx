@@ -510,7 +510,7 @@ export function ContractsPage() {
           evidenceIds,
           status: "verified",
           verifiedBy: "human",
-          note: "Verified in Visual Plans UI.",
+          note: "Verified in Agent-Native Plans UI.",
         },
       ],
     });
@@ -528,7 +528,7 @@ export function ContractsPage() {
           evidenceIds: [],
           status: "waived",
           verifiedBy: "human",
-          note: "Waived in Visual Plans UI.",
+          note: "Waived in Agent-Native Plans UI.",
         },
       ],
     });

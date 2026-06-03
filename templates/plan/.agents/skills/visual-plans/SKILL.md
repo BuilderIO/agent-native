@@ -29,9 +29,12 @@ reloads, the user can type `/visual-plan` to create a fresh interactive plan.
 The companion `/visualize-plan` command is installed with it for existing Codex,
 Claude Code, Markdown, or pasted text plans.
 
-Simple local visual plan generation should not require an account. Hosted
-persistence, private reviewer links, team feedback, and cross-device review can
-use optional account or Google sign-in.
+Plan creation and review currently use the app's authenticated MCP/session path
+so plans stay scoped, persistent, and shareable. In local development, use the
+framework's auto-created dev account or an authenticated MCP connection. Hosted
+private reviewer links, team feedback, and cross-device review use account
+login, with Google sign-in available when `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` are configured.
 
 ## When To Use
 

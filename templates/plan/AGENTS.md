@@ -15,9 +15,11 @@ progress, and proof gates that a person can review before code changes happen.
 - For new features, update UI, actions, skills/instructions, and application
   state when applicable.
 - Default to visual artifacts over long Markdown. Text is a fallback layer.
-- Simple local plan generation should not require an account. Account or Google
-  sign-in is only for hosted persistence, private sharing, reviewer links, and
-  cross-device/team workflows.
+- Current app actions require a real user session so plans stay scoped and
+  shareable. Local development can use the framework's auto-created dev account;
+  hosted persistence, private sharing, reviewer links, and cross-device/team
+  workflows use account login, with Google sign-in shown when the standard
+  Google OAuth env vars are configured.
 - Keep proof gates separate from agent claims. Evidence and verification are
   separate.
 - Surface material assumptions only when they change behavior, data, security,

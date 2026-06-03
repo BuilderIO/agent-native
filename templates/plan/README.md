@@ -39,9 +39,18 @@ Plans should be visual by default:
 - plannotator-style comments, corrections, and annotations
 - review prompts for assumptions, choices, risks, and missing proof
 
-Simple local plan generation should not require an account. Account or Google
-sign-in is optional for hosted persistence, private sharing, reviewer links,
-and team feedback.
+## Review Loop
+
+1. The agent creates a plan and opens the MCP app inline or as a browser link.
+2. The user reacts to visuals instead of reading a wall of Markdown.
+3. The user annotates, corrects, chooses options, or asks for more proof.
+4. The agent reads structured feedback before editing and updates the plan or
+   implementation.
+5. The user can keep the plan local or sign in to share a private review link.
+
+Local development can use the framework's auto-created dev account. Hosted
+persistence, private sharing, reviewer links, and team feedback use account
+login, with Google sign-in available when OAuth env vars are configured.
 
 ## Hosted App
 
