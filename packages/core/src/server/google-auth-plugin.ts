@@ -328,13 +328,13 @@ function getGoogleLoginHtml(googleAuthMode: GoogleAuthMode): string {
   function __anStartRedirectOAuth(ret, btn, err, flowId, reason) {
     var params = new URLSearchParams();
     //test
-    var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
-    if (oauthReturn) params.set('return', oauthReturn);
+    // var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
+    // if (oauthReturn) params.set('return', oauthReturn);
 
     // // In redirect mode the browser navigates away from the Builder preview
     // // iframe and comes back to the local gateway — use the path directly so
     // // the server accepts it and the iframe lands on the correct template.
-    // if (ret) params.set('return', ret);
+    if (ret) params.set('return', ret);
     params.set('redirect', '1');
     __anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId);
     try {
