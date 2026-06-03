@@ -46,13 +46,14 @@ Build the user-facing interface — a page, component, dialog, or route. Use `us
 
 ### 2. Action
 
-Create an action in `actions/` using `defineAction`. This serves double duty: the agent calls it as a tool, and the framework auto-exposes it as an HTTP endpoint at `/_agent-native/actions/:name` for the UI to call. Set `http: { method: "GET" }` for read actions, leave default for writes, or set `http: false` for agent-only actions like `navigate` and `view-screen`.
+Create an action in `actions/` using `defineAction`. This serves double duty: the agent calls it as a tool, and the UI calls it through `useActionQuery` / `useActionMutation` while the framework owns the HTTP transport. Set `http: { method: "GET" }` for read actions, leave default for writes, or set `http: false` for agent-only actions like `navigate` and `view-screen`.
 
 Before adding a new route or endpoint, inspect the existing actions. Reuse an
 action if it already covers the business operation, extend it if the shared
 contract is incomplete, or create a new `defineAction` if the agent and UI both
 need the capability. Do not add pass-through `/api/*` routes that re-export
-actions.
+actions. If client code needs a new framework/app route, expose a named helper
+or hook first and use that helper from components and docs.
 
 For provider-backed analysis/query/reporting integrations, do not turn every
 provider endpoint or filter into a rigid action. Prefer the shared
@@ -124,7 +125,10 @@ See the "Client-Side Routing" section in the root `CLAUDE.md` for full details.
 - **Per-route `<AppLayout>` wrappers** — Every route file wraps its content in `<AppLayout>` or `<Layout>`. React sees a different component at the outlet on each nav and unmounts the whole shell, causing the agent sidebar to reload on every click. Mount the shell once above `<Outlet />` (root.tsx or `_app.tsx` pathless layout).
 - **UI without actions** — The user can create forms but the agent cannot. The agent says "I don't have access to that" when it should be able to do it.
 - **Actions without AGENTS.md** — The actions exist but the agent doesn't know about them because they're not documented. The agent reinvents solutions instead of using the actions.
-- **Duplicate API routes** — Creating `/api/` routes for operations that actions already handle, including pass-through routes that just call or repackage an action. Actions are auto-exposed as HTTP endpoints — use `useActionQuery`/`useActionMutation` instead.
+- **Duplicate API routes** — Creating `/api/` routes for operations that actions already handle, including pass-through routes that just call or repackage an action. Use `useActionQuery`/`useActionMutation` instead.
+- **Raw client route calls** — Teaching or adding `fetch("/_agent-native/...")`,
+  `fetch(agentNativePath(...))`, or template `/api/*` calls in components for
+  normal app work. Add a named client helper/hook and call that instead.
 - **Features without app-state** — The agent cannot see that the user is looking at a specific form, email, or chart. It asks "which one?" instead of acting on the current selection.
 - **Actions without UI** — The agent can do something the user cannot. This is less common but still breaks parity.
 

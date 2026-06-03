@@ -136,7 +136,7 @@ Without jitter prevention, a cycle occurs: the UI writes state, sync detects the
 
 ## Action Routes and Live Sync
 
-Action routes (`/_agent-native/actions/:name`) work with the same sync system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
+Actions work with the same sync system. When a mutating action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks. Client components should call actions through those hooks, not with raw action-route fetches.
 
 For custom apps, the best out-of-the-box path is:
 
@@ -200,6 +200,7 @@ const [title, setTitle] = useReconciledState(props.title, { active: isEditing })
 
 - **storing-data** — Application-state and settings are data stores that sync through change events
 - **context-awareness** — Navigation state writes use jitter prevention to avoid overwriting active edits
-- **actions** — Action routes auto-expose actions as HTTP endpoints; database writes trigger change events
+- **actions** — Mutating actions trigger change events
+- **client-methods** — Route details belong in helpers/hooks, not components
 - **self-modifying-code** — Agent code edits trigger change events; rapid edits can cause event storms
 - **real-time-collab** — Collaborative editors reconcile agent edits into a shared Y.Doc, driven by the same change-sync `updatedAt` bump

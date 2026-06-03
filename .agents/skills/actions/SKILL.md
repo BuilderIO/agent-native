@@ -2,9 +2,9 @@
 name: actions
 description: >-
   How to create and run agent actions. Actions are the single source of truth
-  for app operations — the agent calls them as tools, the frontend calls them
-  as HTTP endpoints. Use when creating a new action, adding an API integration,
-  or wiring up frontend data fetching.
+  for app operations — the agent calls them as tools and frontend code calls
+  them through client hooks. Use when creating a new action, adding an API
+  integration, or wiring up frontend data fetching.
 metadata:
   internal: true
 ---
@@ -13,13 +13,13 @@ metadata:
 
 ## Rule
 
-Actions in `actions/` are the **single source of truth** for app operations. The agent calls them as tools, and the framework auto-exposes them as HTTP endpoints at `/_agent-native/actions/:name`. The frontend calls those endpoints using React Query hooks. No duplicate `/api/` routes needed.
+Actions in `actions/` are the **single source of truth** for app operations. The agent calls them as tools, and the frontend calls them through `useActionQuery` / `useActionMutation`. The framework owns the HTTP transport behind those hooks. No duplicate `/api/` routes needed.
 
 Before creating any custom REST/API route for app data, inspect `actions/` and the action table in `AGENTS.md`. If an action already exists, call it directly from the agent or with `useActionQuery` / `useActionMutation` from the UI. If the capability is missing, create or update a `defineAction`. Do not add `/api/*`, `server/routes/*`, or other pass-through endpoints whose main job is to call, repackage, or re-export an action.
 
 ## Why
 
-Actions give the agent callable tools with structured input/output, AND they give the frontend type-safe HTTP endpoints automatically. One implementation serves both the agent and the UI. They keep the agent's chat context clean, they're reusable, and they can be tested independently.
+Actions give the agent callable tools with structured input/output, AND they give the frontend a typed client contract through hooks. One implementation serves both the agent and the UI. They keep the agent's chat context clean, they're reusable, and they can be tested independently.
 
 ## How to Create an Action
 
@@ -141,7 +141,7 @@ run: async (args) => {
 
 ## Frontend Hooks
 
-The frontend calls action endpoints using React Query hooks from `@agent-native/core/client`:
+The frontend calls actions using React Query hooks from `@agent-native/core/client`. Components should not hand-write `fetch("/_agent-native/actions/...")`; add or reuse a client hook/helper instead.
 
 ### `useActionQuery` — for GET actions
 
@@ -307,3 +307,4 @@ export default defineAction({
 - **delegate-to-agent** — The agent invokes actions via `pnpm action <name>`
 - **real-time-sync** — Database writes from actions trigger change events to update the UI
 - **adding-a-feature** — Actions are area 2 of the four-area checklist
+- **client-methods** — Client code uses named helpers/hooks instead of raw REST calls

@@ -87,16 +87,16 @@ All of these honor the per-user / per-org data scoping — you can't read or wri
 
 ### Frontend Access
 
-The frontend calls actions via their auto-mounted HTTP endpoints using React Query hooks:
+The frontend calls actions using React Query hooks from the client API. The framework owns the HTTP transport behind these hooks, so components should not call action routes with raw `fetch`.
 
 ```ts
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
-// Read data (calls GET /_agent-native/actions/list-meals)
-const { data } = useActionQuery<Meal[]>("list-meals", { date: "2025-01-01" });
+// Read data
+const { data } = useActionQuery("list-meals", { date: "2025-01-01" });
 
-// Write data (calls POST /_agent-native/actions/log-meal)
-const { mutate } = useActionMutation<Meal>("log-meal");
+// Write data
+const { mutate } = useActionMutation("log-meal");
 ```
 
 Actions are the **preferred way** for the frontend to access data. You rarely need custom `/api/` routes — only for file uploads, streaming, webhooks, or OAuth callbacks.
@@ -156,5 +156,6 @@ When adding a new data model or feature, also consider what navigation and selec
 
 - **context-awareness** — How to expose navigation and selection state via application-state
 - **real-time-sync** — Set up polling so the UI updates when the database changes
-- **actions** — Create actions with `defineAction` to query the database (auto-exposed as HTTP endpoints)
+- **actions** — Create actions with `defineAction` to query the database
+- **client-methods** — Keep route details behind named client helpers/hooks
 - **self-modifying-code** — The agent can also modify the app's source code
