@@ -737,7 +737,7 @@ function buildClientPlanHtml(bundle: PlanBundle) {
   )}</span><span>${escape(statusLabel(bundle.plan.status))}</span></div>${bundle.sections
     .map(
       (section) =>
-        `<section class="section"><p class="type">${escape(section.type)}</p><h2>${escape(section.title)}</h2>${["diagram", "wireframe", "prototype"].includes(section.type) ? "<div class=\"visual\"><i></i><i></i><i></i></div>" : ""}<p>${escape(section.body)}</p></section>`,
+        `<section class="section"><p class="type">${escape(section.type)}</p><h2>${escape(section.title)}</h2>${["diagram", "wireframe", "prototype"].includes(section.type) ? '<div class="visual"><i></i><i></i><i></i></div>' : ""}<p>${escape(section.body)}</p></section>`,
     )
     .join("")}</main></body></html>`;
 }

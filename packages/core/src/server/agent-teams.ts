@@ -628,6 +628,20 @@ function activeTaskRunId(taskId: string): string {
   return baseRunId;
 }
 
+async function durableActiveTaskRunId(taskId: string): Promise<string> {
+  const activeRunId = activeTaskRunId(taskId);
+  if (activeRunId !== taskRunId(taskId)) return activeRunId;
+  try {
+    const dispatch = await getAgentTeamRunDispatchState(taskId);
+    if (dispatch?.status === "running") {
+      return taskRunChunkId(taskId, dispatch.continuationCount);
+    }
+  } catch {
+    // Fall back to the stable base id if queue state is temporarily unavailable.
+  }
+  return activeRunId;
+}
+
 function mapTaskStatusToBackgroundStatus(
   status: AgentTask["status"],
 ): BackgroundAgentRunStatus {
@@ -933,10 +947,11 @@ export function toAgentTaskBackgroundTranscriptEvent(
   if (!summary) return null;
   const sourceRunId = options.sourceRunId ?? runId;
   const eventId = `${sourceRunId}:${event.seq}`;
-  const metadata =
-    sourceRunId === runId
-      ? summary.metadata
-      : { ...(summary.metadata ?? {}), sourceRunId };
+  const metadata = {
+    ...(summary.metadata ?? {}),
+    seq: event.seq,
+    ...(sourceRunId === runId ? {} : { sourceRunId }),
+  };
   return {
     schemaVersion: 1,
     id: eventId,
@@ -1693,7 +1708,7 @@ export async function stopAgentTeamBackgroundRun(
     return { ok: false, error: "Task is not running" };
   }
 
-  abortRun(activeTaskRunId(taskId), reason);
+  abortRun(await durableActiveTaskRunId(taskId), reason);
   task.status = "errored";
   task.summary =
     reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
@@ -1705,6 +1720,7 @@ export async function stopAgentTeamBackgroundRun(
   if (ownerEmail) {
     await completeTaskProgressRun(task, ownerEmail, "cancelled", task.summary);
   }
+  await completeAgentTeamRun(task.taskId, "failed");
   return { ok: true };
 }
 

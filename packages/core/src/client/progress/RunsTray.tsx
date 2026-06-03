@@ -17,6 +17,11 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import {
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "../components/ui/dropdown-menu.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -43,24 +48,28 @@ interface RunsTrayProps {
   className?: string;
 }
 
-/**
- * Header-bar progress indicator. Shows a spinner icon or labeled Runs pill
- * with a count badge when runs are active; opens a popover with live progress.
- * Same inline-header pattern as <NotificationsBell /> — drop it into the
- * header, no floating overlay over the main content.
- */
-export function RunsTray({
+interface RunsTrayState {
+  runs: AgentRunDto[];
+  hasRuns: boolean;
+  activeCount: number;
+  failedCount: number;
+  terminalCount: number;
+  triggerLabel: string;
+  TriggerIcon: typeof IconLoader2;
+  triggerTone: string;
+  dismissRun: (runId: string) => void;
+}
+
+function useRunsTrayState({
   pollMs = 3000,
   limit = 5,
   hideWhenIdle = true,
   showRecent,
-  triggerVariant = "icon",
-  onOpenThread,
-  align = "end",
-  className,
-}: RunsTrayProps) {
+}: Pick<
+  RunsTrayProps,
+  "pollMs" | "limit" | "hideWhenIdle" | "showRecent"
+>): RunsTrayState {
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
-  const [open, setOpen] = useState(false);
   const includeRecent = showRecent ?? !hideWhenIdle;
 
   const refresh = useCallback(async () => {
@@ -112,8 +121,6 @@ export function RunsTray({
     () => runs.filter((run) => run.status === "failed").length,
     [runs],
   );
-  if (!hasRuns && hideWhenIdle) return null;
-
   const triggerLabel =
     activeCount > 0
       ? `${activeCount} active run${activeCount > 1 ? "s" : ""}`
@@ -135,6 +142,55 @@ export function RunsTray({
         ? "text-destructive"
         : "text-muted-foreground";
   const terminalCount = runs.length - activeCount;
+
+  return {
+    runs,
+    hasRuns,
+    activeCount,
+    failedCount,
+    terminalCount,
+    triggerLabel,
+    TriggerIcon,
+    triggerTone,
+    dismissRun,
+  };
+}
+
+/**
+ * Header-bar progress indicator. Shows a spinner icon or labeled Runs pill
+ * with a count badge when runs are active; opens a popover with live progress.
+ * Same inline-header pattern as <NotificationsBell /> — drop it into the
+ * header, no floating overlay over the main content.
+ */
+export function RunsTray({
+  pollMs = 3000,
+  limit = 5,
+  hideWhenIdle = true,
+  showRecent,
+  triggerVariant = "icon",
+  onOpenThread,
+  align = "end",
+  className,
+}: RunsTrayProps) {
+  const [open, setOpen] = useState(false);
+  const {
+    runs,
+    hasRuns,
+    activeCount,
+    failedCount,
+    terminalCount,
+    triggerLabel,
+    TriggerIcon,
+    triggerTone,
+    dismissRun,
+  } = useRunsTrayState({
+    pollMs,
+    limit,
+    hideWhenIdle,
+    showRecent,
+  });
+
+  if (!hasRuns && hideWhenIdle) return null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -199,45 +255,145 @@ export function RunsTray({
         sideOffset={8}
         className="an-runs-tray__menu w-80 max-w-[calc(100vw-24px)] p-0"
       >
-        <div className="border-b border-border px-3 py-2">
-          <div className="text-sm font-medium text-foreground">Agent runs</div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground">
-            {activeCount > 0
-              ? `${activeCount} running${terminalCount > 0 ? ` · ${terminalCount} recent` : ""}`
-              : hasRuns
-                ? `${runs.length} recent run${runs.length > 1 ? "s" : ""}`
-                : "No tracked work yet"}
-          </div>
-        </div>
-        {hasRuns ? (
-          <div className="max-h-96 divide-y divide-border overflow-y-auto">
-            {runs.map((run) => (
-              <RunRow
-                key={run.id}
-                run={run}
-                onDismiss={dismissRun}
-                onOpenThread={onOpenThread}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="px-3 py-6 text-center">
-            <IconClock
-              size={22}
-              className="mx-auto text-muted-foreground/50"
-              aria-hidden
-            />
-            <div className="mt-2 text-sm font-medium text-foreground">
-              No recent runs
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Background agent work will appear here while it runs and after it
-              finishes.
-            </p>
-          </div>
-        )}
+        <RunsTrayContent
+          runs={runs}
+          hasRuns={hasRuns}
+          activeCount={activeCount}
+          terminalCount={terminalCount}
+          onDismiss={dismissRun}
+          onOpenThread={onOpenThread}
+        />
       </PopoverContent>
     </Popover>
+  );
+}
+
+export function RunsTrayMenuItem({
+  pollMs = 3000,
+  limit = 5,
+  hideWhenIdle = false,
+  showRecent = true,
+  onOpenThread,
+}: Pick<
+  RunsTrayProps,
+  "pollMs" | "limit" | "hideWhenIdle" | "showRecent" | "onOpenThread"
+>) {
+  const {
+    runs,
+    hasRuns,
+    activeCount,
+    failedCount,
+    terminalCount,
+    triggerLabel,
+    TriggerIcon,
+    triggerTone,
+    dismissRun,
+  } = useRunsTrayState({
+    pollMs,
+    limit,
+    hideWhenIdle,
+    showRecent,
+  });
+
+  if (!hasRuns && hideWhenIdle) return null;
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="gap-2">
+        <TriggerIcon
+          size={14}
+          className={cn(triggerTone, activeCount > 0 && "animate-spin")}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 truncate">Agent runs</span>
+        {activeCount > 0 ? (
+          <span
+            aria-label={triggerLabel}
+            className="rounded-full bg-primary px-1.5 text-[10px] font-medium leading-4 text-primary-foreground"
+          >
+            {activeCount > 9 ? "9+" : activeCount}
+          </span>
+        ) : failedCount > 0 ? (
+          <span
+            aria-label={triggerLabel}
+            className="rounded-full bg-destructive px-1.5 text-[10px] font-medium leading-4 text-destructive-foreground"
+          >
+            {failedCount > 9 ? "9+" : failedCount}
+          </span>
+        ) : null}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent
+        sideOffset={6}
+        className="an-runs-tray__menu w-80 max-w-[calc(100vw-24px)] p-0"
+      >
+        <RunsTrayContent
+          runs={runs}
+          hasRuns={hasRuns}
+          activeCount={activeCount}
+          terminalCount={terminalCount}
+          onDismiss={dismissRun}
+          onOpenThread={onOpenThread}
+        />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function RunsTrayContent({
+  runs,
+  hasRuns,
+  activeCount,
+  terminalCount,
+  onDismiss,
+  onOpenThread,
+}: {
+  runs: AgentRunDto[];
+  hasRuns: boolean;
+  activeCount: number;
+  terminalCount: number;
+  onDismiss: (runId: string) => void;
+  onOpenThread?: (threadId: string, run: AgentRunDto) => void;
+}) {
+  return (
+    <>
+      <div className="border-b border-border px-3 py-2">
+        <div className="text-sm font-medium text-foreground">Agent runs</div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">
+          {activeCount > 0
+            ? `${activeCount} running${terminalCount > 0 ? ` · ${terminalCount} recent` : ""}`
+            : hasRuns
+              ? `${runs.length} recent run${runs.length > 1 ? "s" : ""}`
+              : "No tracked work yet"}
+        </div>
+      </div>
+      {hasRuns ? (
+        <div className="max-h-96 divide-y divide-border overflow-y-auto">
+          {runs.map((run) => (
+            <RunRow
+              key={run.id}
+              run={run}
+              onDismiss={onDismiss}
+              onOpenThread={onOpenThread}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="px-3 py-6 text-center">
+          <IconClock
+            size={22}
+            className="mx-auto text-muted-foreground/50"
+            aria-hidden
+          />
+          <div className="mt-2 text-sm font-medium text-foreground">
+            No recent runs
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Background agent work will appear here while it runs and after it
+            finishes.
+          </p>
+        </div>
+      )}
+    </>
   );
 }
 

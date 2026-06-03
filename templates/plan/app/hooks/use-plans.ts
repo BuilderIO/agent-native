@@ -142,9 +142,5 @@ export function useExportPlan(planId?: string) {
     markdown: string;
     html: string;
     json: PlanBundle;
-  }>(
-    "export-visual-plan",
-    { planId: planId ?? "" },
-    { enabled: false },
-  );
+  }>("export-visual-plan", { planId: planId ?? "" }, { enabled: false });
 }

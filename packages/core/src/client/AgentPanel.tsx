@@ -43,6 +43,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
@@ -63,7 +64,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { FeedbackButton } from "./FeedbackButton.js";
-import { RunsTray } from "./progress/RunsTray.js";
+import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import type { AgentRun } from "../progress/types.js";
 import {
   MultiTabAssistantChat,
@@ -874,14 +875,6 @@ function AgentPanelInner({
             <SetupButton />
           </Suspense>
         )}
-        <RunsTray
-          pollMs={2000}
-          limit={12}
-          hideWhenIdle={false}
-          showRecent
-          triggerVariant="pill"
-          onOpenThread={openRunThread}
-        />
         <FeedbackButton
           variant="icon"
           side="bottom"
@@ -919,14 +912,7 @@ function AgentPanelInner({
         )}
       </div>
     ),
-    [
-      canUseCodeTools,
-      isFullscreen,
-      onCollapse,
-      onToggleFullscreen,
-      openRunThread,
-      storageKey,
-    ],
+    [canUseCodeTools, isFullscreen, onCollapse, onToggleFullscreen, storageKey],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -1143,6 +1129,13 @@ function AgentPanelInner({
                             sideOffset={4}
                             className="w-44"
                           >
+                            <RunsTrayMenuItem
+                              pollMs={2000}
+                              limit={12}
+                              showRecent={true}
+                              onOpenThread={openRunThread}
+                            />
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onSelect={() => closeTab(activeTabId)}
                             >
@@ -1355,6 +1348,7 @@ function AgentPanelInner({
       cliTabs,
       activeCliTab,
       addCliTab,
+      openRunThread,
       closeCliTab,
       closeOtherCliTabs,
       closeAllCliTabs,

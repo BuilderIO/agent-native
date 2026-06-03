@@ -239,6 +239,7 @@ describe("agent teams message queue", () => {
         seq: 7,
       },
       message: "Reviewed the launch plan.",
+      metadata: { seq: 7 },
     });
 
     expect(

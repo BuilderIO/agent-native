@@ -521,6 +521,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       "run-task-t5-c0",
       "run-task-t5-c1",
     ]);
+    expect(events.map((event) => event.metadata?.seq)).toEqual([0, 0]);
   });
 
   it("stops the currently active chunk run for a background task", async () => {
@@ -538,6 +539,31 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
 
     expect(abortRunMock).toHaveBeenCalledWith("run-task-t6-c0", "user");
+    expect((await queue.getAgentTeamRunDispatchState("t6"))?.status).toBe(
+      "failed",
+    );
+  });
+
+  it("stops the durable active chunk when it is running on another instance", async () => {
+    await seedTask("t7");
+    const row = queueRows.find((x) => x.task_id === "t7");
+    expect(row).toBeTruthy();
+    row.status = "running";
+    row.continuation_count = 3;
+    getRunMock.mockReturnValue(null);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-t7"),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t7-c3", "user");
+    expect((await queue.getAgentTeamRunDispatchState("t7"))?.status).toBe(
+      "failed",
+    );
   });
 
   it("does not strip chunk-looking suffixes from stable background run ids", async () => {

@@ -41,6 +41,7 @@ import {
   formatAgentChatContextItemsForPrompt,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
+  refreshAgentChatContext,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import {
@@ -3978,7 +3979,15 @@ const AssistantChatInner = forwardRef<
 
   useEffect(() => {
     if (!isActiveComposer) return;
-    publishAgentChatContextItems(composerContextItemsRef.current);
+    let cancelled = false;
+    void refreshAgentChatContext().then((state) => {
+      if (cancelled || !isActiveComposerRef.current) return;
+      composerContextItemsRef.current = state.items;
+      setComposerContextItems(state.items);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isActiveComposer]);
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
