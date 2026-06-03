@@ -4,17 +4,31 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getLastOpenedPath } from "@/lib/last-opened";
 
+function isSyntheticDefaultDashboardPath(path: string): boolean {
+  return (
+    path === "/adhoc/default" &&
+    !dashboards.some((dashboard) => dashboard.id === "default")
+  );
+}
+
+function isSyntheticDefaultDashboardId(id: string): boolean {
+  return (
+    id === "default" &&
+    !dashboards.some((dashboard) => dashboard.id === "default")
+  );
+}
+
 export default function Index() {
   const navigate = useNavigate();
 
   useEffect(() => {
     const lastPath = getLastOpenedPath();
-    if (lastPath) {
+    if (lastPath && !isSyntheticDefaultDashboardPath(lastPath)) {
       navigate(lastPath, { replace: true });
       return;
     }
     const lastId = localStorage.getItem("last-dashboard-id");
-    if (lastId) {
+    if (lastId && !isSyntheticDefaultDashboardId(lastId)) {
       navigate(`/adhoc/${lastId}`, { replace: true });
     } else if (dashboards.length > 0) {
       navigate(`/adhoc/${dashboards[0].id}`, { replace: true });
