@@ -1423,6 +1423,30 @@ function injectAnnotationRuntime(
     :root[data-agent-native-theme="light"] .visual-tabs[data-plan-tabs] .tab-button:hover { background: rgba(0,0,0,.06); }
     .visual-tabs[data-plan-tabs] .tab-panel { display: none; }
     .visual-tabs[data-plan-tabs] .tab-panel.is-active { display: block; }
+    .implementation-map { margin: 24px 0; border-top: 1px solid var(--line, rgba(255,255,255,.14)); }
+    .implementation-map-header { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; color: var(--muted, #a4a4aa); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    .implementation-file-tabs { min-height: 330px; display: grid; grid-template-columns: minmax(220px, .44fr) minmax(0, 1fr); border-top: 1px solid var(--line, rgba(255,255,255,.14)); border-bottom: 1px solid var(--line, rgba(255,255,255,.14)); }
+    .implementation-file-list { display: grid; align-content: start; border-right: 1px solid var(--line, rgba(255,255,255,.14)); }
+    .implementation-file-tab { width: 100%; display: grid; gap: 3px; border: 0; border-bottom: 1px solid var(--line, rgba(255,255,255,.14)); background: transparent; color: var(--muted, #a4a4aa); padding: 13px 14px; text-align: left; cursor: pointer; }
+    .implementation-file-tab:hover { background: rgba(255,255,255,.035); color: var(--soft, #d4d4d8); }
+    .implementation-file-tab.is-active { background: var(--paper-2, rgba(255,255,255,.04)); color: var(--text, #f4f4f5); box-shadow: inset 2px 0 0 var(--accent, #00B5FF); }
+    .file-tab-name, .file-tab-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-tab-name { font: 700 14px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .file-tab-path { font: 500 12px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--muted, #a4a4aa); }
+    .implementation-file-tab.is-active .file-tab-path { color: var(--soft, #d4d4d8); }
+    .implementation-file-panels { min-width: 0; }
+    .implementation-file-panel { display: none; min-height: 100%; padding: 18px 20px 20px; border: 0 !important; }
+    .implementation-file-panel.is-active { display: block; }
+    .file-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line, rgba(255,255,255,.14)); }
+    .file-title-stack { min-width: 0; display: grid; gap: 5px; }
+    .file-name { margin: 0; color: var(--text, #f4f4f5); font: 750 18px/1.25 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .file-path { margin: 0; overflow-wrap: anywhere; color: var(--muted, #a4a4aa); font: 500 12px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .file-detail-body { padding-top: 16px; }
+    .file-summary { max-width: 760px; margin: 0; color: var(--soft, #d4d4d8); font-size: 15px; }
+    .symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+    .symbol-list code { border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 7px; background: transparent !important; padding: 2px 6px; color: var(--muted, #a4a4aa) !important; font-size: 12px; }
+    .file-actions { display: flex; align-items: flex-start; gap: 8px; }
+    @media (max-width: 760px) { .implementation-file-tabs { grid-template-columns: 1fr; } .implementation-file-list { border-right: 0; } .implementation-file-panels { border-top: 1px solid var(--line, rgba(255,255,255,.14)); } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } }
   </style><script>
     (() => {
       const state = ${payload};
@@ -1465,6 +1489,95 @@ function injectAnnotationRuntime(
           for (const panel of panels) panel.setAttribute("role", "tabpanel");
           const initial = buttons.find((button) => button.classList.contains("is-active")) || buttons[0];
           activate(initial.getAttribute("data-tab-target") || "");
+        }
+      }
+      function displayFilePath(rawPath) {
+        return String(rawPath || "").replace(/\\s+/g, " ").trim().replace(/:\\d+$/, "");
+      }
+      function basenameForPath(path) {
+        return path.split("/").filter(Boolean).pop() || path || "File";
+      }
+      function usefulImplementationSymbol(symbol, path) {
+        const value = String(symbol || "").trim();
+        if (!value || value.length > 42) return false;
+        if (/\\.(md|mdx)$/i.test(path)) return false;
+        const base = basenameForPath(path).replace(/\\.[^.]+$/, "").toLowerCase();
+        const extension = path.split(".").pop()?.toLowerCase();
+        if (value.toLowerCase() === base || value.toLowerCase() === extension) return false;
+        if (/^[a-z][a-z0-9_-]*$/.test(value)) return false;
+        return /^[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*$/.test(value);
+      }
+      function normalizeImplementationSymbols(file, path) {
+        const list = file.querySelector(".symbol-list");
+        if (!list) return;
+        const symbols = Array.from(list.querySelectorAll("code")).filter((code) => usefulImplementationSymbol(code.textContent, path)).slice(0, 3);
+        list.replaceChildren(...symbols);
+        if (symbols.length === 0) list.remove();
+      }
+      function upgradeImplementationFileMaps() {
+        const maps = Array.from(document.querySelectorAll(".implementation-map"));
+        for (const map of maps) {
+          const oldContainer = map.querySelector(":scope > .implementation-files");
+          if (!oldContainer) {
+            for (const file of Array.from(map.querySelectorAll(".implementation-file"))) {
+              const path = displayFilePath(file.getAttribute("data-file-path") || file.querySelector(".file-path")?.textContent || "");
+              normalizeImplementationSymbols(file, path);
+              file.querySelector(".file-path span")?.remove();
+            }
+            continue;
+          }
+          const files = Array.from(oldContainer.querySelectorAll(":scope > .implementation-file"));
+          if (files.length === 0) continue;
+          map.dataset.planTabs = "true";
+          oldContainer.className = "implementation-file-tabs";
+          const list = document.createElement("div");
+          list.className = "implementation-file-list";
+          list.setAttribute("role", "tablist");
+          list.setAttribute("aria-label", "Files touched");
+          const panels = document.createElement("div");
+          panels.className = "implementation-file-panels";
+          oldContainer.replaceChildren(list, panels);
+          files.forEach((file, index) => {
+            const path = displayFilePath(file.getAttribute("data-file-path") || file.querySelector(".file-path")?.textContent || ("File " + (index + 1)));
+            const target = "runtime-file-" + index + "-" + path.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
+            const tab = document.createElement("button");
+            tab.type = "button";
+            tab.className = "implementation-file-tab" + (index === 0 ? " is-active" : "");
+            tab.dataset.tabTarget = target;
+            tab.innerHTML = '<span class="file-tab-name"></span><span class="file-tab-path"></span>';
+            tab.querySelector(".file-tab-name").textContent = basenameForPath(path);
+            tab.querySelector(".file-tab-path").textContent = path;
+            list.appendChild(tab);
+
+            const existingActions = file.querySelector(":scope > .file-actions") || file.querySelector(".file-actions");
+            const existingTemplates = Array.from(file.querySelectorAll(":scope > template"));
+            const existingInfo = Array.from(file.children).find((child) => child !== existingActions && child.tagName !== "TEMPLATE");
+            const summary = existingInfo?.querySelector?.(".file-summary") || file.querySelector(".file-summary");
+            const symbols = existingInfo?.querySelector?.(".symbol-list") || file.querySelector(".symbol-list");
+
+            file.className = "implementation-file implementation-file-panel tab-panel" + (index === 0 ? " is-active" : "");
+            file.dataset.tabPanel = target;
+            file.dataset.filePath = path;
+
+            const header = document.createElement("div");
+            header.className = "file-detail-header";
+            const title = document.createElement("div");
+            title.className = "file-title-stack";
+            title.innerHTML = '<p class="file-name"></p><p class="file-path"></p>';
+            title.querySelector(".file-name").textContent = basenameForPath(path);
+            title.querySelector(".file-path").textContent = path;
+            header.appendChild(title);
+            if (existingActions) header.appendChild(existingActions);
+
+            const body = document.createElement("div");
+            body.className = "file-detail-body";
+            if (summary) body.appendChild(summary);
+            if (symbols) body.appendChild(symbols);
+
+            file.replaceChildren(header, body, ...existingTemplates);
+            normalizeImplementationSymbols(file, path);
+            panels.appendChild(file);
+          });
         }
       }
       const editorValues = ["vscode", "cursor", "finder", "terminal", "ghostty", "xcode"];
@@ -1578,6 +1691,7 @@ function injectAnnotationRuntime(
         }, "*");
       }
       removeEmptyPlanSections();
+      upgradeImplementationFileMaps();
       initializePlanTabs();
       initializeEditorPickers();
       postDocState();

@@ -382,12 +382,13 @@ function renderSectionHtml(section: PlanSection, repoPath?: string | null) {
         : section.type === "diagram"
           ? renderFlowHtml(section.title)
           : "");
+  const renderBody = !(section.type === "implementation" && visual);
   if (!section.title.trim() && !body && !visual) return "";
   return `<section id="${escapeHtml(section.id)}" class="plan-section ${escapeHtml(section.type)}">
   <p class="section-type">${escapeHtml(section.type.replace(/_/g, " "))}</p>
   <h2>${escapeHtml(section.title)}</h2>
   ${visual ? `<div class="visual">${visual}</div>` : ""}
-  ${body ? `<div class="copy">${body}</div>` : ""}
+  ${renderBody && body ? `<div class="copy">${body}</div>` : ""}
 </section>`;
 }
 

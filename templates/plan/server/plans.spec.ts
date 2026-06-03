@@ -206,9 +206,16 @@ describe("Plans helpers", () => {
 
     const html = buildPlanHtml(bundle);
     expect(html).toContain("implementation-map");
+    expect(html).toContain("implementation-file-tabs");
+    expect(html).toContain("implementation-file-list");
     expect(html).toContain("implementation-file-tab");
     expect(html).toContain("implementation-file-panel tab-panel");
+    expect(html).toContain("data-plan-tabs");
+    expect(html).toContain("data-tab-target");
+    expect(html).toContain("data-tab-panel");
+    expect(html).toContain("PlansPage.tsx");
     expect(html).toContain("templates/plan/app/pages/PlansPage.tsx");
+    expect(html).not.toContain("PlansPage.tsx:210");
     expect(html).toContain("data-agent-native-code-preview");
     expect(html).toContain("data-agent-native-editor-picker");
     expect(html).toContain("data-agent-native-open-file");
@@ -222,5 +229,46 @@ describe("Plans helpers", () => {
     expect(html).not.toContain(">VS Code</button>");
     expect(html).not.toContain(">Cursor</button>");
     expect(html).toContain("AnnotationPopover");
+  });
+
+  it("keeps markdown implementation files free of noisy badges", () => {
+    const implementation = section(
+      "sec_impl",
+      "implementation",
+      "Files to change",
+    );
+    implementation.body =
+      "- templates/plan/README.md — symbols: `README`, `Install`, `Review Loop`; explain the install flow.";
+    const bundle: PlanBundle = {
+      plan: {
+        id: "plan_1",
+        title: "Implementation plan",
+        brief: "Show file-level work.",
+        status: "review",
+        source: "codex",
+        repoPath: "/Users/steve/project",
+        currentFocus: null,
+        html: null,
+        markdown: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        approvedAt: null,
+      },
+      sections: [implementation],
+      comments: [],
+      events: [],
+      summary: {
+        sectionCounts: { implementation: 1 },
+        commentCount: 0,
+        openCommentCount: 0,
+      },
+    };
+
+    const html = buildPlanHtml(bundle);
+
+    expect(html).toContain("README.md");
+    expect(html).not.toContain("<code>README</code>");
+    expect(html).not.toContain("<code>Install</code>");
+    expect(html).not.toContain("symbol-list");
   });
 });
