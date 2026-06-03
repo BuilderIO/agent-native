@@ -133,6 +133,8 @@ type PlanAnnotationAnchor = {
   y: number;
   sectionId?: string;
   sectionTitle?: string;
+  tabPanelId?: string;
+  tabLabel?: string;
   snippet?: string;
   tagName?: string;
   anchorKind?: "text" | "visual" | "point";
@@ -1427,15 +1429,18 @@ function formatAnchorForAgent(anchor: PlanAnnotationAnchor | null) {
     anchor.sectionTitle && anchor.sectionTitle !== "Visible plan area"
       ? `${anchor.sectionTitle}: `
       : "";
+  const tab = anchor.tabLabel ? `${anchor.tabLabel} tab / ` : "";
   const quote = anchor.textQuote || anchor.snippet;
-  if (quote) return `${section}"${quote}"`;
+  if (quote) return `${tab}${section}"${quote}"`;
   if (anchor.anchorKind === "visual") {
     const label = anchor.visualLabel || anchor.sectionTitle || "visual";
     const x = Math.round(anchor.visualX ?? anchor.x);
     const y = Math.round(anchor.visualY ?? anchor.y);
-    return `${section}${label} at ${x}% across / ${y}% down`;
+    return `${tab}${section}${label} at ${x}% across / ${y}% down`;
   }
-  return section ? section.replace(/: $/, "") : "Pinned to plan";
+  return tab || section
+    ? `${tab}${section}`.replace(/: $/, "")
+    : "Pinned to plan";
 }
 
 function injectAnnotationRuntime(
@@ -1540,6 +1545,7 @@ function injectAnnotationRuntime(
     .an-plan-annotating, .an-plan-annotating * { cursor: crosshair !important; }
     .an-plan-annotation-layer { position: absolute; inset: 0; z-index: 2147483000; pointer-events: none; }
     .an-plan-marker { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: #00B5FF; color: #031018; font: 800 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 28px rgba(0,0,0,.36); pointer-events: auto; }
+    .an-plan-marker[hidden] { display: none !important; }
     .an-plan-marker[data-status="resolved"] { opacity: .46; }
     .an-plan-selection-toolbar { position: absolute; z-index: 2147483001; display: none; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,.16); border-radius: 14px; background: rgba(16,16,18,.96); padding: 5px; box-shadow: 0 14px 42px rgba(0,0,0,.34); backdrop-filter: blur(16px); }
     :root[data-agent-native-theme="light"] .an-plan-selection-toolbar { border-color: rgba(0,0,0,.12); background: rgba(255,255,255,.97); box-shadow: 0 14px 42px rgba(29,29,24,.13); }
@@ -1646,7 +1652,7 @@ function injectAnnotationRuntime(
           const buttons = Array.from(tabset.querySelectorAll("[data-tab-target]"));
           const panels = Array.from(tabset.querySelectorAll("[data-tab-panel]"));
           if (buttons.length === 0 || panels.length === 0) continue;
-          const activate = (target) => {
+          const activate = (target, notify = true) => {
             for (const button of buttons) {
               const isActive = button.getAttribute("data-tab-target") === target;
               button.classList.toggle("is-active", isActive);
@@ -1654,6 +1660,10 @@ function injectAnnotationRuntime(
             }
             for (const panel of panels) {
               panel.classList.toggle("is-active", panel.getAttribute("data-tab-panel") === target);
+            }
+            requestAnimationFrame(syncAnnotationMarkers);
+            if (notify) {
+              window.parent.postMessage({ type: "agent-native-plan-close-comment-popover" }, "*");
             }
             postDocState();
           };
@@ -1667,7 +1677,7 @@ function injectAnnotationRuntime(
           }
           for (const panel of panels) panel.setAttribute("role", "tabpanel");
           const initial = buttons.find((button) => button.classList.contains("is-active")) || buttons[0];
-          activate(initial.getAttribute("data-tab-target") || "");
+          activate(initial.getAttribute("data-tab-target") || "", false);
         }
       }
       function displayFilePath(rawPath) {
@@ -2093,16 +2103,140 @@ function injectAnnotationRuntime(
       function sectionTitle(section) {
         return section?.querySelector?.("h1,h2,h3,[data-plan-section-title]")?.textContent?.replace(/\\s+/g, " ").trim() || "";
       }
+      function tabContextForElement(element) {
+        if (!(element instanceof Element)) return {};
+        const panel = element.closest("[data-tab-panel]");
+        const tabPanelId = panel?.getAttribute("data-tab-panel") || "";
+        if (!tabPanelId) return {};
+        const tabset = panel.closest("[data-plan-tabs]");
+        const tabButton = Array.from(tabset?.querySelectorAll("[data-tab-target]") || []).find((button) => button.getAttribute("data-tab-target") === tabPanelId);
+        const tabLabel = normalizeText(tabButton?.textContent || panel.getAttribute("aria-label") || "");
+        return {
+          tabPanelId,
+          tabLabel: tabLabel || undefined
+        };
+      }
+      function tabContextForPoint(anchor) {
+        if (!anchor || anchor.tabPanelId) return {};
+        const doc = document.documentElement;
+        const clientX = (anchor.x / 100) * doc.scrollWidth - window.scrollX;
+        const clientY = (anchor.y / 100) * Math.max(doc.scrollHeight, document.body.scrollHeight) - window.scrollY;
+        const element = document.elementFromPoint(clientX, clientY);
+        return tabContextForElement(element);
+      }
+      function isTabContextActive(tabPanelId) {
+        if (!tabPanelId) return true;
+        const panel = Array.from(document.querySelectorAll("[data-tab-panel]")).find((candidate) => candidate.getAttribute("data-tab-panel") === tabPanelId);
+        return Boolean(panel?.classList.contains("is-active"));
+      }
+      function rangeFromPoint(clientX, clientY) {
+        if (document.caretPositionFromPoint) {
+          const position = document.caretPositionFromPoint(clientX, clientY);
+          if (!position?.offsetNode) return null;
+          const range = document.createRange();
+          range.setStart(position.offsetNode, position.offset);
+          range.collapse(true);
+          return range;
+        }
+        if (document.caretRangeFromPoint) {
+          return document.caretRangeFromPoint(clientX, clientY);
+        }
+        return null;
+      }
+      function expandRangeToWord(range) {
+        if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+        const node = range.startContainer;
+        const text = node.textContent || "";
+        if (!text.trim()) return null;
+        let index = Math.min(range.startOffset, Math.max(0, text.length - 1));
+        if (/\\s/.test(text[index] || "")) {
+          let left = index - 1;
+          let right = index + 1;
+          while (left >= 0 || right < text.length) {
+            if (left >= 0 && !/\\s/.test(text[left])) {
+              index = left;
+              break;
+            }
+            if (right < text.length && !/\\s/.test(text[right])) {
+              index = right;
+              break;
+            }
+            left -= 1;
+            right += 1;
+          }
+        }
+        if (/\\s/.test(text[index] || "")) return null;
+        let start = index;
+        let end = index + 1;
+        while (start > 0 && !/\\s/.test(text[start - 1])) start -= 1;
+        while (end < text.length && !/\\s/.test(text[end])) end += 1;
+        const selectedText = text.slice(start, end).trim();
+        if (selectedText.length < 2) return null;
+        const wordRange = document.createRange();
+        wordRange.setStart(node, start);
+        wordRange.setEnd(node, end);
+        return { range: wordRange, selectedText };
+      }
+      function closestTextElement(target) {
+        if (!(target instanceof Element)) return null;
+        const selector = [
+          "p",
+          "li",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "td",
+          "th",
+          "blockquote",
+          "figcaption",
+          "summary",
+          "button",
+          "a",
+          "label",
+          "pre",
+          "code",
+          "[data-plan-text]"
+        ].join(",");
+        return target.matches(selector) ? target : target.closest(selector);
+      }
+      function anchorFromPoint(clientX, clientY, target) {
+        const word = expandRangeToWord(rangeFromPoint(clientX, clientY));
+        if (word) {
+          const anchor = anchorFromRange(word.range, word.selectedText);
+          if (anchor) return anchor;
+        }
+        const textElement = closestTextElement(target);
+        if (!(textElement instanceof Element)) return null;
+        const rect = textElement.getBoundingClientRect();
+        if (!rect || (!rect.width && !rect.height)) return null;
+        const doc = document.documentElement;
+        const textQuote = closestTextContext(textElement);
+        const section = closestSection(textElement);
+        return {
+          x: pct(clamp(clientX, rect.left, rect.right) + window.scrollX, doc.scrollWidth),
+          y: pct(clamp(clientY, rect.top, rect.bottom) + window.scrollY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
+          sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
+          sectionTitle: sectionTitle(section) || undefined,
+          ...tabContextForElement(textElement),
+          snippet: textQuote || textSnippet(textElement),
+          textQuote: textQuote || undefined,
+          anchorKind: textQuote ? "text" : "point",
+          tagName: textElement.tagName.toLowerCase()
+        };
+      }
       function anchorFromRange(range, selectedText) {
         const rect = range.getBoundingClientRect();
         if (!rect || (!rect.width && !rect.height)) return null;
         const doc = document.documentElement;
         const section = sectionForNode(range.commonAncestorContainer);
+        const rangeElement = range.commonAncestorContainer instanceof Element ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
         return {
           x: pct(rect.left + window.scrollX + rect.width / 2, doc.scrollWidth),
           y: pct(rect.top + window.scrollY + rect.height / 2, Math.max(doc.scrollHeight, document.body.scrollHeight)),
           sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
           sectionTitle: sectionTitle(section) || undefined,
+          ...tabContextForElement(rangeElement),
           snippet: selectedText.slice(0, 160),
           textQuote: selectedText.slice(0, 220),
           anchorKind: "text",
@@ -2209,16 +2343,30 @@ function injectAnnotationRuntime(
         toolbar.style.left = left + "px";
         toolbar.style.top = top + "px";
       }
+      function syncAnnotationMarkers() {
+        for (const marker of document.querySelectorAll("[data-agent-native-plan-marker]")) {
+          const tabPanelId = marker.getAttribute("data-tab-panel-id") || "";
+          marker.hidden = !isTabContextActive(tabPanelId);
+        }
+      }
       const layer = ensureLayer();
       for (const item of state.annotations) {
         if (!item.anchor) continue;
         const button = document.createElement("button");
+        const tabContext = item.anchor.tabPanelId ? { tabPanelId: item.anchor.tabPanelId, tabLabel: item.anchor.tabLabel } : tabContextForPoint(item.anchor);
         button.type = "button";
         button.className = "an-plan-marker";
         button.dataset.status = item.status || "open";
         button.dataset.agentNativePlanMarker = "true";
+        if (tabContext.tabPanelId) {
+          button.dataset.tabPanelId = tabContext.tabPanelId;
+        }
+        if (tabContext.tabLabel) {
+          button.dataset.tabLabel = tabContext.tabLabel;
+        }
         button.style.left = item.anchor.x + "%";
         button.style.top = item.anchor.y + "%";
+        button.hidden = !isTabContextActive(tabContext.tabPanelId);
         button.textContent = String(item.index);
         button.title = item.message || "Plan comment";
         button.addEventListener("click", (event) => {
