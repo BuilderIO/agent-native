@@ -34,11 +34,19 @@ details live in `.agents/skills/`.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
+- For HubSpot deal cohorts, use structured `hubspot-deals` filters for the
+  cohort definition: `product` for the `products` field, `pipeline` for deal
+  pipeline, `closedStatus` for won/lost/open, and `closedDateFrom` /
+  `closedDateTo` for close-date windows. `query` is full-text search across
+  deals and is not valid proof that a specific property matched.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:
   stitch identities on BOTH a stable id AND email, de-duplicate, and cite
   per-source provenance.
+- When the user challenges coverage or asks why records are missing, rerun or
+  revise from the source cohort and provide the updated answer directly. Do not
+  say a revised analysis exists unless you include it or save it.
 - Dashboards and charts should be useful, explainable, and scoped to the user's
   question. Avoid decorative metrics.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
