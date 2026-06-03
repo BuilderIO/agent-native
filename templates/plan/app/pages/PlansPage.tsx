@@ -166,6 +166,9 @@ export function PlansPage() {
   const handleCommentsOpenChange = (open: boolean) => {
     setCommentsOpen(open);
     if (!open) {
+      if (pendingAnnotation) {
+        setAnnotateMode(false);
+      }
       setPendingAnnotation(null);
     }
   };
