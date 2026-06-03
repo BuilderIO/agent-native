@@ -39,6 +39,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -806,7 +812,7 @@ function HomeGeneratePanel({
                   mediaType={mediaType}
                   onMediaTypeChange={handleMediaTypeChange}
                   selectValue={selectValue}
-                  selectedLibraryLabel={selectedLibrary?.title ?? "Generic"}
+                  selectedLibraryLabel={selectedLibrary?.title ?? "General"}
                   libraries={sortedLibraries}
                   onLibraryChange={handleLibraryChange}
                   aspectRatio={aspectRatio}
@@ -843,7 +849,6 @@ function HomeGeneratePanel({
           <>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <IconPhotoPlus size={16} className="text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">
                   {popularLibraries.length
                     ? "Popular brand kits"
@@ -1024,12 +1029,21 @@ function AssetComposerToolbar({
 
       <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
         <Select value={selectValue} onValueChange={onLibraryChange}>
-          <SelectTrigger
-            aria-label="Library"
-            className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[6rem] sm:max-w-[12rem]`}
-          >
-            <span className="truncate">{selectedLibraryLabel}</span>
-          </SelectTrigger>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SelectTrigger
+                  aria-label="Library"
+                  className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[6rem] sm:max-w-[12rem]`}
+                >
+                  <span className="truncate">{selectedLibraryLabel}</span>
+                </SelectTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[16rem]">
+                Choose a library to match it's style and reference images
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <SelectContent>
             <SelectGroup>
               {libraries.map((library) => (
@@ -1037,7 +1051,7 @@ function AssetComposerToolbar({
                   {library.title}
                 </SelectItem>
               ))}
-              <SelectItem value="generic">No library - generic</SelectItem>
+              <SelectItem value="generic">General</SelectItem>
             </SelectGroup>
             <SelectSeparator />
             <SelectGroup>
@@ -1090,12 +1104,21 @@ function AssetComposerToolbar({
             value={String(count)}
             onValueChange={(value) => onCountChange(Number(value))}
           >
-            <SelectTrigger
-              aria-label="Variant count"
-              className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[4rem] shrink-0`}
-            >
-              <span>{count}x</span>
-            </SelectTrigger>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SelectTrigger
+                    aria-label="Variant count"
+                    className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[4rem] shrink-0`}
+                  >
+                    <span>{count}x</span>
+                  </SelectTrigger>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[16rem]">
+                  Number of image variations to generate at once
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <SelectContent>
               <SelectGroup>
                 {[1, 2, 3, 4].map((n) => (
