@@ -734,44 +734,61 @@ export function PlansPage() {
                     </TooltipContent>
                   </Tooltip>
                 ) : (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="default"
-                        size="sm"
-                        className="pointer-events-auto gap-1.5"
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="pointer-events-auto size-8"
+                          onClick={startCommenting}
+                          aria-label="Add another comment"
+                        >
+                          <IconMessageCircle className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Add another comment</TooltipContent>
+                    </Tooltip>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          className="pointer-events-auto gap-1.5"
+                        >
+                          Send to agent
+                          <span className="flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
+                            {bundle.summary.openCommentCount}
+                          </span>
+                          <IconChevronDown className="size-3.5 opacity-70" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        className="w-64 rounded-xl"
                       >
-                        Send to agent
-                        <span className="flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
-                          {bundle.summary.openCommentCount}
-                        </span>
-                        <IconChevronDown className="size-3.5 opacity-70" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-64 rounded-xl"
-                    >
-                      <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          onClick={sendPlanFeedbackToInlineAgent}
-                          className="gap-2"
-                        >
-                          <IconSend className="size-4" />
-                          Send to inline agent
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={copyPlanFeedbackForAgent}
-                          className="gap-2"
-                        >
-                          <IconClipboardText className="size-4" />
-                          Copy for this agent
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem
+                            onClick={sendPlanFeedbackToInlineAgent}
+                            className="gap-2"
+                          >
+                            <IconSend className="size-4" />
+                            Send to inline agent
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={copyPlanFeedbackForAgent}
+                            className="gap-2"
+                          >
+                            <IconClipboardText className="size-4" />
+                            Copy for this agent
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -850,13 +867,13 @@ export function PlansPage() {
                       variant="ghost"
                       size="icon"
                       className="pointer-events-auto size-8"
-                      onClick={openPlansAgent}
-                      aria-label="Open agent sidebar"
+                      onClick={togglePlansAgent}
+                      aria-label="Toggle agent sidebar"
                     >
                       <IconLayoutSidebarRight className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Open side chat</TooltipContent>
+                  <TooltipContent>Toggle side chat</TooltipContent>
                 </Tooltip>
               </div>
               {annotateMode && (
