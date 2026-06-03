@@ -23,6 +23,7 @@ type OrgItem = {
   name: string;
   description?: string;
   updatedAt?: string;
+  createdAt?: string;
   author?: string;
   type: "dashboard" | "analysis";
 };
@@ -51,6 +52,7 @@ async function fetchOrgSharedContent(): Promise<OrgItem[]> {
             ? d.name
             : "Untitled dashboard",
         updatedAt: d.updatedAt ?? undefined,
+        createdAt: d.createdAt ?? undefined,
         author: d.author ?? undefined,
         type: "dashboard" as const,
       }));
@@ -69,19 +71,17 @@ async function fetchOrgSharedContent(): Promise<OrgItem[]> {
             : "Untitled analysis",
         description: a.description ?? undefined,
         updatedAt: a.updatedAt ?? undefined,
+        createdAt: a.createdAt ?? undefined,
         author: a.author ?? undefined,
         type: "analysis" as const,
       }));
     items.push(...analyses);
   }
 
-  return items
-    .filter((i) => i.updatedAt)
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt!).getTime() - new Date(a.updatedAt!).getTime(),
-    )
-    .slice(0, 6);
+  const dateOf = (i: OrgItem) =>
+    new Date(i.updatedAt ?? i.createdAt ?? 0).getTime();
+
+  return items.sort((a, b) => dateOf(b) - dateOf(a)).slice(0, 6);
 }
 
 function formatRelativeDate(iso: string): string {

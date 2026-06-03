@@ -1161,6 +1161,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   // batching). See `use-change-version.ts` in @agent-native/core.
   const dashboardsSync = useChangeVersions(["dashboards", "action"]);
   const analysesSync = useChangeVersions(["analyses", "action"]);
+  const dashboardsSyncRef = useRef(dashboardsSync);
+  const analysesSyncRef = useRef(analysesSync);
+  dashboardsSyncRef.current = dashboardsSync;
+  analysesSyncRef.current = analysesSync;
 
   const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
     useQuery({
@@ -1495,7 +1499,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const handleDashboardSetVisibility = useCallback(
     async (d: SidebarDashboard, visibility: Visibility) => {
       if (d.source === "static") return;
-      const queryKey = ["sql-dashboards-sidebar"] as const;
+      const queryKey = ["sql-dashboards-sidebar", dashboardsSyncRef.current] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         queryKey,
@@ -1527,7 +1531,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const handleAnalysisSetVisibility = useCallback(
     async (a: { id: string; name: string }, visibility: Visibility) => {
-      const sidebarKey = ["analyses-sidebar"] as const;
+      const sidebarKey = ["analyses-sidebar", analysesSyncRef.current] as const;
       const listKey = ["analyses-list"] as const;
       const prevSidebar = getQuerySnapshots<
         { id: string; name: string; visibility?: Visibility }[]
