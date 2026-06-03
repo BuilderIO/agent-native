@@ -19,9 +19,7 @@ import { createRequestHandler } from "react-router";
 import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
-import {
-  runWithRequestContext,
-} from "./request-context.js";
+import { runWithRequestContext } from "./request-context.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -285,9 +283,7 @@ function applyDefaultSsrCacheHeader(
   status: number,
   pathname: string,
 ) {
-  if (
-    !shouldUseDefaultSsrCacheHeader(headers, status, pathname)
-  ) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) {
     return;
   }
   // Netlify Functions/proxies are not cached by default, and production docs
