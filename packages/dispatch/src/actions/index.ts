@@ -55,6 +55,9 @@ import openApp from "./open_app.js";
 import applyDreamProposal from "./apply-dream-proposal.js";
 import previewDreamProposal from "./preview-dream-proposal.js";
 import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
+import providerApiCatalog from "./provider-api-catalog.js";
+import providerApiDocs from "./provider-api-docs.js";
+import providerApiRequest from "./provider-api-request.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
@@ -144,6 +147,9 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "apply-dream-proposal": applyDreamProposal,
   "preview-dream-proposal": previewDreamProposal,
   "preview-workspace-resource-change": previewWorkspaceResourceChange,
+  "provider-api-catalog": providerApiCatalog,
+  "provider-api-docs": providerApiDocs,
+  "provider-api-request": providerApiRequest,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,

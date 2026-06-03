@@ -23,7 +23,8 @@ Important rules:
 - No vector database exists; search-knowledge uses SQL text matching.
 - Source policy matters: strict means answer from reviewed knowledge only; balanced means raw captures are fallback context when reviewed knowledge is thin; exploratory means raw captures and sources may be surfaced as clearly labeled leads.
 - Company-tier knowledge may create a proposal instead of publishing immediately, depending on settings.
-- Slack and Granola sources are configurable v1 connectors. Generic transcript import is always available.`,
+- Slack and Granola sources are configurable v1 connectors. Generic transcript import is always available.
+- Source/read actions are convenience readers, not provider capability limits. For ad hoc provider analysis that needs an endpoint, filter, payload, pagination mode, or API version not modeled by a Brain action, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account.`,
   a2aMessageFallback: async ({ text }) => tryAnswerBrainA2AQuestion(text),
   mentionProviders: async () => {
     const { getDb, schema } = await import("../db/index.js");
