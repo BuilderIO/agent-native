@@ -812,7 +812,7 @@ function HomeGeneratePanel({
                   mediaType={mediaType}
                   onMediaTypeChange={handleMediaTypeChange}
                   selectValue={selectValue}
-                  selectedLibraryLabel={selectedLibrary?.title ?? "Standard"}
+                  selectedLibraryLabel={selectedLibrary?.title ?? "General"}
                   libraries={sortedLibraries}
                   onLibraryChange={handleLibraryChange}
                   aspectRatio={aspectRatio}
@@ -1052,7 +1052,7 @@ function AssetComposerToolbar({
                   {library.title}
                 </SelectItem>
               ))}
-              <SelectItem value="generic">No library - generic</SelectItem>
+              <SelectItem value="generic">General</SelectItem>
             </SelectGroup>
             <SelectSeparator />
             <SelectGroup>
