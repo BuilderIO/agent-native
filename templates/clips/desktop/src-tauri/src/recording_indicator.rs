@@ -51,6 +51,9 @@ static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
 /// stretches to fit the live-transcript area.
 const PILL_W_LOGICAL: u32 = 280;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
+/// Meeting mode expands wider so the live transcript and the notes editor sit
+/// side by side without either column feeling cramped.
+const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 720;
 const PILL_H_LOGICAL: u32 = 44;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
@@ -220,7 +223,15 @@ fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let (w_log, h_log) = if detached {
         (PILL_DETACHED_W_LOGICAL, PILL_DETACHED_H_LOGICAL)
     } else if expanded {
-        (PILL_W_EXPANDED_LOGICAL, PILL_H_EXPANDED_LOGICAL)
+        // Meeting mode (right-side anchor) expands wide enough for the
+        // transcript + notes split; plain clip recordings keep the narrower
+        // transcript-only width.
+        let w = if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
+            PILL_W_EXPANDED_MEETING_LOGICAL
+        } else {
+            PILL_W_EXPANDED_LOGICAL
+        };
+        (w, PILL_H_EXPANDED_LOGICAL)
     } else {
         (PILL_W_LOGICAL, PILL_H_LOGICAL)
     };

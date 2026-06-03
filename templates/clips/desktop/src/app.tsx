@@ -670,6 +670,10 @@ export function App() {
   const meetingTranscriptionRef = useRef<MeetingTranscriptionSession | null>(
     null,
   );
+  const pendingPillInitRef = useRef<{
+    meetingId: string;
+    initialNotes: string;
+  } | null>(null);
   const isRecording = recorder !== null;
   const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
   const selectedMicLabel = useMemo(
@@ -948,6 +952,10 @@ export function App() {
       source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
       overwriteReady: true,
     });
+    // Unified save signal — the pill shows one "Auto-saved" indicator that
+    // reflects the most recent persisted write of either the transcript or
+    // the notes.
+    emit("clips:meeting-saved", { ts: Date.now() }).catch(() => {});
   }, [callClipsAction]);
 
   const stopMeetingTranscription = useCallback(
@@ -991,6 +999,13 @@ export function App() {
           console.warn("[clips-popover] finalize meeting failed:", err);
         });
       }
+      // Open the finished meeting in the web app so the user lands on the full
+      // notes / transcript / summary view right after stopping.
+      openExternal(
+        `${normalizeServerUrl(serverUrl)}/meetings/${session.meetingId}`,
+      ).catch((err) => {
+        console.warn("[clips-popover] open meeting in web failed:", err);
+      });
       await invoke("recording_pill_hide").catch(() => {});
       await invoke("set_recording_state", { active: false }).catch(() => {});
       emit("meetings:transcription-stopped", {
@@ -999,7 +1014,7 @@ export function App() {
       }).catch(() => {});
       meetingTranscriptionRef.current = null;
     },
-    [callClipsAction, flushMeetingTranscript],
+    [callClipsAction, flushMeetingTranscript, serverUrl],
   );
 
   const startMeetingTranscription = useCallback(
@@ -1237,10 +1252,36 @@ export function App() {
           }),
         );
 
+        pendingPillInitRef.current = {
+          meetingId: resolvedMeetingId,
+          initialNotes: "",
+        };
+
         await invoke("recording_pill_show", {
           meetingId: resolvedMeetingId,
           mode: "meeting",
         });
+
+        emit("clips:pill-context", {
+          meetingId: resolvedMeetingId,
+          mode: "meeting",
+        }).catch(() => {});
+
+        callClipsAction<{ userNotesMd?: string }>("get-meeting", {
+          id: resolvedMeetingId,
+        })
+          .then((data) => {
+            const initialNotes = data?.userNotesMd ?? "";
+            pendingPillInitRef.current = {
+              meetingId: resolvedMeetingId,
+              initialNotes,
+            };
+            emit("clips:meeting-notes-init", {
+              meetingId: resolvedMeetingId,
+              initialNotes,
+            }).catch(() => {});
+          })
+          .catch(() => {});
 
         try {
           await startMeetingAudio();
@@ -1327,6 +1368,66 @@ export function App() {
       unlisteners.length = 0;
     };
   }, [startMeetingTranscription]);
+
+  useEffect(() => {
+    let stopped = false;
+    const unlistens: Array<Promise<() => void>> = [];
+
+    unlistens.push(
+      listen<{ meetingId: string; notes: string }>(
+        "clips:save-meeting-notes",
+        (ev) => {
+          callClipsAction("update-meeting", {
+            id: ev.payload.meetingId,
+            userNotesMd: ev.payload.notes,
+          })
+            .then(() => {
+              emit("clips:meeting-saved", { ts: Date.now() }).catch(() => {});
+            })
+            .catch((err) =>
+              console.warn("[clips-popover] save meeting notes failed:", err),
+            );
+        },
+      ),
+    );
+
+    unlistens.push(
+      listen("clips:pill-ready", () => {
+        const pending = pendingPillInitRef.current;
+        if (!pending) return;
+        emit("clips:pill-context", {
+          meetingId: pending.meetingId,
+          mode: "meeting",
+        }).catch(() => {});
+        emit("clips:meeting-notes-init", {
+          meetingId: pending.meetingId,
+          initialNotes: pending.initialNotes,
+        }).catch(() => {});
+      }),
+    );
+
+    unlistens.push(
+      listen<{ meetingId: string }>("clips:open-meeting", (ev) => {
+        if (!ev.payload?.meetingId) return;
+        openExternal(
+          `${normalizeServerUrl(serverUrl)}/meetings/${ev.payload.meetingId}`,
+        ).catch((err) =>
+          console.warn("[clips-popover] open meeting in web failed:", err),
+        );
+      }),
+    );
+
+    return () => {
+      stopped = true;
+      unlistens.forEach((p) =>
+        p
+          .then((u) => {
+            if (stopped) u();
+          })
+          .catch(() => {}),
+      );
+    };
+  }, [callClipsAction, serverUrl]);
 
   // OAuth (Google) opens in the system browser — the popover WebView can't
   // share a cookie jar with a separate Tauri WebviewWindow, and the old

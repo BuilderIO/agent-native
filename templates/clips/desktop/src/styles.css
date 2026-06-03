@@ -3794,15 +3794,6 @@ body[data-clips-route="recording-pill"] #root {
   display: block;
 }
 
-.pill-mode {
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: #d4d4d8;
-}
-
 .pill-stop-btn {
   margin-left: 4px;
   display: inline-flex;
@@ -3993,6 +3984,106 @@ body[data-clips-route="recording-pill"] #root {
   overflow: hidden;
 }
 
+/* Meeting mode: transcript + notes side by side. */
+.pill-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pill-split-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pill-split-divider {
+  width: 1px;
+  flex-shrink: 0;
+  margin: 8px 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pill-pane-label {
+  flex-shrink: 0;
+  padding: 8px 12px 2px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(244, 244, 245, 0.4);
+}
+
+/* In the split, the transcript area should fill its pane below the label. */
+.pill-split-pane .pill-transcript-area {
+  flex: 1;
+  min-height: 0;
+}
+
+.pill-notes-area {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 4px 12px 8px;
+}
+
+.pill-notes-textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: #f4f4f5;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+.pill-notes-textarea::placeholder {
+  color: #71717a;
+}
+
+.pill-saved-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  padding: 2px 12px 8px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(244, 244, 245, 0.4);
+}
+
+.pill-saved-status {
+  margin-left: auto;
+}
+
+.pill-open-web-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(244, 244, 245, 0.6);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.pill-open-web-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f4f5;
+}
+
 .lt-chat {
   display: flex;
   flex: 1;
@@ -4073,60 +4164,24 @@ body[data-clips-route="recording-pill"] #root {
   border-bottom-left-radius: 4px;
 }
 
-.pill-footer {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px 12px;
-}
-
 .pill-pause-btn {
+  margin-left: auto;
   display: inline-flex;
-  height: 32px;
+  height: 28px;
+  width: 28px;
+  flex-shrink: 0;
   cursor: pointer;
   align-items: center;
-  gap: 6px;
-  border-radius: 999px;
+  justify-content: center;
+  border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: white;
+  color: #e4e4e7;
   border: none;
   transition: background 120ms;
 }
 
 .pill-pause-btn:hover {
   background: rgba(255, 255, 255, 0.2);
-}
-
-.pill-stop-footer-btn {
-  margin-left: auto;
-  display: inline-flex;
-  height: 32px;
-  cursor: pointer;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  background: #ef4444;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: white;
-  border: none;
-  transition:
-    background 120ms,
-    opacity 120ms;
-}
-
-.pill-stop-footer-btn:hover:not(:disabled) {
-  background: #f87171;
-}
-
-.pill-stop-footer-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .pill-spinner {
