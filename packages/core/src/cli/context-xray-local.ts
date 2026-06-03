@@ -55,6 +55,9 @@ const COLORS = {
   other: "#c3c8ce",
 };
 const MAX_EVENT_SAMPLES = 80;
+const MAX_STEP_SAMPLES = 900;
+const PRESSURE_WINDOW = 5;
+const PRESSURE_TOKENS = 50000;
 
 function parseArgs(argv) {
   const out = {
@@ -271,9 +274,255 @@ function claudeUsageTokens(usage) {
   return (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0) + (Number(usage.cache_creation_input_tokens) || 0) + (Number(usage.cache_read_input_tokens) || 0);
 }
 
+function emptyUsage() {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    cachedInputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0,
+    turnsWithUsage: 0,
+    peakTurnTokens: 0,
+    peakTurnLabel: "",
+    latestTurnTokens: 0,
+    latestInputTokens: 0,
+    series: [],
+  };
+}
+
+function usageTotal(usage) {
+  if (!usage) return 0;
+  if (Number(usage.totalTokens)) return Number(usage.totalTokens) || 0;
+  return (Number(usage.inputTokens) || 0) +
+    (Number(usage.outputTokens) || 0) +
+    (Number(usage.cacheCreationInputTokens) || 0) +
+    (Number(usage.cacheReadInputTokens) || 0) +
+    (Number(usage.reasoningOutputTokens) || 0);
+}
+
+function normalizedUsage(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const usage = {
+    inputTokens: Number(raw.input_tokens) || Number(raw.inputTokens) || 0,
+    outputTokens: Number(raw.output_tokens) || Number(raw.outputTokens) || 0,
+    cacheCreationInputTokens: Number(raw.cache_creation_input_tokens) || Number(raw.cacheCreationInputTokens) || 0,
+    cacheReadInputTokens: Number(raw.cache_read_input_tokens) || Number(raw.cacheReadInputTokens) || Number(raw.cached_input_tokens) || Number(raw.cachedInputTokens) || 0,
+    cachedInputTokens: Number(raw.cached_input_tokens) || Number(raw.cachedInputTokens) || 0,
+    reasoningOutputTokens: Number(raw.reasoning_output_tokens) || Number(raw.reasoningOutputTokens) || 0,
+    totalTokens: Number(raw.total_tokens) || Number(raw.totalTokens) || 0,
+  };
+  if (!usage.totalTokens) usage.totalTokens = usageTotal(usage);
+  return usage.totalTokens || usage.inputTokens || usage.outputTokens || usage.cacheCreationInputTokens || usage.cacheReadInputTokens ? usage : null;
+}
+
+function codexUsageFromPayload(payload) {
+  if (!payload || payload.type !== "token_count" || !payload.info) return null;
+  return normalizedUsage(payload.info.last_token_usage || payload.info.total_token_usage);
+}
+
+function addUsage(summary, usage, timestamp, label) {
+  if (!usage) return;
+  const total = usageTotal(usage);
+  summary.usage.inputTokens += usage.inputTokens || 0;
+  summary.usage.outputTokens += usage.outputTokens || 0;
+  summary.usage.cacheCreationInputTokens += usage.cacheCreationInputTokens || 0;
+  summary.usage.cacheReadInputTokens += usage.cacheReadInputTokens || 0;
+  summary.usage.cachedInputTokens += usage.cachedInputTokens || 0;
+  summary.usage.reasoningOutputTokens += usage.reasoningOutputTokens || 0;
+  summary.usage.totalTokens += total;
+  summary.usage.turnsWithUsage += 1;
+  summary.usage.latestTurnTokens = total;
+  summary.usage.latestInputTokens = (usage.inputTokens || 0) + (usage.cacheCreationInputTokens || 0) + (usage.cacheReadInputTokens || 0);
+  if (total > summary.usage.peakTurnTokens) {
+    summary.usage.peakTurnTokens = total;
+    summary.usage.peakTurnLabel = label || timestamp || "turn " + summary.usage.turnsWithUsage;
+  }
+  if (summary.usage.series.length < 260) {
+    summary.usage.series.push({
+      timestamp: String(timestamp || ""),
+      label: label || "turn " + summary.usage.turnsWithUsage,
+      totalTokens: total,
+      inputTokens: usage.inputTokens || 0,
+      outputTokens: usage.outputTokens || 0,
+      cacheCreationInputTokens: usage.cacheCreationInputTokens || 0,
+      cacheReadInputTokens: usage.cacheReadInputTokens || 0,
+      cachedInputTokens: usage.cachedInputTokens || 0,
+      reasoningOutputTokens: usage.reasoningOutputTokens || 0,
+    });
+  }
+}
+
 function sessionIdFromPath(file) {
   const match = path.basename(file).match(SESSION_ID_RE);
   return match ? match[0] : path.basename(file, ".jsonl");
+}
+
+function safeJson(value) {
+  if (!value || typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text || !/^[{[]/.test(text)) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeToolInput(value) {
+  if (value == null) return {};
+  if (typeof value === "string") {
+    const parsed = safeJson(value);
+    return parsed && typeof parsed === "object" ? parsed : { text: value };
+  }
+  if (typeof value === "object") return value;
+  return { text: String(value) };
+}
+
+function codexToolInput(payload) {
+  if (!payload || typeof payload !== "object") return {};
+  if (Object.prototype.hasOwnProperty.call(payload, "input")) return normalizeToolInput(payload.input);
+  if (Object.prototype.hasOwnProperty.call(payload, "arguments")) return normalizeToolInput(payload.arguments);
+  if (Object.prototype.hasOwnProperty.call(payload, "args")) return normalizeToolInput(payload.args);
+  if (Object.prototype.hasOwnProperty.call(payload, "parameters")) return normalizeToolInput(payload.parameters);
+  return {};
+}
+
+function firstStringField(input, keys) {
+  if (!input || typeof input !== "object") return "";
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function shortCommand(command) {
+  return cleanTitle(command).slice(0, 260);
+}
+
+function stripAnsi(value) {
+  return String(value || "").replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
+function normalizeCommand(command) {
+  return stripAnsi(command)
+    .replace(/\/Users\/[^\s"']+/g, "<abs-path>")
+    .replace(/\/tmp\/[^\s"']+/g, "<tmp-path>")
+    .replace(/:\d+(:\d+)?/g, ":<line>")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,36}\b/gi, "<id>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 260)
+    .toLowerCase();
+}
+
+function toolFamily(toolName, input, inputText) {
+  const name = String(toolName || "").toLowerCase();
+  if (inferMcpTool(toolName).server) return "mcp";
+  if (/(^|_|\.)(task|agent|subagent|spawn_agent|delegate)/.test(name)) return "agent";
+  if (/(read|view|open_file|get_file|cat_file)/.test(name)) return "read";
+  if (/(grep|glob|search|find|ripgrep|rg|list|ls)/.test(name)) return "search";
+  if (/(edit|write|patch|apply_patch|replace|update_file|create_file|delete|rm)/.test(name)) return "write";
+  if (/(bash|shell|exec|terminal|command|run)/.test(name)) return "execute";
+  const text = String(inputText || "").toLowerCase();
+  if (/^\s*(rg|grep|find|ls)\b/.test(text)) return "search";
+  if (/^\s*(cat|sed|nl|head|tail)\b/.test(text)) return "read";
+  if (/^\s*(python|node|pnpm|npm|yarn|bun|cargo|go|git|make|pytest|vitest)\b/.test(text)) return "execute";
+  return "tool";
+}
+
+function toolTarget(toolName, input, inputText) {
+  const direct = firstStringField(input, ["file_path", "filePath", "path", "filename", "relative_path", "target", "cwd"]);
+  if (direct) return direct;
+  const command = firstStringField(input, ["command", "cmd", "shell", "script"]);
+  if (command) return shortCommand(command);
+  const paths = pathCounts(inputText || "");
+  const firstPath = Object.keys(paths)[0];
+  if (firstPath) return firstPath;
+  return shortCommand(inputText || toolName || "");
+}
+
+function toolCommand(toolName, input, inputText) {
+  const command = firstStringField(input, ["command", "cmd", "shell", "script"]);
+  if (command) return shortCommand(command);
+  const name = String(toolName || "").toLowerCase();
+  if (/(bash|shell|exec|terminal|command|run)/.test(name)) return shortCommand(inputText || "");
+  return "";
+}
+
+function outputLooksError(value, text) {
+  if (!value || typeof value !== "object") {
+    return /\b(exit code|status|error)\s*[:=]?\s*[1-9]\b/i.test(text || "") || /\bfailed\b|\btraceback\b|\bexception\b/i.test(text || "");
+  }
+  if (value.is_error === true || value.error === true || value.success === false) return true;
+  const code = Number(value.exit_code ?? value.exitCode ?? value.status ?? value.code);
+  if (Number.isFinite(code) && code !== 0) return true;
+  return /\b(exit code|status)\s*[:=]?\s*[1-9]\b/i.test(text || "") || /\btraceback\b|\bexception\b/i.test(text || "");
+}
+
+function initTraceFields(summary) {
+  summary.usage = emptyUsage();
+  summary.steps = [];
+  summary.stepCount = 0;
+  summary._callMap = {};
+  summary._lastToolStep = null;
+}
+
+function recordToolStep(summary, options) {
+  const input = normalizeToolInput(options.input);
+  const inputText = textFrom(input, 0) || compact(input);
+  const preview = eventPreview(inputText || options.preview || options.tool || "");
+  const family = toolFamily(options.tool, input, inputText || preview);
+  const command = toolCommand(options.tool, input, inputText || preview);
+  const mcp = inferMcpTool(options.tool);
+  const step = {
+    index: summary.stepCount++,
+    source: summary.source,
+    sessionId: summary.sessionId,
+    timestamp: String(options.timestamp || ""),
+    type: "tool_call",
+    tool: String(options.tool || "tool_call"),
+    family,
+    target: toolTarget(options.tool, input, inputText || preview),
+    command,
+    normalizedCommand: command ? normalizeCommand(command) : "",
+    mcpServer: mcp.server,
+    mcpTool: mcp.tool,
+    tokens: estimateTokens((inputText || preview).length),
+    preview,
+    isError: false,
+    errorPreview: "",
+  };
+  if (summary.steps.length < MAX_STEP_SAMPLES) summary.steps.push(step);
+  for (const id of options.ids || []) {
+    if (id) summary._callMap[String(id)] = step;
+  }
+  summary._lastToolStep = step;
+  return step;
+}
+
+function markToolResult(summary, ids, isError, preview) {
+  let step = null;
+  for (const id of ids || []) {
+    if (id && summary._callMap[String(id)]) {
+      step = summary._callMap[String(id)];
+      break;
+    }
+  }
+  if (!step) step = summary._lastToolStep;
+  if (!step) return;
+  if (isError) {
+    step.isError = true;
+    step.errorPreview = eventPreview(preview || step.errorPreview || "");
+  }
+}
+
+function contentBlocks(content) {
+  if (Array.isArray(content)) return content;
+  if (content == null) return [];
+  return [content];
 }
 
 function classifyCodex(record) {
@@ -383,6 +632,7 @@ function summarizeCodex(file) {
     bytes: stat.size,
     mtime: stat.mtimeMs,
   };
+  initTraceFields(summary);
   const records = readJsonl(file);
   for (const record of records) {
     const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
@@ -394,10 +644,18 @@ function summarizeCodex(file) {
     if (payload.cwd && !summary.cwd) summary.cwd = String(payload.cwd);
     if (record.timestamp) summary.updatedAt = String(record.timestamp);
     summary.observedTokens = Math.max(summary.observedTokens, observedCodexTokens(payload));
+    addUsage(summary, codexUsageFromPayload(payload), String(record.timestamp || payload.timestamp || ""), "turn " + (summary.usage.turnsWithUsage + 1));
     const stats = classifyCodex(record);
     addCounter(summary.categories, stats.category, stats.chars);
     mergeCounter(summary.tools, stats.tools);
     if (stats.toolName && stats.category === "tool_call") {
+      recordToolStep(summary, {
+        tool: stats.toolName,
+        input: codexToolInput(payload),
+        ids: [payload.call_id, payload.id],
+        timestamp: record.timestamp || payload.timestamp,
+        preview: stats.preview,
+      });
       addCounter(summary.toolTokens, stats.toolName, estimateTokens(stats.chars));
       if (stats.mcp.server) {
         addCounter(summary.mcpUsage, stats.mcp.server, 1);
@@ -416,6 +674,10 @@ function summarizeCodex(file) {
           preview: stats.preview,
         });
       }
+    }
+    if (stats.category === "tool_output") {
+      const text = textFrom(payload, 0);
+      markToolResult(summary, [payload.call_id, payload.id], outputLooksError(payload, text), text);
     }
     if (stats.category === "metadata") {
       addCounter(summary.metadata, stats.metadataType, stats.chars);
@@ -459,6 +721,7 @@ function summarizeClaude(file) {
     bytes: stat.size,
     mtime: stat.mtimeMs,
   };
+  initTraceFields(summary);
   const records = readJsonl(file);
   for (const record of records) {
     summary.sessionId = String(record.sessionId || summary.sessionId);
@@ -469,7 +732,27 @@ function summarizeClaude(file) {
     }
     if (record.message && typeof record.message === "object") {
       summary.observedTokens = Math.max(summary.observedTokens, claudeUsageTokens(record.message.usage));
+      addUsage(summary, normalizedUsage(record.message.usage), String(record.timestamp || ""), "turn " + (summary.usage.turnsWithUsage + 1));
       if (!summary.title && record.message.role === "user") summary.title = cleanTitle(textFrom(record.message, 0)).slice(0, 90);
+      for (const part of contentBlocks(record.message.content)) {
+        if (!part || typeof part !== "object") continue;
+        if (part.type === "tool_use") {
+          recordToolStep(summary, {
+            tool: part.name || "tool_use",
+            input: part.input || {},
+            ids: [part.id, record.uuid],
+            timestamp: record.timestamp,
+            preview: textFrom(part.input || part, 0),
+          });
+        } else if (part.type === "tool_result") {
+          const text = textFrom(part, 0);
+          markToolResult(summary, [part.tool_use_id, record.sourceToolAssistantUUID], part.is_error === true || outputLooksError(part, text), text);
+        }
+      }
+    }
+    if (record.toolUseResult) {
+      const text = textFrom(record.toolUseResult, 0);
+      markToolResult(summary, [record.toolUseID, record.toolUseId, record.sourceToolAssistantUUID], outputLooksError(record.toolUseResult, text), text);
     }
     const stats = classifyClaude(record);
     addCounter(summary.categories, stats.category, stats.chars);
@@ -518,6 +801,9 @@ function finalizeSummary(summary) {
   summary.totalChars = totalChars;
   summary.tokens = summary.observedTokens || estimateTokens(totalChars);
   summary.tokenMethod = summary.observedTokens ? "observed" : "estimated";
+  summary.totalSteps = summary.stepCount || (summary.steps || []).length;
+  delete summary._callMap;
+  delete summary._lastToolStep;
   return summary;
 }
 
@@ -596,7 +882,7 @@ function collectSessions(args) {
 }
 
 function aggregate(sessions) {
-  const out = { categories: {}, tools: {}, toolTokens: {}, paths: {}, metadata: {}, mcpUsage: {}, mcpTools: {}, toolEvents: [], metadataEvents: [] };
+  const out = { categories: {}, tools: {}, toolTokens: {}, paths: {}, metadata: {}, mcpUsage: {}, mcpTools: {}, toolEvents: [], metadataEvents: [], steps: [], usage: emptyUsage() };
   for (const session of sessions) {
     mergeCounter(out.categories, session.categories);
     mergeCounter(out.tools, session.tools);
@@ -605,6 +891,21 @@ function aggregate(sessions) {
     mergeCounter(out.metadata, session.metadata);
     mergeCounter(out.mcpUsage, session.mcpUsage);
     mergeCounter(out.mcpTools, session.mcpTools);
+    out.usage.inputTokens += (session.usage && session.usage.inputTokens) || 0;
+    out.usage.outputTokens += (session.usage && session.usage.outputTokens) || 0;
+    out.usage.cacheCreationInputTokens += (session.usage && session.usage.cacheCreationInputTokens) || 0;
+    out.usage.cacheReadInputTokens += (session.usage && session.usage.cacheReadInputTokens) || 0;
+    out.usage.cachedInputTokens += (session.usage && session.usage.cachedInputTokens) || 0;
+    out.usage.reasoningOutputTokens += (session.usage && session.usage.reasoningOutputTokens) || 0;
+    out.usage.totalTokens += (session.usage && session.usage.totalTokens) || 0;
+    out.usage.turnsWithUsage += (session.usage && session.usage.turnsWithUsage) || 0;
+    if (session.usage && session.usage.peakTurnTokens > out.usage.peakTurnTokens) {
+      out.usage.peakTurnTokens = session.usage.peakTurnTokens;
+      out.usage.peakTurnLabel = (session.title || session.sessionId) + " · " + session.usage.peakTurnLabel;
+    }
+    for (const step of session.steps || []) {
+      if (out.steps.length < 2000) out.steps.push(Object.assign({ sessionTitle: session.title, cwd: session.cwd, sessionPath: session.path }, step));
+    }
     for (const event of session.toolEvents || []) {
       if (out.toolEvents.length < 500) out.toolEvents.push(Object.assign({ sessionTitle: session.title, cwd: session.cwd, sessionPath: session.path }, event));
     }
