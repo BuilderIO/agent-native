@@ -78,6 +78,8 @@ export default defineAction({
       updatedAt: now,
     };
 
+    // guard:allow-unscoped -- gated above by editor access, or by public
+    // viewer access plus new-open-human-comment-only validation.
     await db
       .update(schema.plans)
       .set(planPatch)

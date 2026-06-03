@@ -1,6 +1,7 @@
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { asc, eq, inArray } from "drizzle-orm";
+import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { getDb, schema } from "./db/index.js";
 import {
@@ -309,7 +310,8 @@ function inferSectionType(title: string, body: string) {
 }
 
 export function buildPlanHtml(bundle: PlanBundle): string {
-  if (bundle.plan.html?.trim()) return bundle.plan.html;
+  const storedHtml = normalizeStoredHtml(bundle.plan.html);
+  if (storedHtml.trim()) return storedHtml;
   const title = escapeHtml(bundle.plan.title);
   const brief = escapeHtml(bundle.plan.brief);
   const sectionHtml = bundle.sections
@@ -339,6 +341,13 @@ export function buildPlanHtml(bundle: PlanBundle): string {
   </main>
 </body>
 </html>`;
+}
+
+function normalizeStoredHtml(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
+  if (value == null) return "";
+  return String(value);
 }
 
 function renderSectionHtml(section: PlanSection) {
