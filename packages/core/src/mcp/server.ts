@@ -269,6 +269,26 @@ export async function handleMcpRequest(
   // stream is never consumed twice.
   const body = method === "POST" ? await readBody(event) : undefined;
 
+  // Optional diagnostics for host capability negotiation. Keep disabled by
+  // default because initialize payloads can include client-specific metadata.
+  if (process.env.MCP_DEBUG_INIT && body) {
+    const msgs = Array.isArray(body) ? body : [body];
+    const init = msgs.find(
+      (m): m is { params?: { capabilities?: unknown; clientInfo?: unknown } } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { method?: unknown }).method === "initialize",
+    );
+    if (init) {
+      console.error(
+        "[MCP_DEBUG_INIT] clientInfo=",
+        JSON.stringify(init.params?.clientInfo),
+        "capabilities=",
+        JSON.stringify(init.params?.capabilities),
+      );
+    }
+  }
+
   // Per-request stateless transport + server. Both runtimes build the SAME
   // server from the SAME config + verified identity + request meta, so
   // tools/list, tools/call, and the deep-link `_meta` are identical. A
