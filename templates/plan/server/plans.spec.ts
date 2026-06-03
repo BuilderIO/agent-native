@@ -211,6 +211,11 @@ describe("Plans helpers", () => {
     expect(html).toContain("data-agent-native-editor-picker");
     expect(html).toContain("data-agent-native-open-file");
     expect(html).toContain("/Users/steve/project/");
+    expect(html).toContain('<option value="finder">Finder</option>');
+    expect(html).toContain('<option value="terminal">Terminal</option>');
+    expect(html).toContain('<option value="ghostty">Ghostty</option>');
+    expect(html).toContain('<option value="xcode">Xcode</option>');
+    expect(html).not.toContain("code-preview-title");
     expect(html).not.toContain(">VS Code</button>");
     expect(html).not.toContain(">Cursor</button>");
     expect(html).toContain("AnnotationPopover");

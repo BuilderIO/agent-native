@@ -585,7 +585,7 @@ function renderImplementationFileHtml(file: ImplementationFile) {
       }
     </div>
     <div class="file-actions">
-      <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}">Preview</button>
+      <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Preview</button>
       ${
         editorPath
           ? `<div class="editor-picker" data-agent-native-editor-picker>

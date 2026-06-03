@@ -1415,21 +1415,68 @@ function injectAnnotationRuntime(
           window.parent.postMessage({ type: "agent-native-plan-editor-preference", editor: preferredEditor }, "*");
         }
       }
+      function editorOptionHtml() {
+        return [
+          ["vscode", "VS Code"],
+          ["cursor", "Cursor"],
+          ["finder", "Finder"],
+          ["terminal", "Terminal"],
+          ["ghostty", "Ghostty"],
+          ["xcode", "Xcode"]
+        ].map(([value, label]) => '<option value="' + value + '">' + label + '</option>').join("");
+      }
+      function splitFileLocation(filePath, explicitLine) {
+        const value = filePath || "";
+        const match = value.match(/^(.*?)(?::(\\d+)(?::(\\d+))?)?$/);
+        return {
+          path: match?.[1] || value,
+          line: explicitLine || match?.[2] || "",
+          column: match?.[3] || "1"
+        };
+      }
+      function openFileFromHref(href) {
+        const match = String(href || "").match(/^(?:vscode|cursor):\\/\\/file(.+)$/);
+        return match?.[1] ? decodeURI(match[1]) : "";
+      }
+      function directoryForPath(filePath) {
+        const index = filePath.lastIndexOf("/");
+        return index > 0 ? filePath.slice(0, index) : filePath;
+      }
       function hrefForEditor(editor, filePath, line) {
         if (!filePath) return "";
         const normalized = normalizeEditor(editor);
-        const lineSuffix = line ? ":" + line + ":1" : "";
-        if (normalized === "finder") return "file://" + encodeURI(filePath);
+        const location = splitFileLocation(filePath, line);
+        const lineSuffix = location.line ? ":" + location.line + ":" + location.column : "";
+        if (normalized === "finder") return "file://" + encodeURI(location.path);
         if (normalized === "xcode") {
-          return "xcode://open?file=" + encodeURIComponent(filePath) + (line ? "&line=" + encodeURIComponent(line) : "");
+          return "xcode://open?url=" + encodeURIComponent("file://" + location.path) + (location.line ? "&line=" + encodeURIComponent(location.line) : "");
         }
         if (normalized === "terminal") {
-          return "terminal://file" + encodeURI(filePath);
+          return "terminal://open?path=" + encodeURIComponent(directoryForPath(location.path));
         }
         if (normalized === "ghostty") {
-          return "ghostty://file" + encodeURI(filePath);
+          return "ghostty://open?path=" + encodeURIComponent(directoryForPath(location.path));
         }
-        return normalized + "://file" + encodeURI(filePath) + lineSuffix;
+        return normalized + "://file" + encodeURI(location.path) + lineSuffix;
+      }
+      function createEditorPicker(openFile, hrefs = {}, line = "") {
+        const picker = document.createElement("div");
+        picker.className = "editor-picker";
+        picker.dataset.agentNativeEditorPicker = "true";
+        const select = document.createElement("select");
+        select.dataset.agentNativeEditorSelect = "true";
+        select.setAttribute("aria-label", "Preferred editor");
+        select.innerHTML = editorOptionHtml();
+        const open = document.createElement("button");
+        open.type = "button";
+        open.textContent = "Open";
+        open.dataset.agentNativeOpenSelectedEditor = "true";
+        if (openFile) open.dataset.agentNativeOpenFile = openFile;
+        if (line) open.dataset.agentNativeOpenLine = line;
+        if (hrefs.vscode) open.dataset.agentNativeOpenVscode = hrefs.vscode;
+        if (hrefs.cursor) open.dataset.agentNativeOpenCursor = hrefs.cursor;
+        picker.append(select, open);
+        return picker;
       }
       function initializeEditorPickers() {
         const actionGroups = Array.from(document.querySelectorAll(".file-actions"));
@@ -1444,22 +1491,9 @@ function injectAnnotationRuntime(
             if (href.startsWith("vscode://file/")) hrefs.vscode = href;
             button.remove();
           }
-          if (!hrefs.cursor && !hrefs.vscode) continue;
-          const picker = document.createElement("div");
-          picker.className = "editor-picker";
-          picker.dataset.agentNativeEditorPicker = "true";
-          const select = document.createElement("select");
-          select.dataset.agentNativeEditorSelect = "true";
-          select.setAttribute("aria-label", "Preferred editor");
-          select.innerHTML = '<option value="vscode">VS Code</option><option value="cursor">Cursor</option>';
-          const open = document.createElement("button");
-          open.type = "button";
-          open.textContent = "Open";
-          open.dataset.agentNativeOpenSelectedEditor = "true";
-          if (hrefs.vscode) open.dataset.agentNativeOpenVscode = hrefs.vscode;
-          if (hrefs.cursor) open.dataset.agentNativeOpenCursor = hrefs.cursor;
-          picker.append(select, open);
-          actions.appendChild(picker);
+          const openFile = openFileFromHref(hrefs.vscode || hrefs.cursor);
+          if (!openFile && !hrefs.cursor && !hrefs.vscode) continue;
+          actions.appendChild(createEditorPicker(openFile, hrefs));
         }
         setPreferredEditor(preferredEditor, false);
       }
@@ -1566,8 +1600,31 @@ function injectAnnotationRuntime(
         hideCodePopover();
         const popover = document.createElement("div");
         popover.className = "an-plan-code-popover";
-        popover.innerHTML = '<div class="an-plan-code-popover-header"><span>Code preview</span><button type="button" class="an-plan-code-popover-close" aria-label="Close code preview">×</button></div><div class="an-plan-code-popover-body"></div>';
-        popover.querySelector(".an-plan-code-popover-body")?.append(template.content.cloneNode(true));
+        popover.innerHTML = '<div class="an-plan-code-popover-header"><span class="an-plan-code-popover-title"></span><div class="an-plan-code-popover-actions"></div><button type="button" class="an-plan-code-popover-close" aria-label="Close code preview">×</button></div><div class="an-plan-code-popover-body"></div>';
+        const content = template.content.cloneNode(true);
+        const codePreview = content.querySelector?.(".code-preview");
+        const oldTitle = content.querySelector?.(".code-preview-title");
+        const fileTitle = codePreview?.getAttribute?.("data-file-path") || oldTitle?.querySelector?.("strong")?.textContent?.trim() || button.closest(".implementation-file")?.getAttribute("data-file-path") || "Code preview";
+        const hrefs = {};
+        const fileActions = button.closest(".implementation-file")?.querySelector(".file-actions");
+        for (const openButton of Array.from(fileActions?.querySelectorAll("[data-agent-native-open-editor], [data-agent-native-open-selected-editor], [data-agent-native-open-file]") || [])) {
+          const vscode = openButton.getAttribute("data-agent-native-open-vscode") || "";
+          const cursor = openButton.getAttribute("data-agent-native-open-cursor") || "";
+          const legacy = openButton.getAttribute("data-agent-native-open-editor") || "";
+          if (vscode) hrefs.vscode = vscode;
+          if (cursor) hrefs.cursor = cursor;
+          if (legacy.startsWith("vscode://file/")) hrefs.vscode = legacy;
+          if (legacy.startsWith("cursor://file/")) hrefs.cursor = legacy;
+        }
+        const openFile = button.getAttribute("data-agent-native-open-file") || codePreview?.getAttribute?.("data-agent-native-open-file") || openFileFromHref(hrefs.vscode || hrefs.cursor);
+        const openLine = button.getAttribute("data-agent-native-open-line") || codePreview?.getAttribute?.("data-agent-native-open-line") || "";
+        oldTitle?.remove?.();
+        popover.querySelector(".an-plan-code-popover-title").textContent = fileTitle;
+        if (openFile || hrefs.vscode || hrefs.cursor) {
+          popover.querySelector(".an-plan-code-popover-actions")?.append(createEditorPicker(openFile, hrefs, openLine));
+          setPreferredEditor(preferredEditor, false);
+        }
+        popover.querySelector(".an-plan-code-popover-body")?.append(content);
         popover.querySelector(".an-plan-code-popover-close")?.addEventListener("click", hideCodePopover);
         document.body.appendChild(popover);
         const rect = button.getBoundingClientRect();
