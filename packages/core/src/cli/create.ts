@@ -1637,6 +1637,7 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
     name === ".agent-native" ||
     name === ".env" ||
     name === ".env.local" ||
+    name === "pnpm-lock.yaml" ||
     name === ".netlify" ||
     name === ".vercel" ||
     name === ".generated" ||
