@@ -1,14 +1,13 @@
-export const CONTRACT_STATUSES = [
+export const PLAN_STATUSES = [
   "draft",
   "review",
   "approved",
-  "implementing",
-  "verifying",
+  "in_progress",
   "complete",
-  "blocked",
+  "archived",
 ] as const;
 
-export const CONTRACT_SOURCES = [
+export const PLAN_SOURCES = [
   "claude-code",
   "codex",
   "cursor",
@@ -17,212 +16,114 @@ export const CONTRACT_SOURCES = [
   "imported",
 ] as const;
 
-export const CONTRACT_ITEM_TYPES = [
-  "assumption",
+export const PLAN_SECTION_TYPES = [
+  "summary",
+  "diagram",
+  "wireframe",
+  "prototype",
+  "steps",
+  "decisions",
+  "questions",
+  "risks",
+  "notes",
+  "custom",
+] as const;
+
+export const PLAN_COMMENT_KINDS = [
+  "comment",
+  "correction",
+  "question",
   "decision",
-  "constraint",
-  "task",
-  "acceptance_criterion",
-  "risk",
-  "deviation",
-  "open_question",
-  "amendment",
+  "annotation",
 ] as const;
 
-export const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
+export const PLAN_COMMENT_STATUSES = ["open", "resolved"] as const;
 
-export const REVIEW_STATES = [
-  "unreviewed",
-  "accepted",
-  "rejected",
-  "corrected",
-  "waived",
-  "needs_evidence",
-] as const;
+export const PLAN_AUTHORS = ["agent", "human", "import"] as const;
 
-export const ACTED_ON_STATES = ["false", "true", "unknown"] as const;
+export type PlanStatus = (typeof PLAN_STATUSES)[number];
+export type PlanSource = (typeof PLAN_SOURCES)[number];
+export type PlanSectionType = (typeof PLAN_SECTION_TYPES)[number];
+export type PlanCommentKind = (typeof PLAN_COMMENT_KINDS)[number];
+export type PlanCommentStatus = (typeof PLAN_COMMENT_STATUSES)[number];
+export type PlanAuthor = (typeof PLAN_AUTHORS)[number];
 
-export const CREATED_BY_VALUES = [
-  "agent",
-  "human",
-  "detector",
-  "import",
-] as const;
-
-export const EVIDENCE_TYPES = [
-  "command",
-  "test",
-  "ci_check",
-  "screenshot",
-  "log",
-  "diff",
-  "human_note",
-  "artifact",
-] as const;
-
-export const EVIDENCE_SOURCES = [
-  "tool_captured",
-  "ci",
-  "human",
-  "agent_attestation",
-] as const;
-
-export const TRUST_LEVELS = [
-  "high",
-  "medium",
-  "low",
-  "human_confirmed",
-] as const;
-
-export const REDACTION_STATUSES = [
-  "not_needed",
-  "redacted",
-  "needs_review",
-] as const;
-
-export const VERIFICATION_STATUSES = [
-  "missing",
-  "evidence_attached",
-  "verified",
-  "failed",
-  "waived",
-  "inconclusive",
-] as const;
-
-export const VERIFIED_BY_VALUES = [
-  "deterministic_check",
-  "ci",
-  "human",
-  "independent_verifier",
-] as const;
-
-export const FEEDBACK_KINDS = [
-  "accept",
-  "reject",
-  "correct",
-  "request_evidence",
-  "ask_question",
-  "approve_amendment",
-] as const;
-
-export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
-export type ContractSource = (typeof CONTRACT_SOURCES)[number];
-export type ContractItemType = (typeof CONTRACT_ITEM_TYPES)[number];
-export type RiskLevel = (typeof RISK_LEVELS)[number];
-export type ReviewState = (typeof REVIEW_STATES)[number];
-export type ActedOnState = (typeof ACTED_ON_STATES)[number];
-export type CreatedBy = (typeof CREATED_BY_VALUES)[number];
-export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
-export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number];
-export type TrustLevel = (typeof TRUST_LEVELS)[number];
-export type RedactionStatus = (typeof REDACTION_STATUSES)[number];
-export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
-export type VerifiedBy = (typeof VERIFIED_BY_VALUES)[number];
-export type FeedbackKind = (typeof FEEDBACK_KINDS)[number];
-
-export interface ContractSummary {
+export interface PlanSummary {
   id: string;
   title: string;
-  goal: string;
-  status: ContractStatus;
-  source: ContractSource;
+  brief: string;
+  status: PlanStatus;
+  source: PlanSource;
   repoPath?: string | null;
-  currentPhase?: string | null;
+  currentFocus?: string | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
-  itemCounts: Record<string, number>;
-  reviewCount: number;
-  missingEvidenceCount: number;
-  verifiedCount: number;
+  sectionCounts: Record<string, number>;
+  commentCount: number;
+  openCommentCount: number;
 }
 
-export interface ContractItem {
+export interface Plan {
   id: string;
-  contractId: string;
-  type: ContractItemType;
+  title: string;
+  brief: string;
+  status: PlanStatus;
+  source: PlanSource;
+  repoPath?: string | null;
+  currentFocus?: string | null;
+  html?: string | null;
+  markdown?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string | null;
+}
+
+export interface PlanSection {
+  id: string;
+  planId: string;
+  type: PlanSectionType;
   title: string;
   body: string;
-  status: string;
-  risk: RiskLevel;
-  reviewState: ReviewState;
-  actedOn: ActedOnState;
-  impactSummary?: string | null;
-  affectedFiles: string[];
-  sourceRefs: string[];
-  linkedItemIds: string[];
-  createdBy: CreatedBy;
+  html?: string | null;
+  order: number;
+  createdBy: PlanAuthor;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface Evidence {
+export interface PlanComment {
   id: string;
-  contractId: string;
-  linkedItemIds: string[];
-  type: EvidenceType;
-  source: EvidenceSource;
-  trustLevel: TrustLevel;
-  summary: string;
-  content?: string | null;
-  rawOutputPath?: string | null;
-  cwd?: string | null;
-  command?: string | null;
-  exitCode?: number | null;
-  timestamp: string;
-  redactionStatus: RedactionStatus;
-  attachedBy: string;
-  createdAt: string;
-}
-
-export interface Verification {
-  id: string;
-  contractId: string;
-  criterionItemId: string;
-  evidenceIds: string[];
-  status: VerificationStatus;
-  verifiedBy?: VerifiedBy | null;
-  verifiedAt?: string | null;
-  note?: string | null;
-  createdAt: string;
-}
-
-export interface Feedback {
-  id: string;
-  contractId: string;
-  targetItemId?: string | null;
-  kind: FeedbackKind;
+  planId: string;
+  sectionId?: string | null;
+  kind: PlanCommentKind;
+  status: PlanCommentStatus;
+  anchor?: string | null;
   message: string;
-  structuredPatch?: Record<string, unknown> | null;
+  createdBy: PlanAuthor;
   consumedAt?: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
-export interface ContractEvent {
+export interface PlanEvent {
   id: string;
-  contractId: string;
+  planId: string;
   type: string;
   message: string;
   payload?: Record<string, unknown> | null;
-  createdBy: string;
+  createdBy: PlanAuthor;
   createdAt: string;
 }
 
-export interface ContractBundle {
-  contract: Omit<
-    ContractSummary,
-    "itemCounts" | "reviewCount" | "missingEvidenceCount" | "verifiedCount"
-  >;
-  items: ContractItem[];
-  evidence: Evidence[];
-  verifications: Verification[];
-  feedback: Feedback[];
-  events: ContractEvent[];
-  reviewQueue: ContractItem[];
+export interface PlanBundle {
+  plan: Plan;
+  sections: PlanSection[];
+  comments: PlanComment[];
+  events: PlanEvent[];
   summary: {
-    itemCounts: Record<string, number>;
-    reviewCount: number;
-    missingEvidenceCount: number;
-    verifiedCount: number;
+    sectionCounts: Record<string, number>;
+    commentCount: number;
+    openCommentCount: number;
   };
 }

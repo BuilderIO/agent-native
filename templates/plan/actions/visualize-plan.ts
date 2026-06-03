@@ -5,16 +5,17 @@ import {
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { addPlanTextDetections } from "./analyze-plan.js";
 import {
-  contractDeepLink,
-  contractPath,
-  contractSourceSchema,
-  loadContractBundle,
+  buildPlanHtml,
+  deriveSectionsFromText,
+  loadPlanBundle,
   newId,
   nowIso,
+  planDeepLink,
+  planPath,
+  planSourceSchema,
   writeEvent,
-} from "./_contracts.js";
+} from "./_plans.js";
 
 function inferTitle(planText: string): string {
   const firstHeading = planText
@@ -31,20 +32,21 @@ function inferTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Create an Agent-Native Plans companion from an existing Codex, Claude Code, Markdown, or pasted text plan. Use this to turn a text plan into a reviewable HTML plan with detected assumptions, proof gates, and a browser/MCP app link.",
+    "Convert an existing Codex, Claude Code, Markdown, or pasted text plan into an Agent-Native Plans HTML companion with visual sections and annotation space.",
   schema: z.object({
     title: z.string().optional().describe("Short title for the visual plan"),
-    goal: z
+    brief: z
       .string()
       .optional()
-      .describe("Goal of the existing plan; defaults to the imported plan"),
+      .describe("Brief of the existing plan; defaults to the imported text"),
+    goal: z.string().optional().describe("Compatibility alias for brief"),
     planText: z
       .string()
       .min(1)
       .describe("Existing Codex, Claude Code, Markdown, or pasted plan text"),
-    source: contractSourceSchema.optional().default("imported"),
+    source: planSourceSchema.optional().default("imported"),
     repoPath: z.string().optional().describe("Repository path for the run"),
-    currentPhase: z.string().optional().default("visual review"),
+    currentFocus: z.string().optional().default("visual review"),
   }),
   publicAgent: {
     expose: true,
@@ -53,17 +55,17 @@ export default defineAction({
     isConsequential: true,
     title: "Visualize Plan",
     description:
-      "Import an existing text plan and create an interactive Agent-Native Plans companion for review and feedback.",
+      "Import a text plan and open a richer HTML companion for visuals and feedback.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Plan Companion",
+      title: "Visual Plan",
       description:
-        "Open the Agent-Native Plans review surface for an imported Codex or Claude Code plan.",
+        "Open the Agent-Native Plans HTML companion for an imported Codex or Claude Code plan.",
       iframeTitle: "Agent-Native Plans",
       openLabel: "Open Plan",
-      height: 820,
+      height: 860,
     }),
   },
   run: async (args) => {
@@ -71,26 +73,27 @@ export default defineAction({
     if (!ownerEmail) {
       throw new Error("Visualizing a plan requires an authenticated user.");
     }
-    const id = newId("ctr");
+    const id = newId("plan");
     const now = nowIso();
     const title = args.title || inferTitle(args.planText);
-    const goal =
+    const brief =
+      args.brief ||
       args.goal ||
-      `Visual companion for an imported coding-agent plan:\n\n${args.planText.slice(
-        0,
-        4000,
-      )}`;
+      `Visual companion for an imported coding-agent plan.`;
+    const sections = deriveSectionsFromText(args.planText);
 
     await getDb()
-      .insert(schema.contracts)
+      .insert(schema.plans)
       .values({
         id,
         title,
-        goal,
+        brief,
         status: "review",
         source: args.source,
         repoPath: args.repoPath ?? null,
-        currentPhase: args.currentPhase ?? "visual review",
+        currentFocus: args.currentFocus ?? "visual review",
+        html: null,
+        markdown: args.planText,
         createdAt: now,
         updatedAt: now,
         approvedAt: null,
@@ -99,38 +102,50 @@ export default defineAction({
         visibility: "private",
       });
 
+    await getDb()
+      .insert(schema.planSections)
+      .values(
+        sections.map((section) => ({
+          id: newId("sec"),
+          planId: id,
+          type: section.type,
+          title: section.title,
+          body: section.body,
+          html: section.html ?? null,
+          order: section.order,
+          createdBy: section.createdBy,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+
     await writeEvent({
-      contractId: id,
-      type: "visual_plan.imported",
+      planId: id,
+      type: "plan.imported",
       message: "Imported text plan for visual review.",
       payload: {
         source: args.source,
         textLength: args.planText.length,
       },
-      createdBy: "agent",
+      createdBy: "import",
     });
-    const detections = await addPlanTextDetections({
-      contractId: id,
-      planText: args.planText,
-    });
-    const bundle = await loadContractBundle(id);
+
+    const bundle = await loadPlanBundle(id);
     return {
       ...bundle,
-      plan: bundle.contract,
       planId: id,
-      path: contractPath(id),
-      url: contractPath(id),
-      detections,
+      html: buildPlanHtml(bundle),
+      path: planPath(id),
+      url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native Plans companion, react to the diagrams/options/wireframes and detected review items, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
+        "Open the Agent-Native Plans companion, react to the visual sections, add comments or corrections, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
     };
   },
   link: ({ result }) => {
-    const contract = (result as { contract?: { id?: string } } | null)
-      ?.contract;
-    if (!contract?.id) return null;
+    const plan = (result as { plan?: { id?: string } } | null)?.plan;
+    if (!plan?.id) return null;
     return {
-      url: contractDeepLink(contract.id),
+      url: planDeepLink(plan.id),
       label: "Open Plan",
       view: "plan",
     };

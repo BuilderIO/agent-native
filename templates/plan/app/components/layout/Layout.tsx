@@ -67,11 +67,11 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen
-          emptyStateText="Ask an agent to create a visual plan before editing."
+          emptyStateText="Ask an agent to create an HTML plan before editing."
           suggestions={[
-            "Create a visual plan for this feature before implementation",
-            "Turn this Markdown plan into diagrams and wireframes",
-            "Show me proof gates before calling this done",
+            "Create an HTML plan for this feature before implementation",
+            "Turn this Markdown plan into a visual companion",
+            "Add wireframes and diagrams so I can react quickly",
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">

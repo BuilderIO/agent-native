@@ -10,7 +10,7 @@ import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
-  contractId?: string;
+  planId?: string;
 }
 
 export function useNavigationState() {
@@ -23,10 +23,8 @@ export function useNavigationState() {
     const state: NavigationState = {
       view: viewForPath(location.pathname),
     };
-    const contractMatch = location.pathname.match(
-      /^\/(?:plans|contracts)\/([^/]+)/,
-    );
-    if (contractMatch) state.contractId = decodeURIComponent(contractMatch[1]);
+    const planMatch = location.pathname.match(/^\/plans\/([^/]+)/);
+    if (planMatch) state.planId = decodeURIComponent(planMatch[1]);
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
@@ -93,8 +91,8 @@ function viewForPath(pathname: string): string {
 }
 
 function pathForCommand(command: NavigationState): string {
-  if (command.contractId) {
-    return `/plans/${encodeURIComponent(command.contractId)}`;
+  if (command.planId) {
+    return `/plans/${encodeURIComponent(command.planId)}`;
   }
   return pathForView(command.view);
 }
@@ -104,9 +102,6 @@ function pathForView(view?: string): string {
     case "plan":
     case "plans":
       return "/plans";
-    case "contract":
-    case "contracts":
-      return "/";
     case "extensions":
       return "/extensions";
     case "team":

@@ -4,14 +4,16 @@ export default runMigrations(
   [
     {
       version: 1,
-      sql: `CREATE TABLE IF NOT EXISTS contracts (
+      sql: `CREATE TABLE IF NOT EXISTS plans (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  goal TEXT NOT NULL,
+  brief TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft',
   source TEXT NOT NULL DEFAULT 'manual',
   repo_path TEXT,
-  current_phase TEXT,
+  current_focus TEXT,
+  html TEXT,
+  markdown TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   approved_at TEXT,
@@ -22,20 +24,14 @@ export default runMigrations(
     },
     {
       version: 2,
-      sql: `CREATE TABLE IF NOT EXISTS contract_items (
+      sql: `CREATE TABLE IF NOT EXISTS plan_sections (
   id TEXT PRIMARY KEY,
-  contract_id TEXT NOT NULL REFERENCES contracts(id),
-  type TEXT NOT NULL,
+  plan_id TEXT NOT NULL REFERENCES plans(id),
+  type TEXT NOT NULL DEFAULT 'custom',
   title TEXT NOT NULL,
-  body TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open',
-  risk TEXT NOT NULL DEFAULT 'medium',
-  review_state TEXT NOT NULL DEFAULT 'unreviewed',
-  acted_on TEXT NOT NULL DEFAULT 'unknown',
-  impact_summary TEXT,
-  affected_files TEXT NOT NULL DEFAULT '[]',
-  source_refs TEXT NOT NULL DEFAULT '[]',
-  linked_item_ids TEXT NOT NULL DEFAULT '[]',
+  body TEXT NOT NULL DEFAULT '',
+  html TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_by TEXT NOT NULL DEFAULT 'agent',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -43,57 +39,25 @@ export default runMigrations(
     },
     {
       version: 3,
-      sql: `CREATE TABLE IF NOT EXISTS contract_evidence (
+      sql: `CREATE TABLE IF NOT EXISTS plan_comments (
   id TEXT PRIMARY KEY,
-  contract_id TEXT NOT NULL REFERENCES contracts(id),
-  linked_item_ids TEXT NOT NULL DEFAULT '[]',
-  type TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'agent_attestation',
-  trust_level TEXT NOT NULL DEFAULT 'low',
-  summary TEXT NOT NULL,
-  content TEXT,
-  raw_output_path TEXT,
-  cwd TEXT,
-  command TEXT,
-  exit_code INTEGER,
-  timestamp TEXT NOT NULL,
-  redaction_status TEXT NOT NULL DEFAULT 'not_needed',
-  attached_by TEXT NOT NULL DEFAULT 'agent',
-  created_at TEXT NOT NULL
+  plan_id TEXT NOT NULL REFERENCES plans(id),
+  section_id TEXT REFERENCES plan_sections(id),
+  kind TEXT NOT NULL DEFAULT 'comment',
+  status TEXT NOT NULL DEFAULT 'open',
+  anchor TEXT,
+  message TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT 'human',
+  consumed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 )`,
     },
     {
       version: 4,
-      sql: `CREATE TABLE IF NOT EXISTS contract_verifications (
+      sql: `CREATE TABLE IF NOT EXISTS plan_events (
   id TEXT PRIMARY KEY,
-  contract_id TEXT NOT NULL REFERENCES contracts(id),
-  criterion_item_id TEXT NOT NULL REFERENCES contract_items(id),
-  evidence_ids TEXT NOT NULL DEFAULT '[]',
-  status TEXT NOT NULL DEFAULT 'missing',
-  verified_by TEXT,
-  verified_at TEXT,
-  note TEXT,
-  created_at TEXT NOT NULL
-)`,
-    },
-    {
-      version: 5,
-      sql: `CREATE TABLE IF NOT EXISTS contract_feedback (
-  id TEXT PRIMARY KEY,
-  contract_id TEXT NOT NULL REFERENCES contracts(id),
-  target_item_id TEXT REFERENCES contract_items(id),
-  kind TEXT NOT NULL,
-  message TEXT NOT NULL,
-  structured_patch TEXT,
-  consumed_at TEXT,
-  created_at TEXT NOT NULL
-)`,
-    },
-    {
-      version: 6,
-      sql: `CREATE TABLE IF NOT EXISTS contract_events (
-  id TEXT PRIMARY KEY,
-  contract_id TEXT NOT NULL REFERENCES contracts(id),
+  plan_id TEXT NOT NULL REFERENCES plans(id),
   type TEXT NOT NULL,
   message TEXT NOT NULL,
   payload TEXT,
@@ -102,9 +66,9 @@ export default runMigrations(
 )`,
     },
     {
-      version: 7,
+      version: 5,
       sql: {
-        postgres: `CREATE TABLE IF NOT EXISTS contract_shares (
+        postgres: `CREATE TABLE IF NOT EXISTS plan_shares (
   id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   principal_type TEXT NOT NULL,
@@ -113,7 +77,7 @@ export default runMigrations(
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (now())
 )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS contract_shares (
+        sqlite: `CREATE TABLE IF NOT EXISTS plan_shares (
   id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   principal_type TEXT NOT NULL,
@@ -125,21 +89,17 @@ export default runMigrations(
       },
     },
     {
+      version: 6,
+      sql: `CREATE INDEX IF NOT EXISTS plans_owner_status_idx ON plans(owner_email, org_id, status, updated_at)`,
+    },
+    {
+      version: 7,
+      sql: `CREATE INDEX IF NOT EXISTS plan_sections_plan_idx ON plan_sections(plan_id, sort_order)`,
+    },
+    {
       version: 8,
-      sql: `CREATE INDEX IF NOT EXISTS contracts_owner_status_idx ON contracts(owner_email, org_id, status, updated_at)`,
-    },
-    {
-      version: 9,
-      sql: `CREATE INDEX IF NOT EXISTS contract_items_contract_review_idx ON contract_items(contract_id, review_state, risk)`,
-    },
-    {
-      version: 10,
-      sql: `CREATE INDEX IF NOT EXISTS contract_evidence_contract_idx ON contract_evidence(contract_id)`,
-    },
-    {
-      version: 11,
-      sql: `CREATE INDEX IF NOT EXISTS contract_feedback_contract_consumed_idx ON contract_feedback(contract_id, consumed_at)`,
+      sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_status_idx ON plan_comments(plan_id, status, consumed_at)`,
     },
   ],
-  { table: "contracts_migrations" },
+  { table: "plans_migrations" },
 );

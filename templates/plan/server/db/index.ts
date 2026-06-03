@@ -6,11 +6,11 @@ export const getDb = createGetDb(schema);
 export { schema };
 
 registerShareableResource({
-  type: "contract",
-  resourceTable: schema.contracts,
-  sharesTable: schema.contractShares,
+  type: "plan",
+  resourceTable: schema.plans,
+  sharesTable: schema.planShares,
   displayName: "Plan",
   titleColumn: "title",
-  getResourcePath: (contract) => `/plans/${contract.id}`,
+  getResourcePath: (plan) => `/plans/${plan.id}`,
   getDb,
 });

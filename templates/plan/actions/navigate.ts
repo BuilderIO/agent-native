@@ -5,7 +5,7 @@
  *
  * Usage:
  *   pnpm action navigate --view=plans
- *   pnpm action navigate --view=plan --contractId=ctr_...
+ *   pnpm action navigate --view=plan --planId=plan_...
  *
  * Options:
  *   --view   View name to navigate to
@@ -21,21 +21,21 @@ export default defineAction({
     "Navigate the Agent-Native Plans UI to the plan list or a specific visual plan.",
   schema: z.object({
     view: z
-      .enum(["plans", "plan", "contracts", "contract", "extensions", "team"])
+      .enum(["plans", "plan", "extensions", "team"])
       .optional()
       .describe("View name to navigate to"),
-    contractId: z.string().optional().describe("Plan to open"),
+    planId: z.string().optional().describe("Plan to open"),
   }),
   http: false,
   run: async (args) => {
-    if (!args.view && !args.contractId) {
-      return "Error: At least --view or --contractId is required.";
+    if (!args.view && !args.planId) {
+      return "Error: At least --view or --planId is required.";
     }
     const nav: Record<string, string> = {};
     nav.view = args.view ?? "plan";
-    if (args.contractId) nav.contractId = args.contractId;
+    if (args.planId) nav.planId = args.planId;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await writeAppState("navigate", nav);
-    return `Navigating to ${nav.view}${args.contractId ? ` (${args.contractId})` : ""}`;
+    return `Navigating to ${nav.view}${args.planId ? ` (${args.planId})` : ""}`;
   },
 });

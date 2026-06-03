@@ -13,11 +13,11 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { loadContractBundle, summarizeContracts } from "./_contracts.js";
+import { loadPlanBundle, summarizePlans } from "./_plans.js";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at in Agent-Native Plans, including active plan, review queue, feedback, annotations, and proof summary.",
+    "See what the user is currently looking at in Agent-Native Plans, including the active HTML plan, sections, and annotations.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -26,50 +26,38 @@ export default defineAction({
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
-    const nav = navigation as { contractId?: string; view?: string } | null;
+    const nav = navigation as { planId?: string; view?: string } | null;
 
-    if (nav?.contractId) {
+    if (nav?.planId) {
       try {
-        const bundle = await loadContractBundle(nav.contractId);
+        const bundle = await loadPlanBundle(nav.planId);
         screen.visualPlan = {
-          plan: bundle.contract,
+          plan: bundle.plan,
           summary: bundle.summary,
-          reviewQueue: bundle.reviewQueue,
-          unconsumedFeedback: bundle.feedback.filter(
-            (item) => !item.consumedAt,
+          sections: bundle.sections.map((section) => ({
+            id: section.id,
+            type: section.type,
+            title: section.title,
+            order: section.order,
+          })),
+          openComments: bundle.comments.filter(
+            (comment) => comment.status === "open",
           ),
-          acceptanceCriteria: bundle.items
-            .filter((item) => item.type === "acceptance_criterion")
-            .map((item) => ({
-              id: item.id,
-              title: item.title,
-              reviewState: item.reviewState,
-              evidenceCount: bundle.evidence.filter((evidence) =>
-                evidence.linkedItemIds.includes(item.id),
-              ).length,
-              verification:
-                bundle.verifications
-                  .filter(
-                    (verification) => verification.criterionItemId === item.id,
-                  )
-                  .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-                  .pop()?.status ?? "missing",
-            })),
         };
       } catch {
-        screen.visualPlanError = `Could not load visual plan ${nav.contractId}`;
+        screen.visualPlanError = `Could not load visual plan ${nav.planId}`;
       }
     }
 
-    if (!nav?.contractId || nav.view === "plans" || nav.view === "contracts") {
+    if (!nav?.planId || nav.view === "plans") {
       try {
         const rows = await getDb()
           .select()
-          .from(schema.contracts)
-          .where(accessFilter(schema.contracts, schema.contractShares))
-          .orderBy(desc(schema.contracts.updatedAt))
+          .from(schema.plans)
+          .where(accessFilter(schema.plans, schema.planShares))
+          .orderBy(desc(schema.plans.updatedAt))
           .limit(12);
-        screen.visualPlansList = await summarizeContracts(rows);
+        screen.visualPlansList = await summarizePlans(rows);
       } catch {
         // continue without list detail
       }
