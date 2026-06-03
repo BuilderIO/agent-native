@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.9.3
+
+### Patch Changes
+
+- 31646a3: Keep Dispatch thread preview route metadata browser-safe by moving pure preview helpers out of server modules.
+
 ## 0.9.2
 
 ### Patch Changes
