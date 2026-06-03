@@ -32,13 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -777,15 +770,15 @@ function CommentsSheet({
     );
   };
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>Plan comments</SheetTitle>
-          <SheetDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[86vh] flex-col sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Plan comments</DialogTitle>
+          <DialogDescription>
             Add concise feedback the agent can read with get-plan-feedback.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="grid gap-3 py-4">
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
           <Select
             value={kind}
             onValueChange={(value) => setKind(value as PlanCommentKind)}
@@ -874,8 +867,8 @@ function CommentsSheet({
             )}
           </div>
         </ScrollArea>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 
