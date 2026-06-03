@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { resolveCredential, type CredentialContext } from "../credentials/index.js";
+import {
+  resolveCredential,
+  type CredentialContext,
+} from "../credentials/index.js";
 import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
@@ -167,9 +170,9 @@ export interface ProviderApiRuntimeOptions {
 
 interface ProviderApiRuntime {
   providerIds: readonly ProviderApiId[];
-  listCatalog(provider?: ProviderApiId | string): ReturnType<
-    typeof listProviderApiCatalog
-  >;
+  listCatalog(
+    provider?: ProviderApiId | string,
+  ): ReturnType<typeof listProviderApiCatalog>;
   fetchDocs(options: {
     provider: ProviderApiId | string;
     url?: string;
@@ -901,8 +904,7 @@ export function createProviderApiRuntime(
       listProviderApiCatalog(provider, { providerIds }),
     fetchDocs: (docsOptions) =>
       fetchProviderApiDocs(docsOptions, runtimeOptions),
-    executeRequest: (args) =>
-      executeProviderApiRequest(args, runtimeOptions),
+    executeRequest: (args) => executeProviderApiRequest(args, runtimeOptions),
   };
 }
 
@@ -1630,7 +1632,9 @@ async function getValidOAuthAccessToken(options: {
   const accessToken =
     options.tokens.access_token ?? options.tokens.accessToken ?? "";
   if (!accessToken) {
-    throw new Error(`${options.oauthProvider} OAuth account has no access token.`);
+    throw new Error(
+      `${options.oauthProvider} OAuth account has no access token.`,
+    );
   }
   const expiresAt = options.tokens.expiry_date ?? options.tokens.expiresAt;
   if (
@@ -1664,7 +1668,9 @@ async function refreshGoogleOAuthToken(
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    throw new Error("GOOGLE_CLIENT_ID/SECRET not set for Google OAuth refresh.");
+    throw new Error(
+      "GOOGLE_CLIENT_ID/SECRET not set for Google OAuth refresh.",
+    );
   }
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
