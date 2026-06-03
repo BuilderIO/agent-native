@@ -7,7 +7,7 @@ import { contractStatusSchema, summarizeContracts } from "./_contracts.js";
 
 export default defineAction({
   description:
-    "List Visual Plans with review, annotation, and proof summaries.",
+    "List Agent-Native Plans with review, annotation, and proof summaries.",
   schema: z.object({
     status: contractStatusSchema.optional(),
   }),
