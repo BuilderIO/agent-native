@@ -1181,12 +1181,32 @@ export function App() {
           ) {
             return;
           }
-          session.paused = false;
           try {
             await startMeetingAudio();
           } catch (err) {
-            console.warn("[clips-popover] meeting audio resume failed:", err);
+            console.warn(
+              "[clips-popover] mic + system meeting audio resume failed, falling back to mic-only:",
+              err,
+            );
+            try {
+              session.audioMode = "mic-only";
+              await invoke("native_speech_start", {
+                locale: navigator.language || "en-US",
+                micDeviceId: selectedMicId || null,
+                micDeviceLabel: selectedMicLabel || null,
+              });
+            } catch (fallbackErr) {
+              // Keep the session marked paused so the user can retry resume
+              // instead of silently losing the rest of the transcript.
+              console.warn(
+                "[clips-popover] meeting audio resume fallback failed:",
+                fallbackErr,
+              );
+              return;
+            }
           }
+          // Only clear the paused flag once audio is actually running again.
+          session.paused = false;
           await invoke("silence_detector_start", {
             config: silenceDetectorConfig,
           }).catch(() => {});
