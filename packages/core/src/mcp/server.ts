@@ -247,13 +247,19 @@ export async function handleMcpRequest(
     return { error: "Unauthorized" };
   }
 
-  // Stateless mode: only POST is meaningful
+  // Stateless mode: only POST is meaningful. A stateless, per-request transport
+  // on serverless cannot keep the standalone GET SSE stream (server->client
+  // channel) alive across invocations — once the function returns and freezes,
+  // that stream dies and the client reports "session expired" / "not
+  // connected". The spec lets a server that offers no GET stream answer 405, so
+  // the client falls back to plain POST request/response. Reject GET here
+  // instead of letting the SDK open a doomed stream.
   if (method === "DELETE") {
     setResponseStatus(event, 204);
     return "";
   }
 
-  if (method !== "POST" && method !== "GET") {
+  if (method !== "POST") {
     setResponseStatus(event, 405);
     return { error: "Method not allowed" };
   }
@@ -281,6 +287,12 @@ export async function handleMcpRequest(
       await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
+      // Return JSON request/response instead of SSE. A stateless serverless
+      // instance can freeze right after returning a streaming Response, before
+      // the deferred SSE result event is flushed — the client then never gets
+      // the tools/call result and reports "session expired". JSON mode awaits
+      // the result inside the request lifecycle and returns it as one body.
+      enableJsonResponse: true,
     });
     await server.connect(transport);
     try {
@@ -321,6 +333,10 @@ export async function handleMcpRequest(
     await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js");
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless — same as the Node path
+    // JSON request/response (not SSE) — see the Node fast-path note above.
+    // This is the serverless-safe framing: the result is computed and returned
+    // within the request, never pushed onto a stream after the instance froze.
+    enableJsonResponse: true,
   });
   await server.connect(transport);
   const webRequest = buildWebRequest(event, method);
@@ -343,8 +359,10 @@ export async function handleMcpRequest(
  *
  * Endpoint: `{routePrefix}/mcp` (default `/_agent-native/mcp`)
  *
- * Uses stateless Streamable HTTP transport — no in-memory sessions,
- * compatible with serverless deployments. Runtime-agnostic: a real Node
+ * Uses stateless Streamable HTTP transport — no in-memory sessions, JSON
+ * request/response (no SSE), and no standalone GET stream, so it survives
+ * serverless instances that freeze between invocations (SSE framing there
+ * drops the result and clients report "session expired"). Runtime-agnostic: a real Node
  * server uses the SDK's Node transport; the web-standard runtime (Nitro 3 /
  * Netlify web runtime, Cloudflare, Deno, Bun) uses the SDK's web-standard
  * transport. Both build the same server and produce identical JSON-RPC
