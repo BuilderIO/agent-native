@@ -331,11 +331,11 @@ export function buildPlanHtml(bundle: PlanBundle): string {
       <p class="kicker">Working plan</p>
       <h1>${title}</h1>
       <p class="lede">${brief}</p>
-      <div class="meta">
-        <span>${escapeHtml(bundle.plan.source)}</span>
-        <span>${escapeHtml(bundle.plan.status.replace(/_/g, " "))}</span>
-        ${bundle.plan.repoPath ? `<span>${escapeHtml(bundle.plan.repoPath)}</span>` : ""}
-      </div>
+      <ul class="meta">
+        <li>${escapeHtml(bundle.plan.source)}</li>
+        <li>${escapeHtml(bundle.plan.status.replace(/_/g, " "))}</li>
+        ${bundle.plan.repoPath ? `<li>${escapeHtml(bundle.plan.repoPath)}</li>` : ""}
+      </ul>
     </section>
     ${sectionHtml}
   </main>
@@ -442,7 +442,7 @@ export function escapeHtml(value: unknown) {
 }
 
 const DOCUMENT_CSS = `
-:root { color-scheme: dark; --bg: #0a0a0b; --paper: #111113; --paper-2: #171719; --line: #28282c; --text: #f2f2f3; --muted: #a4a4aa; --soft: #d7d7da; --accent: #64d2c8; --accent-soft: rgba(100,210,200,.12); }
+:root { color-scheme: dark; --bg: #0a0a0b; --paper: #111113; --paper-2: #171719; --line: #28282c; --text: #f2f2f3; --muted: #a4a4aa; --soft: #d7d7da; --accent: #64d2c8; --accent-soft: rgba(100,210,200,.12); --shadow: 0 24px 70px rgba(0,0,0,.28); }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
@@ -451,10 +451,9 @@ main { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 96px 0 9
 .kicker, .section-type { margin: 0 0 12px; color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spacing: -.04em; }
 .lede { margin: 20px 0 0; color: var(--soft); font-size: clamp(18px, 2vw, 23px); line-height: 1.45; }
-.meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
-.meta span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--muted); font-size: 12px; }
-.plan-section { border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
-.plan-section { margin-top: 18px; padding: clamp(22px, 4vw, 34px); scroll-margin-top: 72px; }
+.meta { display: grid; gap: 7px; margin: 26px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+.meta li::marker { color: var(--accent); }
+.plan-section { margin-top: 70px; padding-top: 46px; border-top: 1px solid var(--line); scroll-margin-top: 72px; }
 .plan-section h2 { margin: 0; font-size: clamp(26px, 4vw, 42px); letter-spacing: -.035em; }
 .copy { max-width: 760px; margin-top: 18px; color: var(--soft); font-size: 17px; }
 .copy p { margin: 0 0 14px; }
@@ -466,7 +465,7 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .flow-diagram div:not(:last-child)::after { content: ""; position: absolute; top: 50%; right: -10px; width: 10px; height: 1px; background: var(--accent); }
 .flow-diagram strong { display: block; margin-bottom: 8px; }
 .flow-diagram span { color: var(--muted); font-size: 14px; }
-.wireframe-shell { overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--paper-2); }
+.wireframe-shell { overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--paper-2); box-shadow: var(--shadow); }
 .window-bar { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .window-bar i { width: 8px; height: 8px; border-radius: 999px; background: #4a4a50; }
 .window-bar strong { margin-left: auto; font-weight: 600; color: var(--soft); }

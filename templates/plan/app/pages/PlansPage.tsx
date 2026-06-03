@@ -7,11 +7,14 @@ import {
   IconChevronRight,
   IconCursorText,
   IconMessageCircle,
+  IconMoon,
   IconPlus,
   IconShare3,
   IconSparkles,
+  IconSun,
   IconX,
 } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -157,6 +160,9 @@ export function PlansPage() {
   const createPlan = useCreatePlan();
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDarkTheme = resolvedTheme !== "light";
+  const planTheme = isDarkTheme ? "dark" : "light";
 
   useSetPageTitle(bundle?.plan.title || "Plans");
 
@@ -167,8 +173,13 @@ export function PlansPage() {
 
   const annotatedDocumentHtml = useMemo(() => {
     if (!bundle) return "";
-    return injectAnnotationRuntime(documentHtml, bundle.comments, annotateMode);
-  }, [annotateMode, bundle, documentHtml]);
+    return injectAnnotationRuntime(
+      documentHtml,
+      bundle.comments,
+      annotateMode,
+      planTheme,
+    );
+  }, [annotateMode, bundle, documentHtml, planTheme]);
 
   const getPositionFromAnchor = useCallback((anchor: PlanAnnotationAnchor) => {
     const rect = iframeRef.current?.getBoundingClientRect();
@@ -429,7 +440,7 @@ export function PlansPage() {
           ) : !bundle ? (
             <EmptyPlan onCreate={() => setCreateOpen(true)} />
           ) : (
-            <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+            <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
               <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -459,6 +470,31 @@ export function PlansPage() {
                   </TooltipTrigger>
                   <TooltipContent>
                     {immersiveReader ? "App view" : "Full screen"}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      onClick={() => setTheme(isDarkTheme ? "light" : "dark")}
+                      aria-label={
+                        isDarkTheme
+                          ? "Switch to light mode"
+                          : "Switch to dark mode"
+                      }
+                    >
+                      {isDarkTheme ? (
+                        <IconSun className="size-4" />
+                      ) : (
+                        <IconMoon className="size-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isDarkTheme ? "Light mode" : "Dark mode"}
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
@@ -517,7 +553,7 @@ export function PlansPage() {
                 srcDoc={annotatedDocumentHtml}
                 sandbox="allow-forms allow-scripts"
                 className={cn(
-                  "h-full min-h-full w-full border-0 bg-black",
+                  "h-full min-h-full w-full border-0 bg-background",
                   annotateMode && "ring-1 ring-inset ring-primary/35",
                 )}
               />
@@ -982,6 +1018,7 @@ function injectAnnotationRuntime(
   html: string,
   comments: PlanBundle["comments"],
   annotateMode: boolean,
+  theme: "dark" | "light",
 ) {
   const annotations = comments
     .map((comment, index) => ({
@@ -993,7 +1030,7 @@ function injectAnnotationRuntime(
       anchor: parseAnchor(comment.anchor),
     }))
     .filter((comment) => comment.anchor);
-  const payload = JSON.stringify({ annotateMode, annotations }).replace(
+  const payload = JSON.stringify({ annotateMode, annotations, theme }).replace(
     /[<>&\u2028\u2029]/g,
     (char) =>
       ({
@@ -1005,6 +1042,40 @@ function injectAnnotationRuntime(
       })[char] ?? char,
   );
   const runtime = `<style>
+    :root[data-agent-native-theme="light"] {
+      color-scheme: light;
+      --bg: #f7f7f4;
+      --paper: #ffffff;
+      --paper-2: #f3f3ef;
+      --paper-3: #e9e9e3;
+      --line: #dadad2;
+      --line-soft: #e8e8e2;
+      --text: #171717;
+      --soft: #4b4b4b;
+      --muted: #70706c;
+      --faint: #999992;
+      --accent: #188b83;
+      --accent-soft: rgba(24, 139, 131, .11);
+      --shadow: 0 24px 70px rgba(29, 29, 24, .08);
+    }
+    :root[data-agent-native-theme="light"] body { background: var(--bg) !important; color: var(--text) !important; }
+    :root[data-agent-native-theme="light"] code { background: #eeeeea !important; color: #242424 !important; }
+    :root[data-agent-native-theme="light"] .mock-plan,
+    :root[data-agent-native-theme="light"] .mock-sidebar,
+    :root[data-agent-native-theme="light"] .diagram-card,
+    :root[data-agent-native-theme="light"] .mock-browser { background-color: #ffffff !important; }
+    :root[data-agent-native-theme="light"] .floating-tools,
+    :root[data-agent-native-theme="light"] .product-screen,
+    :root[data-agent-native-theme="light"] .comment-screen,
+    :root[data-agent-native-theme="light"] .annotation-card,
+    :root[data-agent-native-theme="light"] .inline-comment,
+    :root[data-agent-native-theme="light"] .panel { background-color: #f5f5f1 !important; }
+    :root[data-agent-native-theme="light"] .doc-title,
+    :root[data-agent-native-theme="light"] .tool.primary,
+    :root[data-agent-native-theme="light"] .pin { background: #171717 !important; color: #ffffff !important; }
+    :root[data-agent-native-theme="light"] .doc-line,
+    :root[data-agent-native-theme="light"] .panel i,
+    :root[data-agent-native-theme="light"] .pill { background: #d8d8d2 !important; }
     .an-plan-annotating, .an-plan-annotating * { cursor: crosshair !important; }
     .an-plan-annotation-layer { position: absolute; inset: 0; z-index: 2147483000; pointer-events: none; }
     .an-plan-marker { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: #f3f3f4; color: #0a0a0b; font: 700 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 28px rgba(0,0,0,.36); pointer-events: auto; }
@@ -1013,6 +1084,7 @@ function injectAnnotationRuntime(
     (() => {
       const state = ${payload};
       const root = document.documentElement;
+      root.dataset.agentNativeTheme = state.theme || "dark";
       if (state.annotateMode) root.classList.add("an-plan-annotating");
       function postDocState() {
         const doc = document.documentElement;
@@ -1121,14 +1193,14 @@ function buildClientPlanHtml(bundle: PlanBundle) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escape(
     bundle.plan.title,
   )}</title><style>
-  :root{color-scheme:dark;--bg:#0a0a0b;--paper:#111113;--line:#28282c;--text:#f2f2f3;--muted:#a4a4aa;--accent:#64d2c8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}main{width:min(1080px,calc(100vw - 48px));margin:0 auto;padding:96px 0 96px}h1{max-width:760px;margin:0;font-size:clamp(36px,5vw,58px);line-height:1.03;letter-spacing:-.04em}.lede{max-width:760px;margin:20px 0 0;color:#d7d7da;font-size:clamp(18px,2vw,23px);line-height:1.45}.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}.meta span{border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}.section{margin-top:18px;border:1px solid var(--line);border-radius:18px;background:var(--paper);padding:clamp(22px,4vw,34px)}.type{margin:0 0 12px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.section h2{margin:0;font-size:clamp(26px,4vw,42px);letter-spacing:-.035em}.section p{max-width:760px;color:#d7d7da;font-size:17px}.visual{margin:24px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.visual i{display:block;height:120px;border:1px solid rgba(100,210,200,.25);border-radius:14px;background:rgba(100,210,200,.12)}@media(max-width:760px){.visual{grid-template-columns:1fr}main{width:min(100vw - 24px,980px);padding-top:72px}}
+  :root{color-scheme:dark;--bg:#0a0a0b;--paper:#111113;--line:#28282c;--text:#f2f2f3;--muted:#a4a4aa;--accent:#64d2c8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}main{width:min(1080px,calc(100vw - 48px));margin:0 auto;padding:96px 0 96px}h1{max-width:760px;margin:0;font-size:clamp(36px,5vw,58px);line-height:1.03;letter-spacing:-.04em}.lede{max-width:760px;margin:20px 0 0;color:#d7d7da;font-size:clamp(18px,2vw,23px);line-height:1.45}.meta{display:grid;gap:7px;margin:24px 0 0;padding-left:20px;color:var(--muted);font-size:13px}.meta li::marker{color:var(--accent)}.section{margin-top:70px;padding-top:46px;border-top:1px solid var(--line)}.type{margin:0 0 12px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.section h2{margin:0;font-size:clamp(26px,4vw,42px);letter-spacing:-.035em}.section p{max-width:760px;color:#d7d7da;font-size:17px}.visual{margin:24px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.visual i{display:block;height:120px;border:1px solid rgba(100,210,200,.25);border-radius:14px;background:rgba(100,210,200,.12)}@media(max-width:760px){.visual{grid-template-columns:1fr}main{width:min(100vw - 24px,980px);padding-top:72px}}
   </style></head><body><main><p class="type">Working plan</p><h1>${escape(
     bundle.plan.title,
   )}</h1><p class="lede">${escape(
     bundle.plan.brief,
-  )}</p><div class="meta"><span>${escape(
+  )}</p><ul class="meta"><li>${escape(
     bundle.plan.source,
-  )}</span><span>${escape(statusLabel(bundle.plan.status))}</span></div>${bundle.sections
+  )}</li><li>${escape(statusLabel(bundle.plan.status))}</li></ul>${bundle.sections
     .map(
       (section) =>
         `<section class="section"><p class="type">${escape(section.type)}</p><h2>${escape(section.title)}</h2>${["diagram", "wireframe", "prototype"].includes(section.type) ? '<div class="visual"><i></i><i></i><i></i></div>' : ""}<p>${escape(section.body)}</p></section>`,
