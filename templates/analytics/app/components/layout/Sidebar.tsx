@@ -271,9 +271,7 @@ function VisibilityDot({ visibility }: { visibility: Visibility }) {
     <span
       className={cn(
         "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-        visibility === "private"
-          ? "bg-muted-foreground/40"
-          : "bg-blue-400",
+        visibility === "private" ? "bg-muted-foreground/40" : "bg-blue-400",
       )}
       aria-label={visibility === "private" ? "Private" : "Shared with org"}
     />
@@ -704,7 +702,9 @@ function SortableDashboardItem({
       onArchive={onArchive ? () => onArchive(d) : undefined}
       onPrefetch={() => onPrefetch?.(d)}
       visibility={d.visibility}
-      onSetVisibility={onSetVisibility ? (v) => onSetVisibility(d, v) : undefined}
+      onSetVisibility={
+        onSetVisibility ? (v) => onSetVisibility(d, v) : undefined
+      }
     >
       {isActive && allSubviews.length > 0 && (
         <div className="ml-6 mt-0.5 space-y-0.5">
@@ -906,6 +906,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
+  keptAt?: string | null;
 };
 
 async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
@@ -927,10 +928,13 @@ async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
         d.visibility === "org" || d.visibility === "public"
           ? (d.visibility as Visibility)
           : ("private" as Visibility),
+      keptAt: typeof d.keptAt === "string" ? d.keptAt : null,
     }));
 }
 
-async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
+async function fetchSidebarAnalyses(): Promise<
+  { id: string; name: string; keptAt: string | null; visibility: Visibility }[]
+> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/analyses"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -1499,7 +1503,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const handleDashboardSetVisibility = useCallback(
     async (d: SidebarDashboard, visibility: Visibility) => {
       if (d.source === "static") return;
-      const queryKey = ["sql-dashboards-sidebar", dashboardsSyncRef.current] as const;
+      const queryKey = [
+        "sql-dashboards-sidebar",
+        dashboardsSyncRef.current,
+      ] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         queryKey,

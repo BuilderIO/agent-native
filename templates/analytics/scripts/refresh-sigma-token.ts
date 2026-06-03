@@ -49,10 +49,12 @@ export default async function main(_args: string[]) {
     expires_in: number;
   };
 
-  console.log(`Token obtained (expires in ${expires_in}s ~${Math.round(expires_in / 60)} min)`);
+  console.log(
+    `Token obtained (expires in ${expires_in}s ~${Math.round(expires_in / 60)} min)`,
+  );
 
   const sql = postgres(dbUrl, { ssl: "require", max: 1 });
-  const now = BigInt(Date.now());
+  const now = new Date().toISOString();
 
   const server = {
     id: "mcps_sigma",
@@ -69,5 +71,7 @@ export default async function main(_args: string[]) {
 
   await sql.end();
   console.log("✓ Sigma MCP token refreshed in org settings");
-  console.log("  Restart the dev server or wait for MCP reconnect to take effect.");
+  console.log(
+    "  Restart the dev server or wait for MCP reconnect to take effect.",
+  );
 }

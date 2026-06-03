@@ -195,9 +195,13 @@ export default function SqlDashboardPage() {
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [keptAt, setKeptAt] = useState<string | null>(null);
-  const [dashboardVisibility, setDashboardVisibility] = useState<"private" | "org" | "public">("private");
+  const [dashboardVisibility, setDashboardVisibility] = useState<
+    "private" | "org" | "public"
+  >("private");
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
-  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(null);
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
     null,
   );

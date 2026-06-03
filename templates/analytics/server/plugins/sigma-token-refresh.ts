@@ -30,10 +30,13 @@ async function refreshSigmaToken() {
       return;
     }
 
-    const { access_token } = (await tokenRes.json()) as { access_token: string; expires_in: number };
+    const { access_token } = (await tokenRes.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
 
     const sql = postgres(dbUrl, { ssl: "require", max: 1 });
-    const now = BigInt(Date.now());
+    const now = new Date().toISOString();
     const server = {
       id: "mcps_sigma",
       name: "sigma",

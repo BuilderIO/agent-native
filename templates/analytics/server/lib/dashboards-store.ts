@@ -45,6 +45,8 @@ export interface DashboardRecord {
   updatedAt: string;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
   archivedAt: string | null;
+  /** Set when a user clicks "Keep" during the one-time cleanup pass. Null = unclaimed. */
+  keptAt: string | null;
   /** Effective role for the caller when loaded by id. List rows omit this. */
   role?: AccessRole;
   canEdit?: boolean;
@@ -68,6 +70,8 @@ export interface AnalysisRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
+  /** Set when a user clicks "Keep" during the one-time cleanup pass. Null = unclaimed. */
+  keptAt: string | null;
   /** Effective role for the caller when loaded by id. List rows omit this. */
   role?: AccessRole;
   canEdit?: boolean;
@@ -150,6 +154,7 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     archivedAt: row.archivedAt ?? null,
+    keptAt: row.keptAt ?? null,
     ...accessFields(role),
   };
 }
@@ -549,6 +554,7 @@ function rowToAnalysis(row: any, role?: AccessRole): AnalysisRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    keptAt: row.keptAt ?? null,
     ...accessFields(role),
   };
 }

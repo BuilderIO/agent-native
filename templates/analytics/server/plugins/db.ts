@@ -184,10 +184,12 @@ export default runMigrations(
     {
       // One-time pass: make all pre-existing private dashboards org-visible so
       // teammates can open them and decide whether to keep them.
+      // guard:allow-unscoped — schema migration: intentional bulk visibility backfill, not a runtime query
       version: 23,
       sql: `UPDATE dashboards SET visibility = 'org' WHERE visibility = 'private'`,
     },
     {
+      // guard:allow-unscoped — schema migration: intentional bulk visibility backfill, not a runtime query
       version: 24,
       sql: `UPDATE analyses SET visibility = 'org' WHERE visibility = 'private'`,
     },

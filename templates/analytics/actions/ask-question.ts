@@ -3,6 +3,8 @@ import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { tryRequestCredentialContext } from "../server/lib/credentials-context.js";
+import { getGitHubAccessToken } from "../server/lib/github-oauth.js";
 
 const SourceSchema = z.object({
   type: z.enum(["github", "dbt", "notion", "other"]),
@@ -228,7 +230,13 @@ export default defineAction({
       .values({ id, question, status: "searching", userEmail });
 
     const [ghSources, dashboardSources, sigmaSources] = await Promise.all([
-      searchGitHub(question, process.env.GITHUB_TOKEN),
+      (async () => {
+        const ctx = tryRequestCredentialContext();
+        const token = ctx
+          ? ((await getGitHubAccessToken(ctx)).token ?? undefined)
+          : undefined;
+        return searchGitHub(question, token);
+      })(),
       fetchDashboardCatalog(),
       fetchSigmaWorkbookCatalog(),
     ]);
