@@ -22,6 +22,7 @@ export const PLAN_SECTION_TYPES = [
   "wireframe",
   "prototype",
   "steps",
+  "implementation",
   "decisions",
   "questions",
   "risks",
