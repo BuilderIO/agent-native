@@ -15,7 +15,7 @@ import {
   planPath,
   planSourceSchema,
   writeEvent,
-} from "./_plans.js";
+} from "../server/plans.js";
 
 function inferTitle(planText: string): string {
   const firstHeading = planText

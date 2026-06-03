@@ -3,7 +3,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { planStatusSchema, summarizePlans } from "./_plans.js";
+import { planStatusSchema, summarizePlans } from "../server/plans.js";
 
 export default defineAction({
   description: "List Agent-Native Plans with section and comment summaries.",

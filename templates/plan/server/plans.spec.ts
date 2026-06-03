@@ -3,7 +3,7 @@ import {
   buildPlanHtml,
   deriveSectionsFromText,
   summarizePlan,
-} from "./_plans.js";
+} from "./plans.js";
 import type { PlanBundle, PlanComment, PlanSection } from "../shared/types.js";
 
 function section(

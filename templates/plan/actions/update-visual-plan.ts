@@ -12,7 +12,7 @@ import {
   planStatusSchema,
   sectionInputSchema,
   writeEvent,
-} from "./_plans.js";
+} from "../server/plans.js";
 
 export default defineAction({
   description:

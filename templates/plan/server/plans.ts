@@ -2,7 +2,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, schema } from "../server/db/index.js";
+import { getDb, schema } from "./db/index.js";
 import {
   PLAN_AUTHORS,
   PLAN_COMMENT_KINDS,

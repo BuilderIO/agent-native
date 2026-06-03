@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { loadPlanBundle } from "./_plans.js";
+import { loadPlanBundle } from "../server/plans.js";
 
 export default defineAction({
   description:
