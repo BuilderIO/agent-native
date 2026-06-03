@@ -109,7 +109,7 @@ describe("agent-native skills", () => {
     );
   });
 
-  it("accepts legacy contracts aliases for the built-in Plans skill", async () => {
+  it("accepts shorthand aliases for the built-in Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
     fs.mkdirSync(codexHome, { recursive: true });
@@ -121,7 +121,7 @@ describe("agent-native skills", () => {
       const result = await addAgentNativeSkill(
         parseSkillsArgs([
           "add",
-          "assumption-review",
+          "plannotate",
           "--client",
           "codex",
           "--scope",
