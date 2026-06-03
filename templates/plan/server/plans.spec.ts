@@ -62,6 +62,14 @@ describe("Plans helpers", () => {
     expect(sections.some((item) => item.type === "diagram")).toBe(true);
   });
 
+  it("detects implementation sections from file-level plans", () => {
+    const sections = deriveSectionsFromText(
+      "# Implementation\n\n- templates/plan/app/pages/PlansPage.tsx — symbols: `injectAnnotationRuntime`; add code preview popovers.\n\n```tsx\nfunction injectAnnotationRuntime() {}\n```",
+    );
+
+    expect(sections.some((item) => item.type === "implementation")).toBe(true);
+  });
+
   it("renders a complete iframe-safe visual plan", () => {
     const bundle: PlanBundle = {
       plan: {
@@ -91,5 +99,46 @@ describe("Plans helpers", () => {
     const html = buildPlanHtml(bundle);
     expect(html).toContain("<!doctype html>");
     expect(html).toContain("Review the UI");
+  });
+
+  it("renders file references as previewable implementation rows", () => {
+    const implementation = section(
+      "sec_impl",
+      "implementation",
+      "Files to change",
+    );
+    implementation.body =
+      "- templates/plan/app/pages/PlansPage.tsx:210 — symbols: `AnnotationPopover`; render comment popovers near pins.\n\n```tsx\nfunction AnnotationPopover() {\n  return null;\n}\n```";
+    const bundle: PlanBundle = {
+      plan: {
+        id: "plan_1",
+        title: "Implementation plan",
+        brief: "Show file-level work.",
+        status: "review",
+        source: "codex",
+        repoPath: "/Users/steve/project",
+        currentFocus: null,
+        html: null,
+        markdown: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        approvedAt: null,
+      },
+      sections: [implementation],
+      comments: [],
+      events: [],
+      summary: {
+        sectionCounts: { implementation: 1 },
+        commentCount: 0,
+        openCommentCount: 0,
+      },
+    };
+
+    const html = buildPlanHtml(bundle);
+    expect(html).toContain("implementation-map");
+    expect(html).toContain("templates/plan/app/pages/PlansPage.tsx");
+    expect(html).toContain("data-agent-native-code-preview");
+    expect(html).toContain("vscode://file/Users/steve/project/");
+    expect(html).toContain("AnnotationPopover");
   });
 });
