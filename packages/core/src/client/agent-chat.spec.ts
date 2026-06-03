@@ -36,6 +36,7 @@ vi.stubGlobal("fetch", fetchSpy);
 
 const {
   _resetAgentChatContextForTests,
+  addContextToAgentChat,
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
@@ -43,6 +44,7 @@ const {
   removeAgentChatContextItem,
   sendToAgentChat,
   setAgentChatContextItem,
+  setContextToAgentChat,
 } = await import("./agent-chat.js");
 const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
 
@@ -351,6 +353,11 @@ describe("sendToAgentChat", () => {
     const id1 = sendToAgentChat({ message: "a" });
     const id2 = sendToAgentChat({ message: "b" });
     expect(id1).not.toBe(id2);
+  });
+
+  it("keeps legacy context helper names as aliases", () => {
+    expect(setContextToAgentChat).toBe(setAgentChatContextItem);
+    expect(addContextToAgentChat).toBe(setAgentChatContextItem);
   });
 
   it("posts keyed context to the active chat without submitting", () => {

@@ -109,7 +109,7 @@ export function PlansPage() {
     useState<PlanAnnotationAnchor | null>(null);
   const plansQuery = usePlans();
   const plans = plansQuery.data ?? [];
-  const selectedId = params.id ?? plans[0]?.id;
+  const selectedId = params.id;
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
   const exportQuery = useExportPlan(selectedId);
@@ -118,12 +118,6 @@ export function PlansPage() {
   const updatePlan = useUpdatePlan();
 
   useSetPageTitle(bundle?.plan.title || "Plans");
-
-  useEffect(() => {
-    if (!params.id && plans[0]?.id) {
-      navigate(`/plans/${plans[0].id}`, { replace: true });
-    }
-  }, [navigate, params.id, plans]);
 
   const documentHtml = useMemo(() => {
     if (!bundle) return "";
@@ -142,6 +136,7 @@ export function PlansPage() {
         | {
             type?: string;
             anchor?: PlanAnnotationAnchor;
+            href?: string;
           }
         | undefined;
       if (data?.type === "agent-native-plan-annotate" && data.anchor) {
@@ -150,6 +145,11 @@ export function PlansPage() {
       }
       if (data?.type === "agent-native-plan-open-comments") {
         setCommentsOpen(true);
+      }
+      if (data?.type === "agent-native-plan-link-blocked") {
+        toast.info(
+          "Plan links are disabled in review so the document stays put.",
+        );
       }
     };
     window.addEventListener("message", onMessage);
@@ -293,7 +293,13 @@ export function PlansPage() {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-col">
-          {!bundle && planQuery.isLoading ? (
+          {!params.id ? (
+            <PlansOverview
+              plans={plans}
+              isLoading={plansQuery.isLoading}
+              onCreate={() => setCreateOpen(true)}
+            />
+          ) : !bundle && planQuery.isLoading ? (
             <PlanSkeleton />
           ) : !bundle ? (
             <EmptyPlan onCreate={() => setCreateOpen(true)} />
@@ -450,6 +456,78 @@ function EmptyPlan({ onCreate }: { onCreate: () => void }) {
           <IconPlus className="size-4" />
           New Plan
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function PlansOverview({
+  plans,
+  isLoading,
+  onCreate,
+}: {
+  plans: Array<{
+    id: string;
+    title: string;
+    brief: string;
+    status: string;
+    updatedAt: string;
+    openCommentCount: number;
+  }>;
+  isLoading: boolean;
+  onCreate: () => void;
+}) {
+  if (isLoading) {
+    return <PlanSkeleton />;
+  }
+  if (plans.length === 0) {
+    return <EmptyPlan onCreate={onCreate} />;
+  }
+  return (
+    <div className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-semibold tracking-tight">
+              Plans
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {plans.length} document{plans.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <Button type="button" onClick={onCreate}>
+            <IconPlus className="size-4" />
+            New Plan
+          </Button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {plans.map((plan) => (
+            <Link
+              key={plan.id}
+              to={`/plans/${plan.id}`}
+              className="rounded-lg border border-border bg-background p-4 transition-colors hover:bg-accent/35"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-sm font-medium">{plan.title}</h2>
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                    {plan.brief}
+                  </p>
+                </div>
+                {plan.openCommentCount > 0 && (
+                  <Badge variant="secondary" className="shrink-0">
+                    {plan.openCommentCount}
+                  </Badge>
+                )}
+              </div>
+              <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{statusLabel(plan.status)}</span>
+                <span>·</span>
+                <span>{shortDate(plan.updatedAt)}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -863,6 +941,16 @@ function injectAnnotationRuntime(
         document.body.appendChild(hint);
       }
       document.addEventListener("click", (event) => {
+        const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+        if (!state.annotateMode && link) {
+          const href = link.getAttribute("href") || "";
+          if (href && !href.startsWith("#")) {
+            event.preventDefault();
+            event.stopPropagation();
+            window.parent.postMessage({ type: "agent-native-plan-link-blocked", href }, "*");
+            return;
+          }
+        }
         if (!state.annotateMode) return;
         if (event.target instanceof Element && event.target.closest("[data-agent-native-plan-marker]")) return;
         event.preventDefault();

@@ -616,30 +616,31 @@ function taskIdFromBackgroundRunId(runId: string): string {
   const chunkTaskId = taskId.match(/^(.*)-c\d+$/)?.[1];
   // Public background run ids are stable base ids. Only strip a chunk suffix
   // when the caller passed a live run-manager chunk id.
-  return chunkTaskId && getRun(runId) ? chunkTaskId : taskId;
+  return chunkTaskId && getRun(runId)?.status === "running"
+    ? chunkTaskId
+    : taskId;
 }
 
-function activeTaskRunId(taskId: string): string {
+function runningInMemoryTaskRunId(taskId: string): string {
   const baseRunId = taskRunId(taskId);
   for (let i = MAX_AGENT_TEAM_CONTINUATIONS; i >= 0; i -= 1) {
     const chunkRunId = taskRunChunkId(taskId, i);
-    if (getRun(chunkRunId)) return chunkRunId;
+    if (getRun(chunkRunId)?.status === "running") return chunkRunId;
   }
+  if (getRun(baseRunId)?.status === "running") return baseRunId;
   return baseRunId;
 }
 
 async function durableActiveTaskRunId(taskId: string): Promise<string> {
-  const activeRunId = activeTaskRunId(taskId);
-  if (activeRunId !== taskRunId(taskId)) return activeRunId;
   try {
     const dispatch = await getAgentTeamRunDispatchState(taskId);
-    if (dispatch?.status === "running") {
+    if (dispatch?.status === "queued" || dispatch?.status === "running") {
       return taskRunChunkId(taskId, dispatch.continuationCount);
     }
   } catch {
-    // Fall back to the stable base id if queue state is temporarily unavailable.
+    // Fall back to in-memory state if queue state is temporarily unavailable.
   }
-  return activeRunId;
+  return runningInMemoryTaskRunId(taskId);
 }
 
 function mapTaskStatusToBackgroundStatus(
@@ -941,15 +942,17 @@ function summarizeAgentChatEvent(event: RunEvent): {
 export function toAgentTaskBackgroundTranscriptEvent(
   runId: string,
   event: RunEvent,
-  options: { sourceRunId?: string } = {},
+  options: { seq?: number; sourceRunId?: string } = {},
 ): AgentTeamBackgroundTranscriptEvent | null {
   const summary = summarizeAgentChatEvent(event);
   if (!summary) return null;
   const sourceRunId = options.sourceRunId ?? runId;
   const eventId = `${sourceRunId}:${event.seq}`;
+  const seq = options.seq ?? event.seq;
   const metadata = {
     ...(summary.metadata ?? {}),
-    seq: event.seq,
+    seq,
+    sourceSeq: event.seq,
     ...(sourceRunId === runId ? {} : { sourceRunId }),
   };
   return {
@@ -961,7 +964,7 @@ export function toAgentTaskBackgroundTranscriptEvent(
     sourceRecord: {
       type: "agent-team-run-event",
       id: eventId,
-      seq: event.seq,
+      seq,
     },
     message: summary.message,
     createdAt: new Date().toISOString(),
@@ -1548,6 +1551,7 @@ export async function listAgentTeamBackgroundTranscriptEvents(
   const normalizedRunId = taskRunId(taskId);
   const runIds = await transcriptRunIdsForTask(taskId);
   const output: AgentTeamBackgroundTranscriptEvent[] = [];
+  let seq = 0;
 
   for (const sourceRunId of runIds) {
     const activeRun = getRun(sourceRunId);
@@ -1558,9 +1562,12 @@ export async function listAgentTeamBackgroundTranscriptEvents(
       const transcriptEvent = toAgentTaskBackgroundTranscriptEvent(
         normalizedRunId,
         event,
-        { sourceRunId },
+        { seq, sourceRunId },
       );
-      if (transcriptEvent) output.push(transcriptEvent);
+      if (transcriptEvent) {
+        output.push(transcriptEvent);
+        seq += 1;
+      }
     }
   }
 
@@ -1572,7 +1579,7 @@ export function subscribeToAgentTeamBackgroundRun(
   fromSeq = 0,
 ): ReadableStream<Uint8Array> | null {
   return subscribeToRun(
-    activeTaskRunId(taskIdFromBackgroundRunId(runId)),
+    runningInMemoryTaskRunId(taskIdFromBackgroundRunId(runId)),
     fromSeq,
   );
 }

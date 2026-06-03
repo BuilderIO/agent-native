@@ -2,6 +2,7 @@
 
 // Client
 export {
+  addContextToAgentChat,
   appendAgentChatContextToMessage,
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
@@ -10,6 +11,7 @@ export {
   removeAgentChatContextItem,
   sendToAgentChat,
   setAgentChatContextItem,
+  setContextToAgentChat,
   isEmbedMcpChatBridgeActive,
   useAgentChatContext,
   useAgentChatGenerating,
@@ -29,6 +31,7 @@ export {
   cn,
   ApiKeySettings,
   type AgentChatContextItem,
+  type AgentChatContextMessage,
   type AgentChatContextMutationOptions,
   type AgentChatContextRemoveOptions,
   type AgentChatContextSetOptions,

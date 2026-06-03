@@ -1,22 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  agentNativePath,
-  appBasePath,
-  appPath,
-} from "@agent-native/core/client";
+import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
   planId?: string;
+  _writeId?: string;
 }
 
 export function useNavigationState() {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const lastProcessedDedupKeyRef = useRef<string | null>(null);
 
   // Sync current route to application state
   useEffect(() => {
@@ -58,16 +56,31 @@ export function useNavigationState() {
 
   useEffect(() => {
     if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-      method: "DELETE",
-      headers: {
-        "X-Agent-Native-CSRF": "1",
-        "X-Request-Source": TAB_ID,
-      },
-    }).catch(() => {});
     const cmd = navCommand as NavigationState;
+    const dedupKey =
+      cmd._writeId ??
+      JSON.stringify({
+        view: cmd.view,
+        planId: cmd.planId,
+      });
+    const deleteCommand = () =>
+      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+        method: "DELETE",
+        headers: {
+          "X-Agent-Native-CSRF": "1",
+          "X-Request-Source": TAB_ID,
+        },
+      }).catch(() => {});
 
+    if (lastProcessedDedupKeyRef.current === dedupKey) {
+      deleteCommand();
+      qc.setQueryData(["navigate-command"], null);
+      return;
+    }
+    lastProcessedDedupKeyRef.current = dedupKey;
+
+    // Delete the one-shot command AFTER reading it.
+    deleteCommand();
     const path = routerPath(pathForCommand(cmd));
     navigate(path);
     qc.setQueryData(["navigate-command"], null);

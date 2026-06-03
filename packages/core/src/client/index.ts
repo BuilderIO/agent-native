@@ -5,6 +5,7 @@ installRouteChunkRecovery();
 stripAuthRedirectParamFromUrl();
 
 export {
+  addContextToAgentChat,
   appendAgentChatContextToMessage,
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
@@ -13,8 +14,10 @@ export {
   removeAgentChatContextItem,
   sendToAgentChat,
   setAgentChatContextItem,
+  setContextToAgentChat,
   generateTabId,
   type AgentChatContextItem,
+  type AgentChatContextMessage,
   type AgentChatContextMutationOptions,
   type AgentChatContextRemoveOptions,
   type AgentChatContextSetOptions,

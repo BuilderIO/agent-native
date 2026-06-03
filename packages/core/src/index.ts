@@ -74,6 +74,7 @@ export {
 
 // Client
 export {
+  addContextToAgentChat,
   appendAgentChatContextToMessage,
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
@@ -82,6 +83,7 @@ export {
   removeAgentChatContextItem,
   sendToAgentChat,
   setAgentChatContextItem,
+  setContextToAgentChat,
   isEmbedMcpChatBridgeActive,
   useAgentChatContext,
   useAgentChatGenerating,
@@ -104,6 +106,7 @@ export {
   useProductionAgent,
   ProductionAgentPanel,
   type AgentChatContextItem,
+  type AgentChatContextMessage,
   type AgentChatContextMutationOptions,
   type AgentChatContextRemoveOptions,
   type AgentChatContextSetOptions,

@@ -23,7 +23,9 @@ export default defineAction({
     return {
       plan: bundle.plan,
       sections: bundle.sections,
-      comments: bundle.comments.filter((comment) => !comment.consumedAt),
+      comments: bundle.comments.filter(
+        (comment) => comment.createdBy === "human" && !comment.consumedAt,
+      ),
       summary: bundle.summary,
     };
   },

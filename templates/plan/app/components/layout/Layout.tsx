@@ -30,7 +30,8 @@ export function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("plans.sidebarCollapsed") !== "false";
+    const stored = window.localStorage.getItem("plans.sidebarCollapsed.v2");
+    return stored ? stored === "true" : true;
   });
 
   useEffect(() => {
@@ -39,7 +40,7 @@ export function Layout({ children }: LayoutProps) {
 
   useEffect(() => {
     window.localStorage.setItem(
-      "plans.sidebarCollapsed",
+      "plans.sidebarCollapsed.v2",
       String(sidebarCollapsed),
     );
   }, [sidebarCollapsed]);

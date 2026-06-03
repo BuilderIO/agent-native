@@ -100,6 +100,9 @@ export interface AgentChatContextSetOptions extends AgentChatContextItem {
   openSidebar?: boolean;
 }
 
+/** @deprecated Use `AgentChatContextSetOptions` instead. */
+export type AgentChatContextMessage = AgentChatContextSetOptions;
+
 export interface AgentChatContextState {
   items: AgentChatContextItem[];
   updatedAt: number;
@@ -494,6 +497,12 @@ export function setAgentChatContextItem(
     openSidebar: opts.openSidebar !== false,
   });
 }
+
+/** @deprecated Use `setAgentChatContextItem` instead. */
+export const setContextToAgentChat = setAgentChatContextItem;
+
+/** @deprecated Use `setAgentChatContextItem` instead. */
+export const addContextToAgentChat = setAgentChatContextItem;
 
 export function removeAgentChatContextItem(
   keyOrOpts: string | AgentChatContextRemoveOptions,

@@ -490,6 +490,13 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
             seq: 0,
             eventData: JSON.stringify({ type: "text", text: "first chunk" }),
           },
+          {
+            seq: 1,
+            eventData: JSON.stringify({
+              type: "text",
+              text: "first chunk second event",
+            }),
+          },
         ];
       }
       if (runId === "run-task-t5-c1") {
@@ -497,6 +504,13 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
           {
             seq: 0,
             eventData: JSON.stringify({ type: "text", text: "second chunk" }),
+          },
+          {
+            seq: 1,
+            eventData: JSON.stringify({
+              type: "text",
+              text: "second chunk second event",
+            }),
           },
         ];
       }
@@ -507,27 +521,40 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
 
     expect(events.map((event) => event.id)).toEqual([
       "run-task-t5-c0:0",
+      "run-task-t5-c0:1",
       "run-task-t5-c1:0",
+      "run-task-t5-c1:1",
     ]);
     expect(events.map((event) => event.runId)).toEqual([
+      "run-task-t5",
+      "run-task-t5",
       "run-task-t5",
       "run-task-t5",
     ]);
     expect(events.map((event) => event.message)).toEqual([
       "first chunk",
+      "first chunk second event",
       "second chunk",
+      "second chunk second event",
     ]);
     expect(events.map((event) => event.metadata?.sourceRunId)).toEqual([
       "run-task-t5-c0",
+      "run-task-t5-c0",
+      "run-task-t5-c1",
       "run-task-t5-c1",
     ]);
-    expect(events.map((event) => event.metadata?.seq)).toEqual([0, 0]);
+    expect(events.map((event) => event.metadata?.seq)).toEqual([0, 1, 2, 3]);
+    expect(events.map((event) => event.metadata?.sourceSeq)).toEqual([
+      0, 1, 0, 1,
+    ]);
   });
 
   it("stops the currently active chunk run for a background task", async () => {
     await seedTask("t6");
     getRunMock.mockImplementation((runId: string) =>
-      runId === "run-task-t6-c0" ? { runId, events: [] } : null,
+      runId === "run-task-t6-c0"
+        ? { runId, events: [], status: "running" }
+        : null,
     );
 
     await expect(
@@ -566,10 +593,38 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
   });
 
+  it("prefers the durable active chunk over a retained terminal old chunk", async () => {
+    await seedTask("t8");
+    const row = queueRows.find((x) => x.task_id === "t8");
+    expect(row).toBeTruthy();
+    row.status = "running";
+    row.continuation_count = 1;
+    getRunMock.mockImplementation((runId: string) =>
+      runId === "run-task-t8-c0"
+        ? { runId, events: [], status: "completed" }
+        : null,
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-t8"),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t8-c1", "user");
+    expect((await queue.getAgentTeamRunDispatchState("t8"))?.status).toBe(
+      "failed",
+    );
+  });
+
   it("does not strip chunk-looking suffixes from stable background run ids", async () => {
     await seedTask("task-ending-c1");
     getRunMock.mockImplementation((runId: string) =>
-      runId === "run-task-task-ending-c1-c0" ? { runId, events: [] } : null,
+      runId === "run-task-task-ending-c1-c0"
+        ? { runId, events: [], status: "running" }
+        : null,
     );
 
     await expect(
