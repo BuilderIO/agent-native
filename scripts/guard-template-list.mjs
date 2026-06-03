@@ -11,10 +11,9 @@
  *   - packages/docs/app/components/docsNavItems.ts        (docs sidebar)
  *   - packages/core/docs/content/template-*.md            (docs pages)
  *
- * Why this guard exists: agents kept re-adding hidden templates (calls,
- * meeting-notes, voice, scheduling, issues, recruiting, macros) to these
- * surfaces during overnight sweeps, forcing a constant whack-a-mole. The
- * allow-list lives in one file (templates.ts) and this guard enforces
+ * Why this guard exists: agents kept re-adding hidden or deleted templates to
+ * public surfaces during overnight sweeps, forcing a constant whack-a-mole.
+ * The allow-list lives in one file (templates.ts) and this guard enforces
  * that every other surface only references slugs from it.
  *
  * To add a template to the public-facing list:
@@ -24,9 +23,9 @@
  *   2. Add the entry to TemplateCard.tsx + docsNavItems.ts as needed.
  *   3. Re-run this guard locally to confirm.
  *
- * To remove a template: flip `hidden: true` in BOTH files. This guard
- * will then fail on any surface that still mentions it, pointing you
- * at the file/line to fix.
+ * To remove a template: remove it from BOTH metadata files. This guard will
+ * then fail on any public surface that still mentions it, pointing you at the
+ * file/line to fix.
  */
 
 import fs from "node:fs";

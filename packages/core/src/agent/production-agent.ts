@@ -77,6 +77,13 @@ import {
 import { isAgentActionStopError } from "../action.js";
 import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
+import { applyContextDirectives } from "./context-xray/apply-directives.js";
+import { loadContextDirectives } from "./context-xray/directives-store.js";
+import {
+  buildManifest,
+  writeContextManifest,
+} from "./context-xray/manifest.js";
+import { computeProtectedSegmentIds } from "./context-xray/segments.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -1430,6 +1437,8 @@ export async function runAgentLoop(opts: {
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
+  threadId?: string;
+  turnId?: string;
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -1485,6 +1494,44 @@ export async function runAgentLoop(opts: {
       string,
       { name: string; input: unknown; error: string }
     >();
+    let contextMessages = messages;
+
+    if (opts.threadId) {
+      try {
+        const directives = await loadContextDirectives(opts.threadId, {
+          ownerEmail: opts.ownerEmail ?? null,
+        });
+        const protectedSegmentIds = computeProtectedSegmentIds(messages);
+        const { messages: transformedMessages, appliedStatus } =
+          applyContextDirectives(messages, directives, {
+            protectedSegmentIds,
+          });
+        const manifest = await buildManifest({
+          threadId: opts.threadId,
+          ...(opts.turnId ? { turnId: opts.turnId } : {}),
+          model,
+          rawMessages: messages,
+          sentMessages: transformedMessages,
+          appliedStatus,
+          directives,
+          protectedSegmentIds,
+          source: "structured",
+          enforceable: true,
+        });
+        contextMessages = transformedMessages;
+        void writeContextManifest(opts.threadId, manifest).catch((err) => {
+          console.warn(
+            "[context-xray] failed to write manifest:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      } catch (err) {
+        console.warn(
+          "[context-xray] context transform skipped:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
 
     for (let retry = 0; ; retry++) {
       assistantContent = undefined;
@@ -1495,7 +1542,7 @@ export async function runAgentLoop(opts: {
         const streamOpts = {
           model,
           systemPrompt,
-          messages,
+          messages: contextMessages,
           tools,
           abortSignal: signal,
           maxOutputTokens: resolveMaxOutputTokensForEngine(
@@ -2559,6 +2606,11 @@ export function createProductionAgentHandler(
 
     // Start agent loop in background via run-manager
     const runId = generateRunId();
+    const effectiveThreadId = threadId ?? runId;
+    const effectiveTurnId =
+      typeof requestTurnId === "string" && requestTurnId.trim()
+        ? requestTurnId.trim()
+        : runId;
     if (options.onRunPrepared && !internalContinuation) {
       const messageToPersist =
         typeof requestDisplayMessage === "string" &&
@@ -2574,7 +2626,7 @@ export function createProductionAgentHandler(
     }
     startRun(
       runId,
-      threadId ?? runId,
+      effectiveThreadId,
       async (send, signal) => {
         send({ type: "activity", label: "Starting agent" });
 
@@ -2866,6 +2918,9 @@ export function createProductionAgentHandler(
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,
           finalResponseGuard: options.finalResponseGuard,
+          ...(threadId
+            ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
+            : {}),
         };
 
         send({ type: "activity", label: "Contacting model" });
@@ -2933,10 +2988,7 @@ export function createProductionAgentHandler(
         // Fold continuation runs of one logical turn onto a single durable
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
-        turnId:
-          typeof requestTurnId === "string" && requestTurnId.trim()
-            ? requestTurnId.trim()
-            : runId,
+        turnId: effectiveTurnId,
       },
     );
 

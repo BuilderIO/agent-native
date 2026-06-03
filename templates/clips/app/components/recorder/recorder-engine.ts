@@ -139,6 +139,11 @@ const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
 ]);
+const SCREEN_CAPTURE_FRAME_RATE = 24;
+const SCREEN_CAPTURE_MAX_WIDTH = 1920;
+const SCREEN_CAPTURE_MAX_HEIGHT = 1080;
+const RECORDING_VIDEO_BITRATE_BPS = 1_200_000;
+const RECORDING_AUDIO_BITRATE_BPS = 96_000;
 type CaptureSource = "screen" | "camera" | "microphone" | "unknown";
 
 const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
@@ -283,6 +288,19 @@ function retryDelayMs(attempt: number): number {
   return attempt === 1 ? 500 : 1500;
 }
 
+function mediaRecorderOptions(
+  mimeType: string,
+  includeBitrateBudget: boolean,
+): MediaRecorderOptions | undefined {
+  const options: MediaRecorderOptions = {};
+  if (mimeType) options.mimeType = mimeType;
+  if (includeBitrateBudget) {
+    options.videoBitsPerSecond = RECORDING_VIDEO_BITRATE_BPS;
+    options.audioBitsPerSecond = RECORDING_AUDIO_BITRATE_BPS;
+  }
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
 function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) {
     return Promise.reject(
@@ -411,6 +429,28 @@ export class RecorderEngine {
     return Math.max(0, now - this.startedAtMs - this.pausedAccumMs - pausedNow);
   }
 
+  canDownloadBufferedRecording(): boolean {
+    return this.localChunks.length > 0;
+  }
+
+  getBufferedRecordingDownload(): { blob: Blob; filename: string } | null {
+    if (this.localChunks.length === 0) return null;
+    const mimeType = this.mimeType || "video/webm";
+    const extension = /mp4/i.test(mimeType)
+      ? "mp4"
+      : /quicktime|mov/i.test(mimeType)
+        ? "mov"
+        : "webm";
+    const id =
+      this.opts.recordingId && this.opts.recordingId !== "__pending__"
+        ? this.opts.recordingId
+        : new Date().toISOString().replace(/[:.]/g, "-");
+    return {
+      blob: new Blob(this.localChunks, { type: mimeType }),
+      filename: `clips-recording-${id}.${extension}`,
+    };
+  }
+
   canRetryUpload(): boolean {
     return (
       this.state === "error" &&
@@ -482,7 +522,15 @@ export class RecorderEngine {
       // screen picker can make Chrome/macOS report a false permission failure.
       const displaySurface = this.opts.displaySurface ?? "window";
       const displayOptions: ExtendedDisplayMediaOptions = {
-        video: { frameRate: { ideal: 30 }, displaySurface },
+        video: {
+          frameRate: {
+            ideal: SCREEN_CAPTURE_FRAME_RATE,
+            max: SCREEN_CAPTURE_FRAME_RATE,
+          },
+          width: { ideal: SCREEN_CAPTURE_MAX_WIDTH },
+          height: { ideal: SCREEN_CAPTURE_MAX_HEIGHT },
+          displaySurface,
+        },
         audio: wantsMic,
         // Let "Browser tab" open the tab picker. preferCurrentTab turns it
         // into a current-tab shortcut, which makes choosing another tab harder.
@@ -644,18 +692,21 @@ export class RecorderEngine {
       let lastError: unknown = null;
 
       for (const type of candidates) {
-        try {
-          this.recorder = new MediaRecorder(
-            this.combinedStream,
-            type ? { mimeType: type } : undefined,
-          );
-          this.mimeType = this.recorder.mimeType || type;
-          lastError = null;
-          break;
-        } catch (err) {
-          lastError = err;
-          this.recorder = null;
+        for (const includeBitrateBudget of [true, false]) {
+          try {
+            this.recorder = new MediaRecorder(
+              this.combinedStream,
+              mediaRecorderOptions(type, includeBitrateBudget),
+            );
+            this.mimeType = this.recorder.mimeType || type;
+            lastError = null;
+            break;
+          } catch (err) {
+            lastError = err;
+            this.recorder = null;
+          }
         }
+        if (this.recorder) break;
       }
 
       if (!this.recorder && lastError) {
@@ -1128,7 +1179,7 @@ export class RecorderEngine {
         throw new Error(
           `Recording is too large to upload (${detail}, limit is ${formatMb(
             MAX_UPLOAD_BYTES,
-          )}). Try a shorter recording or lower the screen resolution / frame rate.`,
+          )}) after automatic compression. Try a shorter recording.`,
         );
       }
 

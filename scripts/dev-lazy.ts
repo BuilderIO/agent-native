@@ -94,10 +94,11 @@ Options:
   -h, --help                Show this help message
 
 Examples:
+  pnpm dev
+  pnpm dev -- --apps dispatch,mail,calendar
   pnpm dev:lazy
-  pnpm dev:lazy -- --apps dispatch,mail,calendar
   pnpm dev:electron:lazy
-  pnpm dev:lazy:desktop`);
+  pnpm dev:desktop`);
 }
 
 if (hasFlag("--help") || hasFlag("-h")) {
@@ -363,7 +364,7 @@ function stripAnsi(value: string): string {
 }
 
 // Stable per-name prefix coloring so [tray]/[core]/[dispatch] are easy to scan
-// the same way concurrently colors prefixes in dev:all. Codes are SGR foreground
+// the same way concurrently colors prefixes in eager mode. Codes are SGR foreground
 // values; the palette skips black/white/red to avoid low contrast and "looks
 // like an error" false signals.
 const PREFIX_PALETTE = [33, 34, 35, 36, 32, 95, 94, 96, 92, 93];

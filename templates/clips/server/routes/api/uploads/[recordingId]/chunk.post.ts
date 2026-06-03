@@ -37,7 +37,7 @@ import finalizeRecording from "../../../../../actions/finalize-recording.js";
 
 const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
 const RECORDING_TOO_LARGE_REASON =
-  "Recording is too large to process. Clips now compresses before upload; please update the app and try again, or record a shorter clip / lower-resolution screen.";
+  "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
 
 const ALLOWED_RECORDING_MIME_TYPES = new Set([
   "video/webm",

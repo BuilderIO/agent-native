@@ -36,6 +36,7 @@ async function getFs(): Promise<typeof import("fs")> {
 export type PluginSlot =
   | "agent-chat"
   | "auth"
+  | "context-xray"
   | "core-routes"
   | "integrations"
   | "org"
@@ -189,6 +190,7 @@ async function discoverPluginExports(
   const slotExportNames: Record<PluginSlot, string[]> = {
     "agent-chat": ["agentChatPlugin"],
     auth: ["authPlugin"],
+    "context-xray": ["contextXrayPlugin"],
     "core-routes": ["coreRoutesPlugin"],
     integrations: ["integrationsPlugin"],
     org: ["orgPlugin"],

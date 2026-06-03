@@ -21,6 +21,12 @@ Detailed retrieval, capture, connector, and feature rules live in
   unclear.
 - For connector work, use existing workspace integration grants when available;
   do not duplicate provider tokens into Brain.
+- Source sync actions are convenience readers, not integration limits. For ad
+  hoc provider analysis or questions that need an endpoint/filter/payload the
+  source actions do not model, call `provider-api-catalog` /
+  `provider-api-docs`, then `provider-api-request` against the provider's real
+  HTTP API. Use `connectionId` for a specific shared grant and `accountId` for a
+  specific OAuth account.
 
 ## Application State
 
@@ -42,4 +48,5 @@ Read the relevant skill before deeper work:
   or debugging Brain internals.)
 - `adding-a-feature` for Brain feature changes.
 - `actions`, `real-time-sync`, `security`, `frontend-design`, and `shadcn-ui`
-  for framework work.
+  for framework work. The `actions` skill includes the shared provider API
+  pattern for flexible integrations.

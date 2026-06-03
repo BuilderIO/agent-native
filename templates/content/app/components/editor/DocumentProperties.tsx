@@ -1,0 +1,2416 @@
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import {
+  IconAlignLeft,
+  IconAt,
+  IconCalendar,
+  IconCheck,
+  IconCircleChevronDown,
+  IconCircleDotted,
+  IconClockFilled,
+  IconClock,
+  IconCopy,
+  IconEdit,
+  IconEye,
+  IconEyeOff,
+  IconHash,
+  IconLink,
+  IconList,
+  IconMapPin,
+  IconNumber,
+  IconNumber123,
+  IconPaperclip,
+  IconPalette,
+  IconPhone,
+  IconPlus,
+  IconSearch,
+  IconSquareCheck,
+  IconTrash,
+  IconUpload,
+  IconX,
+  IconUserCircle,
+  type Icon,
+} from "@tabler/icons-react";
+import { emailToName, useSession } from "@agent-native/core/client";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import {
+  useConfigureDocumentProperty,
+  useDeleteDocumentProperty,
+  useDocumentProperties,
+  useDuplicateDocumentProperty,
+  useSetDocumentProperty,
+} from "@/hooks/use-document-properties";
+import {
+  CREATABLE_DOCUMENT_PROPERTY_TYPES,
+  DOCUMENT_PROPERTY_TYPE_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITIES,
+  defaultPropertyOptions,
+  documentPropertyDateIncludesTime,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  isEmptyPropertyValue,
+  isComputedPropertyType,
+  normalizeDatePropertyValue,
+  type DocumentPropertyDateValue,
+  type DocumentPropertyOption,
+  type DocumentPropertyOptionColor,
+  type DocumentPropertyType,
+  type DocumentPropertyVisibility,
+} from "@shared/properties";
+import type { DocumentProperty } from "@shared/api";
+import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
+
+interface DocumentPropertiesProps {
+  documentId: string;
+  canEdit: boolean;
+  popoversPortalled?: boolean;
+}
+
+export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
+  text: IconAlignLeft,
+  number: IconHash,
+  formula: IconNumber123,
+  rollup: IconNumber123,
+  select: IconCircleChevronDown,
+  multi_select: IconList,
+  status: IconCircleDotted,
+  date: IconCalendar,
+  person: IconUserCircle,
+  place: IconMapPin,
+  files_media: IconPaperclip,
+  checkbox: IconSquareCheck,
+  url: IconLink,
+  email: IconAt,
+  phone: IconPhone,
+  relation: IconLink,
+  id: IconNumber,
+  created_time: IconClockFilled,
+  created_by: IconUserCircle,
+  last_edited_time: IconClockFilled,
+  last_edited_by: IconUserCircle,
+};
+
+export const OPTION_COLOR_CLASSES: Record<DocumentPropertyOptionColor, string> =
+  {
+    gray: "bg-muted text-muted-foreground",
+    brown: "bg-amber-950/10 text-amber-900 dark:text-amber-200",
+    orange: "bg-orange-500/15 text-orange-800 dark:text-orange-200",
+    yellow: "bg-yellow-500/20 text-yellow-800 dark:text-yellow-100",
+    green: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
+    blue: "bg-sky-500/15 text-sky-800 dark:text-sky-200",
+    purple: "bg-violet-500/15 text-violet-800 dark:text-violet-200",
+    pink: "bg-pink-500/15 text-pink-800 dark:text-pink-200",
+    red: "bg-rose-500/15 text-rose-800 dark:text-rose-200",
+  };
+
+export const OPTION_COLORS: DocumentPropertyOptionColor[] = [
+  "gray",
+  "blue",
+  "green",
+  "purple",
+  "pink",
+  "orange",
+  "red",
+];
+
+const PROPERTY_TYPE_SEARCH_ALIASES: Partial<
+  Record<DocumentPropertyType, string[]>
+> = {
+  person: ["people", "user", "users", "owner", "assignee"],
+  place: ["location", "address", "where"],
+  files_media: ["file", "files", "media", "attachment", "attachments"],
+  formula: ["calculate", "calculation", "computed", "equation"],
+  relation: ["relationship", "linked", "link", "database"],
+  rollup: ["aggregate", "aggregation", "sum", "count", "relation"],
+};
+
+function slugify(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || `option-${Date.now()}`;
+}
+
+function formatDate(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date(year, month - 1, day));
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDateTime(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+    const [datePart, timePart] = value.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hour, minute] = timePart.split(":").map(Number);
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(year, month - 1, day, hour, minute));
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatPropertyDateDisplayValue(value: DocumentProperty["value"]) {
+  const includeTime = documentPropertyDateIncludesTime(value);
+  const formatter = includeTime ? formatDateTime : formatDate;
+  const start = documentPropertyDatePart(value, "start");
+  const end = documentPropertyDatePart(value, "end");
+  if (!start) return "Empty";
+  return end ? `${formatter(start)} - ${formatter(end)}` : formatter(start);
+}
+
+function optionClass(option?: DocumentPropertyOption | null) {
+  return OPTION_COLOR_CLASSES[option?.color ?? "gray"];
+}
+
+function optionById(property: DocumentProperty, id: string | null) {
+  return property.definition.options.options?.find(
+    (option) => option.id === id,
+  );
+}
+
+export function displayValue(property: DocumentProperty) {
+  const value = property.value;
+  const type = property.definition.type;
+
+  if (value === null || value === undefined || value === "") {
+    return <span className="text-muted-foreground/70">Empty</span>;
+  }
+
+  if (type === "checkbox") {
+    return value ? (
+      <span className="inline-flex items-center gap-1.5 text-foreground">
+        <IconCheck className="size-3.5" />
+        Checked
+      </span>
+    ) : (
+      <span className="text-muted-foreground/70">Unchecked</span>
+    );
+  }
+
+  if (type === "date") {
+    return <span>{formatPropertyDateDisplayValue(value)}</span>;
+  }
+
+  if (type === "created_time" || type === "last_edited_time") {
+    return <span>{formatDateTime(String(value))}</span>;
+  }
+
+  if (type === "person") {
+    const people = personItems(value);
+    if (people.length === 0) {
+      return <span className="text-muted-foreground/70">Empty</span>;
+    }
+    return (
+      <span className="inline-flex max-w-full flex-wrap gap-1">
+        {people.map((person) => (
+          <PersonPill key={person} value={person} />
+        ))}
+      </span>
+    );
+  }
+
+  if (type === "created_by" || type === "last_edited_by") {
+    return <PersonPill value={String(value)} />;
+  }
+
+  if (type === "place") {
+    return <PlacePill value={String(value)} />;
+  }
+
+  if (type === "files_media") {
+    const items = filesMediaItems(value);
+    if (items.length === 0) {
+      return <span className="text-muted-foreground/70">Empty</span>;
+    }
+    return (
+      <span className="inline-flex max-w-full flex-wrap gap-1">
+        {items.map((item) => (
+          <FilesMediaPill key={item} value={item} />
+        ))}
+      </span>
+    );
+  }
+
+  if (type === "relation") {
+    const items = relationItems(value);
+    if (items.length === 0) {
+      return <span className="text-muted-foreground/70">Empty</span>;
+    }
+    return (
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+        <IconLink className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">
+          {items.length} page{items.length === 1 ? "" : "s"}
+        </span>
+      </span>
+    );
+  }
+
+  if (type === "select" || type === "status") {
+    const option = optionById(property, String(value));
+    return option ? (
+      <OptionPill option={option} />
+    ) : (
+      <span>{String(value)}</span>
+    );
+  }
+
+  if (type === "multi_select" && Array.isArray(value)) {
+    if (value.length === 0)
+      return <span className="text-muted-foreground/70">Empty</span>;
+    return (
+      <span className="inline-flex flex-wrap gap-1">
+        {value.map((id) => {
+          const option = optionById(property, id);
+          return option ? <OptionPill key={id} option={option} /> : null;
+        })}
+      </span>
+    );
+  }
+
+  if (type === "url" && typeof value === "string") {
+    return (
+      <span className="underline decoration-muted-foreground/40 underline-offset-2">
+        {value}
+      </span>
+    );
+  }
+
+  return <span>{String(value)}</span>;
+}
+
+function OptionPill({ option }: { option: DocumentPropertyOption }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-xs font-medium",
+        optionClass(option),
+      )}
+    >
+      <span className="truncate">{option.name}</span>
+    </span>
+  );
+}
+
+export function personLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "Empty";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)
+    ? emailToName(trimmed)
+    : trimmed;
+}
+
+export function personItems(value: DocumentProperty["value"]) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\n,]+/)
+      : [];
+  const seen = new Set<string>();
+  return rawItems
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item) return false;
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function personInitials(value: string) {
+  const label = personLabel(value);
+  const parts = label.split(/\s+/).filter(Boolean);
+  return (
+    parts
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?"
+  );
+}
+
+function PersonPill({ value }: { value: string }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-background text-[9px] font-semibold text-muted-foreground">
+        {personInitials(value)}
+      </span>
+      <span className="truncate">{personLabel(value)}</span>
+    </span>
+  );
+}
+
+export function placeLabel(value: string) {
+  return value.trim() || "Empty";
+}
+
+function PlacePill({ value }: { value: string }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+      <IconMapPin className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{placeLabel(value)}</span>
+    </span>
+  );
+}
+
+export function filesMediaItems(value: DocumentProperty["value"]) {
+  if (Array.isArray(value)) {
+    return value.map((item) => item.trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+export function filesMediaEditorValue(value: DocumentProperty["value"]) {
+  return filesMediaItems(value).join("\n");
+}
+
+export function filesMediaLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "File";
+  try {
+    const url = new URL(trimmed);
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    return decodeURIComponent(pathParts[pathParts.length - 1] || url.hostname);
+  } catch {
+    const pathParts = trimmed.split("/").filter(Boolean);
+    return pathParts[pathParts.length - 1] || trimmed;
+  }
+}
+
+export function filesMediaKind(value: string) {
+  const label = filesMediaLabel(value).toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|svg|avif)$/.test(label)) return "Image";
+  if (/\.(mp4|mov|webm|m4v)$/.test(label)) return "Video";
+  if (/\.(mp3|wav|m4a|aac|ogg)$/.test(label)) return "Audio";
+  if (/^https?:\/\//i.test(value.trim())) return "Link";
+  return "File";
+}
+
+export function relationItems(value: DocumentProperty["value"]) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && !!item)
+    : typeof value === "string" && value.trim()
+      ? [value.trim()]
+      : [];
+}
+
+function FilesMediaPill({ value }: { value: string }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+      <IconPaperclip className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{filesMediaLabel(value)}</span>
+    </span>
+  );
+}
+
+function makeOption(
+  name: string,
+  index: number,
+  existingIds: string[],
+): DocumentPropertyOption {
+  const baseId = slugify(name);
+  let id = baseId;
+  let suffix = 2;
+  while (existingIds.includes(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return {
+    id,
+    name: name.trim(),
+    color: OPTION_COLORS[index % OPTION_COLORS.length],
+  };
+}
+
+export function filterPropertyOptions(
+  options: DocumentPropertyOption[],
+  query: string,
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return options;
+  return options.filter(
+    (option) =>
+      option.name.toLowerCase().includes(normalizedQuery) ||
+      option.id.toLowerCase().includes(normalizedQuery),
+  );
+}
+
+export function firstMatchingPropertyOption(
+  options: DocumentPropertyOption[],
+  query: string,
+) {
+  return filterPropertyOptions(options, query)[0] ?? null;
+}
+
+export function canCreatePropertyOption(
+  options: DocumentPropertyOption[],
+  name: string,
+) {
+  const normalizedName = name.trim().toLowerCase();
+  if (!normalizedName) return false;
+  return !options.some(
+    (option) => option.name.trim().toLowerCase() === normalizedName,
+  );
+}
+
+export function nextPropertyOption(
+  name: string,
+  options: DocumentPropertyOption[],
+) {
+  return makeOption(
+    name,
+    options.length,
+    options.map((item) => item.id),
+  );
+}
+
+export function renamePropertyOption(
+  options: DocumentPropertyOption[],
+  optionId: string,
+  name: string,
+) {
+  const nextName = name.trim();
+  if (!nextName) return options;
+  const duplicate = options.some(
+    (option) =>
+      option.id !== optionId &&
+      option.name.trim().toLowerCase() === nextName.toLowerCase(),
+  );
+  if (duplicate) return options;
+  return options.map((option) =>
+    option.id === optionId ? { ...option, name: nextName } : option,
+  );
+}
+
+export function updatePropertyOptionColor(
+  options: DocumentPropertyOption[],
+  optionId: string,
+  color: DocumentPropertyOptionColor,
+) {
+  return options.map((option) =>
+    option.id === optionId ? { ...option, color } : option,
+  );
+}
+
+export function removePropertyOption(
+  options: DocumentPropertyOption[],
+  optionId: string,
+) {
+  const nextOptions = options.filter((option) => option.id !== optionId);
+  return nextOptions.length === options.length ? options : nextOptions;
+}
+
+export function formatPropertyDateInputValue(value: DocumentProperty["value"]) {
+  return documentPropertyDateKey(value) ?? "";
+}
+
+export function formatPropertyDateEndInputValue(
+  value: DocumentProperty["value"],
+) {
+  return documentPropertyDateKey(value, "end") ?? "";
+}
+
+export function formatPropertyDateTimeInputValue(
+  value: DocumentProperty["value"],
+  part: "start" | "end" = "start",
+) {
+  const rawValue = documentPropertyDatePart(value, part);
+  const match = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (match)
+    return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
+  const dateKey = documentPropertyDateKey(value, part);
+  return dateKey ? `${dateKey}T09:00` : "";
+}
+
+export function dateInputValueForOffset(baseDate: Date, offsetDays: number) {
+  const date = new Date(baseDate);
+  date.setDate(date.getDate() + offsetDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function scalarPlaceholder(type: DocumentPropertyType) {
+  switch (type) {
+    case "number":
+      return "0";
+    case "date":
+      return "Select a date";
+    case "person":
+      return "Person or email";
+    case "place":
+      return "City, venue, or address";
+    case "url":
+      return "https://example.com";
+    case "email":
+      return "name@example.com";
+    case "phone":
+      return "+1 (555) 123-4567";
+    default:
+      return "Empty";
+  }
+}
+
+export function DocumentProperties({
+  documentId,
+  canEdit,
+  popoversPortalled = true,
+}: DocumentPropertiesProps) {
+  const { data, isLoading } = useDocumentProperties(documentId);
+  const properties = data?.properties ?? [];
+  const databaseId = data?.databaseId ?? null;
+  const visibleProperties = properties.filter(isPropertyVisible);
+  const hiddenProperties = properties.filter(
+    (property) => !isPropertyVisible(property),
+  );
+
+  return (
+    <div className="mt-5 border-y border-transparent py-1">
+      {isLoading ? (
+        <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="size-3.5" />
+          Loading properties
+        </div>
+      ) : visibleProperties.length > 0 ? (
+        <div className="grid gap-0.5">
+          {visibleProperties.map((property) => (
+            <PropertyRow
+              key={property.definition.id}
+              property={property}
+              documentId={documentId}
+              canEdit={canEdit}
+              popoversPortalled={popoversPortalled}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {canEdit && hiddenProperties.length > 0 ? (
+        <HiddenPropertiesMenu
+          documentId={documentId}
+          properties={hiddenProperties}
+        />
+      ) : null}
+
+      {canEdit && databaseId ? (
+        <AddProperty
+          documentId={documentId}
+          popoversPortalled={popoversPortalled}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function isPropertyVisible(property: DocumentProperty) {
+  const visibility = property.definition.visibility;
+  if (visibility === "always_hide") return false;
+  if (visibility === "hide_when_empty") {
+    return !isEmptyPropertyValue(property.value);
+  }
+  return true;
+}
+
+function HiddenPropertiesMenu({
+  documentId,
+  properties,
+}: {
+  documentId: string;
+  properties: DocumentProperty[];
+}) {
+  const configure = useConfigureDocumentProperty(documentId);
+
+  async function showProperty(property: DocumentProperty) {
+    await configure.mutateAsync({
+      id: property.definition.id,
+      documentId,
+      name: property.definition.name,
+      type: property.definition.type,
+      visibility: "always_show",
+      options: property.definition.options,
+    });
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+        >
+          <IconEyeOff className="size-4" />
+          Hidden properties
+          <span className="text-xs text-muted-foreground/70">
+            {properties.length}
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        {properties.map((property) => {
+          const Icon = TYPE_ICONS[property.definition.type];
+          return (
+            <DropdownMenuItem
+              key={property.definition.id}
+              disabled={configure.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                void showProperty(property);
+              }}
+            >
+              <Icon className="mr-2 size-4 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">
+                {property.definition.name}
+              </span>
+              <span className="ml-2 text-xs text-muted-foreground">Show</span>
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function PropertyRow({
+  property,
+  documentId,
+  canEdit,
+  popoversPortalled,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  canEdit: boolean;
+  popoversPortalled: boolean;
+}) {
+  const Icon = TYPE_ICONS[property.definition.type];
+  const value = (
+    <div className="min-w-0 flex-1 truncate text-left text-sm">
+      {displayValue(property)}
+    </div>
+  );
+
+  return (
+    <div className="grid min-h-8 grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
+      {canEdit ? (
+        <PropertyManagementPopover
+          property={property}
+          documentId={documentId}
+          icon={Icon}
+        />
+      ) : (
+        <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+          <Icon className="size-4 shrink-0" />
+          <span className="truncate">{property.definition.name}</span>
+        </div>
+      )}
+      {canEdit && property.editable ? (
+        <PropertyValuePopover
+          property={property}
+          documentId={documentId}
+          portalled={popoversPortalled}
+        >
+          {value}
+        </PropertyValuePopover>
+      ) : (
+        value
+      )}
+    </div>
+  );
+}
+
+export function PropertyManagementPopover({
+  property,
+  documentId,
+  icon: Icon,
+  triggerClassName,
+  onTriggerPointerDown,
+  triggerTrailing,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  icon: Icon;
+  triggerClassName?: string;
+  onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  triggerTrailing?: ReactNode;
+}) {
+  const configure = useConfigureDocumentProperty(documentId);
+  const duplicate = useDuplicateDocumentProperty(documentId);
+  const remove = useDeleteDocumentProperty(documentId);
+  const [open, setOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [name, setName] = useState(property.definition.name);
+  const [newOption, setNewOption] = useState("");
+  const propertyNameInputRef = useRef<HTMLInputElement>(null);
+  const typeIsLocked = isComputedPropertyType(property.definition.type);
+  const typeNeedsOptions =
+    property.definition.type === "select" ||
+    property.definition.type === "status" ||
+    property.definition.type === "multi_select";
+
+  function resetDraft() {
+    setName(property.definition.name);
+    setNewOption("");
+  }
+
+  useEffect(() => {
+    if (!open) return;
+
+    const frame = requestAnimationFrame(() => {
+      propertyNameInputRef.current?.focus();
+      propertyNameInputRef.current?.select();
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  async function configureProperty(next: {
+    name?: string;
+    type?: DocumentPropertyType;
+    visibility?: DocumentPropertyVisibility;
+    options?: DocumentProperty["definition"]["options"];
+  }) {
+    const nextType = next.type ?? property.definition.type;
+    await configure.mutateAsync({
+      id: property.definition.id,
+      documentId,
+      name: next.name?.trim() || property.definition.name,
+      type: nextType,
+      visibility: next.visibility,
+      options: next.options ?? property.definition.options,
+    });
+  }
+
+  async function renameProperty() {
+    const nextName = name.trim();
+    if (!nextName || nextName === property.definition.name) return;
+    await configureProperty({ name: nextName });
+  }
+
+  async function updateType(nextType: DocumentPropertyType) {
+    if (nextType === property.definition.type) return;
+    await configureProperty({
+      type: nextType,
+      options: defaultPropertyOptions(nextType),
+    });
+    setOpen(false);
+  }
+
+  async function updateVisibility(nextVisibility: DocumentPropertyVisibility) {
+    if (nextVisibility === property.definition.visibility) return;
+    await configureProperty({ visibility: nextVisibility });
+    setOpen(false);
+  }
+
+  async function duplicateProperty() {
+    await duplicate.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+    });
+    setOpen(false);
+  }
+
+  async function deleteProperty() {
+    await remove.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+    });
+    setOpen(false);
+  }
+
+  async function addOption() {
+    const optionName = newOption.trim();
+    if (!optionName) return;
+    const existing = property.definition.options.options ?? [];
+    const option = makeOption(
+      optionName,
+      existing.length,
+      existing.map((item) => item.id),
+    );
+    await configureProperty({
+      options: { options: [...existing, option] },
+    });
+    setNewOption("");
+  }
+
+  async function removeOption(id: string) {
+    await configureProperty({
+      options: {
+        options: (property.definition.options.options ?? []).filter(
+          (option) => option.id !== id,
+        ),
+      },
+    });
+  }
+
+  async function renameOption(id: string, optionName: string) {
+    const options = property.definition.options.options ?? [];
+    const nextOptions = renamePropertyOption(options, id, optionName);
+    if (nextOptions === options) return;
+    await configureProperty({ options: { options: nextOptions } });
+  }
+
+  async function recolorOption(id: string, color: DocumentPropertyOptionColor) {
+    const options = property.definition.options.options ?? [];
+    const nextOptions = updatePropertyOptionColor(options, id, color);
+    await configureProperty({ options: { options: nextOptions } });
+  }
+
+  return (
+    <>
+      <DropdownMenu
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) resetDraft();
+          setOpen(nextOpen);
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Property menu for ${property.definition.name}`}
+            className={cn(
+              "flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              triggerClassName,
+            )}
+            onPointerDown={onTriggerPointerDown}
+            onClick={
+              onTriggerPointerDown
+                ? (event) => {
+                    event.preventDefault();
+                    resetDraft();
+                    setOpen(true);
+                  }
+                : undefined
+            }
+          >
+            <Icon className="size-4 shrink-0" />
+            <span className="truncate">{property.definition.name}</span>
+            {triggerTrailing}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-72">
+          <div
+            className="flex items-center gap-2 p-1"
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <IconEdit className="size-4 shrink-0 text-muted-foreground" />
+            <Input
+              ref={propertyNameInputRef}
+              value={name}
+              aria-label="Property name"
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => void renameProperty()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
+              className="h-8"
+            />
+          </div>
+
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Icon className="mr-2 size-4 text-muted-foreground" />
+              <span className="flex-1">Type</span>
+              <span className="mr-2 text-muted-foreground">
+                {DOCUMENT_PROPERTY_TYPE_LABELS[property.definition.type]}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-80 w-56 overflow-auto">
+              {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
+                const TypeIcon = TYPE_ICONS[propertyType];
+                const selected = property.definition.type === propertyType;
+                const disabled = typeIsLocked && !selected;
+                return (
+                  <DropdownMenuItem
+                    key={propertyType}
+                    disabled={disabled}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void updateType(propertyType);
+                    }}
+                  >
+                    <TypeIcon className="mr-2 size-4 text-muted-foreground" />
+                    <span className="flex-1">
+                      {DOCUMENT_PROPERTY_TYPE_LABELS[propertyType]}
+                    </span>
+                    {selected ? (
+                      <IconCheck className="size-4 text-muted-foreground" />
+                    ) : null}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconEye className="mr-2 size-4 text-muted-foreground" />
+              <span className="flex-1">Visibility</span>
+              <span className="mr-2 text-muted-foreground">
+                {
+                  DOCUMENT_PROPERTY_VISIBILITY_LABELS[
+                    property.definition.visibility
+                  ]
+                }
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56">
+              {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
+                <DropdownMenuItem
+                  key={visibility}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void updateVisibility(visibility);
+                  }}
+                >
+                  <span className="flex-1">
+                    {DOCUMENT_PROPERTY_VISIBILITY_LABELS[visibility]}
+                  </span>
+                  {property.definition.visibility === visibility ? (
+                    <IconCheck className="size-4 text-muted-foreground" />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          {typeNeedsOptions ? (
+            <div className="grid gap-2 px-1 py-2">
+              <div className="px-1 text-xs font-medium text-muted-foreground">
+                Options
+              </div>
+              <div className="grid gap-1">
+                {(property.definition.options.options ?? []).map((option) => (
+                  <PropertyOptionSettingsRow
+                    key={option.id}
+                    option={option}
+                    disabled={configure.isPending}
+                    onRename={(name) => void renameOption(option.id, name)}
+                    onColorChange={(color) =>
+                      void recolorOption(option.id, color)
+                    }
+                    onRemove={() => void removeOption(option.id)}
+                  />
+                ))}
+              </div>
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void addOption();
+                }}
+              >
+                <Input
+                  value={newOption}
+                  placeholder="Add option"
+                  onChange={(event) => setNewOption(event.target.value)}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className="h-8"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!newOption.trim() || configure.isPending}
+                >
+                  Add
+                </Button>
+              </form>
+            </div>
+          ) : null}
+
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={duplicate.isPending}
+            onSelect={(event) => {
+              event.preventDefault();
+              void duplicateProperty();
+            }}
+          >
+            <IconCopy className="mr-2 size-4 text-muted-foreground" />
+            Duplicate property
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={remove.isPending}
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onSelect={(event) => {
+              event.preventDefault();
+              setOpen(false);
+              setConfirmDeleteOpen(true);
+            }}
+          >
+            <IconTrash className="mr-2 size-4" />
+            Delete property
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete property?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes "{property.definition.name}" and its values from
+              every document in this workspace.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void deleteProperty()}
+            >
+              Delete property
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+function PropertyOptionSettingsRow({
+  option,
+  disabled,
+  onRename,
+  onColorChange,
+  onRemove,
+}: {
+  option: DocumentPropertyOption;
+  disabled: boolean;
+  onRename: (name: string) => void;
+  onColorChange: (color: DocumentPropertyOptionColor) => void;
+  onRemove: () => void;
+}) {
+  const [draftName, setDraftName] = useState(option.name);
+
+  useEffect(() => {
+    setDraftName(option.name);
+  }, [option.name]);
+
+  function submitRename() {
+    const nextName = draftName.trim();
+    if (!nextName) {
+      setDraftName(option.name);
+      return;
+    }
+    if (nextName !== option.name) {
+      onRename(nextName);
+    }
+  }
+
+  return (
+    <div className="grid gap-1 rounded px-2 py-1 hover:bg-muted/50">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className={cn("size-3 shrink-0 rounded-full", optionClass(option))}
+        />
+        <Input
+          value={draftName}
+          disabled={disabled}
+          aria-label={`Rename option ${option.name}`}
+          onChange={(event) => setDraftName(event.target.value)}
+          onBlur={submitRename}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submitRename();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setDraftName(option.name);
+              event.currentTarget.blur();
+            }
+          }}
+          className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:bg-background focus-visible:ring-1"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2 pl-5">
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger
+            disabled={disabled}
+            className="h-7 rounded px-1.5 text-xs text-muted-foreground"
+          >
+            <IconPalette className="mr-1.5 size-3.5" />
+            Color
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-44">
+            {OPTION_COLORS.map((color) => (
+              <DropdownMenuItem
+                key={color}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onColorChange(color);
+                }}
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "mr-2 size-3 rounded-full",
+                    OPTION_COLOR_CLASSES[color],
+                  )}
+                />
+                <span className="flex-1 capitalize">{color}</span>
+                {option.color === color ? (
+                  <IconCheck className="size-4 text-muted-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <button
+          type="button"
+          aria-label={`Remove option ${option.name}`}
+          disabled={disabled}
+          className="h-7 rounded px-1.5 text-xs text-muted-foreground hover:text-destructive disabled:opacity-50"
+          onClick={onRemove}
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function PropertyValuePopover({
+  property,
+  documentId,
+  children,
+  portalled = true,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  children: React.ReactNode;
+  portalled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Edit ${property.definition.name}`}
+          className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {children}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" portalled={portalled} className="w-80 p-2">
+        <PropertyValueEditor
+          property={property}
+          documentId={documentId}
+          onDone={() => setOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PropertyValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const type = property.definition.type;
+  if (type === "select" || type === "status" || type === "multi_select") {
+    return (
+      <OptionValueEditor
+        property={property}
+        documentId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
+
+  if (type === "checkbox") {
+    return (
+      <CheckboxValueEditor
+        property={property}
+        documentId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
+
+  if (type === "date") {
+    return (
+      <DateValueEditor
+        property={property}
+        documentId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
+
+  if (type === "person") {
+    return (
+      <PersonValueEditor
+        property={property}
+        documentId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
+
+  if (type === "files_media") {
+    return (
+      <FilesMediaValueEditor
+        property={property}
+        documentId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
+
+  return (
+    <ScalarValueEditor
+      property={property}
+      documentId={documentId}
+      onDone={onDone}
+    />
+  );
+}
+
+function PersonValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const mutation = useSetDocumentProperty(documentId);
+  const { session } = useSession();
+  const [people, setPeople] = useState(() => personItems(property.value));
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const currentUserEmail = session?.email?.trim() ?? "";
+  const currentUserLabel = currentUserEmail
+    ? personLabel(currentUserEmail)
+    : "";
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  function addPerson(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setPeople((current) => {
+      if (
+        current.some((person) => person.toLowerCase() === trimmed.toLowerCase())
+      ) {
+        return current;
+      }
+      return [...current, trimmed];
+    });
+    setQuery("");
+  }
+
+  function removePerson(value: string) {
+    setPeople((current) =>
+      current.filter((person) => person.toLowerCase() !== value.toLowerCase()),
+    );
+  }
+
+  async function save(nextPeople = people) {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: nextPeople.length > 0 ? nextPeople : null,
+    });
+    onDone();
+  }
+
+  async function clear() {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: null,
+    });
+    onDone();
+  }
+
+  const filteredPeople = people.filter((person) =>
+    personLabel(person).toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const canAddQuery = query.trim().length > 0;
+  const canAddMe =
+    !!currentUserEmail &&
+    !people.some(
+      (person) => person.toLowerCase() === currentUserEmail.toLowerCase(),
+    );
+
+  return (
+    <form
+      className="grid gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (query.trim()) {
+          addPerson(query);
+          return;
+        }
+        void save();
+      }}
+    >
+      <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border px-2 py-1.5">
+        {people.map((person) => (
+          <span
+            key={person}
+            className="inline-flex max-w-full items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs font-medium"
+          >
+            <PersonPill value={person} />
+            <button
+              type="button"
+              aria-label={`Remove ${personLabel(person)}`}
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => removePerson(person)}
+            >
+              <IconX className="size-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          aria-label={`Add ${property.definition.name} person`}
+          value={query}
+          placeholder={people.length === 0 ? "Search or add person" : "Add"}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+          }}
+          className="min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+      </div>
+      <div className="grid gap-1">
+        {canAddMe ? (
+          <button
+            type="button"
+            className="flex items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+            onClick={() => addPerson(currentUserEmail)}
+          >
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <PersonPill value={currentUserEmail} />
+              <span className="truncate text-muted-foreground">
+                {currentUserEmail}
+              </span>
+            </span>
+            <span className="text-xs text-muted-foreground">Me</span>
+          </button>
+        ) : null}
+        {filteredPeople.length > 0 && query.trim() ? (
+          <div className="px-2 pt-1 text-xs text-muted-foreground">
+            Selected
+          </div>
+        ) : null}
+        {query.trim()
+          ? filteredPeople.map((person) => (
+              <button
+                type="button"
+                key={person}
+                className="flex items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => setQuery(person)}
+              >
+                <PersonPill value={person} />
+              </button>
+            ))
+          : null}
+        {canAddQuery ? (
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+            onClick={() => addPerson(query)}
+          >
+            <IconPlus className="size-4 text-muted-foreground" />
+            <span>Add "{query.trim()}"</span>
+          </button>
+        ) : null}
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void clear()}
+          disabled={mutation.isPending}
+        >
+          Clear
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={mutation.isPending}
+          onClick={() => void save()}
+        >
+          Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function FilesMediaValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const mutation = useSetDocumentProperty(documentId);
+  const [items, setItems] = useState(() => filesMediaItems(property.value));
+  const [linkValue, setLinkValue] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const linkInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      linkInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  function addItem(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setItems((current) => {
+      if (
+        current.some((item) => item.toLowerCase() === trimmed.toLowerCase())
+      ) {
+        return current;
+      }
+      return [...current, trimmed];
+    });
+    setLinkValue("");
+  }
+
+  function removeItem(value: string) {
+    setItems((current) => current.filter((item) => item !== value));
+  }
+
+  async function save(nextItems = items) {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: nextItems.length > 0 ? nextItems : null,
+    });
+    onDone();
+  }
+
+  async function clear() {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: null,
+    });
+    onDone();
+  }
+
+  async function uploadFiles(files: FileList | null) {
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length === 0) return;
+    setUploading(true);
+    try {
+      const uploadedUrls: string[] = [];
+      for (const file of selectedFiles) {
+        uploadedUrls.push(await uploadImageFile(file));
+      }
+      setItems((current) => [...current, ...uploadedUrls]);
+      toast.success(
+        uploadedUrls.length === 1 ? "Image uploaded" : "Images uploaded",
+      );
+    } catch (error) {
+      toast.error(imageUploadErrorMessage(error));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (linkValue.trim()) {
+          addItem(linkValue);
+          return;
+        }
+        void save();
+      }}
+    >
+      <div className="grid max-h-48 gap-1 overflow-auto">
+        {items.length === 0 ? (
+          <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+            No files or media
+          </div>
+        ) : (
+          items.map((item) => (
+            <div
+              key={item}
+              className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-2 py-2"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded bg-muted">
+                <IconPaperclip className="size-4 text-muted-foreground" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">
+                  {filesMediaLabel(item)}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {filesMediaKind(item)}
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove ${filesMediaLabel(item)}`}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => removeItem(item)}
+              >
+                <IconX className="size-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="flex gap-1">
+        <Input
+          ref={linkInputRef}
+          aria-label={`Add ${property.definition.name} link`}
+          value={linkValue}
+          placeholder="Paste file or media link"
+          onChange={(event) => setLinkValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+          }}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          onClick={() => addItem(linkValue)}
+          disabled={!linkValue.trim() || mutation.isPending}
+        >
+          <IconPlus className="size-3.5" />
+          Add
+        </Button>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
+        onChange={(event) => void uploadFiles(event.currentTarget.files)}
+      />
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={mutation.isPending || uploading}
+        >
+          <IconUpload className="size-3.5" />
+          Upload
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void clear()}
+          disabled={mutation.isPending || uploading}
+        >
+          Clear
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={mutation.isPending || uploading}
+        >
+          Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function DateValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const mutation = useSetDocumentProperty(documentId);
+  const [includeTime, setIncludeTime] = useState(
+    documentPropertyDateIncludesTime(property.value),
+  );
+  const [startValue, setStartValue] = useState(
+    documentPropertyDateIncludesTime(property.value)
+      ? formatPropertyDateTimeInputValue(property.value)
+      : formatPropertyDateInputValue(property.value),
+  );
+  const [endValue, setEndValue] = useState(
+    documentPropertyDateIncludesTime(property.value)
+      ? formatPropertyDateTimeInputValue(property.value, "end")
+      : formatPropertyDateEndInputValue(property.value),
+  );
+  const dateValueInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      dateValueInputRef.current?.focus();
+      dateValueInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  function buildValue(
+    nextStartValue = startValue,
+    nextEndValue = endValue,
+    nextIncludeTime = includeTime,
+  ): DocumentPropertyDateValue | null {
+    return normalizeDatePropertyValue({
+      start: nextStartValue,
+      end: nextEndValue || null,
+      includeTime: nextIncludeTime,
+    });
+  }
+
+  async function save(nextValue = buildValue()) {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: nextValue,
+    });
+    onDone();
+  }
+
+  async function clear() {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: null,
+    });
+    onDone();
+  }
+
+  return (
+    <form
+      className="grid gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <div className="grid grid-cols-2 gap-1">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 justify-start gap-1.5"
+          disabled={mutation.isPending}
+          onClick={() =>
+            void save({
+              start: includeTime
+                ? `${dateInputValueForOffset(new Date(), 0)}T09:00`
+                : dateInputValueForOffset(new Date(), 0),
+              includeTime,
+            })
+          }
+        >
+          <IconCalendar className="size-3.5" />
+          Today
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 justify-start gap-1.5"
+          disabled={mutation.isPending}
+          onClick={() =>
+            void save({
+              start: includeTime
+                ? `${dateInputValueForOffset(new Date(), 1)}T09:00`
+                : dateInputValueForOffset(new Date(), 1),
+              includeTime,
+            })
+          }
+        >
+          <IconCalendar className="size-3.5" />
+          Tomorrow
+        </Button>
+      </div>
+      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+        Start
+        <Input
+          ref={dateValueInputRef}
+          aria-label={`Edit ${property.definition.name} start date`}
+          autoFocus
+          name="property-start-value"
+          type={includeTime ? "datetime-local" : "date"}
+          value={startValue}
+          placeholder="Select a date"
+          onChange={(event) => setStartValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+          }}
+        />
+      </label>
+      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+        End
+        <div className="flex gap-1">
+          <Input
+            aria-label={`Edit ${property.definition.name} end date`}
+            name="property-end-value"
+            type={includeTime ? "datetime-local" : "date"}
+            value={endValue}
+            placeholder="Optional"
+            onChange={(event) => setEndValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onDone();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setEndValue("")}
+            disabled={!endValue || mutation.isPending}
+          >
+            Clear
+          </Button>
+        </div>
+      </label>
+      <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+        <input
+          type="checkbox"
+          checked={includeTime}
+          onChange={(event) => {
+            const nextIncludeTime = event.target.checked;
+            setIncludeTime(nextIncludeTime);
+            if (nextIncludeTime) {
+              setStartValue((current) =>
+                current.includes("T")
+                  ? current
+                  : current
+                    ? `${current}T09:00`
+                    : "",
+              );
+              setEndValue((current) =>
+                current.includes("T")
+                  ? current
+                  : current
+                    ? `${current}T17:00`
+                    : "",
+              );
+            } else {
+              setStartValue((current) => current.slice(0, 10));
+              setEndValue((current) => current.slice(0, 10));
+            }
+          }}
+        />
+        Include time
+      </label>
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void clear()}
+          disabled={mutation.isPending}
+        >
+          Clear
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={mutation.isPending}>
+          Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function ScalarValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const mutation = useSetDocumentProperty(documentId);
+  const type = property.definition.type;
+  const inputType =
+    type === "number"
+      ? "number"
+      : type === "date"
+        ? "date"
+        : type === "email"
+          ? "email"
+          : type === "url"
+            ? "url"
+            : type === "phone"
+              ? "tel"
+              : "text";
+  const initialValue =
+    type === "date" && typeof property.value === "string"
+      ? property.value.slice(0, 10)
+      : property.value === null || Array.isArray(property.value)
+        ? ""
+        : String(property.value);
+  const [value, setValue] = useState(initialValue);
+  const scalarValueInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      scalarValueInputRef.current?.focus();
+      scalarValueInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  async function save(nextValue = value) {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: nextValue,
+    });
+    onDone();
+  }
+
+  async function clear() {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: null,
+    });
+    onDone();
+  }
+
+  return (
+    <form
+      className="grid gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const formData = new FormData(event.currentTarget);
+        const formValue = formData.get("property-value");
+        void save(typeof formValue === "string" ? formValue : value);
+      }}
+    >
+      <Input
+        ref={scalarValueInputRef}
+        aria-label={`Edit ${property.definition.name} value`}
+        autoFocus
+        name="property-value"
+        type={inputType}
+        value={value}
+        placeholder={scalarPlaceholder(type)}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onDone();
+          }
+        }}
+      />
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void clear()}
+          disabled={mutation.isPending}
+        >
+          Clear
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={mutation.isPending}>
+          Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function CheckboxValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const mutation = useSetDocumentProperty(documentId);
+  const checked = Boolean(property.value);
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 rounded px-2 py-2 text-left text-sm hover:bg-accent"
+      onClick={async () => {
+        await mutation.mutateAsync({
+          documentId,
+          propertyId: property.definition.id,
+          value: !checked,
+        });
+        onDone();
+      }}
+    >
+      <span
+        className={cn(
+          "flex size-4 items-center justify-center rounded border",
+          checked && "border-primary bg-primary text-primary-foreground",
+        )}
+      >
+        {checked ? <IconCheck className="size-3" /> : null}
+      </span>
+      {checked ? "Uncheck" : "Check"}
+    </button>
+  );
+}
+
+function OptionValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const setValue = useSetDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(documentId);
+  const options = property.definition.options.options ?? [];
+  const [optionQuery, setOptionQuery] = useState("");
+  const filteredOptions = filterPropertyOptions(options, optionQuery);
+  const firstFilteredOption = firstMatchingPropertyOption(options, optionQuery);
+  const canCreateOption = canCreatePropertyOption(options, optionQuery);
+  const optionSearchInputRef = useRef<HTMLInputElement>(null);
+  const currentSelectedIds = useMemo(() => {
+    if (property.definition.type === "multi_select") {
+      return Array.isArray(property.value) ? property.value : [];
+    }
+    return typeof property.value === "string" ? [property.value] : [];
+  }, [property.definition.type, property.value]);
+  const [selectedIds, setSelectedIds] = useState(currentSelectedIds);
+
+  function queueOptionSearchFocus() {
+    const frame = requestAnimationFrame(() => {
+      optionSearchInputRef.current?.focus();
+      optionSearchInputRef.current?.select();
+    });
+    return frame;
+  }
+
+  useEffect(() => {
+    const frame = queueOptionSearchFocus();
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  async function setSelected(next: string | string[]) {
+    setSelectedIds(Array.isArray(next) ? next : next ? [next] : []);
+    await setValue.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: next,
+    });
+    if (property.definition.type !== "multi_select") onDone();
+  }
+
+  async function addOption(name = optionQuery) {
+    name = name.trim();
+    if (!name) return;
+    const option = nextPropertyOption(name, options);
+    const nextOptions = [...options, option];
+    await configure.mutateAsync({
+      id: property.definition.id,
+      documentId,
+      name: property.definition.name,
+      type: property.definition.type,
+      options: { options: nextOptions },
+    });
+    setOptionQuery("");
+    if (property.definition.type === "multi_select") {
+      await setSelected([...selectedIds, option.id]);
+      queueOptionSearchFocus();
+    } else {
+      await setSelected(option.id);
+    }
+  }
+
+  async function chooseOption(option: DocumentPropertyOption) {
+    if (property.definition.type === "multi_select") {
+      const checked = selectedIds.includes(option.id);
+      const next = checked
+        ? selectedIds.filter((id) => id !== option.id)
+        : [...selectedIds, option.id];
+      await setSelected(next);
+      queueOptionSearchFocus();
+    } else {
+      await setSelected(option.id);
+    }
+  }
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+        <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+        <Input
+          ref={optionSearchInputRef}
+          autoFocus
+          value={optionQuery}
+          placeholder="Search or create option"
+          aria-label={`Search ${property.definition.name} options`}
+          onChange={(event) => setOptionQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              if (firstFilteredOption) {
+                void chooseOption(firstFilteredOption);
+                return;
+              }
+              if (canCreateOption) void addOption();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+          }}
+          className="h-7 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+        />
+      </div>
+      <div className="max-h-52 overflow-auto">
+        {filteredOptions.length === 0 && !canCreateOption ? (
+          <div className="px-2 py-3 text-sm text-muted-foreground">
+            No matching options
+          </div>
+        ) : null}
+        {filteredOptions.map((option) => {
+          const checked = selectedIds.includes(option.id);
+          return (
+            <button
+              key={option.id}
+              type="button"
+              className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => void chooseOption(option)}
+            >
+              <OptionPill option={option} />
+              {checked ? (
+                <IconCheck className="size-4 text-muted-foreground" />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      {canCreateOption ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="justify-start"
+          disabled={configure.isPending || setValue.isPending}
+          onClick={() => void addOption()}
+        >
+          <IconPlus className="mr-1.5 size-3.5" />
+          Create &ldquo;{optionQuery.trim()}&rdquo;
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="justify-start"
+        disabled={setValue.isPending}
+        onClick={() =>
+          void setSelected(
+            property.definition.type === "multi_select" ? [] : "",
+          )
+        }
+      >
+        Clear value
+      </Button>
+    </div>
+  );
+}
+
+export function AddProperty({
+  documentId,
+  variant = "default",
+  label = "Add property",
+  popoversPortalled = true,
+}: {
+  documentId: string;
+  variant?: "default" | "header" | "icon";
+  label?: string;
+  popoversPortalled?: boolean;
+}) {
+  const configure = useConfigureDocumentProperty(documentId);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [typeQuery, setTypeQuery] = useState("");
+  const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
+  const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
+  const addPropertyNameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      addPropertyNameInputRef.current?.focus();
+      addPropertyNameInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  function closeAddPropertyPicker() {
+    setName("");
+    setTypeQuery("");
+    setOpen(false);
+  }
+
+  async function add(type: DocumentPropertyType) {
+    const label = DOCUMENT_PROPERTY_TYPE_LABELS[type];
+    await configure.mutateAsync({
+      documentId,
+      name: name.trim() || label,
+      type,
+      options: defaultPropertyOptions(type),
+    });
+    closeAddPropertyPicker();
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          setOpen(true);
+        } else {
+          closeAddPropertyPicker();
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className={cn(
+            "flex h-8 items-center gap-2 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+            variant === "icon" && "size-7 justify-center px-0",
+            variant === "header" && "h-7 px-2 text-xs font-medium",
+            variant === "default" && "mt-1 px-1 text-sm",
+          )}
+        >
+          <IconPlus className="size-4" />
+          {variant === "default" || variant === "header" ? label : null}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        portalled={popoversPortalled}
+        className="w-80 p-2"
+      >
+        <div className="grid gap-2">
+          <Input
+            ref={addPropertyNameInputRef}
+            aria-label="New property name"
+            autoFocus
+            value={name}
+            placeholder="Property name"
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeAddPropertyPicker();
+              }
+            }}
+          />
+          <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+            <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+            <Input
+              value={typeQuery}
+              placeholder="Search property types"
+              aria-label="Search property types"
+              onChange={(event) => setTypeQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && firstFilteredPropertyType) {
+                  event.preventDefault();
+                  void add(firstFilteredPropertyType);
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeAddPropertyPicker();
+                }
+              }}
+              className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="max-h-80 overflow-auto rounded border p-1">
+            {filteredPropertyTypes.length === 0 ? (
+              <div className="px-2 py-3 text-sm text-muted-foreground">
+                No matching property types
+              </div>
+            ) : null}
+            {filteredPropertyTypes.map((type) => {
+              const Icon = TYPE_ICONS[type];
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  aria-label={`Add ${DOCUMENT_PROPERTY_TYPE_LABELS[type]} property`}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  disabled={configure.isPending}
+                  onClick={() => void add(type)}
+                >
+                  <Icon className="size-4 text-muted-foreground" />
+                  <span className="flex-1">
+                    {DOCUMENT_PROPERTY_TYPE_LABELS[type]}
+                  </span>
+                  {isComputedPropertyType(type) ? (
+                    <span className="text-xs text-muted-foreground">
+                      Computed
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function filterDocumentPropertyTypes(
+  query: string,
+  types: readonly DocumentPropertyType[] = CREATABLE_DOCUMENT_PROPERTY_TYPES,
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [...types];
+
+  return types.filter((type) => {
+    const label = DOCUMENT_PROPERTY_TYPE_LABELS[type].toLowerCase();
+    const typeName = type.replace(/_/g, " ").toLowerCase();
+    const aliases = PROPERTY_TYPE_SEARCH_ALIASES[type] ?? [];
+    return (
+      label.includes(normalizedQuery) ||
+      typeName.includes(normalizedQuery) ||
+      aliases.some((alias) => alias.includes(normalizedQuery))
+    );
+  });
+}

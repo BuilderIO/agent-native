@@ -57,6 +57,27 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "upload-image",
     specifier: "@agent-native/core/file-upload/actions/upload-image",
   },
+  {
+    name: "context-manifest-get",
+    specifier:
+      "@agent-native/core/agent/context-xray/actions/context-manifest-get",
+  },
+  {
+    name: "context-pin",
+    specifier: "@agent-native/core/agent/context-xray/actions/context-pin",
+  },
+  {
+    name: "context-evict",
+    specifier: "@agent-native/core/agent/context-xray/actions/context-evict",
+  },
+  {
+    name: "context-restore",
+    specifier: "@agent-native/core/agent/context-xray/actions/context-restore",
+  },
+  {
+    name: "context-report",
+    specifier: "@agent-native/core/agent/context-xray/actions/context-report",
+  },
 ];
 
 function isRuntimeSourceFile(filename: string): boolean {

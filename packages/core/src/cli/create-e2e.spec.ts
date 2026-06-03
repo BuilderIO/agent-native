@@ -309,7 +309,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
   });
 
   it("appends to existing postinstall without duplicating", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["calendar", "scheduling"]);
+    const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
+    await _scaffoldRequiredPackages(["calendar"], wsDir);
     const rootPkg = readPkg(wsDir);
     const postinstall = rootPkg.scripts?.postinstall ?? "";
     const matches = postinstall.match(

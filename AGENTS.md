@@ -24,18 +24,20 @@ read the relevant skill before changing that area.
 
 ## Final Status Block
 
-Every final response must end with exactly:
+Every final response must end with a three-line status block:
 
 ```md
 ---
 
 ⠀
-🟢 Brief status
+🟢 Actual concise status sentence
 ```
 
-Use `🟢` when the requested coding/work unit is finished on the current branch,
-even if routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a
-manual step is still pending. Use `🔴` only when blocked on user input.
+The words after the icon are a short, task-specific status written for this
+response; never use the placeholder text `Brief status` literally. Use `🟢`
+when the requested coding/work unit is finished on the current branch, even if
+routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a manual
+step is still pending. Use `🔴` only when blocked on user input.
 
 ## Architecture Contract
 
@@ -48,6 +50,11 @@ manual step is still pending. Use `🔴` only when blocked on user input.
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
   actions.
+- For provider integrations used in ad hoc analysis, querying, reporting, or
+  cross-source research, prefer the shared `provider-api-catalog`,
+  `provider-api-docs`, and `provider-api-request` action pattern from
+  `@agent-native/core/provider-api` instead of hardcoding one action per
+  provider endpoint/filter.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
@@ -129,6 +136,7 @@ templates/*/         Template apps
 Read the relevant skill before making changes in that area:
 
 - `adding-a-feature` for the four-area checklist.
+- `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `storing-data`, `portability`, `security`, `sharing` for data work.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.

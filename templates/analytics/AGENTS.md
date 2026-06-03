@@ -31,14 +31,29 @@ details live in `.agents/skills/`.
   tools. The action schema is authoritative.
 - Prefer app query actions and provider readers over hand-written ad hoc SQL
   unless the user explicitly asks for low-level inspection.
+- Provider actions are shortcuts, not limits. When a canned action cannot
+  express the endpoint, filters, request body, pagination, or API version the
+  user needs, call `provider-api-catalog` / `provider-api-docs`, then
+  `provider-api-request` against the provider's real HTTP API. The generic
+  request action uses the shared `@agent-native/core/provider-api` runtime,
+  injects configured credentials, blocks private/internal URLs, and redacts
+  secrets.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
+- For HubSpot deal cohorts, use structured `hubspot-deals` filters for the
+  cohort definition: `product` for the `products` field, `pipeline` for deal
+  pipeline, `closedStatus` for won/lost/open, and `closedDateFrom` /
+  `closedDateTo` for close-date windows. `query` is full-text search across
+  deals and is not valid proof that a specific property matched.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:
   stitch identities on BOTH a stable id AND email, de-duplicate, and cite
   per-source provenance.
+- When the user challenges coverage or asks why records are missing, rerun or
+  revise from the source cohort and provide the updated answer directly. Do not
+  say a revised analysis exists unless you include it or save it.
 - Dashboards and charts should be useful, explainable, and scoped to the user's
   question. Avoid decorative metrics.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
@@ -68,6 +83,8 @@ Read the relevant skill before deeper work:
   context.
 - `gong` for call metadata, transcript excerpts, objections, risks, and next
   steps.
+- `actions` for the shared provider API pattern when a first-class action is too
+  narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers.
 - `bigquery` and `prometheus` for provider-specific behavior.

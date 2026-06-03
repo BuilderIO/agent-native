@@ -1,6 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { getCredentialContext } from "@agent-native/core/server";
 import {
+  isProviderApiId,
+  listProviderApiCatalog,
+} from "@agent-native/core/provider-api";
+import {
   listWorkspaceConnectionProviderCatalogForApp,
   type WorkspaceConnectionProviderCatalogForApp,
   type WorkspaceConnectionProviderCatalogForAppItem,
@@ -200,6 +204,9 @@ export default defineAction({
         );
         const workspaceConnection = provider.workspaceConnection;
         const credentialHealth = await credentialHealthForProvider(provider);
+        const providerApi = isProviderApiId(provider.id)
+          ? listProviderApiCatalog(provider.id)[0]
+          : null;
         return {
           id: provider.id,
           label: provider.label,
@@ -220,6 +227,27 @@ export default defineAction({
             sourceProviderSupported,
             workspace: workspaceConnection,
           }),
+          rawProviderApi: providerApi
+            ? {
+                available: true,
+                actionNames: [
+                  "provider-api-catalog",
+                  "provider-api-docs",
+                  "provider-api-request",
+                ],
+                docsUrls: providerApi.docsUrls,
+                specUrls: providerApi.specUrls,
+                auth: providerApi.auth,
+                examples: providerApi.examples,
+              }
+            : {
+                available: false,
+                actionNames: [],
+                docsUrls: [],
+                specUrls: [],
+                auth: null,
+                examples: [],
+              },
           workspaceConnection,
         };
       }),

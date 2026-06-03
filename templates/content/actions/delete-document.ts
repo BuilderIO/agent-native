@@ -4,6 +4,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import { deleteDatabaseDataForDocument } from "./_database-utils.js";
 
 async function deleteRecursive(
   db: ReturnType<typeof getDb>,
@@ -25,6 +26,8 @@ async function deleteRecursive(
     deleted.push(...(await deleteRecursive(db, child.id, ownerEmail)));
   }
 
+  // Delete database membership/schema, sync links, versions, shares, then document.
+  await deleteDatabaseDataForDocument(id, ownerEmail);
   await db
     .delete(schema.documentSyncLinks)
     .where(

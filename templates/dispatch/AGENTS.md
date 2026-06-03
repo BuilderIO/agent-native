@@ -14,6 +14,12 @@ specific essentials.
   receive grants or credential refs, not copied tokens.
 - Workspace integrations own provider identity, readiness, metadata, and grants.
   Domain apps still own provider-specific readers and interpretation.
+- Integration grants are not provider capability limits. For ad hoc provider
+  inspection, querying, reporting, or troubleshooting, call
+  `provider-api-catalog` / `provider-api-docs`, then `provider-api-request`
+  against the provider's real HTTP API. Use `connectionId` for a specific shared
+  grant and `accountId` for a specific OAuth account. Do not expose secret
+  values or silently widen app access while doing this.
 - For integration webhooks, use the queue-and-processor pattern. Do not rely on
   fire-and-forget promises after a serverless response.
 - Use `view-screen` when the current integration, resource, approval, route, or
@@ -35,4 +41,5 @@ Read the relevant skill before deeper work:
 - Root `secrets`, `onboarding`, `integration-webhooks`, `external-agents`,
   `a2a-protocol`, `automations`, and `recurring-jobs` for infrastructure work.
 - `actions`, `security`, `sharing`, `frontend-design`, and `shadcn-ui` for
-  framework implementation.
+  framework implementation. The `actions` skill includes the shared provider API
+  pattern for flexible integrations.

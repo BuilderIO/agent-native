@@ -69,4 +69,53 @@ export const documentSyncLinks = table("document_sync_links", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const documentPropertyDefinitions = table(
+  "document_property_definitions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    databaseId: text("database_id"),
+    name: text("name").notNull(),
+    type: text("type").notNull(),
+    visibility: text("visibility").notNull().default("always_show"),
+    optionsJson: text("options_json").notNull().default("{}"),
+    position: integer("position").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const contentDatabases = table("content_databases", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  documentId: text("document_id").notNull(),
+  title: text("title").notNull().default("Untitled database"),
+  viewConfigJson: text("view_config_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const contentDatabaseItems = table("content_database_items", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  databaseId: text("database_id").notNull(),
+  documentId: text("document_id").notNull(),
+  position: integer("position").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const documentPropertyValues = table("document_property_values", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  documentId: text("document_id").notNull(),
+  propertyId: text("property_id").notNull(),
+  valueJson: text("value_json").notNull().default("null"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
 export const documentShares = createSharesTable("document_shares");

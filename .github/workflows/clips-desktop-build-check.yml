@@ -1,0 +1,79 @@
+name: Clips Desktop Build Check
+
+# Verifies the Clips Tauri menu-bar app still builds on both macOS and
+# Windows whenever its code (or shared app config) changes on a PR. Does
+# NOT sign, notarize, draft a release, or publish anything — purely a
+# compile-time gate so we catch breakages before they hit the release
+# workflow (`clips-desktop-release.yml`).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "templates/clips/desktop/**"
+      - "packages/shared-app-config/**"
+      - ".github/workflows/clips-desktop-build-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TAURI_APP_PATH: templates/clips/desktop
+
+jobs:
+  build-check:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: universal-apple-darwin
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - os: windows-latest
+            target: ""
+            rust-targets: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ${{ env.TAURI_APP_PATH }}/src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: pnpm run build
+
+      - name: Build Tauri app (no signing, no publish)
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        # Override `createUpdaterArtifacts` to false: tauri.conf.json ships an
+        # updater pubkey, which makes `tauri build` sign an updater artifact and
+        # fail without TAURI_SIGNING_PRIVATE_KEY. This check only verifies the
+        # app compiles and bundles, so we skip the (signed) updater artifact —
+        # signing belongs to the release workflow, not the PR gate.
+        run: |
+          CONFIG_OVERRIDE='{"bundle":{"createUpdaterArtifacts":false}}'
+          if [ -n "${{ matrix.target }}" ]; then
+            pnpm exec tauri build --target ${{ matrix.target }} --ci --config "$CONFIG_OVERRIDE"
+          else
+            pnpm exec tauri build --ci --config "$CONFIG_OVERRIDE"
+          fi

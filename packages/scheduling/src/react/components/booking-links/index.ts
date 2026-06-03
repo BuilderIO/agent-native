@@ -1,7 +1,7 @@
 /**
  * Shared booking-link / event-type UI components. Consumers:
  *   - calendar template → app/pages/BookingLinksPage
- *   - scheduling template → app/routes/_app.event-types.$id
+ *   - custom scheduling surfaces → event-type detail pages
  *
  * Every component here renders with the consumer's shadcn primitives
  * imported via `@/components/ui/*`. See the top of each file for the

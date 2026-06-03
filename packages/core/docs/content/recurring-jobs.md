@@ -112,7 +112,7 @@ If the runtime is serverless/edge, trigger the tick from an external cron (Cloud
 Don't confuse recurring jobs with `@agent-native/scheduling`:
 
 - **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in the workspace. Runs on any agent-native app.
-- **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` and `scheduling` templates. See the scheduling template for usage.
+- **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` template and custom scheduling surfaces.
 
 Recurring jobs are "how do I make the agent act on its own?" The scheduling package is "how do I build a calendar app?" Different concerns.
 

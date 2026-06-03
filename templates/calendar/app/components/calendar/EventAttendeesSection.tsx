@@ -9,6 +9,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
@@ -89,9 +91,11 @@ function RsvpControls({
 }) {
   const mutation = useRsvpEvent();
   const noteId = useId();
+  const scopeId = useId();
   const [pendingStatus, setPendingStatus] = useState<EditableRsvpStatus | null>(
     null,
   );
+  const [pendingScope, setPendingScope] = useState<RecurringScope>("single");
   const [noteDraft, setNoteDraft] = useState("");
   const currentNote = note?.trim() ?? "";
 
@@ -103,6 +107,14 @@ function RsvpControls({
     { value: "declined", label: "No" },
     { value: "tentative", label: "Maybe" },
   ];
+  const scopeOptions: Array<{
+    value: RecurringScope;
+    label: string;
+  }> = [
+    { value: "single", label: "This event" },
+    { value: "thisAndFollowing", label: "This and following events" },
+    { value: "all", label: "All events" },
+  ];
 
   const supportsNote =
     pendingStatus === "declined" || pendingStatus === "tentative";
@@ -110,10 +122,12 @@ function RsvpControls({
 
   const closePopover = () => {
     setPendingStatus(null);
+    setPendingScope("single");
     setNoteDraft("");
   };
 
   const openPopover = (status: EditableRsvpStatus) => {
+    setPendingScope("single");
     setNoteDraft(status === "accepted" ? "" : currentNote);
     setPendingStatus(status);
   };
@@ -201,109 +215,97 @@ function RsvpControls({
         side="left"
         align="center"
         sideOffset={8}
-        className="w-72"
+        className="w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
       >
         {pendingStatus && (
-          <div className="space-y-3">
-            <div>
-              <p className="text-sm font-medium">
-                {isRecurring ? "This is a recurring event" : "Update response"}
+          <div>
+            <div className="p-5">
+              <p className="text-base font-semibold leading-tight">
+                {isRecurring
+                  ? "Save response status for recurring event"
+                  : "Save response status"}
               </p>
+
               {isRecurring && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Would you like to change your response for just this event,
-                  this and all following events, or all events in the series?
-                </p>
+                <RadioGroup
+                  value={pendingScope}
+                  onValueChange={(value) =>
+                    setPendingScope(value as RecurringScope)
+                  }
+                  aria-label="Recurring response scope"
+                  className="mt-5 gap-4"
+                >
+                  {scopeOptions.map((option) => {
+                    const id = `${scopeId}-${option.value}`;
+                    return (
+                      <div
+                        key={option.value}
+                        className="flex items-center gap-3"
+                      >
+                        <RadioGroupItem
+                          id={id}
+                          value={option.value}
+                          disabled={mutation.isPending}
+                        />
+                        <Label
+                          htmlFor={id}
+                          className="cursor-pointer text-sm font-medium leading-none"
+                        >
+                          {option.label}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </RadioGroup>
               )}
             </div>
 
             {supportsNote && (
-              <div className="space-y-1.5">
-                <Label htmlFor={noteId} className="text-xs">
-                  Optional note
-                </Label>
-                <Textarea
-                  id={noteId}
-                  value={noteDraft}
-                  onChange={(e) => setNoteDraft(e.target.value)}
-                  maxLength={1000}
-                  placeholder="Add a short note..."
-                  className="min-h-[76px] resize-none text-sm"
-                />
-              </div>
+              <>
+                <Separator />
+                <div className="space-y-2 p-5">
+                  <Label htmlFor={noteId} className="text-sm font-medium">
+                    Optional note
+                  </Label>
+                  <Textarea
+                    id={noteId}
+                    value={noteDraft}
+                    onChange={(e) => setNoteDraft(e.target.value)}
+                    maxLength={1000}
+                    placeholder="Add a short note..."
+                    className="min-h-[96px] resize-none text-sm"
+                  />
+                </div>
+              </>
             )}
 
-            {isRecurring ? (
-              <div className="space-y-1.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-center"
-                  disabled={mutation.isPending}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    doRsvp(pendingStatus, "single");
-                    closePopover();
-                  }}
-                >
-                  This event
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-center"
-                  disabled={mutation.isPending}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    doRsvp(pendingStatus, "thisAndFollowing");
-                    closePopover();
-                  }}
-                >
-                  This and following events
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-center"
-                  disabled={mutation.isPending}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    doRsvp(pendingStatus, "all");
-                    closePopover();
-                  }}
-                >
-                  All events
-                </Button>
-              </div>
-            ) : (
-              <div className="flex justify-end gap-1.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closePopover();
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-7 text-xs"
-                  disabled={mutation.isPending}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    doRsvp(pendingStatus);
-                    closePopover();
-                  }}
-                >
-                  Save response
-                </Button>
-              </div>
-            )}
+            <div className="flex justify-end gap-2 px-5 pb-5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closePopover();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="h-9"
+                disabled={mutation.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
+                  closePopover();
+                }}
+              >
+                Save response
+              </Button>
+            </div>
           </div>
         )}
       </PopoverContent>

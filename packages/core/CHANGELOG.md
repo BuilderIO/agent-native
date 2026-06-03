@@ -1,5 +1,59 @@
 # @agent-native/core
 
+## 0.35.0
+
+### Minor Changes
+
+- 4740d41: Add a local Context X-Ray skill installer that writes a turnkey context-xray
+  command, Codex/Claude skill instructions, and slash-command prompts for
+  visualizing local coding-agent context usage.
+
+  Project-scoped installs now stay in project `.agents` artifacts, Codex session
+  analysis honors `--project`, `--open` uses a local HTML file instead of a
+  detached server, and Windows installs get a native command launcher.
+
+- 4740d41: Add Context X-Ray for inspecting and managing the agent context window with
+  segment manifests, pin/evict/restore actions, durable directives, and a chat
+  composer cockpit.
+
+## 0.34.0
+
+### Minor Changes
+
+- 1acd641: Add a shared provider API runtime for flexible, provider-aware authenticated HTTP requests, and expose provider API catalog/docs/request actions from Dispatch.
+
+## 0.33.0
+
+### Minor Changes
+
+- 8509cf0: Add a shared `@agent-native/core/provider-api` module: a reusable provider-API runtime with a credential-resolver hook, SSRF-safe outbound dispatch, a provider catalog (base URLs, auth styles, credential keys, docs/spec URLs, placeholders, examples), and helpers (`createProviderApiRuntime`, `getProviderApiConfig`, `isProviderApiId`, `listProviderApiCatalog`, `listProviderApiIdsForTemplateUse`, `PROVIDER_API_IDS`). Templates can build a thin credential adapter on top instead of hardcoding each provider endpoint.
+
+## 0.32.18
+
+### Patch Changes
+
+- 2876933: Clarify Agent Teams delegation intent and distinguish spawned background tasks from completed work.
+
+## 0.32.17
+
+### Patch Changes
+
+- 966838d: Propagate agent team parent thread metadata through background runs.
+- 966838d: Expose the Contracts template in public metadata with its dedicated icon alias.
+- 966838d: Stop a dropped Neon connection from crashing the whole serverless function. `@neondatabase/serverless` mirrors `pg-pool`, which removes its idle `error` listener while a client is checked out — so a WebSocket that drops mid-query (Lambda freeze/thaw, Neon "terminating connection due to administrator command", an idle socket the pooler closed) made the client emit an `error` event with no listener, which Node escalated to an uncaught exception that killed the function. This was the single highest-volume production crash. `attachNeonPoolErrorLogger` now attaches a persistent `error` listener to every client at connect time (covering all three pools — app, per-app, and Better Auth), so a dropped connection degrades to a logged warning and a reconnect on the next query instead of a process crash.
+
+## 0.32.16
+
+### Patch Changes
+
+- c8773be: Fix social preview response handling and harden Agent Teams recovery paths.
+
+## 0.32.15
+
+### Patch Changes
+
+- ba34976: Make repo-root pnpm dev use the lazy framework gateway by default.
+
 ## 0.32.14
 
 ### Patch Changes

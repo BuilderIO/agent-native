@@ -9,6 +9,12 @@ import { agentNativeOgImageResponseHeaders } from "@agent-native/core/server";
 import { renderFormOgImagePng } from "../../../../../lib/form-og-image.js";
 import { getPublicFormBySlugOrId } from "../../../../../lib/public-form-ssr.js";
 
+function pngBody(bytes: Uint8Array): ArrayBuffer {
+  const body = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(body).set(bytes);
+  return body;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const slug = getRouterParam(event, "slug");
   if (!slug) {
@@ -22,15 +28,17 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Form not found" };
   }
 
+  if (getMethod(event) === "HEAD") {
+    return new Response(null, {
+      headers: agentNativeOgImageResponseHeaders(0),
+    });
+  }
+
   const png = await renderFormOgImagePng({
     title: form.title,
   });
-  const body = png.buffer.slice(
-    png.byteOffset,
-    png.byteOffset + png.byteLength,
-  ) as ArrayBuffer;
 
-  return new Response(getMethod(event) === "HEAD" ? null : body, {
+  return new Response(pngBody(png), {
     headers: agentNativeOgImageResponseHeaders(png.byteLength),
   });
 });

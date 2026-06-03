@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   IconChevronRight,
+  IconDatabase,
   IconFileText,
   IconPlus,
   IconStar,
@@ -49,6 +50,28 @@ interface DocumentTreeItemProps {
   onCreateChild: (parentId: string) => void;
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
+}
+
+export function getDocumentSidebarIconKind(
+  document: Pick<DocumentTreeNode, "icon" | "database">,
+) {
+  if (document.icon?.trim()) return "custom";
+  if (document.database) return "database";
+  return "page";
+}
+
+export function DocumentSidebarIcon({
+  document,
+}: {
+  document: Pick<DocumentTreeNode, "icon" | "database">;
+}) {
+  const iconKind = getDocumentSidebarIconKind(document);
+
+  if (iconKind === "custom") return <>{document.icon}</>;
+  if (iconKind === "database") {
+    return <IconDatabase size={14} className="text-muted-foreground" />;
+  }
+  return <IconFileText size={14} className="text-muted-foreground" />;
 }
 
 export function DocumentTreeItem({
@@ -126,9 +149,7 @@ export function DocumentTreeItem({
               hasChildren && (expanded || isActive) && "opacity-0",
             )}
           >
-            {node.icon || (
-              <IconFileText size={14} className="text-muted-foreground" />
-            )}
+            <DocumentSidebarIcon document={node} />
           </span>
           {hasChildren && (
             <button

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pickCompressedDimensions, pickVideoBitrate } from "./compress";
+import {
+  pickCompressedDimensions,
+  pickVideoBitrate,
+  pickVideoFilters,
+} from "./compress";
 
 describe("pickCompressedDimensions", () => {
   it("caps landscape recordings at 720p", () => {
@@ -20,6 +24,13 @@ describe("pickCompressedDimensions", () => {
     expect(pickCompressedDimensions(960, 540)).toEqual({
       width: 960,
       height: 540,
+    });
+  });
+
+  it("keeps encoder dimensions even", () => {
+    expect(pickCompressedDimensions(1921, 1081)).toEqual({
+      width: 1280,
+      height: 720,
     });
   });
 });
@@ -49,5 +60,18 @@ describe("pickVideoBitrate", () => {
       maxrate: "0.4M",
       bufsize: "0.7M",
     });
+  });
+});
+
+describe("pickVideoFilters", () => {
+  it("caps frame rate and adds a scale filter when needed", () => {
+    expect(pickVideoFilters(2560, 1440)).toEqual([
+      "fps=24",
+      "scale=1280:720:flags=lanczos",
+    ]);
+  });
+
+  it("caps frame rate without resizing smaller recordings", () => {
+    expect(pickVideoFilters(1280, 720)).toEqual(["fps=24"]);
   });
 });

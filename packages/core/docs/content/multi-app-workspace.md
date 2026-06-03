@@ -7,7 +7,7 @@ description: "Host many agent-native apps in one monorepo with shared auth, RBAC
 
 > For what a workspace _is_ — the customization layer, `AGENTS.md`, `LEARNINGS.md`, personal memory, skills, and custom agents — see [Workspace](/docs/workspace). This page is about the **deployment shape**: hosting many agent-native apps in one monorepo with shared auth, components, and a unified deploy.
 
-When vibe-coding an internal tool takes an afternoon, you don't stop at one. A team ends up with a CRM, a support inbox, a dashboard, a recruiting tracker, an ops console — ten small apps, each scaffolded independently. That's great until you need to change something in all of them.
+When vibe-coding an internal tool takes an afternoon, you don't stop at one. A team ends up with a CRM, a support inbox, a dashboard, an ops console — ten small apps, each scaffolded independently. That's great until you need to change something in all of them.
 
 At that point every app has its own `AGENTS.md`, its own auth plugin, its own copy-pasted layout component, its own hard-coded Slack token, its own idea of what an "organization" is. A compliance rule change means ten PRs. Rotating an API key means ten redeployments. A brand refresh means ten different headers drifting out of sync. The thing that made it easy to build them is now making it hard to manage them.
 

@@ -1,0 +1,62 @@
+import {
+  PROVIDER_API_IDS,
+  createProviderApiRuntime,
+  type ProviderApiCredentialResolver,
+  type ProviderApiId,
+  type ProviderApiMethod,
+  type ProviderApiRequestArgs,
+} from "@agent-native/core/provider-api";
+import { requireRequestCredentialContext } from "./credentials-context";
+import { resolveAnalyticsProviderCredential } from "./provider-credentials";
+
+export const ANALYTICS_PROVIDER_API_IDS = PROVIDER_API_IDS;
+export type AnalyticsProviderApiId = ProviderApiId;
+export type { ProviderApiMethod, ProviderApiRequestArgs };
+
+const resolveAnalyticsCredential: ProviderApiCredentialResolver = async ({
+  provider,
+  key,
+  ctx,
+  workspaceProvider,
+}) => {
+  const credential = await resolveAnalyticsProviderCredential({
+    provider: workspaceProvider ?? provider,
+    keys: [key],
+    ctx,
+    workspaceConnection: Boolean(workspaceProvider),
+  });
+  if (!credential) return null;
+  return {
+    key: credential.key,
+    value: credential.value,
+    source: credential.source,
+    provider: credential.provider,
+    connectionId: credential.connectionId,
+    connectionLabel: credential.connectionLabel,
+    scope: credential.scope,
+  };
+};
+
+const runtime = createProviderApiRuntime({
+  appId: "analytics",
+  localCredentialSource: "analytics_local",
+  getCredentialContext: () =>
+    requireRequestCredentialContext("provider API credential"),
+  resolveCredential: resolveAnalyticsCredential,
+});
+
+export function listProviderApiCatalog(provider?: AnalyticsProviderApiId) {
+  return runtime.listCatalog(provider);
+}
+
+export function fetchProviderApiDocs(options: {
+  provider: AnalyticsProviderApiId;
+  url?: string;
+  maxBytes?: number;
+}) {
+  return runtime.fetchDocs(options);
+}
+
+export function executeProviderApiRequest(args: ProviderApiRequestArgs) {
+  return runtime.executeRequest(args);
+}
