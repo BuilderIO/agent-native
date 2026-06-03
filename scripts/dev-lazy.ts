@@ -897,8 +897,7 @@ function proxyHttp(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): void {
-  console.log(`shomix - proxyHelp - ${app.name}`);
-  console.log(JSON.stringify(app));
+  console.log(`shomix - proxyHelp - ${app.name} - ${app.id} - ${app.port}`);
   const cold = !app.process || app.process.killed;
   startApp(app);
   console.log(`shomix - after startApp - ${app.name}`);
