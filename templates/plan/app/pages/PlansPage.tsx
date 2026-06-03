@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   IconArrowsMaximize,
@@ -6,10 +6,11 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconCursorText,
-  IconMessagePlus,
+  IconMessageCircle,
   IconPlus,
   IconShare3,
   IconSparkles,
+  IconX,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -48,7 +49,7 @@ import {
   useVisualizePlan,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
-import type { PlanBundle, PlanCommentKind, PlanSource } from "@shared/types";
+import type { PlanBundle, PlanSource } from "@shared/types";
 
 const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "codex", label: "Codex" },
@@ -59,14 +60,6 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "imported", label: "Imported" },
 ];
 
-const COMMENT_KINDS: Array<{ value: PlanCommentKind; label: string }> = [
-  { value: "comment", label: "Comment" },
-  { value: "correction", label: "Correction" },
-  { value: "question", label: "Question" },
-  { value: "decision", label: "Decision" },
-  { value: "annotation", label: "Annotation" },
-];
-
 type PlanAnnotationAnchor = {
   x: number;
   y: number;
@@ -74,6 +67,14 @@ type PlanAnnotationAnchor = {
   sectionTitle?: string;
   snippet?: string;
   tagName?: string;
+};
+
+type InlineCommentPosition = {
+  left: number;
+  top: number;
+  pinLeft: number;
+  pinTop: number;
+  width: number;
 };
 
 type PlanDocumentState = {
@@ -98,18 +99,55 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function resolveInlineCommentPosition(input: {
+  pointX: number;
+  pointY: number;
+  viewportWidth: number;
+  viewportHeight: number;
+}): InlineCommentPosition {
+  const popoverWidth = Math.min(360, Math.max(260, input.viewportWidth - 32));
+  const popoverHeight = 158;
+  const gap = 14;
+  const opensRight =
+    input.pointX + popoverWidth + gap + 16 <= input.viewportWidth;
+  const left = opensRight
+    ? input.pointX + gap
+    : input.pointX - popoverWidth - gap;
+  return {
+    pinLeft: clamp(input.pointX, 12, Math.max(12, input.viewportWidth - 12)),
+    pinTop: clamp(input.pointY, 12, Math.max(12, input.viewportHeight - 12)),
+    left: clamp(
+      left,
+      12,
+      Math.max(12, input.viewportWidth - popoverWidth - 12),
+    ),
+    top: clamp(
+      input.pointY - 18,
+      12,
+      Math.max(12, input.viewportHeight - popoverHeight - 12),
+    ),
+    width: popoverWidth,
+  };
+}
+
 export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentStateRef = useRef<PlanDocumentState | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(true);
   const [planFullscreen, setPlanFullscreen] = useState(true);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
+  const [inlineCommentPosition, setInlineCommentPosition] =
+    useState<InlineCommentPosition | null>(null);
   const plansQuery = usePlans();
   const plans = plansQuery.data ?? [];
   const selectedId = params.id;
@@ -132,6 +170,26 @@ export function PlansPage() {
     return injectAnnotationRuntime(documentHtml, bundle.comments, annotateMode);
   }, [annotateMode, bundle, documentHtml]);
 
+  const getPositionFromAnchor = useCallback((anchor: PlanAnnotationAnchor) => {
+    const rect = iframeRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const doc = documentStateRef.current;
+    const pointX = doc
+      ? ((anchor.x / 100) * doc.scrollWidth - doc.scrollX) *
+        (rect.width / Math.max(doc.clientWidth, 1))
+      : (anchor.x / 100) * rect.width;
+    const pointY = doc
+      ? ((anchor.y / 100) * doc.scrollHeight - doc.scrollY) *
+        (rect.height / Math.max(doc.clientHeight, 1))
+      : (anchor.y / 100) * rect.height;
+    return resolveInlineCommentPosition({
+      pointX,
+      pointY,
+      viewportWidth: rect.width,
+      viewportHeight: rect.height,
+    });
+  }, []);
+
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
@@ -145,10 +203,10 @@ export function PlansPage() {
         | undefined;
       if (data?.type === "agent-native-plan-annotate" && data.anchor) {
         setPendingAnnotation(data.anchor);
-        setCommentsOpen(true);
+        setInlineCommentPosition(getPositionFromAnchor(data.anchor));
       }
       if (data?.type === "agent-native-plan-open-comments") {
-        setCommentsOpen(true);
+        setAnnotationsOpen(true);
       }
       if (data?.type === "agent-native-plan-link-blocked") {
         toast.info(
@@ -161,16 +219,12 @@ export function PlansPage() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [getPositionFromAnchor]);
 
-  const handleCommentsOpenChange = (open: boolean) => {
-    setCommentsOpen(open);
-    if (!open) {
-      if (pendingAnnotation) {
-        setAnnotateMode(false);
-      }
-      setPendingAnnotation(null);
-    }
+  const closeInlineComment = () => {
+    setAnnotateMode(false);
+    setPendingAnnotation(null);
+    setInlineCommentPosition(null);
   };
 
   const copyShareLink = async () => {
@@ -198,7 +252,46 @@ export function PlansPage() {
       y: Number(Math.max(0, Math.min(100, y)).toFixed(3)),
       sectionTitle: "Visible plan area",
     });
-    setCommentsOpen(true);
+    setInlineCommentPosition(
+      resolveInlineCommentPosition({
+        pointX: clickX,
+        pointY: clickY,
+        viewportWidth: rect.width,
+        viewportHeight: rect.height,
+      }),
+    );
+  };
+
+  const submitInlineComment = (message: string) => {
+    if (!bundle || !pendingAnnotation) return;
+    const sectionId =
+      pendingAnnotation.sectionId &&
+      bundle.sections.some(
+        (section) => section.id === pendingAnnotation.sectionId,
+      )
+        ? pendingAnnotation.sectionId
+        : undefined;
+    updatePlan.mutate(
+      {
+        planId: bundle.plan.id,
+        comments: [
+          {
+            kind: "annotation",
+            message,
+            sectionId,
+            anchor: JSON.stringify(pendingAnnotation),
+            createdBy: "human",
+          },
+        ],
+        note: "Human added inline visual plan feedback.",
+      },
+      {
+        onSuccess: () => {
+          closeInlineComment();
+          toast.success("Comment added");
+        },
+      },
+    );
   };
 
   return (
@@ -347,7 +440,7 @@ export function PlansPage() {
                       className="pointer-events-auto size-8"
                       onClick={() =>
                         setPlanFullscreen((value) => {
-                          if (value) setAnnotateMode(false);
+                          if (value) closeInlineComment();
                           return !value;
                         })
                       }
@@ -390,7 +483,14 @@ export function PlansPage() {
                       variant={annotateMode ? "secondary" : "default"}
                       size="sm"
                       className="pointer-events-auto relative"
-                      onClick={() => setAnnotateMode((value) => !value)}
+                      onClick={() => {
+                        if (annotateMode) {
+                          closeInlineComment();
+                          return;
+                        }
+                        setAnnotationsOpen(false);
+                        setAnnotateMode(true);
+                      }}
                     >
                       <IconCursorText className="size-4" />
                       {annotateMode ? "Cancel" : "Comment"}
@@ -429,6 +529,32 @@ export function PlansPage() {
                   onClick={handleAnnotationClick}
                 />
               )}
+              {pendingAnnotation && inlineCommentPosition && (
+                <>
+                  <div
+                    className="pointer-events-none absolute z-20 flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-primary/50 bg-foreground text-[11px] font-semibold text-background shadow-2xl"
+                    style={{
+                      left: inlineCommentPosition.pinLeft,
+                      top: inlineCommentPosition.pinTop,
+                    }}
+                  >
+                    {bundle.summary.commentCount + 1}
+                  </div>
+                  <InlineCommentPopover
+                    position={inlineCommentPosition}
+                    anchor={pendingAnnotation}
+                    isPending={updatePlan.isPending}
+                    onCancel={closeInlineComment}
+                    onSubmit={submitInlineComment}
+                  />
+                </>
+              )}
+              {annotationsOpen && (
+                <AnnotationsPanel
+                  bundle={bundle}
+                  onClose={() => setAnnotationsOpen(false)}
+                />
+              )}
             </div>
           )}
         </section>
@@ -440,17 +566,6 @@ export function PlansPage() {
         createPlan={createPlan}
         visualizePlan={visualizePlan}
         onCreated={(id) => navigate(`/plans/${id}`)}
-      />
-      <CommentsSheet
-        bundle={bundle}
-        open={commentsOpen}
-        onOpenChange={handleCommentsOpenChange}
-        updatePlan={updatePlan}
-        pendingAnnotation={pendingAnnotation}
-        onAnnotationSaved={() => {
-          setPendingAnnotation(null);
-          setAnnotateMode(false);
-        }}
       />
     </div>
   );
@@ -700,167 +815,146 @@ function CreatePlanDialog({
   );
 }
 
-function CommentsSheet({
-  bundle,
-  open,
-  onOpenChange,
-  updatePlan,
-  pendingAnnotation,
-  onAnnotationSaved,
+function InlineCommentPopover({
+  position,
+  anchor,
+  isPending,
+  onCancel,
+  onSubmit,
 }: {
-  bundle?: PlanBundle & { html?: string };
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  updatePlan: ReturnType<typeof useUpdatePlan>;
-  pendingAnnotation?: PlanAnnotationAnchor | null;
-  onAnnotationSaved: () => void;
+  position: InlineCommentPosition;
+  anchor: PlanAnnotationAnchor;
+  isPending: boolean;
+  onCancel: () => void;
+  onSubmit: (message: string) => void;
 }) {
   const [message, setMessage] = useState("");
-  const [kind, setKind] = useState<PlanCommentKind>("comment");
-  const [sectionId, setSectionId] = useState<string>("plan");
-  const pendingSectionId =
-    pendingAnnotation?.sectionId &&
-    bundle?.sections.some(
-      (section) => section.id === pendingAnnotation.sectionId,
-    )
-      ? pendingAnnotation.sectionId
-      : "plan";
-
-  useEffect(() => {
-    if (!pendingAnnotation) return;
-    setKind("annotation");
-    setSectionId(pendingSectionId);
-    setMessage("");
-  }, [pendingAnnotation, pendingSectionId]);
-
-  if (!bundle) return null;
+  const canSubmit = message.trim().length > 0 && !isPending;
   const submit = () => {
-    if (!message.trim()) return;
-    updatePlan.mutate(
-      {
-        planId: bundle.plan.id,
-        comments: [
-          {
-            kind,
-            message,
-            sectionId: sectionId === "plan" ? undefined : sectionId,
-            anchor: pendingAnnotation
-              ? JSON.stringify(pendingAnnotation)
-              : undefined,
-            createdBy: "human",
-          },
-        ],
-        note: "Human added visual plan feedback.",
-      },
-      {
-        onSuccess: () => {
-          setMessage("");
-          setKind("comment");
-          onAnnotationSaved();
-        },
-      },
-    );
+    if (!canSubmit) return;
+    onSubmit(message.trim());
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[86vh] flex-col sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Plan comments</DialogTitle>
-          <DialogDescription>
-            Add concise feedback the agent can read with get-plan-feedback.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <Select
-            value={kind}
-            onValueChange={(value) => setKind(value as PlanCommentKind)}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {COMMENT_KINDS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={sectionId} onValueChange={setSectionId}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="plan">Whole plan</SelectItem>
-              {bundle.sections.map((section) => (
-                <SelectItem key={section.id} value={section.id}>
-                  {section.title}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {pendingAnnotation && (
-            <div className="rounded-lg border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
-              <div className="flex items-center gap-2 font-medium text-foreground">
-                <IconMessagePlus className="size-4" />
-                Pinned annotation
-              </div>
-              <p className="mt-1">
-                {formatAnchorLabel(pendingAnnotation)}
-                {pendingAnnotation.snippet
-                  ? ` near "${pendingAnnotation.snippet}"`
-                  : ""}
-              </p>
-            </div>
-          )}
-          <Textarea
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            rows={5}
-            placeholder="What should change?"
-          />
-          <Button
-            type="button"
-            onClick={submit}
-            disabled={updatePlan.isPending || !message.trim()}
-          >
-            Add Comment
-          </Button>
+    <div
+      className="absolute z-30 rounded-xl border border-border/80 bg-background/96 p-2 shadow-2xl backdrop-blur-xl"
+      style={{ left: position.left, top: position.top, width: position.width }}
+    >
+      <div className="flex items-start gap-2">
+        <Textarea
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onCancel();
+            }
+          }}
+          rows={2}
+          autoFocus
+          placeholder="Add a comment..."
+          className="min-h-11 resize-none border-border/80 bg-background text-sm shadow-none focus-visible:ring-1"
+        />
+        <Button
+          type="button"
+          size="sm"
+          className="h-11 shrink-0 px-3"
+          onClick={submit}
+          disabled={!canSubmit}
+        >
+          Save
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-11 shrink-0"
+          onClick={onCancel}
+          aria-label="Cancel comment"
+        >
+          <IconX className="size-4" />
+        </Button>
+      </div>
+      <p className="mt-2 px-1 text-[11px] text-muted-foreground">
+        {formatAnchorLabel(anchor)}
+      </p>
+    </div>
+  );
+}
+
+function AnnotationsPanel({
+  bundle,
+  onClose,
+}: {
+  bundle: PlanBundle & { html?: string };
+  onClose: () => void;
+}) {
+  const openComments = bundle.comments.filter(
+    (comment) => comment.status === "open",
+  );
+  const comments = openComments.length > 0 ? openComments : bundle.comments;
+  return (
+    <aside className="absolute right-3 top-16 z-20 flex max-h-[calc(100%-5rem)] w-[min(360px,calc(100vw-24px))] flex-col rounded-xl border border-border/80 bg-background/96 shadow-2xl backdrop-blur-xl">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <IconMessageCircle className="size-4 text-muted-foreground" />
+          <h2 className="truncate text-sm font-semibold">Annotations</h2>
+          <Badge variant="secondary" className="h-5 rounded-md px-1.5">
+            {comments.length}
+          </Badge>
         </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-3 pr-3">
-            {bundle.comments.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                No comments yet.
-              </p>
-            ) : (
-              bundle.comments.map((comment) => (
-                <div
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-8"
+          onClick={onClose}
+          aria-label="Close annotations"
+        >
+          <IconX className="size-4" />
+        </Button>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-2 p-3">
+          {comments.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
+              No annotations yet. Click Comment, then click the plan.
+            </p>
+          ) : (
+            comments.map((comment) => {
+              const anchor = parseAnchor(comment.anchor);
+              return (
+                <article
                   key={comment.id}
-                  className="rounded-lg border border-border bg-muted/20 p-3"
+                  className="rounded-lg border border-border/80 bg-muted/20 p-3"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <Badge variant="outline">{comment.kind}</Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {comment.status}
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    <span className="font-medium uppercase tracking-[0.14em] text-primary">
+                      {comment.kind}
                     </span>
+                    <span>{shortDate(comment.createdAt)}</span>
                   </div>
+                  {anchor?.snippet && (
+                    <blockquote className="mt-2 rounded-md bg-muted/45 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
+                      "{anchor.snippet}"
+                    </blockquote>
+                  )}
                   <p className="mt-2 text-sm leading-6">{comment.message}</p>
-                  {comment.anchor && (
+                  {anchor && (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {formatAnchorLabel(parseAnchor(comment.anchor))}
+                      {formatAnchorLabel(anchor)}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {shortDate(comment.createdAt)}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        </ScrollArea>
-      </DialogContent>
-    </Dialog>
+                </article>
+              );
+            })
+          )}
+        </div>
+      </ScrollArea>
+    </aside>
   );
 }
 
@@ -915,7 +1009,6 @@ function injectAnnotationRuntime(
     .an-plan-annotation-layer { position: absolute; inset: 0; z-index: 2147483000; pointer-events: none; }
     .an-plan-marker { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: #f3f3f4; color: #0a0a0b; font: 700 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 28px rgba(0,0,0,.36); pointer-events: auto; }
     .an-plan-marker[data-status="resolved"] { opacity: .46; }
-    .an-plan-hint { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 2147483001; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: rgba(12,12,14,.86); color: #f2f2f3; padding: 8px 12px; font: 500 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; backdrop-filter: blur(18px); box-shadow: 0 10px 30px rgba(0,0,0,.28); }
   </style><script>
     (() => {
       const state = ${payload};
@@ -979,12 +1072,6 @@ function injectAnnotationRuntime(
         });
         layer.appendChild(button);
       }
-      if (state.annotateMode) {
-        const hint = document.createElement("div");
-        hint.className = "an-plan-hint";
-        hint.textContent = "Click anywhere to pin a plan comment";
-        document.body.appendChild(hint);
-      }
       document.addEventListener("click", (event) => {
         const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
         if (!state.annotateMode && link) {
@@ -1034,8 +1121,8 @@ function buildClientPlanHtml(bundle: PlanBundle) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escape(
     bundle.plan.title,
   )}</title><style>
-  :root{color-scheme:dark;--bg:#0a0a0b;--paper:#111113;--line:#28282c;--text:#f2f2f3;--muted:#a4a4aa;--accent:#64d2c8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}main{width:min(960px,calc(100vw - 32px));margin:0 auto;padding:72px 0 96px}h1{margin:0;font-size:clamp(42px,8vw,82px);line-height:.94;letter-spacing:-.055em}.lede{max-width:760px;margin:24px 0 0;color:#d7d7da;font-size:clamp(20px,3vw,28px);line-height:1.35}.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:28px}.meta span{border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}.section{margin-top:18px;border:1px solid var(--line);border-radius:18px;background:var(--paper);padding:clamp(22px,4vw,34px)}.type{margin:0 0 12px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.section h2{margin:0;font-size:clamp(26px,4vw,42px);letter-spacing:-.035em}.section p{max-width:760px;color:#d7d7da;font-size:17px}.visual{margin:24px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.visual i{display:block;height:120px;border:1px solid rgba(100,210,200,.25);border-radius:14px;background:rgba(100,210,200,.12)}@media(max-width:760px){.visual{grid-template-columns:1fr}main{padding-top:44px}}
-  </style></head><body><main><p class="type">HTML plan mode</p><h1>${escape(
+  :root{color-scheme:dark;--bg:#0a0a0b;--paper:#111113;--line:#28282c;--text:#f2f2f3;--muted:#a4a4aa;--accent:#64d2c8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}main{width:min(1080px,calc(100vw - 48px));margin:0 auto;padding:96px 0 96px}h1{max-width:760px;margin:0;font-size:clamp(36px,5vw,58px);line-height:1.03;letter-spacing:-.04em}.lede{max-width:760px;margin:20px 0 0;color:#d7d7da;font-size:clamp(18px,2vw,23px);line-height:1.45}.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}.meta span{border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}.section{margin-top:18px;border:1px solid var(--line);border-radius:18px;background:var(--paper);padding:clamp(22px,4vw,34px)}.type{margin:0 0 12px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.section h2{margin:0;font-size:clamp(26px,4vw,42px);letter-spacing:-.035em}.section p{max-width:760px;color:#d7d7da;font-size:17px}.visual{margin:24px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.visual i{display:block;height:120px;border:1px solid rgba(100,210,200,.25);border-radius:14px;background:rgba(100,210,200,.12)}@media(max-width:760px){.visual{grid-template-columns:1fr}main{width:min(100vw - 24px,980px);padding-top:72px}}
+  </style></head><body><main><p class="type">Working plan</p><h1>${escape(
     bundle.plan.title,
   )}</h1><p class="lede">${escape(
     bundle.plan.brief,
