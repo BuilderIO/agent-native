@@ -310,7 +310,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("withholds public SSR caching when authenticated HTML reads user context", async () => {
+  it("keeps public SSR caching when authenticated HTML reads user context", async () => {
     mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
     mocks.requestHandler.mockImplementationOnce(async () => {
       const email = getRequestUserEmail();
@@ -327,10 +327,10 @@ describe("createH3SSRHandler", () => {
     );
 
     expect(await response.text()).toContain("alice@example.com");
-    expect(response.headers.get("cache-control")).toBeNull();
+    expectDefaultSsrCacheHeaders(response);
   });
 
-  it("withholds public .data caching when authenticated loader reads user context", async () => {
+  it("keeps public .data caching when authenticated loader reads user context", async () => {
     mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
     mocks.requestHandler.mockImplementationOnce(async () => {
       const email = getRequestUserEmail();
@@ -351,7 +351,7 @@ describe("createH3SSRHandler", () => {
     );
 
     expect(await response.text()).toContain("alice@example.com");
-    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expectDefaultSsrCacheHeaders(response);
   });
 
   it("keeps public SSR caching for docs anonymous session cookies", async () => {

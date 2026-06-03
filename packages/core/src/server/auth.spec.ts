@@ -1,7 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const LOGIN_HTML_CACHE_CONTROL =
-  "private, no-store, max-age=0, must-revalidate";
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const LOGIN_HTML_CDN_CACHE_CONTROL = LOGIN_HTML_CACHE_CONTROL;
+const LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL =
+  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+
+function expectLoginHtmlCacheHeaders(response: Response) {
+  expect(response.headers.get("Cache-Control")).toBe(LOGIN_HTML_CACHE_CONTROL);
+  expect(response.headers.get("CDN-Cache-Control")).toBe(
+    LOGIN_HTML_CDN_CACHE_CONTROL,
+  );
+  expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(
+    LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL,
+  );
+}
 
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -435,15 +448,7 @@ describe("server/auth", () => {
       const result = await guard(createMockEvent({ path: "/demo" }));
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
-      expect((result as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
-      expect((result as Response).headers.get("CDN-Cache-Control")).toBe(
-        "no-store",
-      );
-      expect(
-        (result as Response).headers.get("Netlify-CDN-Cache-Control"),
-      ).toBe("no-store");
+      expectLoginHtmlCacheHeaders(result as Response);
 
       const html = await (result as Response).text();
       expect(html).toContain("Create account");
@@ -526,9 +531,7 @@ describe("server/auth", () => {
       );
       expect(adminResult).toBeInstanceOf(Response);
       expect((adminResult as Response).status).toBe(200);
-      expect((adminResult as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
+      expectLoginHtmlCacheHeaders(adminResult as Response);
 
       const adminDataResult = await guard(
         createMockEvent({
@@ -577,9 +580,7 @@ describe("server/auth", () => {
       );
       expect(privateResult).toBeInstanceOf(Response);
       expect((privateResult as Response).status).toBe(200);
-      expect((privateResult as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
+      expectLoginHtmlCacheHeaders(privateResult as Response);
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {
@@ -794,6 +795,26 @@ describe("server/auth", () => {
       expect(managementResult).not.toBeUndefined();
     });
 
+    it("lets the public speculation rules endpoint bypass auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(
+          createMockEvent({ path: "/_agent-native/speculation-rules.json" }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -899,9 +920,7 @@ describe("server/auth", () => {
 
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
-      expect((result as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
+      expectLoginHtmlCacheHeaders(result as Response);
       expect((result as Response).headers.get("X-Robots-Tag")).toBe(
         "noindex, nofollow",
       );
