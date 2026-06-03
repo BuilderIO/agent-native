@@ -24,7 +24,8 @@ state sketches, option cards, and comment prompts instead of a wall of text.
 3. Surface the returned Agent-Native Plans link or inline MCP App.
 4. Enrich the imported plan with `update-visual-plan` when helpful:
    - diagrams for architecture, data flow, state machines, or dependencies;
-   - wireframes/mockups for user-visible UI changes;
+   - detailed wireframes/mockups for user-visible UI changes, including layout,
+     controls, states, empty/loading/error paths, and copy placeholders;
    - two or three option cards when there are real tradeoffs;
    - small prototype sketches for interactions, states, or animation choices;
    - explicit open questions or assumptions that need reaction.
@@ -38,6 +39,8 @@ state sketches, option cards, and comment prompts instead of a wall of text.
 - Keep the first screen simple: title, brief, and one strong visual.
 - Prefer one excellent diagram or wireframe over many noisy widgets.
 - Preserve the plan's original structure, but make it more consumable.
+- Add README-like detail when the source is too terse: slash commands, tool
+  behavior, install flow, MCP/link fallback, data shape, and scope.
 - Label inferred visuals as inferred when they go beyond the source text.
 - Ask for feedback with targeted prompts: "Which option?", "Is this flow
   right?", "What should change?", "What did I miss?"

@@ -31,6 +31,16 @@ Use `/visual-plan` for a fresh plan. Use `/visualize-plan` when there is already
 a Codex, Claude Code, Markdown, or pasted text plan that should become an HTML
 companion.
 
+## Slash Commands
+
+- `/visual-plan`: create a fresh rich HTML plan before implementation. Include
+  a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
+  mockups when UI is involved, tradeoffs, open questions, and clear feedback
+  prompts.
+- `/visualize-plan`: import an existing Codex, Claude Code, Markdown, or pasted
+  text plan and turn it into a visual companion. Preserve the plan's intent,
+  then add diagrams, wireframes, option cards, and annotation prompts.
+
 ## When To Use
 
 Create or update a visual plan when:
@@ -61,11 +71,16 @@ Create or update a visual plan when:
 ## Visual Defaults
 
 - UI work gets wireframes, state mockups, or prototype sketches.
+- Wireframes should be concrete enough to critique: show layout regions,
+  controls, states, empty/loading/error paths, review affordances, and copy
+  placeholders. Avoid vague rectangle-only sketches.
 - Backend/refactor work gets architecture, sequence, data-flow, or dependency
   diagrams.
 - Complex tradeoffs get two or three option cards with consequences.
 - Open questions are surfaced as visual callouts, not buried in paragraphs.
 - Long prose is split into readable document sections with clear headings.
+- Include README-like details when helpful: command names, tool behavior,
+  install flow, MCP/link fallback, data shape, and what is in or out of scope.
 - Comments and corrections should feel plannotator-style: quick to add,
   structured enough for the agent to consume, and easy to share when the user
   chooses.
