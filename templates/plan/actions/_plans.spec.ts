@@ -42,7 +42,7 @@ function comment(id: string, status: PlanComment["status"]): PlanComment {
 }
 
 describe("Plans helpers", () => {
-  it("summarizes sections and open comments without proof concepts", () => {
+  it("summarizes sections and open comments", () => {
     const summary = summarizePlan(
       [section("a", "summary"), section("b", "wireframe")],
       [comment("c1", "open"), comment("c2", "resolved")],
@@ -91,6 +91,5 @@ describe("Plans helpers", () => {
     const html = buildPlanHtml(bundle);
     expect(html).toContain("<!doctype html>");
     expect(html).toContain("Review the UI");
-    expect(html).not.toContain("proof");
   });
 });

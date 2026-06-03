@@ -6,7 +6,7 @@ and comments that a person can review before code changes happen.
 
 ## Core Rules
 
-- Follow the root framework contract: data in SQL, actions first, application
+- Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Use actions for app operations and keep frontend/API parity.
 - Keep database code provider-agnostic and additive.
