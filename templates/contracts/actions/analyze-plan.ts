@@ -17,18 +17,18 @@ const ASSUMPTION_PATTERNS = [
 
 export default defineAction({
   description:
-    "Analyze pasted plan text and add detected possible assumptions and acceptance criteria to a contract. Detections are suggestions, not verified truth.",
+    "Analyze pasted plan text and add detected possible assumptions, decisions, proof gates, and visual-plan items. Detections are suggestions, not verified truth.",
   schema: z.object({
-    contractId: z.string(),
+    contractId: z.string().describe("Visual Plan ID"),
     planText: z.string().min(1),
   }),
   publicAgent: {
     expose: true,
     readOnly: false,
     requiresAuth: true,
-    title: "Analyze plan for assumptions",
+    title: "Analyze Visual Plan text",
     description:
-      "Extract possible assumptions and proof obligations from plan text.",
+      "Extract possible assumptions, decisions, and proof obligations from plan text.",
   },
   run: async (args) => {
     await assertContractEditor(args.contractId);

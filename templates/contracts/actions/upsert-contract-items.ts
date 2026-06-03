@@ -14,9 +14,9 @@ import {
 
 export default defineAction({
   description:
-    "Bulk create or update contract review items, and optionally add human feedback for the agent to consume.",
+    "Bulk create or update Visual Plan nodes, and optionally add human annotation feedback for the agent to consume.",
   schema: z.object({
-    contractId: z.string(),
+    contractId: z.string().describe("Visual Plan ID"),
     items: z.array(itemInputSchema).optional().default([]),
     feedback: z.array(feedbackInputSchema).optional().default([]),
   }),
@@ -25,9 +25,9 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Update contract items",
+    title: "Update Visual Plan",
     description:
-      "Add or update material assumptions, decisions, criteria, deviations, and feedback.",
+      "Add or update plan nodes, options, assumptions, decisions, proof gates, deviations, and feedback.",
   },
   run: async (args) => {
     await assertContractEditor(args.contractId);
@@ -114,7 +114,7 @@ export default defineAction({
     await writeEvent({
       contractId: args.contractId,
       type: "contract.items.updated",
-      message: `Updated ${args.items.length} item(s) and added ${args.feedback.length} feedback item(s).`,
+      message: `Updated ${args.items.length} plan item(s) and added ${args.feedback.length} feedback item(s).`,
       createdBy: "agent",
     });
     return loadContractBundle(args.contractId);

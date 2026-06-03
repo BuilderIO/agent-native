@@ -17,7 +17,7 @@ import { loadContractBundle, summarizeContracts } from "./_contracts.js";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at in Contracts, including active contract, review queue, feedback, and proof summary.",
+    "See what the user is currently looking at in Visual Plans, including active plan, review queue, feedback, annotations, and proof summary.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -31,8 +31,8 @@ export default defineAction({
     if (nav?.contractId) {
       try {
         const bundle = await loadContractBundle(nav.contractId);
-        screen.contract = {
-          contract: bundle.contract,
+        screen.visualPlan = {
+          plan: bundle.contract,
           summary: bundle.summary,
           reviewQueue: bundle.reviewQueue,
           unconsumedFeedback: bundle.feedback.filter(
@@ -57,11 +57,11 @@ export default defineAction({
             })),
         };
       } catch {
-        screen.contractError = `Could not load contract ${nav.contractId}`;
+        screen.visualPlanError = `Could not load visual plan ${nav.contractId}`;
       }
     }
 
-    if (!nav?.contractId || nav.view === "contracts") {
+    if (!nav?.contractId || nav.view === "plans" || nav.view === "contracts") {
       try {
         const rows = await getDb()
           .select()
@@ -69,7 +69,7 @@ export default defineAction({
           .where(accessFilter(schema.contracts, schema.contractShares))
           .orderBy(desc(schema.contracts.updatedAt))
           .limit(12);
-        screen.contractsList = await summarizeContracts(rows);
+        screen.visualPlansList = await summarizeContracts(rows);
       } catch {
         // continue without list detail
       }

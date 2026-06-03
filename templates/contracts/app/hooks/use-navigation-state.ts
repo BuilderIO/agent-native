@@ -23,7 +23,9 @@ export function useNavigationState() {
     const state: NavigationState = {
       view: viewForPath(location.pathname),
     };
-    const contractMatch = location.pathname.match(/^\/contracts\/([^/]+)/);
+    const contractMatch = location.pathname.match(
+      /^\/(?:plans|contracts)\/([^/]+)/,
+    );
     if (contractMatch) state.contractId = decodeURIComponent(contractMatch[1]);
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -75,22 +77,33 @@ export function useNavigationState() {
 }
 
 function viewForPath(pathname: string): string {
-  if (pathname.startsWith("/contracts/")) return "contract";
-  if (pathname === "/" || pathname.startsWith("/contracts")) return "contracts";
+  if (pathname.startsWith("/plans/") || pathname.startsWith("/contracts/")) {
+    return "plan";
+  }
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/plans") ||
+    pathname.startsWith("/contracts")
+  ) {
+    return "plans";
+  }
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/team")) return "team";
-  return "contracts";
+  return "plans";
 }
 
 function pathForCommand(command: NavigationState): string {
   if (command.contractId) {
-    return `/contracts/${encodeURIComponent(command.contractId)}`;
+    return `/plans/${encodeURIComponent(command.contractId)}`;
   }
   return pathForView(command.view);
 }
 
 function pathForView(view?: string): string {
   switch (view) {
+    case "plan":
+    case "plans":
+      return "/plans";
     case "contract":
     case "contracts":
       return "/";

@@ -554,6 +554,7 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const serverModule = await import("./index.js");
     const terminalModule = await import("../terminal/terminal-plugin.js");
     const integrationsModule = await import("../integrations/plugin.js");
+    const contextXrayModule = await import("../agent/context-xray/plugin.js");
     const orgModule = await import("../org/plugin.js");
     const onboardingModule = await import("../onboarding/plugin.js");
 
@@ -563,6 +564,7 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     > = {
       "agent-chat": (serverModule as any).defaultAgentChatPlugin,
       auth: (serverModule as any).defaultAuthPlugin,
+      "context-xray": (contextXrayModule as any).defaultContextXrayPlugin,
       "core-routes": (serverModule as any).defaultCoreRoutesPlugin,
       integrations: (integrationsModule as any).defaultIntegrationsPlugin,
       onboarding: (onboardingModule as any).defaultOnboardingPlugin,

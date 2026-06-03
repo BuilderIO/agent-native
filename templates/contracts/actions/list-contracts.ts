@@ -6,7 +6,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { contractStatusSchema, summarizeContracts } from "./_contracts.js";
 
 export default defineAction({
-  description: "List Contracts review queues with summary counts.",
+  description:
+    "List Visual Plans with review, annotation, and proof summaries.",
   schema: z.object({
     status: contractStatusSchema.optional(),
   }),

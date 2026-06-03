@@ -94,7 +94,7 @@ function AppContent() {
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>
-            Search contracts
+            Search visual plans
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">

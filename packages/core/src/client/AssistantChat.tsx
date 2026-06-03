@@ -116,6 +116,7 @@ import type {
 } from "./composer/types.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
+import { ContextMeter } from "./context-xray/ContextMeter.js";
 import {
   IconMessage,
   IconX,
@@ -5577,6 +5578,7 @@ const AssistantChatInner = forwardRef<
                   }
                 />
               )}
+              <ContextMeter threadId={threadId} />
               {/* Input area */}
               <AgentComposerFrame
                 layoutVariant={composerLayoutVariant}

@@ -5,14 +5,16 @@ import { AgentToggleButton } from "@agent-native/core/client";
 import { APP_TITLE } from "@/lib/app-config";
 
 const pageTitles: Record<string, string> = {
-  "/": "Needs Review",
+  "/": "Visual Plans",
+  "/plans": "Visual Plans",
   "/settings": "Settings",
   "/team": "Team",
 };
 
 function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
-  if (pathname.startsWith("/contracts")) return "Contract Review";
+  if (pathname.startsWith("/plans")) return "Visual Plan";
+  if (pathname.startsWith("/contracts")) return "Visual Plan";
   if (pathname.startsWith("/extensions")) return "Extensions";
   return APP_TITLE;
 }

@@ -18,9 +18,9 @@ import {
 
 export default defineAction({
   description:
-    "Create a Contracts review queue for a coding-agent task. Use this before complex or risky work to record material assumptions, acceptance criteria, and proof obligations.",
+    "Create a Visual Plan for a coding-agent task. Use this before implementation to show diagrams, wireframes, options, annotations, tasks, and proof gates in an MCP app.",
   schema: z.object({
-    title: z.string().optional().describe("Short contract title"),
+    title: z.string().optional().describe("Short visual plan title"),
     goal: z.string().min(1).describe("Goal the agent is trying to accomplish"),
     source: contractSourceSchema.optional().default("manual"),
     repoPath: z.string().optional().describe("Repository path for the run"),
@@ -36,18 +36,18 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Create Contracts review",
+    title: "Create Visual Plan",
     description:
-      "Create a review queue where a person can correct assumptions and proof obligations before the agent continues.",
+      "Create an interactive visual plan where a person can review, annotate, and approve before the agent continues.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Contracts review",
+      title: "Visual Plan",
       description:
-        "Open the Contracts review inbox for assumptions, feedback, and proof status.",
-      iframeTitle: "Agent-Native Contracts",
-      openLabel: "Open Contracts review",
+        "Open the Visual Plans review surface for diagrams, wireframes, comments, feedback, and proof gates.",
+      iframeTitle: "Agent-Native Visual Plans",
+      openLabel: "Open Visual Plan",
       height: 820,
     }),
   },
@@ -56,13 +56,13 @@ export default defineAction({
     const now = nowIso();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
-      throw new Error("Creating a contract requires an authenticated user.");
+      throw new Error("Creating a visual plan requires an authenticated user.");
     }
     const orgId = getRequestOrgId();
     const db = getDb();
     await db.insert(schema.contracts).values({
       id,
-      title: args.title || "Untitled contract",
+      title: args.title || "Untitled visual plan",
       goal: args.goal,
       status: "review",
       source: args.source,
@@ -99,16 +99,19 @@ export default defineAction({
     }
     await writeEvent({
       contractId: id,
-      type: "contract.created",
-      message: "Contract review queue created.",
+      type: "visual_plan.created",
+      message: "Visual plan created.",
       createdBy: "agent",
     });
+    const bundle = await loadContractBundle(id);
     return {
-      ...(await loadContractBundle(id)),
+      ...bundle,
+      plan: bundle.contract,
+      planId: id,
       path: contractPath(id),
       url: contractPath(id),
       fallbackInstructions:
-        "Open the Contracts link, review the queue, then I will call get-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
+        "Open the Visual Plan link, review the diagrams/options/wireframes, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
     };
   },
   link: ({ result }) => {
@@ -117,8 +120,8 @@ export default defineAction({
     if (!contract?.id) return null;
     return {
       url: contractDeepLink(contract.id),
-      label: "Open Contracts review",
-      view: "contract",
+      label: "Open Visual Plan",
+      view: "plan",
     };
   },
 });

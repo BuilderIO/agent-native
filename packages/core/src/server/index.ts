@@ -130,6 +130,10 @@ export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
 export {
+  createContextXrayPlugin,
+  defaultContextXrayPlugin,
+} from "../agent/context-xray/plugin.js";
+export {
   createGoogleAuthPlugin,
   type GoogleAuthPluginOptions,
 } from "./google-auth-plugin.js";

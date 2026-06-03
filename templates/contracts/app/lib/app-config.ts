@@ -5,7 +5,7 @@ const APP_NAME_PLACEHOLDER = "{" + "{APP_NAME}}";
 const APP_TITLE_PLACEHOLDER = "{" + "{APP_TITLE}}";
 
 export const APP_NAME =
-  rawAppName === APP_NAME_PLACEHOLDER ? "contracts" : rawAppName;
+  rawAppName === APP_NAME_PLACEHOLDER ? "visual-plans" : rawAppName;
 
 export const APP_TITLE =
-  rawAppTitle === APP_TITLE_PLACEHOLDER ? "Contracts" : rawAppTitle;
+  rawAppTitle === APP_TITLE_PLACEHOLDER ? "Visual Plans" : rawAppTitle;

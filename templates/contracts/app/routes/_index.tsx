@@ -8,7 +8,7 @@ export function meta() {
     {
       name: "description",
       content:
-        "Review coding-agent assumptions, feedback, and verified evidence before work is called done.",
+        "Review visual coding-agent plans with diagrams, wireframes, annotations, feedback, and proof gates.",
     },
   ];
 }

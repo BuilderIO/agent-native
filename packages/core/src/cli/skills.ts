@@ -22,19 +22,24 @@ import {
   resolveClients,
   writeConnectClientPreferences,
 } from "./connect.js";
+import {
+  CONTEXT_XRAY_SKILL_MD,
+  installLocalContextXray,
+} from "./context-xray-local.js";
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
 
 const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|contracts [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plans|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
-  agent-native skills add contracts
+  agent-native skills add visual-plans
+  agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
   agent-native skills add ./dist/assets-skill --client codex
@@ -200,33 +205,37 @@ iteration, or a human-in-the-loop choice among design directions.
   and token values. Never paste bearer tokens into chat or logs.
 `;
 
-const CONTRACTS_SKILL_MD = `---
-name: contracts
+const VISUAL_PLANS_SKILL_MD = `---
+name: visual-plans
 description: >-
-  Use Contracts for coding-agent work that needs assumption review, mid-flight
-  feedback, acceptance criteria, evidence capture, and proof-before-done
-  through the hosted Contracts MCP app.
+  Use Visual Plans for coding-agent work that needs an interactive HTML plan,
+  diagrams, wireframes, prototype options, annotations, implementation tasks,
+  feedback, and proof gates through the hosted Visual Plans MCP app.
 metadata:
   visibility: exported
 ---
 
-# Contracts
+# Visual Plans
 
-Use Contracts as the trust layer for non-trivial coding work. It records what
-the agent is assuming, lets a human correct those assumptions before they become
-code, and keeps acceptance criteria separate from verified evidence.
+Use Visual Plans as HTML plan mode for coding work. The point is not to create a
+prettier Markdown plan. The point is to give the user something visual to react
+to before the agent edits code: diagrams, wireframes, option cards, clickable
+prototype sketches, assumptions, tasks, annotations, and proof gates.
+
+Text is the fallback layer. Default to visual artifacts.
 
 ## When To Use
 
-Create or update a contract when:
+Create or update a visual plan when:
 
-- the user asks for Contracts, specs, proof, review, acceptance criteria, or a
-  structured plan;
-- work is multi-file, ambiguous, long-running, or risky;
+- the user asks for a plan, visual plan, HTML plan, plannotate-style review,
+  diagrams, wireframes, mockups, prototype options, comments, or annotations;
+- work is multi-file, ambiguous, long-running, risky, or UI-heavy;
+- the user needs to react quickly to direction rather than read prose;
 - the task touches auth, billing, migrations, public APIs, tests, production
   config, data, security, permissions, or deploy behavior;
 - you would otherwise proceed on a material assumption;
-- you are about to claim the work is complete.
+- you are about to claim the work is complete and need proof gates checked.
 
 Do not log every trivial inference. An assumption is material when changing it
 would affect user-visible behavior, data model, permissions, billing, public API
@@ -235,52 +244,60 @@ deployment/configuration, file scope, or the definition of done.
 
 ## Core Workflow
 
-1. Call \`create-contract\` with the goal, source, repo path, and initial
-   assumptions/criteria before risky implementation.
-2. Surface the returned Contracts UI link or inline MCP App. In CLI hosts, tell
-   the user to open the link and review the queue.
-3. Call \`get-feedback\` before risky edits, after review, after any long pause,
+1. Call \`create-visual-plan\` with the goal, source, repo path, and initial
+   plan nodes before implementation.
+2. Surface the returned Visual Plans link or inline MCP App. In CLI hosts, tell
+   the user to open the link and review the visual plan.
+3. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
+   prototypes over paragraphs.
+4. Call \`get-plan-feedback\` before editing, after review, after any long pause,
    and before the final response.
-4. If the user accepts, rejects, corrects, or requests evidence, consume the
-   structured feedback and change your plan accordingly.
-5. If new facts require a change after approval, create an \`amendment\` or
-   \`deviation\` item with \`upsert-contract-items\` instead of drifting silently.
-6. Attach command/test/log/diff/screenshot evidence with \`record-evidence\`.
-7. Do not treat your own claim as proof. Agent attestation is low trust.
-   Criteria are done only when verified by human, CI, deterministic checks, or
-   an independent verifier.
-8. Export a JSON/Markdown receipt with \`export-contract\` when the user wants a
-   shareable summary.
+5. If the user comments, accepts, rejects, corrects, or requests proof, consume
+   the structured feedback and update the implementation plan accordingly.
+6. If new facts require a change after approval, create an amendment or
+   deviation with \`update-visual-plan\` instead of drifting silently.
+7. Attach command/test/log/diff/screenshot/design artifacts with
+   \`record-plan-evidence\`. Agent claims are not proof.
+8. Export an HTML/JSON/Markdown receipt with \`export-visual-plan\` when the
+   user wants a shareable summary.
+
+## Visual Defaults
+
+- UI work gets wireframes or prototype options before coding.
+- Backend/refactor work gets architecture and data-flow diagrams.
+- Complex tradeoffs get two or three option cards with consequences.
+- Assumptions are shown as reviewable visual callouts, not hidden prose.
+- Proof gates stay compact: what must pass, current evidence, and missing proof.
+- Long prose is collapsed behind the visual plan.
 
 ## Tool Guidance
 
-- \`create-contract\`: start one contract per agent task/run.
-- \`upsert-contract-items\`: bulk add/update assumptions, decisions, criteria,
-  risks, deviations, open questions, and amendments.
-- \`get-contract\` and \`get-review-queue\`: read current structured state.
-- \`get-feedback\`: read unconsumed human feedback. Use it frequently.
-- \`record-progress\`: update phase/status and mark feedback consumed only after
-  you incorporated it.
-- \`record-evidence\`: attach artifacts and provenance. Use high trust for
+- \`create-visual-plan\`: start one visual plan per agent task/run.
+- \`update-visual-plan\`: bulk add/update plan nodes, options, assumptions,
+  decisions, tasks, risks, deviations, annotations, and proof gates.
+- \`get-visual-plan\` and \`get-plan-review-queue\`: read current plan state.
+- \`get-plan-feedback\`: read unconsumed human feedback. Use it frequently.
+- \`record-plan-progress\`: update phase/status and mark feedback consumed only
+  after you incorporated it.
+- \`record-plan-evidence\`: attach artifacts and provenance. Use high trust for
   captured commands/tests/CI, human_confirmed for explicit human confirmation,
   and low trust for agent-only statements.
-- \`analyze-plan\`: import pasted plan text and let Contracts create possible
-  assumptions/criteria. Treat detections as possible, not authoritative.
+- \`analyze-visual-plan\`: import pasted Markdown/text and create possible
+  visual plan nodes. Treat detections as possible, not authoritative.
 
 ## Guardrails
 
+- Keep it simple. Do not build a ten-tab dashboard unless the user asks.
 - Before high-risk actions, create a blocking review item or ask the user
   directly.
-- Never modify tests merely to make implementation pass unless the contract
+- Never modify tests merely to make implementation pass unless the visual plan
   explicitly approves test expectation changes.
 - If proof is missing, say so. Do not call the task complete just because code
   was changed.
-- If evidence contains secrets or tokens, rely on Contracts redaction and avoid
-  pasting raw output into chat.
 - Do not hand-roll MCP HTTP requests with curl. Use host-exposed tools after
   restart/reload, or use the returned browser/deep-link fallback.
 - Hosted default: connect
-  \`https://contracts.agent-native.com/_agent-native/mcp\`. Do not put shared
+  \`https://plans.agent-native.com/_agent-native/mcp\`. Do not put shared
   secrets in skill files.
 `;
 
@@ -375,36 +392,36 @@ const BUILT_IN_APP_SKILLS = {
     }),
     skillMarkdown: DESIGN_EXPLORATION_SKILL_MD,
   },
-  contracts: {
-    skillName: "contracts",
+  "visual-plans": {
+    skillName: "visual-plans",
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
-      id: "contracts",
-      displayName: "Contracts",
+      id: "visual-plans",
+      displayName: "Visual Plans",
       description:
-        "Review coding-agent assumptions, feedback, acceptance criteria, and proof before work is called done.",
+        "Review coding-agent plans as interactive HTML with diagrams, wireframes, annotations, and proof gates.",
       hosted: {
-        url: "https://contracts.agent-native.com",
-        mcpUrl: "https://contracts.agent-native.com/_agent-native/mcp",
+        url: "https://plans.agent-native.com",
+        mcpUrl: "https://plans.agent-native.com/_agent-native/mcp",
       },
-      mcp: { serverName: "agent-native-contracts" },
+      mcp: { serverName: "agent-native-visual-plans" },
       auth: {
         mode: "oauth",
         setup:
-          "Authenticate with the Contracts MCP connector in the host app. No shared secrets are stored in skill files.",
+          "Authenticate with the Visual Plans MCP connector in the host app. No shared secrets are stored in skill files.",
       },
       surfaces: [
         {
-          id: "review-inbox",
-          action: "create-contract",
-          path: "/contracts",
+          id: "visual-plan",
+          action: "create-visual-plan",
+          path: "/plans",
         },
       ],
       skills: [
         {
-          path: "skills/contracts",
+          path: "skills/visual-plans",
           visibility: "exported",
-          exportAs: "contracts",
+          exportAs: "visual-plans",
         },
       ],
       hostAdapters: [
@@ -417,11 +434,48 @@ const BUILT_IN_APP_SKILLS = {
         "generic-mcp",
       ],
     }),
-    skillMarkdown: CONTRACTS_SKILL_MD,
+    skillMarkdown: VISUAL_PLANS_SKILL_MD,
+  },
+  "context-xray": {
+    skillName: "context-xray",
+    localOnly: true,
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "context-xray",
+      displayName: "Context X-Ray",
+      description:
+        "Visualize local Codex and Claude Code context usage with warnings and optimization tips.",
+      hosted: {
+        url: "https://context-xray.agent-native.com",
+        mcpUrl: "https://context-xray.agent-native.com/_agent-native/mcp",
+      },
+      mcp: { serverName: "agent-native-context-xray" },
+      auth: { mode: "none" },
+      surfaces: [
+        {
+          id: "context-xray-report",
+          path: "/",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/context-xray",
+          visibility: "exported",
+          exportAs: "context-xray",
+        },
+      ],
+      hostAdapters: ["plain-skill", "claude-skill"],
+    }),
+    skillMarkdown: CONTEXT_XRAY_SKILL_MD,
   },
 } satisfies Record<
   string,
-  { manifest: AppSkillManifest; skillMarkdown: string; skillName: string }
+  {
+    manifest: AppSkillManifest;
+    skillMarkdown: string;
+    skillName: string;
+    localOnly?: boolean;
+  }
 >;
 
 type BuiltInAppSkillId = keyof typeof BUILT_IN_APP_SKILLS;
@@ -442,12 +496,27 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "ux-exploration": "design",
   "agent-native-design": "design",
   "agent-native-design-exploration": "design",
-  contracts: "contracts",
-  contract: "contracts",
-  proof: "contracts",
-  "proof-check": "contracts",
-  "assumption-review": "contracts",
-  "agent-native-contracts": "contracts",
+  "visual-plans": "visual-plans",
+  "visual-plan": "visual-plans",
+  plans: "visual-plans",
+  plan: "visual-plans",
+  "html-plan": "visual-plans",
+  "plan-mode": "visual-plans",
+  plannotate: "visual-plans",
+  plannotator: "visual-plans",
+  contracts: "visual-plans",
+  contract: "visual-plans",
+  proof: "visual-plans",
+  "proof-check": "visual-plans",
+  "assumption-review": "visual-plans",
+  "agent-native-contracts": "visual-plans",
+  "agent-native-visual-plans": "visual-plans",
+  "context-xray": "context-xray",
+  "local-context-xray": "context-xray",
+  xray: "context-xray",
+  "context-window": "context-xray",
+  "context-usage": "context-xray",
+  "agent-native-context-xray": "context-xray",
 } satisfies Record<string, BuiltInAppSkillId>;
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
@@ -457,7 +526,14 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "ux-exploration",
     "agent-native-design-exploration",
   ],
-  contracts: ["contract", "proof-check", "assumption-review"],
+  "visual-plans": [
+    "plans",
+    "html-plan",
+    "plannotate",
+    "contracts",
+    "proof-check",
+  ],
+  "context-xray": ["xray", "context-window", "context-usage"],
 } satisfies Record<BuiltInAppSkillId, string[]>;
 
 const CLIENT_LABELS: Record<ClientId, string> = {
@@ -506,6 +582,9 @@ export interface SkillsAddResult {
   mcpClients: ClientId[];
   dryRun: boolean;
   commands: string[];
+  local?: boolean;
+  scriptPath?: string;
+  written?: string[];
 }
 
 interface SkillInstallTarget {
@@ -558,6 +637,12 @@ function normalizeKnownSkillTarget(
 
 function isKnownSkill(value: string | undefined): boolean {
   return Boolean(normalizeKnownSkillTarget(value));
+}
+
+function isLocalOnlyBuiltInSkill(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
+): boolean {
+  return Boolean(entry && "localOnly" in entry && entry.localOnly);
 }
 
 function normalizeClientIds(values: unknown): ClientId[] {
@@ -965,6 +1050,53 @@ export async function addAgentNativeSkill(
       `Unknown skill or manifest path: ${target}. Run "agent-native skills list".`,
     );
   }
+  const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
+  if (isLocalOnlyBuiltInSkill(knownBuiltIn)) {
+    if (parsed.mcpUrl) {
+      throw new Error(
+        "Context X-Ray is installed locally and does not use --mcp-url yet.",
+      );
+    }
+    if (!parsed.instructions && parsed.mcp) {
+      throw new Error(
+        "Context X-Ray does not need MCP config yet. Run without --mcp-only.",
+      );
+    }
+    const clients = parsed.clients ?? resolveClients(parsed.client);
+    const skillsAgents = skillsAgentsForClients(clients);
+    if (parsed.dryRun) {
+      return {
+        id: knownBuiltIn.manifest.id,
+        displayName: knownBuiltIn.manifest.displayName,
+        skillNames: [knownBuiltIn.skillName],
+        skillsAgents,
+        mcpUrl: "",
+        mcpClients: [],
+        dryRun: true,
+        local: true,
+        commands: [dryRunInstallCommand(parsed, target)],
+      };
+    }
+    const localInstall = installLocalContextXray({
+      baseDir: options.baseDir ?? process.cwd(),
+      clients,
+      scope: parsed.scope,
+    });
+    return {
+      id: knownBuiltIn.manifest.id,
+      displayName: knownBuiltIn.manifest.displayName,
+      instructionSource: localInstall.scriptPath,
+      skillNames: [knownBuiltIn.skillName],
+      skillsAgents,
+      mcpUrl: "",
+      mcpClients: [],
+      dryRun: false,
+      local: true,
+      scriptPath: localInstall.scriptPath,
+      written: localInstall.written,
+      commands: localInstall.commands,
+    };
+  }
   let installTarget = loadSkillTarget(target);
   if (parsed.mcpUrl) {
     installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
@@ -1066,7 +1198,8 @@ function listSkills() {
       ] ?? [],
     name: entry.manifest.displayName,
     description: entry.manifest.description,
-    mcpUrl: entry.manifest.hosted.mcpUrl,
+    mcpUrl: isLocalOnlyBuiltInSkill(entry) ? "" : entry.manifest.hosted.mcpUrl,
+    local: isLocalOnlyBuiltInSkill(entry),
   }));
 }
 
@@ -1095,8 +1228,9 @@ export async function runSkills(
       const aliases = skill.aliases.length
         ? ` Aliases: ${skill.aliases.join(", ")}.`
         : "";
+      const target = skill.local ? "local command" : skill.mcpUrl;
       process.stdout.write(
-        `${skill.id.padEnd(12)} ${description}${aliases} (${skill.mcpUrl})\n`,
+        `${skill.id.padEnd(12)} ${description}${aliases} (${target})\n`,
       );
     }
     return;
@@ -1146,16 +1280,30 @@ export async function runSkills(
   const mcpClients = [
     ...new Set(results.flatMap((result) => result.mcpClients)),
   ];
-  const mcpUrls = [...new Set(results.map((result) => result.mcpUrl))];
+  const mcpUrls = [
+    ...new Set(results.map((result) => result.mcpUrl).filter(Boolean)),
+  ];
+  const localCommands = [
+    ...new Set(
+      results
+        .filter((result) => result.local)
+        .flatMap((result) => result.commands),
+    ),
+  ];
   process.stdout.write(
     [
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}.`,
       skillsAgents.length
         ? `Skill instructions: ${skillsAgents.join(", ")}.`
         : "Skill instructions: skipped.",
-      `MCP config: ${mcpClients.join(", ")}.`,
-      `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`,
-      "Restart or reload selected agent clients if the tools are not visible yet.",
+      mcpClients.length
+        ? `MCP config: ${mcpClients.join(", ")}.`
+        : "MCP config: not required.",
+      mcpUrls.length
+        ? `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`
+        : "",
+      localCommands.length ? `Local command: ${localCommands.join(", ")}.` : "",
+      "Restart or reload selected agent clients if the skill is not visible yet.",
       parsed.clientExplicit
         ? ""
         : `To add another client later, rerun with --client <client> (for example: --client claude-code).`,

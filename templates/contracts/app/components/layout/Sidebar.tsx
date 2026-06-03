@@ -10,7 +10,9 @@ import {
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { APP_TITLE } from "@/lib/app-config";
 
-const navItems = [{ icon: IconClipboardCheck, label: "Contracts", href: "/" }];
+const navItems = [
+  { icon: IconClipboardCheck, label: "Visual Plans", href: "/plans" },
+];
 
 export function Sidebar() {
   const location = useLocation();
@@ -39,8 +41,10 @@ export function Sidebar() {
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive =
-            item.href === "/"
-              ? location.pathname === "/"
+            item.href === "/plans"
+              ? location.pathname === "/" ||
+                location.pathname.startsWith("/plans") ||
+                location.pathname.startsWith("/contracts")
               : location.pathname.startsWith(item.href);
           return (
             <Link
