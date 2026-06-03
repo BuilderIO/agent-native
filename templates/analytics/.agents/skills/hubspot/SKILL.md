@@ -26,6 +26,10 @@ associated account context, contacts, companies, and tickets.
   requesting custom fields.
 - `hubspot-pipelines` / `hubspot-metrics` — pipeline definitions and aggregate
   sales metrics.
+- `provider-api-request` with `provider: "hubspot"` — arbitrary HubSpot HTTP
+  API calls when first-class actions are too narrow. Use this for unsupported
+  CRM object types, association endpoints, custom search filters, batch APIs,
+  pagination modes, or any HubSpot endpoint not represented by a typed action.
 
 ## Patterns
 
@@ -67,3 +71,9 @@ For deal cohorts:
 4. When pairing a cohort with Gong, use the returned deal/company/contact
    evidence to run bounded Gong follow-ups and state Gong coverage separately
    from the HubSpot cohort size.
+
+If `hubspot-deals` still cannot express the needed HubSpot query, do not stop
+or approximate. Call `provider-api-catalog(provider: "hubspot")`, fetch the
+HubSpot docs/spec with `provider-api-docs` if needed, then call
+`provider-api-request(provider: "hubspot", ...)` with the exact CRM endpoint,
+filters, properties, associations, and pagination body.

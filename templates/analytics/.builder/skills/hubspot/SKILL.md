@@ -54,6 +54,7 @@ pnpm action hubspot-deal-properties --search=nbm
 - `hubspot-deals --query="Customer"` uses HubSpot search and should be the first path for named account/deal deep dives. Avoid pulling every deal first.
 - For deal cohorts, use structured `hubspot-deals` filters (`product`, `pipeline`, `closedStatus`, `closedDateFrom`, `closedDateTo`) and report the returned filters/count in the methodology.
 - Do not use `query` for property-specific filters. `query="Publish"` is broad full-text search across deals and can include records where `products` is not Publish.
+- If `hubspot-deals` cannot express the needed CRM endpoint/filter/body/pagination, use `provider-api-catalog --provider=hubspot`, optionally `provider-api-docs`, then `provider-api-request --provider=hubspot` with the exact HubSpot API request.
 - `hubspot-deals` returns normalized `stage_name`, `pipeline_name`, `owner_name`, `is_closed_won`, and `is_deal_closed` fields under `deal.properties`
 - For AE QBR or NBM deck work, HubSpot is the source of truth. Request `nbm_meeting_booked_date`, `nbm_meeting_complete_date`, and `hs_manual_forecast_category` through `hubspot-deals`; do not use warehouse SQL as the first path unless HubSpot is unavailable and the user approves the fallback
 - Optional deal properties are filtered against HubSpot property metadata before fetching, so deployments without a custom field do not fail the whole action

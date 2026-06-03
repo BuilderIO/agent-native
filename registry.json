@@ -1,0 +1,167 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "agent-native",
+  "homepage": "https://github.com/BuilderIO/agent-native",
+  "items": [
+    {
+      "name": "conventions",
+      "type": "registry:item",
+      "title": "Agent Native Conventions",
+      "description": "Agent instructions and core skills for building Agent Native apps.",
+      "categories": ["agent-native", "agents", "project-conventions"],
+      "files": [
+        {
+          "path": "registry/agent-native-app/AGENTS.md",
+          "type": "registry:file",
+          "target": "~/AGENTS.md"
+        },
+        {
+          "path": ".agents/skills/adding-a-feature/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/adding-a-feature/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/actions/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/actions/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/storing-data/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/storing-data/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/security/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/security/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/frontend-design/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/frontend-design/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/shadcn-ui/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/shadcn-ui/SKILL.md"
+        }
+      ],
+      "docs": "Installs a project-level AGENTS.md and core Agent Native skills. Review the diff before installing into a project that already has agent instructions."
+    },
+    {
+      "name": "actions",
+      "type": "registry:item",
+      "title": "Agent Native Actions",
+      "description": "Skills for defining app operations as shared frontend and agent actions.",
+      "categories": ["agent-native", "actions"],
+      "files": [
+        {
+          "path": ".agents/skills/actions/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/actions/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/delegate-to-agent/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/delegate-to-agent/SKILL.md"
+        }
+      ],
+      "docs": "Use this kit when adding or changing operations that both the UI and agent should be able to perform."
+    },
+    {
+      "name": "data",
+      "type": "registry:item",
+      "title": "Agent Native Data",
+      "description": "Skills for SQL storage, portability, security, and sharing in Agent Native apps.",
+      "categories": ["agent-native", "data", "security"],
+      "files": [
+        {
+          "path": ".agents/skills/storing-data/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/storing-data/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/portability/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/portability/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/security/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/security/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/sharing/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/sharing/SKILL.md"
+        }
+      ],
+      "docs": "Use this kit before schema, query, access-control, or shareable-resource changes."
+    },
+    {
+      "name": "ui",
+      "type": "registry:item",
+      "title": "Agent Native UI",
+      "description": "Skills for frontend design, shadcn/ui, routing, application state, and real-time sync.",
+      "categories": ["agent-native", "ui", "frontend"],
+      "files": [
+        {
+          "path": ".agents/skills/frontend-design/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/frontend-design/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/shadcn-ui/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/shadcn-ui/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/client-side-routing/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/client-side-routing/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/context-awareness/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/context-awareness/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/real-time-sync/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/real-time-sync/SKILL.md"
+        }
+      ],
+      "docs": "Use this kit for app UI work that needs to stay aligned with agent-visible navigation and live data updates."
+    },
+    {
+      "name": "extensions",
+      "type": "registry:item",
+      "title": "Agent Native Extensions",
+      "description": "Skills for sandboxed extensions and extension slots.",
+      "categories": ["agent-native", "extensions", "widgets"],
+      "files": [
+        {
+          "path": ".agents/skills/extensions/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/extensions/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/extensions/references/api.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/extensions/references/api.md"
+        },
+        {
+          "path": ".agents/skills/extensions/references/examples.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/extensions/references/examples.md"
+        },
+        {
+          "path": ".agents/skills/extension-points/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/extension-points/SKILL.md"
+        }
+      ],
+      "docs": "Use this kit when creating or editing sandboxed Alpine.js extensions or named extension slots."
+    }
+  ]
+}

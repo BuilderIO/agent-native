@@ -55,6 +55,7 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // PostHog
   { key: "POSTHOG_API_KEY", label: "PostHog API Key", required: false },
   { key: "POSTHOG_PROJECT_ID", label: "PostHog Project ID", required: false },
+  { key: "POSTHOG_HOST", label: "PostHog Host", required: false },
   // PostgreSQL (user's external DB, not the app's DATABASE_URL)
   { key: "POSTGRES_URL", label: "PostgreSQL URL", required: false },
   // Stripe
@@ -201,6 +202,7 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     provider: "posthog",
     label: "PostHog",
     requiredKeys: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
+    optionalKeys: ["POSTHOG_HOST"],
   },
   {
     provider: "postgres",
@@ -322,7 +324,7 @@ const credentialAliases: Record<string, string[]> = {
   notion: ["NOTION_API_KEY"],
   postgres: ["POSTGRES_URL"],
   postgresql: ["POSTGRES_URL"],
-  posthog: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
+  posthog: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID", "POSTHOG_HOST"],
   prometheus: [
     "PROMETHEUS_URL",
     "PROMETHEUS_USERNAME",
