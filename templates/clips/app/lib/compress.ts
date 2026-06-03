@@ -63,6 +63,7 @@ const ASSUMED_AUDIO_BITRATE_BPS = 96_000;
 const MIN_VIDEO_BITRATE_BPS = 350_000;
 const MAX_COMPRESSED_LONG_SIDE = 1280;
 const MAX_COMPRESSED_SHORT_SIDE = 720;
+const COMPRESSED_FRAME_RATE = 24;
 
 /** Hard cap on total compression time. ffmpeg.wasm is single-threaded WASM
  * and can wedge on certain inputs; we'd rather give the user a clear error
@@ -156,14 +157,8 @@ export function pickCompressedDimensions(
 }
 
 function pickScaleArgs(width?: number, height?: number): string[] {
-  const dimensions = pickCompressedDimensions(width, height);
-  if (
-    !dimensions ||
-    (dimensions.width === width && dimensions.height === height)
-  ) {
-    return [];
-  }
-  return ["-vf", `scale=${dimensions.width}:${dimensions.height}`];
+  const filters = pickVideoFilters(width, height);
+  return filters.length > 0 ? ["-vf", filters.join(",")] : [];
 }
 
 export function pickVideoBitrate(
@@ -218,6 +213,21 @@ export function pickVideoBitrate(
   };
 }
 
+export function pickVideoFilters(width?: number, height?: number): string[] {
+  const filters = [`fps=${COMPRESSED_FRAME_RATE}`];
+  const dimensions = pickCompressedDimensions(width, height);
+  if (
+    dimensions &&
+    (dimensions.width !== Math.round(width ?? 0) ||
+      dimensions.height !== Math.round(height ?? 0))
+  ) {
+    filters.push(
+      `scale=${dimensions.width}:${dimensions.height}:flags=lanczos`,
+    );
+  }
+  return filters;
+}
+
 /** Pick container + codecs to match the source. WebM keeps VP8/9 + Opus,
  * MP4 keeps H.264 + AAC. Audio is always copy — re-encoding adds latency
  * and compresses very little compared to video. */
@@ -240,11 +250,11 @@ function pickEncodeArgs(
       outputName: "compressed.mp4",
       outputMimeType: "video/mp4",
       args: [
+        ...scaleArgs,
         "-c:v",
         "libx264",
         "-preset",
         "fast",
-        ...scaleArgs,
         "-b:v",
         bitrate,
         "-maxrate",
@@ -273,13 +283,13 @@ function pickEncodeArgs(
     outputName: "compressed.webm",
     outputMimeType: "video/webm",
     args: [
+      ...scaleArgs,
       "-c:v",
       "libvpx",
       "-deadline",
       "realtime",
       "-cpu-used",
       "5",
-      ...scaleArgs,
       "-b:v",
       bitrate,
       "-maxrate",

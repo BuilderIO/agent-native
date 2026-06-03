@@ -1831,7 +1831,7 @@ function createTeamTools(deps: {
     "agent-teams": {
       tool: {
         description:
-          "Manage sub-agent tasks. Use action 'spawn' to launch a new sub-agent, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running sub-agent, or 'list' to see all tasks. A spawn result only confirms launch; it is not the task result.",
+          "Manage background sub-agent tasks. Use action 'spawn' to start a new sub-agent, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running sub-agent, or 'list' to see all tasks. A successful spawn only means the task started and is running; do not report it as finished until status/read-result shows a terminal status.",
         parameters: {
           type: "object",
           properties: {
@@ -1974,7 +1974,8 @@ function createTeamTools(deps: {
               parentThreadId: task.parentThreadId,
               name: task.name,
               preview: task.preview,
-              message: "Task is still running. Check back later.",
+              message:
+                "Task is still running. Do not report it as complete; use status/read-result later.",
             });
           }
           return JSON.stringify({
@@ -2297,7 +2298,7 @@ On the user's first interaction, check \`readAppState("personalization")\`. If i
 
 You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`activate-browser\` for Builder-provisioned Chrome; local development may also include \`set-browser-control\`). Call \`get-framework-context\` to read detailed instructions for any of these when needed — each capability's full doc lives there.
 
-**Agent teams:** default to doing the work yourself. Delegate ONE sub-agent (\`agent-teams\` action "spawn") for self-contained heavy work; fan out to several only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Give each sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries) — it can't see this thread. Treat a spawn response as "launched and still running," never as completed work. Before claiming delegated work is done, use \`agent-teams\` "status" or "read-result" and synthesize the returned result. Full details: \`get-framework-context\` key \`agent-teams\`.
+**Agent teams:** default to doing the work yourself. Delegate ONE sub-agent (\`agent-teams\` action "spawn") for self-contained heavy work; fan out to several only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming the delegated work is done. Give each sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries) — it can't see this thread — then read all results and synthesize one integrated answer. Full details: \`get-framework-context\` key \`agent-teams\`.
 
 For brand-consistent generated media, use the first-party Assets agent via \`call-agent\` with agent "assets" when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery. If this app has a native generation action, prefer that action because it may attach the asset to the local document/deck/design.
 `;
@@ -2349,7 +2350,9 @@ You can delegate to background sub-agents with the \`agent-teams\` tool:
 
 Sub-agents inherit all of your template tools but **cannot spawn sub-agents themselves** — only you orchestrate.
 
-Do not tell the user a spawned task completed from the spawn response. Use \`status\` or \`read-result\` before summarizing delegated work as done.
+**User intent phrases.** If the user asks you to use a "sub-agent" or "background agent", that is explicit delegation intent. Also treat phrases like "run these in the background", "kick off the rest", "run the queued items", "batch run these jobs", "parallelize this", or "start the next batch" as delegation intent when the context is a set of independent work items.
+
+**Spawn is not completion.** A successful \`spawn\` call means the sub-agent started and is running. Tell the user it started, show the task id if useful, and then use \`status\`/\`list\`/\`read-result\` to monitor it. Never say the delegated task "completed", "ran successfully", or "finished" until \`status\` or \`read-result\` reports \`completed\` or \`errored\`. If a task is still running, say that plainly.
 
 **Default to doing the work yourself in this thread.** A sub-agent costs real tokens and adds a merge step, so reach for one only when delegation clearly pays for that overhead.
 
@@ -2554,7 +2557,7 @@ Each of these has a one-line pointer here and a full doc you can pull on demand 
 
 - **Inline embeds** — render an interactive app view inline in chat via an \`embed\` fenced code block. Detailed instructions: call \`get-framework-context\` with key \`embeds\`.
 - **Chat history** — search and reopen past conversations with \`chat-history\` (actions: search, open, rename, pin, unpin, archive). Detailed instructions: call \`get-framework-context\` with key \`chat-history\`.
-- **Agent teams / sub-agents** — orchestrate background sub-agents with \`agent-teams\` (actions: spawn, status, read-result, send, list). Default to doing the work yourself in this thread. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries). Treat spawn as launch-only; use status/read-result before reporting delegated work as complete. Detailed instructions: call \`get-framework-context\` with key \`agent-teams\`.
+- **Agent teams / sub-agents** — orchestrate background sub-agents with \`agent-teams\` (actions: spawn, status, read-result, send, list). Default to doing the work yourself in this thread, but treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming delegated work is done. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries), then read all results and synthesize one integrated answer. Detailed instructions: call \`get-framework-context\` with key \`agent-teams\`.
 - **Recurring jobs** — create cron-scheduled jobs with \`manage-jobs\` (actions: create, list, update). After a task with obvious recurring value, offer in one line to save it as an automation. Detailed instructions: call \`get-framework-context\` with key \`recurring-jobs\`.
 - **Connecting Builder.io** — when the user needs a source-code change or hits "Builder not configured", call \`connect-builder\`; it renders a one-click Connect card. Do NOT write setup steps yourself, and never route users to Builder org/beta settings. Detailed instructions: call \`get-framework-context\` with key \`builder\`.
 - **Browser automation** — drive a real Chrome via \`set-browser-control\` (local dev) or \`activate-browser\` (production) for rendered pages, screenshots, and design-token extraction. Detailed instructions: call \`get-framework-context\` with key \`browser\`.
@@ -2710,6 +2713,12 @@ When editing code, follow the agent-native architecture:
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
 ${FRAMEWORK_CORE_COMPACT}`;
+
+export const _agentChatPromptSectionsForTests = {
+  frameworkCore: FRAMEWORK_CORE,
+  frameworkCoreCompact: FRAMEWORK_CORE_COMPACT,
+  frameworkContextSections: FRAMEWORK_CONTEXT_SECTIONS,
+};
 
 /**
  * Pre-load the agent's context: AGENTS.md (workspace/template/runtime

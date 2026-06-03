@@ -30,7 +30,9 @@ const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
-const SERVER_STAGING_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
+const SERVER_STAGING_LIMIT_BYTES: u64 = 30 * 1024 * 1024;
+const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
+const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
@@ -792,8 +794,9 @@ fn start_screencapturekit_backend_at(
         .or_else(|| displays.first())
         .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
 
-    let width = display.width();
-    let height = display.height();
+    let source_width = display.width();
+    let source_height = display.height();
+    let (width, height) = native_capture_dimensions(source_width, source_height);
     let filter = SCContentFilter::create()
         .with_display(display)
         .with_excluding_windows(&[])
@@ -807,7 +810,7 @@ fn start_screencapturekit_backend_at(
     let mut config = SCStreamConfiguration::new()
         .with_width(width)
         .with_height(height)
-        .with_fps(30)
+        .with_fps(NATIVE_CAPTURE_FPS)
         .with_queue_depth(8)
         .with_shows_cursor(true)
         .with_captures_audio(false)
@@ -848,7 +851,7 @@ fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 30fps, microphone={include_audio}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {source_width}x{source_height}, microphone={include_audio}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
@@ -1603,6 +1606,25 @@ fn primary_monitor_size(app: &AppHandle) -> (Option<u32>, Option<u32>) {
     )
 }
 
+#[cfg(target_os = "macos")]
+fn even_dimension(value: u32) -> u32 {
+    ((value.max(2)) / 2) * 2
+}
+
+#[cfg(target_os = "macos")]
+fn native_capture_dimensions(width: u32, height: u32) -> (u32, u32) {
+    let long_side = width.max(height).max(1);
+    let scale = if long_side > NATIVE_CAPTURE_MAX_LONG_EDGE {
+        NATIVE_CAPTURE_MAX_LONG_EDGE as f64 / long_side as f64
+    } else {
+        1.0
+    };
+    (
+        even_dimension((width as f64 * scale).floor() as u32),
+        even_dimension((height as f64 * scale).floor() as u32),
+    )
+}
+
 /// How long to wait for `SCRecordingOutput` to flush its trailing fragment
 /// and write the `moov` after we ask it to stop. Normal finalize is well
 /// under a second for these clips; this is only a safety ceiling for the
@@ -2244,7 +2266,7 @@ fn prepare_recording_file(
             .map(|bytes| format!(", smallest compressed result was {}", format_mb(bytes)))
             .unwrap_or_default();
         return Err(format!(
-            "Native recording is too large to upload after compression attempts (source {}, limit is {}{}). Try a shorter recording or lower-resolution screen.",
+            "Native recording is too large to upload after automatic compression (source {}, limit is {}{}). Try a shorter recording.",
             format_mb(source_bytes),
             format_mb(SERVER_STAGING_LIMIT_BYTES),
             attempt_detail
@@ -2283,6 +2305,7 @@ fn native_transcode_presets(
             "Preset960x540",
             "Preset640x480",
             "PresetAppleM4V480pSD",
+            "PresetAppleM4VCellular",
         ]
     }
 }

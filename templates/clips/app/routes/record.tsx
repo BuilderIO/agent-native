@@ -388,9 +388,9 @@ function isUploadSizeError(error: string): boolean {
 function uploadTooLargeMessage(size: number, detail?: string): string {
   return `Video is too large to upload (${
     detail ?? formatMb(size)
-  }, limit is ${formatMb(MAX_UPLOAD_BYTES)}). Choose a video under ${formatMb(
+  }, limit is ${formatMb(
     MAX_UPLOAD_BYTES,
-  )}, or trim/export a smaller copy and upload again.`;
+  )}) after automatic compression. Trim or export a shorter copy and upload again.`;
 }
 
 function isUploadFailureError(error: string): boolean {
@@ -402,9 +402,9 @@ function isUploadFailureError(error: string): boolean {
 
 function friendlyRecordingErrorMessage(error: string): string {
   if (isUploadSizeError(error)) {
-    return `This video is too large for Clips to upload directly. Choose a video under ${formatMb(
+    return `This video is too large for Clips after automatic compression. Trim or export a shorter copy under ${formatMb(
       MAX_UPLOAD_BYTES,
-    )}, or trim/export a smaller copy and upload again.`;
+    )} and upload again.`;
   }
   if (isUploadFailureError(error)) {
     return "The video could not finish uploading. Retry the upload before starting over.";
