@@ -71,6 +71,12 @@ const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
 const LIVE_UPLOAD_CHUNK_MS = 1_000;
+const CLOUD_CAPTURE_FRAME_RATE = 24;
+const CLOUD_CAPTURE_MAX_WIDTH = 1920;
+const CLOUD_CAPTURE_MAX_HEIGHT = 1080;
+const CLOUD_RECORDING_MAX_LONG_EDGE = 1280;
+const CLOUD_RECORDING_VIDEO_BITRATE_BPS = 900_000;
+const CLOUD_RECORDING_AUDIO_BITRATE_BPS = 96_000;
 
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -180,6 +186,161 @@ function streamFromTracks(tracks: MediaStreamTrack[]): MediaStream {
   const stream = new MediaStream();
   tracks.forEach((track) => stream.addTrack(track));
   return stream;
+}
+
+function positiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function evenDimension(value: number): number {
+  return Math.max(2, Math.floor(value / 2) * 2);
+}
+
+function scaledVideoDimensions(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const longSide = Math.max(width, height);
+  const scale = Math.min(1, CLOUD_RECORDING_MAX_LONG_EDGE / longSide);
+  return {
+    width: evenDimension(width * scale),
+    height: evenDimension(height * scale),
+  };
+}
+
+function videoTrackDimensions(stream: MediaStream): {
+  width: number | null;
+  height: number | null;
+} {
+  const settings = stream.getVideoTracks()[0]?.getSettings();
+  return {
+    width: positiveNumber(settings?.width) ? Math.round(settings.width) : null,
+    height: positiveNumber(settings?.height)
+      ? Math.round(settings.height)
+      : null,
+  };
+}
+
+interface UploadOptimizedVideoStream {
+  stream: MediaStream;
+  cleanup(): void;
+}
+
+function createUploadOptimizedVideoStream(
+  source: MediaStream,
+): UploadOptimizedVideoStream {
+  const sourceTrack = source.getVideoTracks()[0];
+  if (
+    !sourceTrack ||
+    typeof document === "undefined" ||
+    typeof document.createElement !== "function"
+  ) {
+    return { stream: source, cleanup() {} };
+  }
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx || typeof canvas.captureStream !== "function") {
+    return { stream: source, cleanup() {} };
+  }
+
+  const sourceSize = videoTrackDimensions(source);
+  const initial = scaledVideoDimensions(
+    sourceSize.width ?? 1280,
+    sourceSize.height ?? 720,
+  );
+  canvas.width = initial.width;
+  canvas.height = initial.height;
+
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.autoplay = true;
+  video.srcObject = source;
+  video.style.position = "fixed";
+  video.style.left = "-10000px";
+  video.style.top = "0";
+  video.style.width = "1px";
+  video.style.height = "1px";
+  video.style.opacity = "0";
+  video.style.pointerEvents = "none";
+  document.body.appendChild(video);
+  const play = () => video.play().catch(() => undefined);
+  video.addEventListener("loadedmetadata", play);
+  play();
+
+  const resizeCanvas = () => {
+    const width = positiveNumber(video.videoWidth)
+      ? video.videoWidth
+      : (videoTrackDimensions(source).width ?? canvas.width);
+    const height = positiveNumber(video.videoHeight)
+      ? video.videoHeight
+      : (videoTrackDimensions(source).height ?? canvas.height);
+    const next = scaledVideoDimensions(width, height);
+    if (canvas.width !== next.width) canvas.width = next.width;
+    if (canvas.height !== next.height) canvas.height = next.height;
+  };
+
+  const draw = () => {
+    resizeCanvas();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    } catch {
+      // Source metadata may not be ready for the first tick.
+    }
+  };
+
+  const stream = canvas.captureStream(CLOUD_CAPTURE_FRAME_RATE);
+  const interval = window.setInterval(
+    draw,
+    Math.round(1000 / CLOUD_CAPTURE_FRAME_RATE),
+  );
+  draw();
+
+  return {
+    stream,
+    cleanup() {
+      window.clearInterval(interval);
+      stream.getTracks().forEach((track) => track.stop());
+      video.removeEventListener("loadedmetadata", play);
+      video.pause();
+      video.srcObject = null;
+      video.remove();
+    },
+  };
+}
+
+function mediaRecorderOptions(
+  mimeType: string,
+  includeBitrateBudget: boolean,
+): MediaRecorderOptions | undefined {
+  const options: MediaRecorderOptions = {};
+  if (mimeType) options.mimeType = mimeType;
+  if (includeBitrateBudget) {
+    options.videoBitsPerSecond = CLOUD_RECORDING_VIDEO_BITRATE_BPS;
+    options.audioBitsPerSecond = CLOUD_RECORDING_AUDIO_BITRATE_BPS;
+  }
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
+function createCloudMediaRecorder(
+  stream: MediaStream,
+  mimeType: string,
+): MediaRecorder {
+  let lastError: unknown = null;
+  for (const includeBitrateBudget of [true, false]) {
+    try {
+      return new MediaRecorder(
+        stream,
+        mediaRecorderOptions(mimeType, includeBitrateBudget),
+      );
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
@@ -1798,7 +1959,7 @@ function createSyntheticScreenStream(): {
   };
   draw();
   const interval = window.setInterval(draw, 250);
-  const stream = canvas.captureStream(30);
+  const stream = canvas.captureStream(CLOUD_CAPTURE_FRAME_RATE);
   return {
     stream,
     cleanup: () => {
@@ -2030,7 +2191,15 @@ async function startNativeRecordingInner(
           const displaySurface =
             captureSource === "window" ? "window" : "monitor";
           return navigator.mediaDevices.getDisplayMedia({
-            video: { frameRate: 30, displaySurface },
+            video: {
+              frameRate: {
+                ideal: CLOUD_CAPTURE_FRAME_RATE,
+                max: CLOUD_CAPTURE_FRAME_RATE,
+              },
+              width: { ideal: CLOUD_CAPTURE_MAX_WIDTH },
+              height: { ideal: CLOUD_CAPTURE_MAX_HEIGHT },
+              displaySurface,
+            },
             audio: wantsAudio,
           });
         }
@@ -2413,6 +2582,23 @@ async function startNativeRecordingInner(
     return handle;
   }
 
+  const uploadPrimaryVideo = createUploadOptimizedVideoStream(primaryVideo);
+  streamCleanups.push(uploadPrimaryVideo.cleanup);
+
+  const uploadCombined = new MediaStream();
+  uploadPrimaryVideo.stream
+    .getVideoTracks()
+    .forEach((track) => uploadCombined.addTrack(track));
+  if (audioStream) {
+    audioStream
+      .getAudioTracks()
+      .forEach((track) => uploadCombined.addTrack(track));
+  } else if (displayStream) {
+    displayStream
+      .getAudioTracks()
+      .forEach((track) => uploadCombined.addTrack(track));
+  }
+
   // 2+3. Countdown + create-recording happen IN PARALLEL. The countdown is
   // pure visual feedback — gating it on a network round-trip makes the
   // 3-2-1 feel laggy after the user picks a screen. Kick both off and
@@ -2467,10 +2653,7 @@ async function startNativeRecordingInner(
   ];
   const mimeType =
     mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
-  const recorder = new MediaRecorder(
-    combined,
-    mimeType ? { mimeType } : undefined,
-  );
+  const recorder = createCloudMediaRecorder(uploadCombined, mimeType);
   let chunkIndex = 0;
   let failed: Error | null = null;
   let backupBytes = 0;
@@ -2481,7 +2664,7 @@ async function startNativeRecordingInner(
     width: null,
     height: null,
     bytes: 0,
-    hasAudio: combined.getAudioTracks().length > 0,
+    hasAudio: uploadCombined.getAudioTracks().length > 0,
     hasCamera: wantsCamera,
     savedAt: new Date().toISOString(),
     lastAttemptAt: null,
@@ -2706,7 +2889,9 @@ async function startNativeRecordingInner(
       }
       await thumbnailUploadPromise;
 
-      const videoSettings = primaryVideo.getVideoTracks()[0]?.getSettings();
+      const videoSettings = uploadPrimaryVideo.stream
+        .getVideoTracks()[0]
+        ?.getSettings();
       const displaySettings = displayStream?.getVideoTracks()[0]?.getSettings();
       const durationMs = Math.max(
         0,
@@ -2730,7 +2915,7 @@ async function startNativeRecordingInner(
         width,
         height,
         bytes: backupBytes,
-        hasAudio: combined.getAudioTracks().length > 0,
+        hasAudio: uploadCombined.getAudioTracks().length > 0,
         hasCamera: wantsCamera,
         chunkCount: chunkIndex,
         mimeType: finalMimeType,
@@ -2749,11 +2934,14 @@ async function startNativeRecordingInner(
       // its event handler for the life of the object if you leave a
       // non-null ondataavailable in place — null it to break the chain.
       recorder.ondataavailable = null;
-      // Clear combined MediaStream's track list — just removing our
+      // Clear MediaStream track lists — just removing our
       // references to the tracks is enough; the tracks themselves are
       // owned by `displayStream` / `audioStream` / `bubbleCameraStream`
       // and get stopped below.
       try {
+        uploadCombined
+          .getTracks()
+          .forEach((t) => uploadCombined.removeTrack(t));
         combined.getTracks().forEach((t) => combined.removeTrack(t));
       } catch {
         // ignore — best-effort
@@ -2882,10 +3070,13 @@ async function startNativeRecordingInner(
       } catch {
         // ignore
       }
-      // Drop the combined stream's track references — same rationale as
-      // in stop(). Just detaches from `combined`; the originating
-      // streams own the tracks and we stop them below.
+      // Drop stream track references — same rationale as in stop(). This
+      // detaches only from the MediaStreams; the originating streams own the
+      // tracks and we stop them below.
       try {
+        uploadCombined
+          .getTracks()
+          .forEach((t) => uploadCombined.removeTrack(t));
         combined.getTracks().forEach((t) => combined.removeTrack(t));
       } catch {
         // ignore
