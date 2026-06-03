@@ -200,12 +200,14 @@ fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     (x, y)
 }
 
-fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
+fn default_center_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
     let scale = scale_factor(app);
     let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
     let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
     let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
-    let y = (my + (mh as i32 - h as i32) / 2).max(my);
+    // Anchor Y to expanded height so header stays fixed on expand.
+    let (_, h_exp) = pill_size_physical(app, true);
+    let y = (my + (mh as i32 - h_exp as i32) / 2).max(my);
     (x, y)
 }
 
@@ -272,15 +274,19 @@ fn anchored_rect(
     }
 
     if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
-        if let Some((px, py, prev_w, prev_h)) = previous_position {
+        if let Some((px, py, prev_w, _prev_h)) = previous_position {
+            // Top-right anchor: right edge and header stay fixed; pill grows
+            // left and down on expand.
             let prev_right = px + prev_w as i32;
-            let prev_center_y = py + prev_h as i32 / 2;
             let x = (prev_right - w as i32).clamp(mx, max_x);
-            let y = (prev_center_y - h as i32 / 2).clamp(my, max_y);
+            let y = py.clamp(my, max_y);
             return (w, h, x, y);
         }
+        // Clamp saved Y to expanded height so first-show leaves room to grow down.
+        let (_, h_exp) = pill_size_physical(app, true);
+        let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
         let (x, y) = match load_meeting_position(app) {
-            Some((sx, sy)) => (sx.clamp(mx, max_x), sy.clamp(my, max_y)),
+            Some((sx, sy)) => (sx.clamp(mx, max_x), sy.clamp(my, max_y_exp)),
             None => default_center_right(app, w, h),
         };
         return (w, h, x, y);

@@ -3772,21 +3772,23 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-wave-dual {
   display: flex;
-  height: 20px;
+  height: 26px;
   width: 48px;
   flex-shrink: 0;
   flex-direction: column;
-  gap: 1px;
+  align-items: stretch;
+  gap: 2px;
 }
 
 .pill-wave-canvas-half {
-  height: 50%;
   width: 100%;
+  flex: 1;
+  min-height: 0;
   display: block;
 }
 
 .pill-wave-canvas {
-  height: 20px;
+  height: 26px;
   width: 48px;
   flex-shrink: 0;
   display: block;
