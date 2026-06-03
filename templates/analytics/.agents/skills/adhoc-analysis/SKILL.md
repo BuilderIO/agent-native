@@ -76,6 +76,10 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
   alone.
 - Use action filters such as `query`, `properties`, `objectType`, `company`, and
   `limit` to narrow results before cross-referencing
+- For HubSpot deal cohorts, use `hubspot-deals` structured filters (`product`,
+  `pipeline`, `closedStatus`, `closedDateFrom`, `closedDateTo`) for the cohort
+  definition. Do not use `query` when the user names a specific HubSpot field
+  such as `products`.
 - When stitching identities across sources, follow `cross-source-analysis`: match on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and record match quality. Email/company-name/domain matches alone are low-confidence — flag them as caveats, not headline numbers.
 - If a data source is not configured, mention what's missing and work with what's available — never invent rows to fill a gap.
 
@@ -202,6 +206,12 @@ When a user clicks "Re-run" on a saved analysis, the agent receives:
 - The analysis ID to update
 
 Follow the instructions to gather fresh data, then call `save-analysis` with the same `id` to update the results. The `createdAt` timestamp is preserved; `updatedAt` is refreshed.
+
+If the user challenges the coverage of a chat answer or saved analysis ("why
+aren't you pulling more deals?", "where is the updated response?"), rerun the
+source query or revise from the corrected cohort and include the updated
+deliverable in the response. Do not summarize that a revision exists without
+showing it or saving it.
 
 ## Actions Reference
 

@@ -107,6 +107,110 @@ describe("hubspot-deals action", () => {
     expect(result.deals[0].properties.stage_name).toBe("Negotiation");
     expect(result.deals[0].properties.pipeline_name).toBe("Enterprise");
     expect(result.deals[0].properties.owner_name).toBe("Alice Seller");
-    expect(result.guidance).toContain("Searched HubSpot deals directly");
+    expect(result.guidance).toContain("full-text deal search");
+  });
+
+  it("filters deal cohorts by structured product, pipeline, closed status, and close date", async () => {
+    getAllDeals.mockResolvedValue([
+      {
+        id: "publish-won",
+        properties: {
+          dealname: "Browns Shoes",
+          dealstage: "closed-won",
+          amount: "158000",
+          closedate: "2026-02-15",
+          pipeline: "enterprise-new-business",
+          hubspot_owner_id: "owner-1",
+          createdate: "2025-12-01T00:00:00Z",
+          hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+          products: "Publish;Develop",
+        },
+      },
+      {
+        id: "keyword-only",
+        properties: {
+          dealname: "Publish migration services",
+          dealstage: "closed-won",
+          amount: "90000",
+          closedate: "2026-03-15",
+          pipeline: "enterprise-new-business",
+          hubspot_owner_id: "owner-1",
+          createdate: "2025-12-01T00:00:00Z",
+          hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+          products: "Develop",
+        },
+      },
+      {
+        id: "closed-lost",
+        properties: {
+          dealname: "Publish lost deal",
+          dealstage: "closed-lost",
+          amount: "50000",
+          closedate: "2026-04-15",
+          pipeline: "enterprise-new-business",
+          hubspot_owner_id: "owner-1",
+          createdate: "2025-12-01T00:00:00Z",
+          hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+          products: "Publish",
+        },
+      },
+      {
+        id: "old-publish-won",
+        properties: {
+          dealname: "Old Publish win",
+          dealstage: "closed-won",
+          amount: "40000",
+          closedate: "2024-05-15",
+          pipeline: "enterprise-new-business",
+          hubspot_owner_id: "owner-1",
+          createdate: "2024-01-01T00:00:00Z",
+          hs_lastmodifieddate: "2024-05-01T00:00:00Z",
+          products: "Publish",
+        },
+      },
+    ]);
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "closed-won",
+            label: "Closed Won",
+            displayOrder: 1,
+            metadata: { probability: "1" },
+          },
+          {
+            id: "closed-lost",
+            label: "Closed Lost",
+            displayOrder: 2,
+            metadata: { probability: "0" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({ "owner-1": "Alice Seller" });
+
+    const result = (await hubspotDeals.run({
+      product: "Publish",
+      pipeline: "New Business",
+      closedStatus: "won",
+      closedDateFrom: "2025-06-01",
+      closedDateTo: "2026-06-01",
+    })) as Record<string, any>;
+
+    expect(searchHubSpotObjects).not.toHaveBeenCalled();
+    expect(result.count).toBe(1);
+    expect(result.deals.map((deal: any) => deal.id)).toEqual(["publish-won"]);
+    expect(result.deals[0].properties.is_closed_won).toBe(true);
+    expect(result.filters).toEqual({
+      products: "Publish",
+      productMatch: "token",
+      pipeline: "New Business",
+      closedStatus: "won",
+      closedDateFrom: "2025-06-01",
+      closedDateTo: "2026-06-01",
+    });
+    expect(result.guidance).toContain("Structured filters were applied");
   });
 });
