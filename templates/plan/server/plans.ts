@@ -544,14 +544,10 @@ function stableDomId(value: string) {
     .replace(/^-|-$/g, "");
 }
 
-function editorHref(
-  scheme: "vscode" | "cursor",
-  absolutePath?: string,
-  line?: number,
-) {
+function editorFilePath(absolutePath?: string, line?: number) {
   if (!absolutePath) return "";
   const suffix = line ? `:${line}:1` : "";
-  return `${scheme}://file${encodeURI(absolutePath)}${suffix}`;
+  return `${absolutePath}${suffix}`;
 }
 
 function renderImplementationMapHtml(body: string, repoPath?: string | null) {
@@ -573,8 +569,7 @@ function renderImplementationFileHtml(file: ImplementationFile) {
   const previewCode =
     file.previewCode ||
     `// No embedded preview yet.\n// Ask the agent to add the exact snippet it plans to modify for ${file.path}.`;
-  const vscodeHref = editorHref("vscode", file.absolutePath, file.line);
-  const cursorHref = editorHref("cursor", file.absolutePath, file.line);
+  const editorPath = editorFilePath(file.absolutePath, file.line);
   return `<article class="implementation-file" data-file-path="${escapeHtml(file.path)}">
     <div>
       <p class="file-path">${escapeHtml(file.path)}${file.line ? `<span>:${file.line}</span>` : ""}</p>
@@ -590,13 +585,14 @@ function renderImplementationFileHtml(file: ImplementationFile) {
     <div class="file-actions">
       <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}">Preview</button>
       ${
-        vscodeHref
-          ? `<button type="button" data-agent-native-open-editor="${escapeHtml(vscodeHref)}">VS Code</button>`
-          : ""
-      }
-      ${
-        cursorHref
-          ? `<button type="button" data-agent-native-open-editor="${escapeHtml(cursorHref)}">Cursor</button>`
+        editorPath
+          ? `<div class="editor-picker" data-agent-native-editor-picker>
+              <select data-agent-native-editor-select aria-label="Preferred editor">
+                <option value="vscode">VS Code</option>
+                <option value="cursor">Cursor</option>
+              </select>
+              <button type="button" data-agent-native-open-file="${escapeHtml(editorPath)}">Open</button>
+            </div>`
           : ""
       }
     </div>
@@ -809,9 +805,15 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .file-summary { max-width: 760px; margin: 8px 0 0; color: var(--soft); font-size: 15px; }
 .symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .symbol-list code { border: 1px solid var(--line); border-radius: 7px; background: var(--paper-2); padding: 2px 6px; color: var(--soft); font-size: 12px; }
-.file-actions { display: flex; align-items: flex-start; gap: 6px; }
-.file-actions button { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
-.file-actions button:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }
+.file-actions { display: flex; align-items: flex-start; gap: 8px; }
+.file-actions button, .editor-picker select { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
+.file-actions button:hover, .editor-picker select:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }
+.editor-picker { display: inline-flex; min-height: 32px; align-items: stretch; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: transparent; }
+.editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
+.editor-picker select, .editor-picker button { border: 0; border-radius: 0; min-height: 30px; }
+.editor-picker select { min-width: 96px; appearance: auto; color-scheme: dark; padding-right: 6px; }
+.editor-picker button { border-left: 1px solid var(--line); color: var(--text); }
+:root[data-agent-native-theme="light"] .editor-picker select { color-scheme: light; }
 .code-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); padding: 10px 12px; color: var(--muted); font-size: 12px; }
 .code-preview-title strong { color: var(--text); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; }
 .code-preview pre { margin: 0; max-height: 360px; overflow: auto; padding: 14px 16px; background: #0c0c0e; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }

@@ -77,6 +77,17 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "imported", label: "Imported" },
 ];
 
+type PreferredEditor = "vscode" | "cursor";
+
+const PREFERRED_EDITOR_STORAGE_KEY = "agent-native-plans.preferredEditor";
+
+function readPreferredEditor(): PreferredEditor {
+  if (typeof window === "undefined") return "vscode";
+  return window.localStorage.getItem(PREFERRED_EDITOR_STORAGE_KEY) === "cursor"
+    ? "cursor"
+    : "vscode";
+}
+
 type PlanAnnotationAnchor = {
   x: number;
   y: number;
@@ -202,6 +213,9 @@ export function PlansPage() {
   const [railCollapsed, setRailCollapsed] = useState(true);
   const [planFullscreen, setPlanFullscreen] = useState(true);
   const [annotateMode, setAnnotateMode] = useState(false);
+  const [preferredEditor, setPreferredEditor] = useState<PreferredEditor>(() =>
+    readPreferredEditor(),
+  );
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
   const [inlineCommentPosition, setInlineCommentPosition] =
@@ -238,8 +252,9 @@ export function PlansPage() {
       bundle.comments,
       annotateMode,
       planTheme,
+      preferredEditor,
     );
-  }, [annotateMode, bundle, documentHtml, planTheme]);
+  }, [annotateMode, bundle, documentHtml, planTheme, preferredEditor]);
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
@@ -278,6 +293,7 @@ export function PlansPage() {
             type?: string;
             anchor?: PlanAnnotationAnchor;
             comment?: RuntimeAnnotation;
+            editor?: PreferredEditor;
             href?: string;
             state?: PlanDocumentState;
           }
@@ -306,6 +322,11 @@ export function PlansPage() {
           window.location.href = data.href;
           toast.info("Opening file in your editor");
         }
+      }
+      if (data?.type === "agent-native-plan-editor-preference") {
+        const editor = data.editor === "cursor" ? "cursor" : "vscode";
+        setPreferredEditor(editor);
+        window.localStorage.setItem(PREFERRED_EDITOR_STORAGE_KEY, editor);
       }
       if (data?.type === "agent-native-plan-link-blocked") {
         toast.info(
@@ -1212,6 +1233,7 @@ function injectAnnotationRuntime(
   comments: PlanBundle["comments"],
   annotateMode: boolean,
   theme: "dark" | "light",
+  preferredEditor: PreferredEditor,
 ) {
   const annotations = comments
     .map((comment, index) => ({
@@ -1224,17 +1246,22 @@ function injectAnnotationRuntime(
       anchor: parseAnchor(comment.anchor),
     }))
     .filter((comment) => comment.anchor);
-  const payload = JSON.stringify({ annotateMode, annotations, theme }).replace(
-    /[<>&\u2028\u2029]/g,
-    (char) =>
-      ({
+  const payload = JSON.stringify({
+    annotateMode,
+    annotations,
+    theme,
+    preferredEditor,
+  }).replace(/[<>&\u2028\u2029]/g, (char) => {
+    return (
+      {
         "<": "\\u003c",
         ">": "\\u003e",
         "&": "\\u0026",
         "\u2028": "\\u2028",
         "\u2029": "\\u2029",
-      })[char] ?? char,
-  );
+      }[char] ?? char
+    );
+  });
   const runtime = `<style>
     :root[data-agent-native-theme="light"] {
       color-scheme: light;
@@ -1288,6 +1315,14 @@ function injectAnnotationRuntime(
     .an-plan-code-popover-close:hover { background: rgba(255,255,255,.08); color: var(--text, #f4f4f5); }
     :root[data-agent-native-theme="light"] .an-plan-code-popover-close:hover { background: rgba(0,0,0,.06); }
     .an-plan-code-popover .code-preview pre { max-height: 430px; }
+    .editor-picker { display: inline-flex; min-height: 32px; align-items: stretch; overflow: hidden; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 8px; background: transparent; }
+    .editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
+    .editor-picker select, .editor-picker button { min-height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--soft, #d4d4d8); padding: 0 10px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
+    .editor-picker select { min-width: 96px; appearance: auto; color-scheme: dark; padding-right: 6px; }
+    .editor-picker button { border-left: 1px solid var(--line, rgba(255,255,255,.14)); color: var(--text, #f4f4f5); }
+    .editor-picker select:hover, .editor-picker button:hover { color: var(--text, #f4f4f5); background: rgba(255,255,255,.05); }
+    :root[data-agent-native-theme="light"] .editor-picker select { color-scheme: light; }
+    :root[data-agent-native-theme="light"] .editor-picker select, :root[data-agent-native-theme="light"] .editor-picker button { color: var(--soft, #4b4b4b); }
     .visual-tabs[data-plan-tabs] { display: grid; gap: 14px; }
     .visual-tabs[data-plan-tabs] .tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 4px; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 11px; background: var(--paper-2, rgba(255,255,255,.04)); padding: 4px; overflow-x: auto; }
     .visual-tabs[data-plan-tabs] .tab-button { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, #a4a4aa); padding: 0 11px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; }
@@ -1340,6 +1375,55 @@ function injectAnnotationRuntime(
           activate(initial.getAttribute("data-tab-target") || "");
         }
       }
+      let preferredEditor = state.preferredEditor === "cursor" ? "cursor" : "vscode";
+      function normalizeEditor(value) {
+        return value === "cursor" ? "cursor" : "vscode";
+      }
+      function setPreferredEditor(editor, notifyParent) {
+        preferredEditor = normalizeEditor(editor);
+        for (const select of document.querySelectorAll("[data-agent-native-editor-select]")) {
+          select.value = preferredEditor;
+        }
+        if (notifyParent) {
+          window.parent.postMessage({ type: "agent-native-plan-editor-preference", editor: preferredEditor }, "*");
+        }
+      }
+      function hrefForEditor(editor, filePath) {
+        if (!filePath) return "";
+        return normalizeEditor(editor) + "://file" + encodeURI(filePath);
+      }
+      function initializeEditorPickers() {
+        const actionGroups = Array.from(document.querySelectorAll(".file-actions"));
+        for (const actions of actionGroups) {
+          if (actions.querySelector("[data-agent-native-editor-picker]")) continue;
+          const legacyButtons = Array.from(actions.querySelectorAll("[data-agent-native-open-editor]"));
+          if (legacyButtons.length === 0) continue;
+          const hrefs = {};
+          for (const button of legacyButtons) {
+            const href = button.getAttribute("data-agent-native-open-editor") || "";
+            if (href.startsWith("cursor://file/")) hrefs.cursor = href;
+            if (href.startsWith("vscode://file/")) hrefs.vscode = href;
+            button.remove();
+          }
+          if (!hrefs.cursor && !hrefs.vscode) continue;
+          const picker = document.createElement("div");
+          picker.className = "editor-picker";
+          picker.dataset.agentNativeEditorPicker = "true";
+          const select = document.createElement("select");
+          select.dataset.agentNativeEditorSelect = "true";
+          select.setAttribute("aria-label", "Preferred editor");
+          select.innerHTML = '<option value="vscode">VS Code</option><option value="cursor">Cursor</option>';
+          const open = document.createElement("button");
+          open.type = "button";
+          open.textContent = "Open";
+          open.dataset.agentNativeOpenSelectedEditor = "true";
+          if (hrefs.vscode) open.dataset.agentNativeOpenVscode = hrefs.vscode;
+          if (hrefs.cursor) open.dataset.agentNativeOpenCursor = hrefs.cursor;
+          picker.append(select, open);
+          actions.appendChild(picker);
+        }
+        setPreferredEditor(preferredEditor, false);
+      }
       function postDocState() {
         const doc = document.documentElement;
         window.parent.postMessage({
@@ -1356,6 +1440,7 @@ function injectAnnotationRuntime(
       }
       removeEmptyPlanSections();
       initializePlanTabs();
+      initializeEditorPickers();
       postDocState();
       window.addEventListener("scroll", postDocState, { passive: true });
       window.addEventListener("resize", postDocState);
@@ -1503,6 +1588,11 @@ function injectAnnotationRuntime(
       document.addEventListener("selectionchange", () => requestAnimationFrame(updateSelectionToolbar));
       document.addEventListener("mouseup", () => setTimeout(updateSelectionToolbar, 0));
       document.addEventListener("keyup", updateSelectionToolbar);
+      document.addEventListener("change", (event) => {
+        const editorSelect = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-select]") : null;
+        if (!editorSelect) return;
+        setPreferredEditor(editorSelect.value, true);
+      });
       document.addEventListener("click", (event) => {
         const previewButton = event.target instanceof Element ? event.target.closest("[data-agent-native-code-preview]") : null;
         if (previewButton) {
@@ -1511,11 +1601,17 @@ function injectAnnotationRuntime(
           showCodePopover(previewButton, previewButton.getAttribute("data-agent-native-code-preview") || "");
           return;
         }
-        const editorButton = event.target instanceof Element ? event.target.closest("[data-agent-native-open-editor]") : null;
+        const editorButton = event.target instanceof Element ? event.target.closest("[data-agent-native-open-file], [data-agent-native-open-selected-editor]") : null;
         if (editorButton) {
           event.preventDefault();
           event.stopPropagation();
-          window.parent.postMessage({ type: "agent-native-plan-open-editor", href: editorButton.getAttribute("data-agent-native-open-editor") || "" }, "*");
+          const picker = editorButton.closest("[data-agent-native-editor-picker]");
+          const select = picker?.querySelector?.("[data-agent-native-editor-select]");
+          const editor = normalizeEditor(select?.value || preferredEditor);
+          const directHref = editorButton.getAttribute("data-agent-native-open-" + editor) || "";
+          const filePath = editorButton.getAttribute("data-agent-native-open-file") || "";
+          const href = directHref || hrefForEditor(editor, filePath);
+          window.parent.postMessage({ type: "agent-native-plan-open-editor", href }, "*");
           return;
         }
         const link = event.target instanceof Element ? event.target.closest("a[href]") : null;

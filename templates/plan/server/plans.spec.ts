@@ -208,7 +208,11 @@ describe("Plans helpers", () => {
     expect(html).toContain("implementation-map");
     expect(html).toContain("templates/plan/app/pages/PlansPage.tsx");
     expect(html).toContain("data-agent-native-code-preview");
-    expect(html).toContain("vscode://file/Users/steve/project/");
+    expect(html).toContain("data-agent-native-editor-picker");
+    expect(html).toContain("data-agent-native-open-file");
+    expect(html).toContain("/Users/steve/project/");
+    expect(html).not.toContain(">VS Code</button>");
+    expect(html).not.toContain(">Cursor</button>");
     expect(html).toContain("AnnotationPopover");
   });
 });
