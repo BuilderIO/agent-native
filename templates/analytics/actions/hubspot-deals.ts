@@ -277,7 +277,7 @@ function buildGuidance(options: {
 
 export default defineAction({
   description:
-    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. Use query for a specific customer/deal/account deep dive. For cohorts like products field = Publish, closed-won, pipeline = New Business, or close date in a range, use the structured product, pipeline, closedStatus, closedDateFrom, and closedDateTo filters instead of query.",
+    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. This is a deal analytics shortcut, not the full HubSpot capability surface. Use query for a specific customer/deal/account deep dive. For cohorts like products field = Publish, closed-won, pipeline = New Business, or close date in a range, use the structured product, pipeline, closedStatus, closedDateFrom, and closedDateTo filters instead of query. For non-deal CRM records use hubspot-records; for arbitrary HubSpot endpoints, filters, associations, batch APIs, or payloads use provider-api-catalog/provider-api-docs/provider-api-request with provider = hubspot.",
   schema: z.object({
     properties: StringListSchema.describe(
       "Optional comma-separated extra HubSpot deal property names to include.",
