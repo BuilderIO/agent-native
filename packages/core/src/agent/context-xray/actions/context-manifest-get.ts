@@ -2,16 +2,17 @@ import { z } from "zod";
 import { defineAction } from "../../../action.js";
 import { embedApp } from "../../../mcp/embed-app.js";
 import { callerOwnsThread } from "../../run-ownership.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "../../../server/request-context.js";
+import { getRequestUserEmail } from "../../../server/request-context.js";
 import { buildDeepLink } from "../../../server/deep-link.js";
 import {
   emptyContextManifest,
   type ContextManifest,
 } from "../../../shared/context-xray.js";
 import { readContextManifest } from "../directives-store.js";
+import {
+  contextXrayAuthError,
+  contextXrayThreadNotFoundError,
+} from "./errors.js";
 
 function contextXrayDeepLink(threadId: string): string {
   return buildDeepLink({
@@ -57,19 +58,17 @@ export default defineAction({
   },
   run: async (args): Promise<ContextManifest> => {
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail)
-      throw new Error("Context X-Ray requires a signed-in user.");
+    if (!ownerEmail) throw contextXrayAuthError();
     const ownsThread = await callerOwnsThread(ownerEmail, args.threadId);
-    const manifest = ownsThread
-      ? ((await readContextManifest(args.threadId)) ??
-        emptyContextManifest(args.threadId, { enforceable: true }))
-      : emptyContextManifest(args.threadId, { enforceable: true });
+    if (!ownsThread) throw contextXrayThreadNotFoundError();
+    const manifest =
+      (await readContextManifest(args.threadId)) ??
+      emptyContextManifest(args.threadId, { enforceable: true });
     return {
       ...manifest,
       url: contextXrayDeepLink(args.threadId),
       enforceable: manifest.enforceable ?? true,
       source: manifest.source ?? "structured",
-      ...(getRequestOrgId() ? {} : {}),
     };
   },
 });

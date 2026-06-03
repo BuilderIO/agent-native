@@ -139,6 +139,71 @@ describe("applyContextDirectives", () => {
     ]);
   });
 
+  it("merges adjacent same-role turns created by evicting a tool pair", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "check the file" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I will inspect it." },
+          {
+            type: "tool-call",
+            id: "tool-a",
+            name: "read-file",
+            input: { path: "large.log" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tool-a",
+            toolName: "read-file",
+            toolInput: JSON.stringify({ path: "large.log" }),
+            content: "large result",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "The file is noisy." }],
+      },
+    ];
+    const resultSegment = computeSegments(messages).find(
+      (segment) => segment.type === "tool-result",
+    )!;
+
+    const transformed = applyContextDirectives(
+      messages,
+      new Map([
+        [
+          resultSegment.segmentId,
+          directive("thread-1", resultSegment.segmentId, "evict"),
+        ],
+      ]),
+      { protectedSegmentIds: new Set() },
+    );
+
+    expect(transformed.messages).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "check the file" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I will inspect it." },
+          { type: "text", text: "The file is noisy." },
+        ],
+      },
+    ]);
+  });
+
   it("does not mutate canonical messages", () => {
     const messages: EngineMessage[] = [
       {

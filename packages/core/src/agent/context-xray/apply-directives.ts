@@ -38,6 +38,20 @@ function summaryTextFor(
   return summary || `${fallbackLabel} was summarized to reduce context size.`;
 }
 
+function appendTransformedMessage(
+  output: EngineMessage[],
+  message: EngineMessage,
+  content: EngineContentPart[],
+): void {
+  if (content.length === 0) return;
+  const previous = output.at(-1);
+  if (previous?.role === message.role) {
+    previous.content.push(...content);
+    return;
+  }
+  output.push({ ...message, content });
+}
+
 export function applyContextDirectives(
   messages: EngineMessage[],
   directives: Map<string, ContextDirective>,
@@ -117,7 +131,7 @@ export function applyContextDirectives(
       }
       nextParts.push(clonePart(part));
     }
-    if (nextParts.length > 0) output.push({ ...message, content: nextParts });
+    appendTransformedMessage(output, message, nextParts);
   }
 
   return { messages: output, appliedStatus };

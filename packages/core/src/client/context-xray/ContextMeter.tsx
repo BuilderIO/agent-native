@@ -1,5 +1,5 @@
 import { IconExternalLink, IconGauge } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ContextManifest,
   ContextSegmentStatus,
@@ -24,6 +24,7 @@ export function ContextMeter({ threadId }: { threadId?: string | null }) {
   const [optimistic, setOptimistic] = useState<
     Map<string, ContextSegmentStatus>
   >(new Map());
+  const currentThreadId = useRef(threadId);
   const query = useActionQuery(
     "context-manifest-get",
     threadId ? { threadId } : undefined,
@@ -35,6 +36,11 @@ export function ContextMeter({ threadId }: { threadId?: string | null }) {
   const pin = useActionMutation("context-pin");
   const evict = useActionMutation("context-evict");
   const restore = useActionMutation("context-restore");
+
+  useEffect(() => {
+    currentThreadId.current = threadId;
+    setOptimistic(new Map());
+  }, [threadId]);
 
   useEffect(() => {
     if (!threadId || typeof window === "undefined") return;
@@ -80,7 +86,11 @@ export function ContextMeter({ threadId }: { threadId?: string | null }) {
     setOptimistic((prev) => new Map(prev).set(segmentId, status));
     const params = { threadId, segmentId };
     const options = {
-      onError: () => setOptimistic(previous),
+      onError: () => {
+        if (currentThreadId.current === threadId) {
+          setOptimistic(previous);
+        }
+      },
     };
     if (action === "pin") pin.mutate(params, options);
     if (action === "evict") evict.mutate(params, options);

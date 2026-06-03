@@ -9,6 +9,10 @@ import {
   upsertContextDirective,
   writeContextManifestStatus,
 } from "../directives-store.js";
+import {
+  contextXrayAuthError,
+  contextXrayThreadNotFoundError,
+} from "./errors.js";
 
 export default defineAction({
   description:
@@ -19,10 +23,9 @@ export default defineAction({
   }),
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail)
-      throw new Error("Context X-Ray requires a signed-in user.");
+    if (!ownerEmail) throw contextXrayAuthError();
     if (!(await callerOwnsThread(ownerEmail, args.threadId))) {
-      throw new Error("Thread not found.");
+      throw contextXrayThreadNotFoundError();
     }
     const directive = await upsertContextDirective({
       threadId: args.threadId,

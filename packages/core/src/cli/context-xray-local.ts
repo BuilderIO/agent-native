@@ -22,12 +22,12 @@ const CONTEXT_XRAY_EXECUTABLE = String.raw`#!/usr/bin/env node
 
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
-const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const HOME = os.homedir();
-const CODEX_DIR = path.join(HOME, ".codex");
+const CODEX_DIR = process.env.CODEX_HOME && process.env.CODEX_HOME.trim() ? process.env.CODEX_HOME.trim() : path.join(HOME, ".codex");
 const CLAUDE_DIR = path.join(HOME, ".claude");
 const OUT_DIR = path.join(CODEX_DIR, "context-xray");
 const SESSION_ID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -78,10 +78,7 @@ function parseArgs(argv) {
       return undefined;
     };
     let value;
-    if (arg === "serve") {
-      out.mode = "serve";
-      out.file = argv[++i] || "";
-    } else if (arg === "threads" || arg === "--threads") out.mode = "threads";
+    if (arg === "threads" || arg === "--threads") out.mode = "threads";
     else if (arg === "trends" || arg === "--trends") out.mode = "trends";
     else if (arg === "current" || arg === "--current") out.mode = "current";
     else if ((value = eat("--source")) !== undefined) out.source = value;
@@ -419,6 +416,11 @@ function encodedProject(project) {
   return path.resolve(project).replace(/\//g, "-");
 }
 
+function pathInsideOrEqual(value, parent) {
+  const relative = path.relative(parent, value);
+  return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 function candidateFiles(source, args) {
   if (args.sessionId) {
     const roots = source === "codex" ? [path.join(CODEX_DIR, "sessions"), path.join(CODEX_DIR, "archived_sessions")] : [path.join(CLAUDE_DIR, "projects")];
@@ -443,8 +445,7 @@ function candidateFiles(source, args) {
 function projectMatches(session, args) {
   if (args.allProjects || args.sessionId) return true;
   const project = path.resolve(args.project);
-  if (session.cwd && path.resolve(session.cwd).startsWith(project)) return true;
-  if (session.source === "codex") return true;
+  if (session.cwd && pathInsideOrEqual(path.resolve(session.cwd), project)) return true;
   return session.path.includes(encodedProject(project));
 }
 
@@ -564,30 +565,6 @@ function openUrl(url) {
   } catch {}
 }
 
-function choosePort(preferred) {
-  return preferred || 8765 + Math.floor(Math.random() * 3000);
-}
-
-function serveFile(file, port) {
-  const server = http.createServer((req, res) => {
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.end(fs.readFileSync(file));
-  });
-  server.listen(port, "127.0.0.1", () => {
-    console.log("Context X-Ray local report: http://127.0.0.1:" + port + "/");
-  });
-}
-
-function startServer(file, preferredPort) {
-  const port = choosePort(preferredPort);
-  const child = childProcess.spawn(process.execPath, [__filename, "serve", file, "--port", String(port)], {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-  return "http://127.0.0.1:" + port + "/";
-}
-
 function printSummary(sessions, args, file, url) {
   const total = sessions.reduce((sum, s) => sum + s.tokens, 0);
   console.log("Context X-Ray: analyzed " + sessions.length + " session(s), about " + fmtTokens(total) + " observed/estimated tokens.");
@@ -602,7 +579,6 @@ function printSummary(sessions, args, file, url) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return help();
-  if (args.mode === "serve") return serveFile(args.file, args.port || 8765);
   const sessions = collectSessions(args);
   mkdirp(OUT_DIR);
   const suffix = args.format === "json" ? "json" : "html";
@@ -610,7 +586,7 @@ function main() {
   mkdirp(path.dirname(file));
   if (args.format === "json") writeJson(sessions, args, file);
   else fs.writeFileSync(file, renderHtml(sessions, args));
-  const url = args.open && args.format === "html" ? startServer(file, args.port) : "";
+  const url = args.open && args.format === "html" ? pathToFileURL(file).href : "";
   if (url) openUrl(url);
   printSummary(sessions, args, file, url);
 }
@@ -634,6 +610,9 @@ metadata:
 Use the locally installed Context X-Ray command to visualize recent Codex and
 Claude Code context usage. It reads local transcript files only and does not
 upload transcript content.
+
+Project-scoped installs write only project \`.agents\` skill and command
+artifacts; user-scoped installs write global Codex/Claude instructions.
 
 ## Run
 
@@ -663,6 +642,8 @@ Exact session when the host exposes one:
 
 After running, report the link, the number of sessions analyzed, the largest
 context buckets, and 3-5 specific optimizations.
+\`--open\` opens the generated local HTML file directly and does not keep a
+background report server running.
 
 ## Interpret
 
@@ -680,8 +661,8 @@ description: Visualize local Codex/Claude context usage and get optimization tip
 argument-hint: [current|threads|trends|--since 7d]
 ---
 
-Run Context X-Ray locally and show the user the report link plus the top
-warnings.
+Run Context X-Ray locally and show the user the generated report link plus the
+top warnings.
 
 Choose the command from the user's arguments:
 
@@ -699,6 +680,9 @@ If \`$ARGUMENTS\` includes flags such as \`--since 24h\`, \`--last 20\`, or
 \`\`\`sh
 ~/.agent-native/context-xray/context-xray --session-id "$CLAUDE_CODE_SESSION_ID" --open
 \`\`\`
+
+\`--open\` opens a local HTML report file directly; there should not be a
+long-running server process to monitor.
 
 After the command finishes, summarize:
 
@@ -725,14 +709,17 @@ function writeFile(file: string, content: string, written: string[]): void {
   written.push(file);
 }
 
-function installProjectCommand(baseDir: string, written: string[]): void {
-  const commandPath = path.join(
-    baseDir,
-    ".agents",
-    "commands",
-    "context-xray.md",
+function installProjectArtifacts(baseDir: string, written: string[]): void {
+  writeFile(
+    path.join(baseDir, ".agents", "skills", "context-xray", "SKILL.md"),
+    CONTEXT_XRAY_SKILL_MD,
+    written,
   );
-  writeFile(commandPath, CONTEXT_XRAY_COMMAND_MD, written);
+  writeFile(
+    path.join(baseDir, ".agents", "commands", "context-xray.md"),
+    CONTEXT_XRAY_COMMAND_MD,
+    written,
+  );
 }
 
 export function installLocalContextXray(
@@ -753,18 +740,29 @@ export function installLocalContextXray(
 
   writeExecutable(scriptPath, CONTEXT_XRAY_EXECUTABLE);
   written.push(scriptPath);
-  writeExecutable(
-    binPath,
-    `#!/usr/bin/env sh\nexec ${JSON.stringify(scriptPath)} "$@"\n`,
-  );
-  written.push(binPath);
+  if (process.platform === "win32") {
+    const cmdPath = `${binPath}.cmd`;
+    writeExecutable(
+      cmdPath,
+      `@echo off\r\nnode ${JSON.stringify(scriptPath)} %*\r\n`,
+    );
+    written.push(cmdPath);
+  } else {
+    writeExecutable(
+      binPath,
+      `#!/usr/bin/env sh\nexec ${JSON.stringify(scriptPath)} "$@"\n`,
+    );
+    written.push(binPath);
+  }
 
   const clientSet = new Set(options.clients);
   const wantsCodex = clientSet.has("codex");
   const wantsClaude =
     clientSet.has("claude-code") || clientSet.has("claude-code-cli");
 
-  if (wantsCodex) {
+  if (options.scope === "project" && options.baseDir) {
+    installProjectArtifacts(options.baseDir, written);
+  } else if (wantsCodex) {
     writeFile(
       path.join(codexHome(), "skills", "context-xray", "SKILL.md"),
       CONTEXT_XRAY_SKILL_MD,
@@ -777,7 +775,7 @@ export function installLocalContextXray(
     );
   }
 
-  if (wantsClaude) {
+  if (options.scope !== "project" && wantsClaude) {
     writeFile(
       path.join(os.homedir(), ".claude", "skills", "context-xray", "SKILL.md"),
       CONTEXT_XRAY_SKILL_MD,
@@ -788,10 +786,6 @@ export function installLocalContextXray(
       CONTEXT_XRAY_COMMAND_MD,
       written,
     );
-  }
-
-  if (options.scope === "project" && options.baseDir) {
-    installProjectCommand(options.baseDir, written);
   }
 
   return {

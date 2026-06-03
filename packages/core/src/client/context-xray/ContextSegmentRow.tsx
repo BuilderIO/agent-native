@@ -75,19 +75,27 @@ export function ContextSegmentRow({
             </TooltipTrigger>
             <TooltipContent>Protected during active turn</TooltipContent>
           </Tooltip>
-        ) : segment.status === "evicted" || segment.status === "summarized" ? (
+        ) : segment.status === "evicted" ||
+          segment.status === "summarized" ||
+          segment.status === "pinned" ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={onRestore}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
-                aria-label="Restore segment"
+                aria-label={
+                  segment.status === "pinned"
+                    ? "Unpin segment"
+                    : "Restore segment"
+                }
               >
                 <IconRotate2 className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Restore</TooltipContent>
+            <TooltipContent>
+              {segment.status === "pinned" ? "Unpin" : "Restore"}
+            </TooltipContent>
           </Tooltip>
         ) : (
           <>

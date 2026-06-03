@@ -7,6 +7,10 @@ import {
   CONTEXT_XRAY_MANIFEST_KEY,
   type ContextManifest,
 } from "../../../shared/context-xray.js";
+import {
+  contextXrayAuthError,
+  contextXrayThreadNotFoundError,
+} from "./errors.js";
 
 const reportedSegmentSchema = z.object({
   segmentId: z.string(),
@@ -28,10 +32,9 @@ export default defineAction({
   }),
   run: async (args): Promise<ContextManifest> => {
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail)
-      throw new Error("Context X-Ray requires a signed-in user.");
+    if (!ownerEmail) throw contextXrayAuthError();
     if (!(await callerOwnsThread(ownerEmail, args.threadId))) {
-      throw new Error("Thread not found.");
+      throw contextXrayThreadNotFoundError();
     }
     const rawTokens = args.segments.reduce(
       (sum, segment) => sum + segment.tokenCount,
