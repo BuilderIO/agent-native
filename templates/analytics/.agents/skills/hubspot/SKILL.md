@@ -10,6 +10,12 @@ description: >-
 Use HubSpot for CRM facts: deal status, amount, stage, owner, forecast,
 associated account context, contacts, companies, and tickets.
 
+`hubspot-deals` is a legacy-named deal analytics shortcut, not the boundary of
+the HubSpot integration. If the user asks for any HubSpot object, endpoint,
+association, property, filter, batch read/write, or API version that the typed
+actions do not expose, inspect the provider catalog/docs and call
+`provider-api-request` with `provider: "hubspot"`.
+
 ## Actions
 
 - `account-deep-dive` — first choice for named account/deal deep dives. It
