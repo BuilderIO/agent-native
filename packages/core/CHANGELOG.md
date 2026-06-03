@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.18
+
+### Patch Changes
+
+- 2876933: Clarify Agent Teams delegation intent and distinguish spawned background tasks from completed work.
+
 ## 0.32.17
 
 ### Patch Changes
