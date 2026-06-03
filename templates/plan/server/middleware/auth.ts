@@ -10,6 +10,14 @@
 import { defineEventHandler } from "h3";
 import { runAuthGuard } from "@agent-native/core/server";
 
+const PUBLIC_PLAN_REVIEW_ACTIONS = new Set([
+  "/_agent-native/actions/get-visual-plan",
+  "/_agent-native/actions/update-visual-plan",
+  "/_agent-native/actions/export-visual-plan",
+]);
+
 export default defineEventHandler(async (event) => {
+  const path = (event.node?.req?.url ?? event.path ?? "/").split("?")[0] ?? "/";
+  if (PUBLIC_PLAN_REVIEW_ACTIONS.has(path)) return;
   return runAuthGuard(event);
 });
