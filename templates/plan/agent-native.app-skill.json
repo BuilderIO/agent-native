@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "plans",
   "displayName": "Agent-Native Plans",
-  "description": "Generate and review coding-agent plans as interactive HTML with diagrams, wireframes, prototypes, annotations, share links, feedback, and proof gates.",
+  "description": "Generate and review coding-agent plans as interactive HTML with diagrams, wireframes, prototypes, annotations, share links, and feedback.",
   "hosted": {
     "url": "https://plan.agent-native.com",
     "mcpUrl": "https://plan.agent-native.com/_agent-native/mcp"

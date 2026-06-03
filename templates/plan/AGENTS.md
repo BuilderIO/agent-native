@@ -2,7 +2,7 @@
 
 Agent-Native Plans is a local-first HTML plan mode for coding agents. Its job is
 to turn agent plans into diagrams, wireframes, prototype options, annotations,
-progress, and proof gates that a person can review before code changes happen.
+and comments that a person can review before code changes happen.
 
 ## Core Rules
 
@@ -20,8 +20,6 @@ progress, and proof gates that a person can review before code changes happen.
   hosted persistence, private sharing, reviewer links, and cross-device/team
   workflows use account login, with Google sign-in shown when the standard
   Google OAuth env vars are configured.
-- Keep proof gates separate from agent claims. Evidence and verification are
-  separate.
 - Surface material assumptions only when they change behavior, data, security,
   tests, deployment, or definition of done.
 - Before edits, read pending feedback with `get-plan-feedback`.
@@ -29,8 +27,7 @@ progress, and proof gates that a person can review before code changes happen.
 ## Application State
 
 - `navigation.view` is `plans`, `plan`, `extensions`, or `team`.
-- `navigation.contractId` identifies the active visual plan when present. The
-  field name is legacy storage vocabulary; treat it as the plan ID.
+- `navigation.planId` identifies the active visual plan when present.
 - `navigate` moves the UI to the plan list or a specific visual plan.
 
 ## Skills

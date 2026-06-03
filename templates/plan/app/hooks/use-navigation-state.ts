@@ -75,14 +75,10 @@ export function useNavigationState() {
 }
 
 function viewForPath(pathname: string): string {
-  if (pathname.startsWith("/plans/") || pathname.startsWith("/contracts/")) {
+  if (pathname.startsWith("/plans/")) {
     return "plan";
   }
-  if (
-    pathname === "/" ||
-    pathname.startsWith("/plans") ||
-    pathname.startsWith("/contracts")
-  ) {
+  if (pathname === "/" || pathname.startsWith("/plans")) {
     return "plans";
   }
   if (pathname.startsWith("/extensions")) return "extensions";

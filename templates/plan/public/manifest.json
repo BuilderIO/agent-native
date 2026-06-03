@@ -1,7 +1,7 @@
 {
   "name": "Agent-Native Plans",
   "short_name": "Plans",
-  "description": "Generate and review coding-agent plans with diagrams, wireframes, prototypes, annotations, sharing, and proof gates.",
+  "description": "Generate and review coding-agent plans with diagrams, wireframes, prototypes, annotations, sharing, and feedback.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",

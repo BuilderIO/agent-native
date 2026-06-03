@@ -2,8 +2,7 @@
 
 Agent-Native Plans is HTML plan mode for coding agents. It turns a normal
 Markdown/Codex/Claude Code plan into a visual review surface with diagrams,
-wireframes, prototype options, annotations, share links, feedback, and proof
-gates.
+wireframes, prototype options, annotations, share links, and feedback.
 
 ## Install
 
@@ -37,13 +36,13 @@ Plans should be visual by default:
 - wireframes and quick mockups for UI work
 - prototype options when interaction or design direction is uncertain
 - plannotator-style comments, corrections, and annotations
-- review prompts for assumptions, choices, risks, and missing proof
+- review prompts for options, open questions, risky assumptions, and choices
 
 ## Review Loop
 
 1. The agent creates a plan and opens the MCP app inline or as a browser link.
 2. The user reacts to visuals instead of reading a wall of Markdown.
-3. The user annotates, corrects, chooses options, or asks for more proof.
+3. The user annotates, corrects, chooses options, or asks for a clearer visual.
 4. The agent reads structured feedback before editing and updates the plan or
    implementation.
 5. The user can keep the plan local or sign in to share a private review link.

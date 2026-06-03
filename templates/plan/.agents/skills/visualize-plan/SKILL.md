@@ -1,53 +1,25 @@
 ---
 name: visualize-plan
 description: >-
-  Convert an existing Codex, Claude Code, Markdown, or pasted plan into a
-  Plans companion with diagrams, wireframes, annotations, and proof gates.
+  Convert an existing Codex, Claude Code, Markdown, or pasted plan into an
+  Agent-Native Plans HTML companion with diagrams, wireframes, annotations, and
+  feedback.
 ---
 
 # Visualize Plan
 
-Use this as the visual companion for an existing text plan. The native Codex or
-Claude Code plan can stay exactly where it is; Agent-Native Plans turns it into
-an interactive HTML review surface with diagrams, wireframes, prototype options,
-annotations, assumptions, and proof gates.
+Use this when a plan already exists and the user wants it to become easier to
+review. The native Codex or Claude Code plan can stay where it is; Agent-Native
+Plans creates an HTML companion with richer visual sections.
 
-This is for impatient review. Default to things the user can scan and react to.
-
-## Install And Use
-
-Users install Plans with the Agent-Native CLI:
-
-```sh
-agent-native skills add plans
-```
-
-That installs both `/visual-plan` and `/visualize-plan` plus the MCP connector.
-Use `/visualize-plan` when there is already a native Codex, Claude Code,
-Markdown, or pasted text plan and the user wants diagrams, wireframes,
-prototype options, and plannotator-style annotations layered on top.
-
-## When To Use
-
-Use `visualize-plan` when:
-
-- the user has an existing Codex, Claude Code, Markdown, or pasted plan;
-- the user asks to visualize, annotate, plannotate, mock up, diagram, or make a
-  plan easier to review;
-- the plan is long enough that the user may not read it closely;
-- UI direction, architecture, data flow, risky assumptions, or proof gates would
-  be clearer visually;
-- the user wants feedback on wireframes, design/prototype options, diagrams, or
-  tradeoffs before implementation.
-
-If there is no existing plan text available, ask for it or use `visual-plans` to
-create a fresh plan instead.
+This is for people who need something to react to quickly: diagrams, UI mocks,
+state sketches, option cards, and comment prompts instead of a wall of text.
 
 ## Workflow
 
 1. Gather the existing plan text from the user's paste, a referenced file, or
-   the recent agent-visible plan. Do not invent a source plan.
-2. Call `visualize-plan` with `planText`, `title`, `goal`, `source`, and
+   recent visible agent context. Do not invent the source plan.
+2. Call `visualize-plan` with `planText`, `title`, `brief`, `source`, and
    `repoPath` when available.
 3. Surface the returned Agent-Native Plans link or inline MCP App.
 4. Enrich the imported plan with `update-visual-plan` when helpful:
@@ -55,23 +27,20 @@ create a fresh plan instead.
    - wireframes/mockups for user-visible UI changes;
    - two or three option cards when there are real tradeoffs;
    - small prototype sketches for interactions, states, or animation choices;
-   - reviewable assumptions and open questions;
-   - compact proof gates for tests, screenshots, CI, rollout, or rollback.
+   - explicit open questions or assumptions that need reaction.
 5. Ask the user to react in the visual plan. Then call `get-plan-feedback`
    before implementing, after review, and before final response.
-6. Treat the imported text as source material. Structured Agent-Native Plans
-   state is canonical for feedback, assumptions, decisions, and proof.
+6. Treat imported text as source material. The HTML plan and comments are the
+   review surface.
 
 ## Visual Defaults
 
-- Keep the first screen simple: plan summary, one primary visual, review queue.
-- Prefer one strong diagram or wireframe over a wall of sections.
-- Hide long prose behind disclosure controls or source references.
-- Label inferred items as possible, not confirmed.
+- Keep the first screen simple: title, brief, and one strong visual.
+- Prefer one excellent diagram or wireframe over many noisy widgets.
+- Preserve the plan's original structure, but make it more consumable.
+- Label inferred visuals as inferred when they go beyond the source text.
 - Ask for feedback with targeted prompts: "Which option?", "Is this flow
-  right?", "What assumption is wrong?", "What proof is missing?"
-- Preserve native-agent momentum: this companion should make the plan easier to
-  approve or revise, not force a giant planning ceremony.
+  right?", "What should change?", "What did I miss?"
 
 ## Guardrails
 

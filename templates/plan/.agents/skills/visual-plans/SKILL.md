@@ -1,19 +1,20 @@
 ---
 name: visual-plans
 description: >-
-  Use Agent-Native Plans for coding-agent work that needs an interactive HTML
-  plan, diagrams, wireframes, prototype options, annotations, implementation
-  tasks, feedback, and proof gates.
+  Use Agent-Native Plans when coding-agent work needs an interactive HTML plan
+  document with diagrams, wireframes, mockups, prototypes, annotations, and
+  comments.
 ---
 
 # Agent-Native Plans
 
-Use Agent-Native Plans as HTML plan mode for coding work. The point is not to
-create a prettier Markdown plan. The point is to give the user something visual
-to react to before the agent edits code: diagrams, wireframes, option cards,
-clickable prototype sketches, assumptions, tasks, annotations, and proof gates.
+Agent-Native Plans is HTML plan mode for coding agents. Generate the kind of
+plan you would normally write in Markdown, but as a polished, scannable HTML
+document with visual blocks mixed in: diagrams, wireframes, mockups, prototype
+options, tradeoff cards, and annotation prompts.
 
-Text is the fallback layer. Default to visual artifacts.
+The goal is impatient review. The user should be able to react to visuals first
+and read prose only where it helps.
 
 ## Install And Use
 
@@ -23,101 +24,70 @@ Users install Plans with the Agent-Native CLI:
 agent-native skills add plans
 ```
 
-That one command installs the exported skills and registers the hosted MCP app
-connector for supported hosts such as Claude Code and Codex. After the host
-reloads, the user can type `/visual-plan` to create a fresh interactive plan.
-The companion `/visualize-plan` command is installed with it for existing Codex,
-Claude Code, Markdown, or pasted text plans.
+That one command installs `/visual-plan` and `/visualize-plan` and registers the
+hosted MCP app connector for supported hosts such as Claude Code and Codex.
 
-Plan creation and review currently use the app's authenticated MCP/session path
-so plans stay scoped, persistent, and shareable. In local development, use the
-framework's auto-created dev account or an authenticated MCP connection. Hosted
-private reviewer links, team feedback, and cross-device review use account
-login, with Google sign-in available when `GOOGLE_CLIENT_ID` and
-`GOOGLE_CLIENT_SECRET` are configured.
+Use `/visual-plan` for a fresh plan. Use `/visualize-plan` when there is already
+a Codex, Claude Code, Markdown, or pasted text plan that should become an HTML
+companion.
 
 ## When To Use
 
 Create or update a visual plan when:
 
-- the user asks for a plan, visual plan, HTML plan, plannotate-style review,
-  diagrams, wireframes, mockups, prototype options, comments, or annotations;
+- the user asks for a plan, HTML plan, visual plan, plannotate-style review,
+  diagrams, wireframes, mockups, prototypes, comments, or annotations;
 - work is multi-file, ambiguous, long-running, risky, or UI-heavy;
-- the user needs to react quickly to direction rather than read prose;
-- the task touches auth, billing, migrations, public APIs, tests, production
-  config, data, security, permissions, or deploy behavior;
-- you would otherwise proceed on a material assumption;
-- you are about to claim the work is complete and need proof gates checked.
+- the user is unlikely to read a long text plan closely;
+- architecture, data flow, UI direction, options, or open questions would be
+  clearer visually;
+- you need the user to react before implementation.
 
 ## Core Workflow
 
-1. Call `create-visual-plan` with the goal, source, repo path, and initial
-   plan nodes before implementation.
-2. Surface the returned Agent-Native Plans link or inline MCP App. In CLI hosts,
-   tell the user to open the link and review the visual plan.
-3. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
-   prototypes over paragraphs.
+1. Call `create-visual-plan` with the title, brief, source, repo path, and plan
+   sections before implementation.
+2. Put the best possible plan document in `html` when you can. It should feel
+   like a bespoke HTML version of a strong Markdown plan, not a dashboard.
+3. Surface the returned Agent-Native Plans link or inline MCP App. In CLI hosts,
+   ask the user to review the plan visually.
 4. Call `get-plan-feedback` before editing, after review, after any long pause,
-   and before the final response.
-5. If the user comments, accepts, rejects, corrects, or requests proof, consume
-   the structured feedback and update the implementation plan accordingly.
-6. If new facts require a change after approval, create an amendment or
-   deviation with `update-visual-plan` instead of drifting silently.
-7. Attach command/test/log/diff/screenshot/design artifacts with
-   `record-plan-evidence`. Agent claims are not proof.
-8. Export an HTML/JSON/Markdown receipt with `export-visual-plan` when the user
-   wants a shareable summary.
-
-## Existing Plan Companion
-
-If the user already has a Codex, Claude Code, Markdown, or pasted text plan, use
-the `visualize-plan` skill/action instead of starting from scratch. It creates a
-visual companion from the existing plan, detects possible assumptions and proof
-gates, then lets you add diagrams, wireframes, prototype options, and targeted
-feedback prompts.
-
-Use this when the user says things like "visualize this plan", "make this
-reviewable", "turn the plan into mockups/diagrams", or "build off the existing
-Claude/Codex plan." The original text plan remains source material; structured
-Agent-Native Plans state becomes canonical for feedback and proof.
+   and before final response.
+5. Incorporate comments/corrections with `update-visual-plan`; update the HTML
+   document when feedback changes the direction.
+6. Export an HTML/JSON/Markdown receipt with `export-visual-plan` when the user
+   wants a shareable artifact.
 
 ## Visual Defaults
 
-- UI work gets wireframes or prototype options before coding.
-- Backend/refactor work gets architecture and data-flow diagrams.
+- UI work gets wireframes, state mockups, or prototype sketches.
+- Backend/refactor work gets architecture, sequence, data-flow, or dependency
+  diagrams.
 - Complex tradeoffs get two or three option cards with consequences.
-- Assumptions are shown as reviewable visual callouts, not hidden prose.
-- Proof gates stay compact: what must pass, current evidence, and missing proof.
-- Long prose is collapsed behind the visual plan.
-- Comments, corrections, replacements, and annotations should feel
-  plannotator-style: fast to mark up, structured enough for the agent to
-  consume, and easy to share when the user chooses.
+- Open questions are surfaced as visual callouts, not buried in paragraphs.
+- Long prose is split into readable document sections with clear headings.
+- Comments and corrections should feel plannotator-style: quick to add,
+  structured enough for the agent to consume, and easy to share when the user
+  chooses.
 
 ## Tool Guidance
 
-- `create-visual-plan`: start one visual plan per agent task/run.
-- `visualize-plan`: create a visual companion from an existing text plan.
-- `update-visual-plan`: bulk add/update plan nodes, options, assumptions,
-  decisions, tasks, risks, deviations, annotations, and proof gates.
-- `get-visual-plan` and `get-plan-review-queue`: read current plan state.
+- `create-visual-plan`: start one HTML plan per agent task/run.
+- `visualize-plan`: create an HTML companion from an existing text plan.
+- `update-visual-plan`: revise the plan document, sections, status, or comments.
+- `get-visual-plan`: read the current plan document and annotations.
 - `get-plan-feedback`: read unconsumed human feedback. Use it frequently.
-- `record-plan-progress`: update phase/status and mark feedback consumed only
-  after you incorporated it.
-- `record-plan-evidence`: attach artifacts and provenance. Use high trust for
-  captured commands/tests/CI, human_confirmed for explicit human confirmation,
-  and low trust for agent-only statements.
-- `analyze-visual-plan`: import pasted Markdown/text and create possible visual
-  plan nodes. Treat detections as possible, not authoritative.
+- `export-visual-plan`: export HTML, Markdown fallback, and structured JSON.
 
-## Guardrails
+## HTML Guidance
 
-- Keep it simple. Do not build a ten-tab dashboard unless the user asks.
-- Do not log every trivial inference. Material assumptions affect behavior,
-  data model, security, billing, public API, migrations, tests, architecture,
-  deployment, file scope, or definition of done.
-- Never modify tests merely to make implementation pass unless the visual plan
-  explicitly approves test expectation changes.
-- If proof is missing, say so. Do not call the task complete just because code
-  changed.
-- Do not hand-roll MCP HTTP requests with curl. Use host-exposed tools after
-  restart/reload, or use the returned browser/deep-link fallback.
+- Prefer semantic HTML with scoped CSS inside the document.
+- Match Agent-Native's dark, restrained theme unless the user asks otherwise.
+- Keep the first viewport legible: title, brief, and one strong visual or
+  summary.
+- Use tabs, accordions, or small interactions only when they make review faster.
+- Do not paste huge HTML into chat. Store it in Plans and surface the MCP app or
+  link.
+- Hosted default: connect
+  `https://plan.agent-native.com/_agent-native/mcp`. Do not put shared secrets
+  in skill files.
