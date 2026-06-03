@@ -4,11 +4,11 @@ export default createAuthPlugin({
   marketing: {
     appName: "Agent-Native Plans",
     tagline:
-      "Catch risky agent assumptions before they become code and require proof before done.",
+      "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [
-      "Review the assumptions your coding agent is acting on",
-      "Correct agent feedback as structured state instead of chat scrollback",
-      "Attach test, command, CI, and human-confirmed evidence to acceptance criteria",
+      "Create diagrams, wireframes, prototype options, and proof gates from one prompt",
+      "Annotate plans like a visual review surface instead of reading long Markdown",
+      "Share account-backed review links when a plan needs outside feedback",
     ],
   },
 });
