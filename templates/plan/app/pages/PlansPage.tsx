@@ -5,6 +5,7 @@ import {
   IconArrowsMinimize,
   IconChevronLeft,
   IconChevronRight,
+  IconPencil,
   IconMessageDots,
   IconMessageCircle,
   IconMoon,
@@ -110,6 +111,11 @@ type PlanAnnotationAnchor = {
   sectionTitle?: string;
   snippet?: string;
   tagName?: string;
+  anchorKind?: "text" | "visual" | "point";
+  textQuote?: string;
+  visualLabel?: string;
+  visualX?: number;
+  visualY?: number;
 };
 
 type RuntimeAnnotation = {
@@ -118,6 +124,7 @@ type RuntimeAnnotation = {
   message: string;
   kind: string;
   status: string;
+  sectionId?: string | null;
   createdAt?: string;
   anchor: PlanAnnotationAnchor;
 };
@@ -195,7 +202,10 @@ function buildPlanAgentContext(input: {
   const openComments = input.bundle.comments
     .filter((comment) => comment.status === "open")
     .slice(0, 6)
-    .map((comment, index) => `${index + 1}. ${comment.message}`)
+    .map((comment, index) => {
+      const anchorContext = formatAnchorForAgent(parseAnchor(comment.anchor));
+      return `${index + 1}. ${comment.message}${anchorContext ? `\n   Context: ${anchorContext}` : ""}`;
+    })
     .join("\n");
 
   return [
@@ -414,35 +424,6 @@ export function PlansPage() {
     });
   };
 
-  const handleAnnotationClick = (
-    event: React.MouseEvent<HTMLButtonElement>,
-  ) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const doc = documentStateRef.current;
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
-    setActiveAnnotation(null);
-    const x = doc
-      ? ((clickX + doc.scrollX) / Math.max(doc.scrollWidth, 1)) * 100
-      : (clickX / Math.max(rect.width, 1)) * 100;
-    const y = doc
-      ? ((clickY + doc.scrollY) / Math.max(doc.scrollHeight, 1)) * 100
-      : (clickY / Math.max(rect.height, 1)) * 100;
-    setPendingAnnotation({
-      x: Number(Math.max(0, Math.min(100, x)).toFixed(3)),
-      y: Number(Math.max(0, Math.min(100, y)).toFixed(3)),
-      sectionTitle: "Visible plan area",
-    });
-    setInlineCommentPosition(
-      resolveInlineCommentPosition({
-        pointX: clickX,
-        pointY: clickY,
-        viewportWidth: rect.width,
-        viewportHeight: rect.height,
-      }),
-    );
-  };
-
   const submitInlineComment = (message: string) => {
     if (!bundle || !pendingAnnotation) return;
     const sectionId =
@@ -470,6 +451,37 @@ export function PlansPage() {
         onSuccess: () => {
           closeInlineComment();
           toast.success("Comment added");
+        },
+      },
+    );
+  };
+
+  const updateAnnotationComment = (
+    annotation: RuntimeAnnotation,
+    message: string,
+  ) => {
+    if (!bundle) return;
+    updatePlan.mutate(
+      {
+        planId: bundle.plan.id,
+        comments: [
+          {
+            id: annotation.id,
+            kind: annotation.kind as PlanBundle["comments"][number]["kind"],
+            status:
+              annotation.status as PlanBundle["comments"][number]["status"],
+            message,
+            sectionId: annotation.sectionId ?? annotation.anchor.sectionId,
+            anchor: JSON.stringify(annotation.anchor),
+            createdBy: "human",
+          },
+        ],
+        note: "Human edited visual plan feedback.",
+      },
+      {
+        onSuccess: () => {
+          setActiveAnnotation(null);
+          toast.success("Comment updated");
         },
       },
     );
@@ -754,14 +766,6 @@ export function PlansPage() {
                   annotateMode && "ring-1 ring-inset ring-primary/35",
                 )}
               />
-              {annotateMode && (
-                <button
-                  type="button"
-                  aria-label="Pin a comment on this part of the plan"
-                  className="absolute inset-0 z-[5] cursor-crosshair bg-transparent"
-                  onClick={handleAnnotationClick}
-                />
-              )}
               {pendingAnnotation && inlineCommentPosition && (
                 <>
                   <div
@@ -775,7 +779,6 @@ export function PlansPage() {
                   </div>
                   <InlineCommentPopover
                     position={inlineCommentPosition}
-                    anchor={pendingAnnotation}
                     isPending={updatePlan.isPending}
                     onCancel={closeInlineComment}
                     onSubmit={submitInlineComment}
@@ -786,6 +789,13 @@ export function PlansPage() {
                 <AnnotationPopover
                   annotation={activeAnnotation.annotation}
                   position={activeAnnotation.position}
+                  isPending={updatePlan.isPending}
+                  onSave={(message) =>
+                    updateAnnotationComment(
+                      activeAnnotation.annotation,
+                      message,
+                    )
+                  }
                 />
               )}
               {annotationsOpen && (
@@ -1057,13 +1067,11 @@ function CreatePlanDialog({
 
 function InlineCommentPopover({
   position,
-  anchor,
   isPending,
   onCancel,
   onSubmit,
 }: {
   position: InlineCommentPosition;
-  anchor: PlanAnnotationAnchor;
   isPending: boolean;
   onCancel: () => void;
   onSubmit: (message: string) => void;
@@ -1118,9 +1126,6 @@ function InlineCommentPopover({
           <IconX className="size-4" />
         </Button>
       </div>
-      <p className="mt-2 px-1 text-[11px] text-muted-foreground">
-        {formatAnchorLabel(anchor)}
-      </p>
     </div>
   );
 }
@@ -1128,31 +1133,86 @@ function InlineCommentPopover({
 function AnnotationPopover({
   annotation,
   position,
+  isPending,
+  onSave,
 }: {
   annotation: RuntimeAnnotation;
   position: InlineCommentPosition;
+  isPending: boolean;
+  onSave: (message: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [message, setMessage] = useState(annotation.message);
+  const anchorQuote = annotation.anchor.textQuote || annotation.anchor.snippet;
+  const canSave = message.trim().length > 0 && !isPending;
+  const save = () => {
+    if (!canSave) return;
+    onSave(message.trim());
+  };
   return (
     <div
-      className="pointer-events-auto absolute z-30 max-h-[min(280px,calc(100%-24px))] overflow-auto rounded-xl border border-border/80 bg-background/96 p-3 shadow-2xl backdrop-blur-xl"
+      className="pointer-events-auto absolute z-30 max-h-[min(300px,calc(100%-24px))] overflow-auto rounded-xl border border-border/80 bg-background/96 p-3 shadow-2xl backdrop-blur-xl"
       style={{ left: position.left, top: position.top, width: position.width }}
     >
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#00B5FF] text-[10px] font-bold text-black">
-          {annotation.index}
-        </span>
-        <IconMessageCircle className="size-4" />
-        <span className="font-medium uppercase tracking-[0.14em]">Comment</span>
-      </div>
-      {annotation.anchor.snippet && (
-        <blockquote className="mt-2 rounded-md bg-muted/50 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
-          "{annotation.anchor.snippet}"
-        </blockquote>
+      {editing ? (
+        <div className="grid gap-2">
+          <Textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                save();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setEditing(false);
+                setMessage(annotation.message);
+              }
+            }}
+            rows={3}
+            autoFocus
+            className="min-h-20 resize-none border-border/80 bg-background text-sm shadow-none focus-visible:ring-1"
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(false);
+                setMessage(annotation.message);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={save} disabled={!canSave}>
+              Save
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            {anchorQuote && (
+              <blockquote className="mb-2 rounded-md bg-muted/45 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
+                "{anchorQuote}"
+              </blockquote>
+            )}
+            <p className="text-sm leading-6">{annotation.message}</p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-8 shrink-0 gap-1.5 px-2 text-xs"
+            onClick={() => setEditing(true)}
+          >
+            <IconPencil className="size-3.5" />
+            Edit
+          </Button>
+        </div>
       )}
-      <p className="mt-2 text-sm leading-6">{annotation.message}</p>
-      <p className="mt-2 text-xs text-muted-foreground">
-        {formatAnchorLabel(annotation.anchor)}
-      </p>
     </div>
   );
 }
@@ -1203,23 +1263,15 @@ function AnnotationsPanel({
                   key={comment.id}
                   className="rounded-lg border border-border/80 bg-muted/20 p-3"
                 >
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                    <span className="font-medium uppercase tracking-[0.14em] text-primary">
-                      {comment.kind}
-                    </span>
-                    <span>{shortDate(comment.createdAt)}</span>
-                  </div>
-                  {anchor?.snippet && (
-                    <blockquote className="mt-2 rounded-md bg-muted/45 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
-                      "{anchor.snippet}"
+                  {(anchor?.textQuote || anchor?.snippet) && (
+                    <blockquote className="mb-2 rounded-md bg-muted/45 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
+                      "{anchor.textQuote || anchor.snippet}"
                     </blockquote>
                   )}
-                  <p className="mt-2 text-sm leading-6">{comment.message}</p>
-                  {anchor && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {formatAnchorLabel(anchor)}
-                    </p>
-                  )}
+                  <p className="text-sm leading-6">{comment.message}</p>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    {shortDate(comment.createdAt)}
+                  </p>
                 </article>
               );
             })
@@ -1244,10 +1296,21 @@ function parseAnchor(anchor: string | PlanAnnotationAnchor | null | undefined) {
   return null;
 }
 
-function formatAnchorLabel(anchor: PlanAnnotationAnchor | null) {
-  if (!anchor) return "Pinned to plan";
-  const section = anchor.sectionTitle ? `${anchor.sectionTitle}, ` : "";
-  return `${section}${Math.round(anchor.x)}% across / ${Math.round(anchor.y)}% down`;
+function formatAnchorForAgent(anchor: PlanAnnotationAnchor | null) {
+  if (!anchor) return "";
+  const section =
+    anchor.sectionTitle && anchor.sectionTitle !== "Visible plan area"
+      ? `${anchor.sectionTitle}: `
+      : "";
+  const quote = anchor.textQuote || anchor.snippet;
+  if (quote) return `${section}"${quote}"`;
+  if (anchor.anchorKind === "visual") {
+    const label = anchor.visualLabel || anchor.sectionTitle || "visual";
+    const x = Math.round(anchor.visualX ?? anchor.x);
+    const y = Math.round(anchor.visualY ?? anchor.y);
+    return `${section}${label} at ${x}% across / ${y}% down`;
+  }
+  return section ? section.replace(/: $/, "") : "Pinned to plan";
 }
 
 function injectAnnotationRuntime(
@@ -1264,6 +1327,7 @@ function injectAnnotationRuntime(
       message: comment.message,
       kind: comment.kind,
       status: comment.status,
+      sectionId: comment.sectionId,
       createdAt: comment.createdAt,
       anchor: parseAnchor(comment.anchor),
     }))
@@ -1526,10 +1590,56 @@ function injectAnnotationRuntime(
         if (!(target instanceof Element)) return null;
         return target.closest("[data-plan-section-id], section[id], article[id], [id]");
       }
+      function normalizeText(value) {
+        return String(value || "").replace(/\\s+/g, " ").trim();
+      }
       function textSnippet(target) {
         if (!(target instanceof Element)) return "";
-        const text = (target.innerText || target.textContent || "").replace(/\\s+/g, " ").trim();
+        const text = normalizeText(target.innerText || target.textContent || "");
         return text.slice(0, 90);
+      }
+      function closestTextContext(target) {
+        if (!(target instanceof Element)) return "";
+        const selector = [
+          "p",
+          "li",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "td",
+          "th",
+          "blockquote",
+          "figcaption",
+          "summary",
+          "button",
+          "a",
+          "label",
+          "pre",
+          "code",
+          "[data-plan-text]"
+        ].join(",");
+        const direct = target.matches(selector) ? target : target.closest(selector);
+        const candidates = [direct, target, target.parentElement, closestSection(target)].filter(Boolean);
+        for (const candidate of candidates) {
+          const text = normalizeText(candidate.innerText || candidate.textContent || "");
+          if (text.length >= 8) return text.slice(0, 220);
+        }
+        return "";
+      }
+      function closestVisualContext(target) {
+        if (!(target instanceof Element)) return null;
+        return target.closest(".wireframe-shell,.mock-browser,.mock-plan,.mock-sidebar,.diagram-card,.flow-diagram,svg,canvas,img,figure,[data-plan-visual],[data-visual]");
+      }
+      function visualLabel(visual, section) {
+        if (!(visual instanceof Element)) return "";
+        return normalizeText(
+          visual.getAttribute("aria-label") ||
+            visual.getAttribute("data-label") ||
+            visual.querySelector?.("strong,h3,h4")?.textContent ||
+            sectionTitle(section) ||
+            "Visual"
+        );
       }
       function clamp(value, min, max) {
         return Math.max(min, Math.min(max, value));
@@ -1562,6 +1672,8 @@ function injectAnnotationRuntime(
           sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
           sectionTitle: sectionTitle(section) || undefined,
           snippet: selectedText.slice(0, 160),
+          textQuote: selectedText.slice(0, 220),
+          anchorKind: "text",
           tagName: "selection"
         };
       }
@@ -1736,7 +1848,13 @@ function injectAnnotationRuntime(
         event.preventDefault();
         event.stopPropagation();
         const doc = document.documentElement;
-        const section = closestSection(event.target);
+        const target = event.target instanceof Element ? event.target : null;
+        const section = closestSection(target);
+        const visual = closestVisualContext(target);
+        const visualRect = visual?.getBoundingClientRect?.();
+        const textQuote = visual ? "" : closestTextContext(target);
+        const visualX = visualRect ? pct(event.clientX - visualRect.left, visualRect.width) : undefined;
+        const visualY = visualRect ? pct(event.clientY - visualRect.top, visualRect.height) : undefined;
         window.parent.postMessage({
           type: "agent-native-plan-annotate",
           anchor: {
@@ -1744,8 +1862,13 @@ function injectAnnotationRuntime(
             y: pct(event.pageY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
             sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
             sectionTitle: sectionTitle(section) || undefined,
-            snippet: textSnippet(event.target),
-            tagName: event.target instanceof Element ? event.target.tagName.toLowerCase() : undefined
+            snippet: textQuote || (target ? textSnippet(target) : ""),
+            textQuote: textQuote || undefined,
+            anchorKind: visual ? "visual" : textQuote ? "text" : "point",
+            visualLabel: visual ? visualLabel(visual, section) : undefined,
+            visualX,
+            visualY,
+            tagName: target ? target.tagName.toLowerCase() : undefined
           }
         }, "*");
       }, true);

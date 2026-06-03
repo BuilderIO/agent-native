@@ -91,4 +91,33 @@ describe("get-plan-feedback action", () => {
     expect(loadPlanBundleMock).toHaveBeenCalledWith("plan_1");
     expect(result.comments.map((item) => item.id)).toEqual(["human-open"]);
   });
+
+  it("adds concise anchor context for agents", async () => {
+    const anchored = comment("human-open", "human");
+    anchored.anchor = JSON.stringify({
+      anchorKind: "text",
+      sectionTitle: "Implementation steps",
+      textQuote: "Initialize npm project",
+      x: 40,
+      y: 20,
+    });
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan,
+      sections: [section],
+      comments: [anchored],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 1,
+        openCommentCount: 1,
+      },
+    } satisfies PlanBundle);
+
+    const result = await action.run({ planId: "plan_1" });
+
+    expect(
+      (result.comments[0] as PlanComment & { anchorContext?: string })
+        .anchorContext,
+    ).toBe('Implementation steps: "Initialize npm project"');
+  });
 });
