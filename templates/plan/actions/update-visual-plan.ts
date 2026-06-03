@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -40,7 +41,30 @@ export default defineAction({
       "Revise the HTML plan, add visual sections, record comments, or mark feedback consumed.",
   },
   run: async (args) => {
-    await assertPlanEditor(args.planId);
+    const onlyAddsNewComments =
+      !args.title &&
+      !args.brief &&
+      !args.status &&
+      !args.currentFocus &&
+      args.html === undefined &&
+      args.markdown === undefined &&
+      args.sections.length === 0 &&
+      args.consumedCommentIds.length === 0 &&
+      args.comments.length > 0 &&
+      args.comments.every(
+        (comment) =>
+          !comment.id &&
+          comment.status === "open" &&
+          comment.createdBy === "human",
+      );
+
+    if (onlyAddsNewComments) {
+      const access = await resolveAccess("plan", args.planId);
+      if (!access) throw new Error(`Plan ${args.planId} not found`);
+    } else {
+      await assertPlanEditor(args.planId);
+    }
+
     const db = getDb();
     const now = nowIso();
     const planPatch = {
@@ -169,7 +193,7 @@ export default defineAction({
       message:
         args.note ||
         `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
-      createdBy: "agent",
+      createdBy: onlyAddsNewComments ? "human" : "agent",
     });
     const bundle = await loadPlanBundle(args.planId);
     return { ...bundle, planId: bundle.plan.id, html: buildPlanHtml(bundle) };
