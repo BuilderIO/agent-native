@@ -2743,6 +2743,47 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(res).toEqual({ error: "Method not allowed" });
   });
 
+  it("returns 405 for GET (no standalone SSE stream on a stateless serverless server)", async () => {
+    // A stateless, per-request transport on serverless cannot keep the GET
+    // server->client SSE stream alive across invocations; offering it makes the
+    // client latch onto a stream that dies ("session expired"/"not connected").
+    // Answering 405 tells the client to use plain POST request/response.
+    const event = makeWebEvent({ method: "GET" });
+    const res = await handleMcpRequest(event, config as any);
+    expect(event._status).toBe(405);
+    expect(res).toEqual({ error: "Method not allowed" });
+  });
+
+  it("returns tools/call results as JSON, not an SSE stream (serverless-safe framing)", async () => {
+    // enableJsonResponse: true — the result is computed and returned inside the
+    // request lifecycle. With the SDK default (SSE), a serverless instance can
+    // freeze right after returning the streaming Response, before the result
+    // event flushes, so the client never receives it and reports "session
+    // expired". JSON framing is what makes tools/call actually complete.
+    const event = makeWebEvent({
+      method: "POST",
+      body: {
+        jsonrpc: "2.0",
+        id: 314,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      headers: { "x-agent-native-mcp-full-catalog": "1" },
+    });
+    const res = await handleMcpRequest(event, config as any);
+    expect(res).toBeInstanceOf(Response);
+    const response = res as Response;
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("content-type")).not.toContain(
+      "text/event-stream",
+    );
+    const body = JSON.parse(await response.text());
+    expect(body.error).toBeUndefined();
+    expect(body.result.content[0].text).toBe(
+      "echo-thing completed for thing-42.",
+    );
+  });
+
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
     const event = makeWebEvent({ method: "POST", path: "/connect" });
     const res = await handleMcpRequest(event, config as any);

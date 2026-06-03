@@ -5,7 +5,7 @@ import {
   IconArrowsMinimize,
   IconChevronLeft,
   IconChevronRight,
-  IconCursorText,
+  IconMessageDots,
   IconMessageCircle,
   IconMoon,
   IconPlus,
@@ -16,6 +16,12 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
+import {
+  focusAgentChat,
+  sendToAgentChat,
+  setAgentChatContextItem,
+  useSendToAgentChat,
+} from "@agent-native/core/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +32,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -147,6 +161,37 @@ function resolveInlineCommentPosition(input: {
   };
 }
 
+function buildPlanAgentContext(input: {
+  bundle: PlanBundle & { html?: string };
+  documentHtml: string;
+  url: string;
+}) {
+  const openComments = input.bundle.comments
+    .filter((comment) => comment.status === "open")
+    .slice(0, 6)
+    .map((comment, index) => `${index + 1}. ${comment.message}`)
+    .join("\n");
+
+  return [
+    "Current Agent-Native Plans review context:",
+    `Plan ID: ${input.bundle.plan.id}`,
+    `Title: ${input.bundle.plan.title}`,
+    `Status: ${input.bundle.plan.status}`,
+    `URL: ${input.url}`,
+    `Rendered HTML length: ${input.documentHtml.length} characters`,
+    "",
+    "Fast iteration workflow:",
+    "1. Call get-visual-plan with this plan ID to read the full current HTML, sections, comments, and activity.",
+    "2. Patch the document with update-visual-plan by passing the revised full html string.",
+    "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
+    "4. Keep the output as a polished HTML plan document: prose, tables, diagrams, implementation maps, high-fidelity mockups, and minimal app chrome.",
+    "5. After applying feedback, keep the plan scannable and visually reactive instead of turning it into a dashboard.",
+    openComments ? `\nOpen comments:\n${openComments}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
@@ -175,6 +220,7 @@ export function PlansPage() {
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
   const { resolvedTheme, setTheme } = useTheme();
+  const { send: sendToMainAgent, codeRequiredDialog } = useSendToAgentChat();
   const isDarkTheme = resolvedTheme !== "light";
   const planTheme = isDarkTheme ? "dark" : "light";
 
@@ -194,6 +240,15 @@ export function PlansPage() {
       planTheme,
     );
   }, [annotateMode, bundle, documentHtml, planTheme]);
+
+  const planAgentContext = useMemo(() => {
+    if (!bundle) return "";
+    const url =
+      typeof window === "undefined" || !selectedId
+        ? `/plans/${selectedId ?? bundle.plan.id}`
+        : `${window.location.origin}/plans/${selectedId}`;
+    return buildPlanAgentContext({ bundle, documentHtml, url });
+  }, [bundle, documentHtml, selectedId]);
 
   const getPositionFromAnchor = useCallback((anchor: PlanAnnotationAnchor) => {
     const rect = iframeRef.current?.getBoundingClientRect();
@@ -281,6 +336,39 @@ export function PlansPage() {
     const url = `${window.location.origin}/plans/${selectedId}`;
     await navigator.clipboard.writeText(url);
     toast.success("Plan link copied");
+  };
+
+  const openPlansAgent = () => {
+    if (!bundle) return;
+    setAgentChatContextItem({
+      key: `visual-plan:${bundle.plan.id}`,
+      title: bundle.plan.title,
+      context: planAgentContext,
+      openSidebar: true,
+    });
+    focusAgentChat();
+  };
+
+  const sendPlanToPlansAgent = () => {
+    if (!bundle) return;
+    sendToAgentChat({
+      type: "content",
+      submit: true,
+      context: planAgentContext,
+      message:
+        "Help me iterate on the current visual plan side by side. Read the plan with get-visual-plan, use get-plan-feedback for comments, and patch the HTML with update-visual-plan when I ask for changes.",
+    });
+  };
+
+  const sendPlanToMainAgent = () => {
+    if (!bundle) return;
+    sendToMainAgent({
+      type: "code",
+      submit: true,
+      context: planAgentContext,
+      message:
+        "Use this Agent-Native Plans document as implementation context. If the user's next request changes the app, patch the codebase. If the plan needs to stay in sync, update it through get-visual-plan and update-visual-plan.",
+    });
   };
 
   const handleAnnotationClick = (
@@ -568,7 +656,6 @@ export function PlansPage() {
                         setAnnotateMode(true);
                       }}
                     >
-                      <IconCursorText className="size-4" />
                       {annotateMode ? "Cancel" : "Comment"}
                       {!annotateMode && bundle.summary.openCommentCount > 0 && (
                         <span className="ml-1 flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
@@ -581,6 +668,32 @@ export function PlansPage() {
                     Click anywhere in the plan to pin feedback
                   </TooltipContent>
                 </Tooltip>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      aria-label="Send plan to agent"
+                    >
+                      <IconMessageDots className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>Send to agent</DropdownMenuLabel>
+                    <DropdownMenuItem onSelect={openPlansAgent}>
+                      Open sidebar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={sendPlanToPlansAgent}>
+                      Plans agent
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={sendPlanToMainAgent}>
+                      Main agent
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
               {annotateMode && (
                 <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
@@ -649,6 +762,7 @@ export function PlansPage() {
         visualizePlan={visualizePlan}
         onCreated={(id) => navigate(`/plans/${id}`)}
       />
+      {codeRequiredDialog}
     </div>
   );
 }

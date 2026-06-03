@@ -4,7 +4,7 @@ import { buildPlanHtml, loadPlanBundle } from "../server/plans.js";
 
 export default defineAction({
   description:
-    "Get an Agent-Native Plans bundle, including the HTML document, sections, comments, and recent activity.",
+    "Get an Agent-Native Plans bundle, including the current rendered HTML document, sections, comments, and recent activity. Use this before patching a visual plan with update-visual-plan.",
   schema: z.object({
     id: z.string().describe("Plan ID"),
   }),
@@ -15,7 +15,7 @@ export default defineAction({
     readOnly: true,
     requiresAuth: true,
     title: "Get Visual Plan",
-    description: "Read the current HTML plan and annotations.",
+    description: "Read the current live HTML plan and annotations.",
   },
   run: async (args) => {
     const bundle = await loadPlanBundle(args.id);

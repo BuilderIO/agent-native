@@ -17,7 +17,7 @@ import {
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plans HTML document, sections, comments, or status. Use this to refine the visual plan after feedback.",
+    "Update an Agent-Native Plans HTML document, sections, comments, or status. Use this for fast side-by-side iteration: read the plan with get-visual-plan, patch the HTML, and write the revised full HTML back here.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional(),
@@ -38,7 +38,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Visual Plan",
     description:
-      "Revise the HTML plan, add visual sections, record comments, or mark feedback consumed.",
+      "Patch the live HTML plan, add visual sections, record comments, or mark feedback consumed.",
   },
   run: async (args) => {
     const onlyAddsNewComments =

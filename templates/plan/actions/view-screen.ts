@@ -34,6 +34,7 @@ export default defineAction({
         screen.visualPlan = {
           plan: bundle.plan,
           summary: bundle.summary,
+          htmlLength: bundle.plan.html?.length ?? 0,
           sections: bundle.sections.map((section) => ({
             id: section.id,
             type: section.type,
@@ -43,6 +44,8 @@ export default defineAction({
           openComments: bundle.comments.filter(
             (comment) => comment.status === "open",
           ),
+          agentWorkflow:
+            "For fast visual-plan iteration, call get-visual-plan with this plan ID to read the current HTML, then call update-visual-plan with a revised html string. The UI refreshes the iframe automatically.",
         };
       } catch {
         screen.visualPlanError = `Could not load visual plan ${nav.planId}`;
