@@ -1272,15 +1272,8 @@ ${
     }
     function __anStartRedirectOAuth(ret, btn, err, flowId, reason) {
       var params = new URLSearchParams();
-      //test
       var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
       if (oauthReturn) params.set('return', oauthReturn);
-      // // In redirect mode the iframe itself navigates away and comes back to
-      // // the local gateway — the Builder preview origin must NOT be used as the
-      // // return target because the server rejects it (the Referer at auth-url
-      // // time is the local app URL, not a builder.io host). Use the path
-      // // directly so the iframe returns to the correct template after OAuth.
-      // if (ret) params.set('return', ret);
       params.set('redirect', '1');
       __anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId);
       try {

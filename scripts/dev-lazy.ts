@@ -409,6 +409,25 @@ function appendAppOutputTail(app: TemplateApp, output: string): void {
       : next;
 }
 
+/**
+ * When a template app returns a redirect to a root-relative path that doesn't
+ * already include the app prefix, prepend it. This handles the common case
+ * where a framework server-side redirect uses a plain path like "/" or
+ * "/login" without knowing it's mounted at "/{app.id}" by the gateway.
+ *
+ * Only rewrites path-only locations (starting with "/") to avoid touching
+ * absolute URLs (e.g. redirects to Google OAuth or external sites).
+ */
+function rewriteRedirectLocation(
+  app: TemplateApp,
+  location: string | undefined,
+): string | undefined {
+  if (!location || !location.startsWith("/")) return location;
+  const prefix = `/${app.id}`;
+  if (location === prefix || location.startsWith(`${prefix}/`)) return location;
+  return location === "/" ? prefix : `${prefix}${location}`;
+}
+
 function firstHeaderValue(
   value: string | string[] | number | undefined,
 ): string | undefined {
@@ -578,11 +597,7 @@ function appForRequest(req: http.IncomingMessage): TemplateApp | null {
     return selectedById.get(direct) ?? null;
 
   const fromState = extractOAuthStateAppId(params.get("state"));
-  console.log(JSON.stringify(selectedById));
-  console.log(`shomix - fromState - ${fromState} - ${selectedById.has(fromState)} - url ${req.url}`);
-
   if (fromState && selectedById.has(fromState)) {
-    console.log(`shomix - returning from here`);
     return selectedById.get(fromState) ?? null;
   }
 
@@ -897,11 +912,8 @@ function proxyHttp(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): void {
-  console.log(`shomix - proxyHelp - ${app.name} - ${app.id} - ${app.port}`);
   const cold = !app.process || app.process.killed;
   startApp(app);
-  console.log(`shomix - after startApp - ${app.name}`);
-
 
   if (!app.ready && wantsHtml(req)) {
     ensureReadinessProbe(app);
@@ -914,9 +926,6 @@ function proxyHttp(
     return;
   }
 
-  console.log(`shomix - after app.ready - ${app.name}`);
-
-
   const serveStartingPage = () => {
     res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
     if (req.method === "HEAD") {
@@ -926,8 +935,6 @@ function proxyHttp(
     res.end(renderStartingApp(app));
   };
 
-  console.log(`shomix - after serveStartingPage - ${app.name}`);
-
   const dispatch = () => {
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
     let settled = false;
@@ -935,7 +942,6 @@ function proxyHttp(
     const responseTimeoutMs = wantsHtml(req)
       ? proxyResponseTimeoutMs
       : proxyNonHtmlResponseTimeoutMs;
-    console.log(`[proxy] → ${req.method} ${req.url} → ${app.id}:${app.port}`);
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -952,13 +958,17 @@ function proxyHttp(
         settled = true;
         clearTimeout(responseTimer);
         app.ready = true;
-        const redirectInfo = proxyRes.statusCode === 302 ? ` → ${proxyRes.headers.location}` : "";
-        console.log(
-          `[proxy] ← ${proxyRes.statusCode} ${req.method} ${req.url} (${app.id})${redirectInfo}`,
-        );
-        res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-        proxyRes.once("error", (err: Error) => {
-          console.error(`[proxy] proxyRes error ${req.url}: ${err.message}`);
+        const statusCode = proxyRes.statusCode ?? 502;
+        const responseHeaders = { ...proxyRes.headers };
+        if (statusCode >= 300 && statusCode < 400) {
+          const rewritten = rewriteRedirectLocation(
+            app,
+            firstHeaderValue(responseHeaders.location),
+          );
+          if (rewritten) responseHeaders.location = rewritten;
+        }
+        res.writeHead(statusCode, responseHeaders);
+        proxyRes.once("error", () => {
           if (!res.destroyed) res.destroy();
         });
         proxyRes.pipe(res);
@@ -978,7 +988,6 @@ function proxyHttp(
       app.ready = false;
       proxyReq.destroy();
       ensureReadinessProbe(app);
-      console.warn(`[proxy] timeout ${req.method} ${req.url} (${app.id}, ${formatProxyReadyTimeout(responseTimeoutMs)})`);
       if (res.headersSent) {
         res.end();
         return;
@@ -998,7 +1007,6 @@ function proxyHttp(
       clearTimeout(responseTimer);
       if (settled) return;
       settled = true;
-      console.error(`[proxy] proxyReq error ${req.method} ${req.url} (${app.id}): ${err.message}`);
       if (res.headersSent) {
         res.end();
         return;
@@ -1011,12 +1019,9 @@ function proxyHttp(
   };
 
   if (app.ready && !cold) {
-    console.log(`shomix - app is not yet ready ${app.ready} - ${cold}`);
     dispatch();
     return;
   }
-
-  console.log(`shomix - app is not yet ready 2 ${app.ready} - ${cold}`);
 
   void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
