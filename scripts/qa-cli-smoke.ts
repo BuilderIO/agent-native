@@ -147,6 +147,7 @@ function assertNoLocalArtifacts(projectDir: string): void {
     "build",
     "dist",
     "node_modules",
+    "pnpm-lock.yaml",
   ];
   const present = forbidden.filter((name) =>
     fs.existsSync(path.join(projectDir, name)),
