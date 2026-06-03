@@ -3,10 +3,14 @@ import { Link, useNavigate, useParams } from "react-router";
 import {
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
+  IconClipboardText,
+  IconCopy,
+  IconDots,
+  IconLayoutSidebarRight,
   IconPencil,
-  IconMessageDots,
   IconMessageCircle,
   IconMoon,
   IconPlus,
@@ -14,6 +18,7 @@ import {
   IconSparkles,
   IconSun,
   IconX,
+  IconSend,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -32,6 +37,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -237,6 +251,10 @@ function buildPlanAgentContext(input: {
     .join("\n");
 }
 
+function buildApplyFeedbackMessage(openCommentCount: number) {
+  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update the HTML plan and any related implementation details as needed.`;
+}
+
 export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
@@ -283,11 +301,11 @@ export function PlansPage() {
     return injectAnnotationRuntime(
       documentHtml,
       bundle.comments,
-      annotateMode,
+      false,
       planTheme,
       preferredEditor,
     );
-  }, [annotateMode, bundle, documentHtml, planTheme, preferredEditor]);
+  }, [bundle, documentHtml, planTheme, preferredEditor]);
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
@@ -297,6 +315,23 @@ export function PlansPage() {
         : `${window.location.origin}/plans/${selectedId}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
   }, [bundle, documentHtml, selectedId]);
+
+  const postRuntimeState = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "agent-native-plan-runtime-state",
+        annotateMode,
+        theme: planTheme,
+        preferredEditor,
+      },
+      "*",
+    );
+  }, [annotateMode, planTheme, preferredEditor]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(postRuntimeState);
+    return () => cancelAnimationFrame(frame);
+  }, [annotatedDocumentHtml, postRuntimeState]);
 
   const getPositionFromAnchor = useCallback((anchor: PlanAnnotationAnchor) => {
     const rect = iframeRef.current?.getBoundingClientRect();
@@ -399,6 +434,12 @@ export function PlansPage() {
     toast.success("Plan link copied");
   };
 
+  const copyPlanHtml = async () => {
+    if (!documentHtml) return;
+    await navigator.clipboard.writeText(documentHtml);
+    toast.success("Plan HTML copied");
+  };
+
   const startCommenting = () => {
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
@@ -416,7 +457,7 @@ export function PlansPage() {
     focusAgentChat();
   };
 
-  const sendPlanFeedbackToAgent = () => {
+  const sendPlanFeedbackToInlineAgent = () => {
     if (!bundle) return;
     const openCommentCount = bundle.summary.openCommentCount;
     if (openCommentCount === 0) {
@@ -427,9 +468,24 @@ export function PlansPage() {
       type: "content",
       submit: true,
       context: planAgentContext,
-      message: `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update the HTML plan and any related implementation details as needed.`,
+      message: buildApplyFeedbackMessage(openCommentCount),
     });
     toast.success("Sent comments to the agent");
+  };
+
+  const copyPlanFeedbackForAgent = async () => {
+    if (!bundle) return;
+    const openCommentCount = bundle.summary.openCommentCount;
+    if (openCommentCount === 0) {
+      startCommenting();
+      return;
+    }
+    await navigator.clipboard.writeText(
+      [buildApplyFeedbackMessage(openCommentCount), "", planAgentContext].join(
+        "\n",
+      ),
+    );
+    toast.success("Feedback instructions copied");
   };
 
   const submitInlineComment = (message: string) => {
@@ -632,111 +688,141 @@ export function PlansPage() {
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
               <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={() =>
-                        setPlanFullscreen((value) => {
-                          if (value) closeInlineComment();
-                          return !value;
-                        })
-                      }
-                      aria-label={
-                        immersiveReader
-                          ? "Minimize to app view"
-                          : "Open full screen"
-                      }
-                    >
-                      {immersiveReader ? (
-                        <IconArrowsMinimize className="size-4" />
-                      ) : (
-                        <IconArrowsMaximize className="size-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {immersiveReader ? "App view" : "Full screen"}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={() => setTheme(isDarkTheme ? "light" : "dark")}
-                      aria-label={
-                        isDarkTheme
-                          ? "Switch to light mode"
-                          : "Switch to dark mode"
-                      }
-                    >
-                      {isDarkTheme ? (
-                        <IconSun className="size-4" />
-                      ) : (
-                        <IconMoon className="size-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isDarkTheme ? "Light mode" : "Dark mode"}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={copyShareLink}
-                      aria-label="Share plan"
-                    >
-                      <IconShare3 className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy share link</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant={annotateMode ? "secondary" : "default"}
-                      size="sm"
-                      className="pointer-events-auto relative"
-                      onClick={() => {
-                        if (annotateMode) {
-                          closeInlineComment();
-                        } else if (bundle.summary.openCommentCount > 0) {
-                          sendPlanFeedbackToAgent();
-                        } else {
-                          startCommenting();
-                        }
-                      }}
-                    >
+                {annotateMode || bundle.summary.openCommentCount === 0 ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant={annotateMode ? "secondary" : "default"}
+                        size="sm"
+                        className="pointer-events-auto"
+                        onClick={() => {
+                          if (annotateMode) {
+                            closeInlineComment();
+                          } else {
+                            startCommenting();
+                          }
+                        }}
+                      >
+                        {annotateMode ? "Cancel" : "Comment"}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
                       {annotateMode
-                        ? "Cancel"
-                        : bundle.summary.openCommentCount > 0
-                          ? "Send to agent"
-                          : "Comment"}
-                      {!annotateMode && bundle.summary.openCommentCount > 0 && (
-                        <span className="ml-1 flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
+                        ? "Stop commenting"
+                        : "Click anywhere in the plan to pin feedback"}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="pointer-events-auto gap-1.5"
+                      >
+                        Send to agent
+                        <span className="flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
                           {bundle.summary.openCommentCount}
                         </span>
-                      )}
+                        <IconChevronDown className="size-3.5 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-64 rounded-xl"
+                    >
+                      <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          onClick={sendPlanFeedbackToInlineAgent}
+                          className="gap-2"
+                        >
+                          <IconSend className="size-4" />
+                          Send to inline agent
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={copyPlanFeedbackForAgent}
+                          className="gap-2"
+                        >
+                          <IconClipboardText className="size-4" />
+                          Copy for this agent
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      aria-label="Plan actions"
+                    >
+                      <IconDots className="size-4" />
                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {bundle.summary.openCommentCount > 0
-                      ? "Send open comments to the agent"
-                      : "Click anywhere in the plan to pin feedback"}
-                  </TooltipContent>
-                </Tooltip>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          setPlanFullscreen((value) => {
+                            if (value) closeInlineComment();
+                            return !value;
+                          })
+                        }
+                        className="gap-2"
+                      >
+                        {immersiveReader ? (
+                          <IconArrowsMinimize className="size-4" />
+                        ) : (
+                          <IconArrowsMaximize className="size-4" />
+                        )}
+                        {immersiveReader ? "App view" : "Full screen"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setTheme(isDarkTheme ? "light" : "dark")}
+                        className="gap-2"
+                      >
+                        {isDarkTheme ? (
+                          <IconSun className="size-4" />
+                        ) : (
+                          <IconMoon className="size-4" />
+                        )}
+                        {isDarkTheme ? "Light mode" : "Dark mode"}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        onClick={copyShareLink}
+                        className="gap-2"
+                      >
+                        <IconShare3 className="size-4" />
+                        Copy link
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={copyPlanHtml}
+                        className="gap-2"
+                      >
+                        <IconCopy className="size-4" />
+                        Copy HTML
+                      </DropdownMenuItem>
+                      {bundle.summary.openCommentCount > 0 && (
+                        <DropdownMenuItem
+                          onClick={copyPlanFeedbackForAgent}
+                          className="gap-2"
+                        >
+                          <IconClipboardText className="size-4" />
+                          Copy feedback
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -747,7 +833,7 @@ export function PlansPage() {
                       onClick={openPlansAgent}
                       aria-label="Open agent sidebar"
                     >
-                      <IconMessageDots className="size-4" />
+                      <IconLayoutSidebarRight className="size-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Open side chat</TooltipContent>
@@ -762,6 +848,7 @@ export function PlansPage() {
                 ref={iframeRef}
                 title={`${bundle.plan.title} plan`}
                 srcDoc={annotatedDocumentHtml}
+                onLoad={postRuntimeState}
                 sandbox="allow-forms allow-scripts"
                 className={cn(
                   "h-full min-h-full w-full border-0 bg-background",
@@ -1490,9 +1577,13 @@ function injectAnnotationRuntime(
     .file-detail-body { padding-top: 16px; }
     .file-summary { max-width: 760px; margin: 0; color: var(--soft, #d4d4d8); font-size: 15px; }
     .inline-code-preview { margin-top: 18px; overflow: hidden; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 10px; background: #0c0c0e; }
-    .code-preview pre, .inline-code-preview pre { background: #0c0c0e !important; }
+    .code-preview pre, .inline-code-preview pre { background: #0c0c0e !important; color: #e9e9ea; }
     .code-preview pre code, .code-preview pre code *, .inline-code-preview pre code, .inline-code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; background-image: none !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
     .code-preview pre code code, .inline-code-preview pre code code { display: inline !important; }
+    .syntax-keyword { color: #7cc7ff; }
+    .syntax-string { color: #a6e3a1; }
+    .syntax-literal { color: #c4b5fd; }
+    .syntax-comment { color: #7a7a83; }
     .file-actions { display: flex; align-items: flex-start; gap: 8px; }
     @media (max-width: 760px) { .implementation-file-tabs { grid-template-columns: 1fr; } .implementation-file-list { border-right: 0; } .implementation-file-panels { border-top: 1px solid var(--line, rgba(255,255,255,.14)); } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } }
   </style><script>
@@ -1813,6 +1904,57 @@ function injectAnnotationRuntime(
         }
         setPreferredEditor(preferredEditor, false);
       }
+      function escapeCodeHtml(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+      function highlightPlainCodeBlocks() {
+        const blocks = Array.from(document.querySelectorAll(".code-preview pre, .inline-code-preview pre"));
+        for (const pre of blocks) {
+          const target = pre.querySelector("code") || pre;
+          if (target.querySelector(".syntax-keyword,.syntax-string,.syntax-literal,.syntax-comment")) continue;
+          const text = target.textContent || "";
+          if (!text.trim()) continue;
+          let html = escapeCodeHtml(text);
+          html = html
+            .replace(/(&quot;[^&]*(?:&quot;)|&#39;[^&]*(?:&#39;)|\`[^\`]*\`)/g, '<span class="syntax-string">$1</span>')
+            .replace(/\\b(import|export|from|const|let|var|function|return|type|interface|class|extends|async|await|if|else|for|while|new|throw|try|catch|switch|case|default)\\b/g, '<span class="syntax-keyword">$1</span>')
+            .replace(/\\b(true|false|null|undefined)\\b/g, '<span class="syntax-literal">$1</span>')
+            .replace(/(^|\\n)(\\s*\\/\\/.*)/g, '$1<span class="syntax-comment">$2</span>');
+          target.innerHTML = html;
+        }
+      }
+      function setRuntimeAnnotateMode(value) {
+        state.annotateMode = Boolean(value);
+        root.classList.toggle("an-plan-annotating", state.annotateMode);
+        if (state.annotateMode) {
+          closeEditorMenus();
+          hideCodePopover();
+          hideSelectionToolbar();
+        } else {
+          hideSelectionToolbar();
+        }
+        postDocState();
+      }
+      function setRuntimeTheme(theme) {
+        state.theme = theme === "light" ? "light" : "dark";
+        root.dataset.agentNativeTheme = state.theme;
+      }
+      window.addEventListener("message", (event) => {
+        const data = event.data || {};
+        if (data.type !== "agent-native-plan-runtime-state") return;
+        if (typeof data.theme === "string") setRuntimeTheme(data.theme);
+        if (typeof data.preferredEditor === "string") {
+          setPreferredEditor(data.preferredEditor, false);
+        }
+        if (typeof data.annotateMode === "boolean") {
+          setRuntimeAnnotateMode(data.annotateMode);
+        }
+      });
       function postDocState() {
         const doc = document.documentElement;
         window.parent.postMessage({
@@ -1831,6 +1973,7 @@ function injectAnnotationRuntime(
       upgradeImplementationFileMaps();
       initializePlanTabs();
       initializeEditorPickers();
+      highlightPlainCodeBlocks();
       postDocState();
       window.addEventListener("scroll", postDocState, { passive: true });
       window.addEventListener("resize", postDocState);

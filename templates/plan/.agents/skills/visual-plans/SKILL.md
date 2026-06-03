@@ -9,10 +9,10 @@ description: >-
 # Agent-Native Plans
 
 Agent-Native Plans is HTML plan mode for coding agents. Generate the kind of
-plan you would normally write in Markdown, but as a polished, scannable HTML
+plan you would normally write in Markdown, but as a scannable HTML plan
 document with visual blocks mixed in: diagrams, wireframes, mockups, prototype
 options, tradeoff cards, file/symbol implementation maps, code previews, and
-annotation prompts.
+annotation prompts. It is a plan document, not a marketing page.
 
 The goal is impatient review. The user should be able to react to visuals first
 and read prose only where it helps.
@@ -60,7 +60,8 @@ Create or update a visual plan when:
 1. Call `create-visual-plan` with the title, brief, source, repo path, and plan
    sections before implementation.
 2. Put the best possible plan document in `html` when you can. It should feel
-   like a bespoke HTML version of a strong Markdown plan, not a dashboard.
+   like a bespoke HTML version of a strong Markdown implementation plan, not a
+   dashboard or landing page.
 3. Surface the returned Agent-Native Plans link or inline MCP App. In CLI hosts,
    ask the user to review the plan visually.
 4. Call `get-plan-feedback` before editing, after review, after any long pause,
@@ -72,6 +73,9 @@ Create or update a visual plan when:
 
 ## Visual Defaults
 
+- Use implementation-plan structure first: objective, scope/non-goals, proposed
+  approach, phases or steps, files/symbols/snippets, risks, open questions, and
+  validation.
 - UI work gets wireframes, state mockups, or prototype sketches.
 - Wireframes should be concrete enough to critique: show layout regions,
   controls, states, empty/loading/error paths, review affordances, and copy
@@ -85,6 +89,10 @@ Create or update a visual plan when:
 - Complex tradeoffs get two or three option cards with consequences.
 - Open questions are surfaced as visual callouts, not buried in paragraphs.
 - Long prose is split into readable document sections with clear headings.
+- Visuals should be review aids, not decoration. Avoid decorative hero art,
+  gradient/hero backgrounds, brand/logo chrome, nav bars, slogans, fluffy value
+  props, huge landing-page H1s, or marketing-style cards unless the user
+  explicitly asks.
 - Implementation plans include a file map: file path, symbols/components to
   touch, reason for the change, risk/coordination notes when relevant, and short
   syntax-highlighted snippets for the code shape the agent expects to modify.
@@ -112,8 +120,8 @@ Create or update a visual plan when:
 
 - Prefer semantic HTML with scoped CSS inside the document.
 - Match Agent-Native's dark, restrained theme unless the user asks otherwise.
-- Keep the first viewport legible: title, brief, and one strong visual or
-  summary.
+- Keep the first viewport legible and plan-like: title, brief, concise scope,
+  and a useful diagram/checklist/table when it helps.
 - Use tabs, accordions, or small interactions only when they make review faster.
 - Do not paste huge HTML into chat. Store it in Plans and surface the MCP app or
   link.

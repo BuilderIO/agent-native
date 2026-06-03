@@ -218,9 +218,10 @@ metadata:
 # Agent-Native Plans
 
 Agent-Native Plans is HTML plan mode for coding agents. Generate the kind of
-plan you would normally write in Markdown, but as a polished, scannable HTML
+plan you would normally write in Markdown, but as a scannable HTML plan
 document with visual blocks mixed in: diagrams, wireframes, mockups, prototype
-options, tradeoff cards, and annotation prompts.
+options, tradeoff cards, file/symbol implementation maps, code previews, and
+annotation prompts. It is a plan document, not a marketing page.
 
 The goal is impatient review. The user should be able to react to visuals first
 and read prose only where it helps.
@@ -240,11 +241,12 @@ browser link everywhere else.
 
 - \`/visual-plan\`: create a fresh rich HTML plan before implementation. Include
   a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
-  mockups when UI is involved, tradeoffs, open questions, and clear feedback
-  prompts.
+  mockups when UI is involved, an implementation map with files/symbols/snippets,
+  tradeoffs, open questions, and clear feedback prompts.
 - \`/visualize-plan\`: import an existing Codex, Claude Code, Markdown, or pasted
   text plan and turn it into a visual companion. Preserve the plan's intent,
-  then add diagrams, wireframes, option cards, and annotation prompts.
+  then add diagrams, wireframes, option cards, file/symbol maps, and annotation
+  prompts.
 
 ## When To Use
 
@@ -267,11 +269,12 @@ wants a visual companion instead of a fresh plan.
 1. Call \`create-visual-plan\` with the title, brief, source, repo path, and plan
    sections before implementation.
 2. Put the best possible plan document in \`html\` when you can. It should feel
-   like a bespoke HTML version of a strong Markdown plan, not a dashboard.
+   like a bespoke HTML version of a strong Markdown implementation plan, not a
+   dashboard or landing page.
 3. Surface the returned Plans link or inline MCP App. In CLI hosts, ask the user
    to review the plan visually.
-4. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
-   prototypes over paragraphs.
+4. Prefer diagrams, wireframes, UI mockups, option cards, implementation maps,
+   and small interactive prototypes over paragraphs.
 5. Call \`get-plan-feedback\` before editing, after review, after any long pause,
    and before the final response.
 6. Incorporate comments/corrections with \`update-visual-plan\`; update the HTML
@@ -281,13 +284,26 @@ wants a visual companion instead of a fresh plan.
 
 ## Visual Defaults
 
+- Use implementation-plan structure first: objective, scope/non-goals, proposed
+  approach, phases or steps, files/symbols/snippets, risks, open questions, and
+  validation.
 - UI work gets detailed wireframes, mockups, or prototype options before coding.
 - Wireframes should be concrete enough to critique: layout regions, controls,
   states, empty/loading/error paths, review affordances, and copy placeholders.
 - Backend/refactor work gets architecture and data-flow diagrams.
 - Complex tradeoffs get two or three option cards with consequences.
 - Open questions are surfaced as visual callouts, not buried in paragraphs.
-- Long prose is collapsed behind the visual plan.
+- Long prose is split into readable document sections with clear headings.
+- Visuals should be review aids, not decoration. Avoid decorative hero art,
+  gradient/hero backgrounds, brand/logo chrome, nav bars, slogans, fluffy value
+  props, huge landing-page H1s, or marketing-style cards unless the user
+  explicitly asks.
+- Implementation plans include a file map: file path, symbols/components to
+  touch, reason for the change, risk/coordination notes when relevant, and short
+  syntax-highlighted snippets for the code shape the agent expects to modify.
+- File previews should be concise and reviewable. Do not paste entire large
+  files; show the key region, public API, component boundary, schema, action, or
+  selector that matters for review.
 - Include README-like detail when helpful: command names, tool behavior,
   install flow, MCP/link fallback, data shape, and what is in or out of scope.
 - Comments, corrections, replacements, and annotations should feel
@@ -307,8 +323,8 @@ wants a visual companion instead of a fresh plan.
 
 - Prefer semantic HTML with scoped CSS inside the document.
 - Match Agent-Native's dark, restrained theme unless the user asks otherwise.
-- Keep the first viewport legible: title, brief, and one strong visual or
-  summary.
+- Keep the first viewport legible and plan-like: title, brief, concise scope,
+  and a useful diagram/checklist/table when it helps.
 - Use tabs, accordions, or small interactions only when they make review faster.
 - Do not paste huge HTML into chat. Store it in Plans and surface the MCP app or
   link.
@@ -341,6 +357,7 @@ an interactive HTML review surface with diagrams, wireframes, prototype options,
 annotations, questions, and feedback.
 
 This is for impatient review. Default to things the user can scan and react to.
+It should still read like a plan, not a marketing page.
 
 Install with the Agent-Native CLI if Plans is not already available:
 
@@ -388,11 +405,19 @@ to create a fresh plan instead.
 
 ## Visual Defaults
 
-- Keep the first screen simple: title, brief, and one primary visual.
+- Keep the first screen simple and plan-like: title, brief, concise scope, and
+  one useful diagram/checklist/table when it helps.
 - Prefer one strong diagram or wireframe over a wall of sections.
-- Hide long prose behind disclosure controls or source references.
+- Preserve the source plan's implementation substance: phases or steps,
+  files/symbols/snippets, risks, open questions, and validation.
+- Hide long prose behind disclosure controls or source references when it helps
+  review speed.
 - Add README-like detail when the source is too terse: slash commands, tool
   behavior, install flow, MCP/link fallback, data shape, and scope.
+- Avoid decorative hero art, gradient/hero backgrounds, logos, nav bars,
+  slogans, fluffy value props, huge landing-page H1s, and marketing-style cards
+  unless the user explicitly asks.
+- Visuals should be review aids, not decoration.
 - Label inferred items as possible, not confirmed.
 - Ask for feedback with targeted prompts: "Which option?", "Is this flow
   right?", "What assumption is wrong?", "What should change?"

@@ -13,7 +13,8 @@ review. The native Codex or Claude Code plan can stay where it is; Agent-Native
 Plans creates an HTML companion with richer visual sections.
 
 This is for people who need something to react to quickly: diagrams, UI mocks,
-state sketches, option cards, and comment prompts instead of a wall of text.
+state sketches, option cards, and comment prompts instead of a wall of text. It
+should still read like a plan, not a marketing page.
 
 ## Workflow
 
@@ -36,11 +37,18 @@ state sketches, option cards, and comment prompts instead of a wall of text.
 
 ## Visual Defaults
 
-- Keep the first screen simple: title, brief, and one strong visual.
+- Keep the first screen simple and plan-like: title, brief, concise scope, and
+  one useful diagram/checklist/table when it helps.
 - Prefer one excellent diagram or wireframe over many noisy widgets.
 - Preserve the plan's original structure, but make it more consumable.
+- Preserve implementation-plan substance: phases or steps, files/symbols,
+  snippets, risks, open questions, and validation.
 - Add README-like detail when the source is too terse: slash commands, tool
   behavior, install flow, MCP/link fallback, data shape, and scope.
+- Avoid decorative hero art, gradient/hero backgrounds, logos, nav bars,
+  slogans, fluffy value props, huge landing-page H1s, and marketing-style cards
+  unless the user explicitly asks.
+- Visuals should be review aids, not decoration.
 - Label inferred visuals as inferred when they go beyond the source text.
 - Ask for feedback with targeted prompts: "Which option?", "Is this flow
   right?", "What should change?", "What did I miss?"
