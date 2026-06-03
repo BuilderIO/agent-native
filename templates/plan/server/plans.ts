@@ -650,11 +650,7 @@ function renderImplementationFileTabHtml(
   targetId: string,
   index: number,
 ) {
-  const editorPath = editorFilePath(file.absolutePath);
-  const editorLine = file.line
-    ? ` data-agent-native-open-line="${escapeHtml(String(file.line))}"`
-    : "";
-  return `<button type="button" class="implementation-file-tab${index === 0 ? " is-active" : ""}" data-tab-target="${escapeHtml(targetId)}" data-agent-native-code-preview="${escapeHtml(`${targetId}-preview`)}" data-agent-native-hover-preview="true" data-file-path="${escapeHtml(file.path)}"${editorPath ? ` data-agent-native-open-file="${escapeHtml(editorPath)}"` : ""}${editorLine}>
+  return `<button type="button" class="implementation-file-tab${index === 0 ? " is-active" : ""}" data-tab-target="${escapeHtml(targetId)}" data-file-path="${escapeHtml(file.path)}">
     <span class="file-tab-name">${escapeHtml(fileBasename(file.path))}</span>
     <span class="file-tab-path">${escapeHtml(file.path)}</span>
   </button>`;
@@ -665,7 +661,6 @@ function renderImplementationFileHtml(
   targetId: string,
   index: number,
 ) {
-  const templateId = `${targetId}-preview`;
   const previewCode =
     file.previewCode ||
     `// No embedded preview yet.\n// Ask the agent to add the exact snippet it plans to modify for ${file.path}.`;
@@ -680,18 +675,15 @@ function renderImplementationFileHtml(
         <p class="file-path">${escapeHtml(file.path)}</p>
       </div>
       <div class="file-actions">
-        <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Preview</button>
         ${editorPath ? renderEditorPickerHtml(editorPath, editorLine) : ""}
       </div>
     </div>
     <div class="file-detail-body">
       ${file.summary ? `<p class="file-summary">${escapeHtml(file.summary)}</p>` : ""}
-    </div>
-    <template id="${escapeHtml(templateId)}">
-      <div class="code-preview" data-file-path="${escapeHtml(file.path)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>
+      <div class="code-preview inline-code-preview" data-file-path="${escapeHtml(file.path)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>
         <pre><code>${highlightCodeHtml(previewCode, file.language)}</code></pre>
       </div>
-    </template>
+    </div>
   </article>`;
 }
 
@@ -910,6 +902,7 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .file-path { margin: 0; overflow-wrap: anywhere; color: var(--muted); font: 500 12px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .file-detail-body { padding-top: 16px; }
 .file-summary { max-width: 760px; margin: 0; color: var(--soft); font-size: 15px; }
+.inline-code-preview { margin-top: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #0c0c0e; }
 .file-actions { display: flex; align-items: flex-start; gap: 8px; }
 .file-actions button { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
 .file-actions button:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }
@@ -934,7 +927,7 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .editor-icon-xcode { color: #54a7ff; }
 .editor-picker-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 :root[data-agent-native-theme="light"] .editor-picker-option:hover, :root[data-agent-native-theme="light"] .editor-picker-option.is-active { background: rgba(0,0,0,.06); }
-.code-preview pre { margin: 0; max-height: 360px; overflow: auto; padding: 14px 16px; background: #0c0c0e; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.code-preview pre { margin: 0; max-height: 420px; overflow: auto; padding: 14px 16px; background: #0c0c0e; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .code-preview pre code { display: block; min-width: max-content; color: inherit !important; font: inherit; white-space: pre; }
 .code-preview pre code, .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
 .syntax-keyword { color: #7cc7ff; }

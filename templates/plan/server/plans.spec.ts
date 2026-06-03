@@ -213,11 +213,12 @@ describe("Plans helpers", () => {
     expect(html).toContain("data-plan-tabs");
     expect(html).toContain("data-tab-target");
     expect(html).toContain("data-tab-panel");
-    expect(html).toContain('data-agent-native-hover-preview="true"');
     expect(html).toContain("PlansPage.tsx");
     expect(html).toContain("templates/plan/app/pages/PlansPage.tsx");
     expect(html).not.toContain("PlansPage.tsx:210");
-    expect(html).toContain("data-agent-native-code-preview");
+    expect(html).toContain("inline-code-preview");
+    expect(html).not.toContain("data-agent-native-code-preview");
+    expect(html).not.toContain("data-agent-native-hover-preview");
     expect(html).toContain("data-agent-native-editor-picker");
     expect(html).toContain("data-agent-native-editor-trigger");
     expect(html).toContain('data-agent-native-editor-option="cursor"');
@@ -231,6 +232,7 @@ describe("Plans helpers", () => {
     expect(html).toContain('<option value="xcode">Xcode</option>');
     expect(html).not.toContain('<div class="code-preview-title"');
     expect(html).not.toContain(".code-preview-title");
+    expect(html).not.toContain(">Preview</button>");
     expect(html).not.toContain(">VS Code</button>");
     expect(html).not.toContain(">Cursor</button>");
     expect(html).toContain("AnnotationPopover");

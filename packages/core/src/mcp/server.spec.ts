@@ -557,6 +557,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo.annotations?.readOnlyHint).toBe(true);
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
+    // Anthropic MCP-Apps linkage (Claude.ai / Claude Desktop): the tool→`ui://`
+    // resource binding lives on the tool DESCRIPTOR, here and in `_meta.ui`
+    // below — NOT on the tools/call result. Hosts read
+    // `tool._meta.ui.resourceUri ?? tool._meta["ui/resourceUri"]` from the
+    // cached tools/list entry and render that resource when the tool is called
+    // (see @modelcontextprotocol/ext-apps app.d.ts `RESOURCE_URI_META_KEY` +
+    // host-side example, and spec.types.d.ts `McpUiToolMeta`). `outputTemplate`
+    // is the OpenAI/ChatGPT equivalent and is the only one that also rides on
+    // the result — MCP Apps has no result-level linkage key.
     expect(echo._meta?.["ui/resourceUri"]).toBe(
       "ui://mail/echo-thing/shell-v43",
     );
@@ -1890,6 +1899,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
+    // The tools/call RESULT deliberately carries NO `_meta.ui` resource
+    // linkage. MCP Apps (ext-apps 1.7.2) binds the `ui://` window on the tool
+    // DESCRIPTOR (`_meta.ui.resourceUri`, asserted in the tools/list test
+    // above); `ui/notifications/tool-result` delivers a plain CallToolResult,
+    // so Claude.ai / Claude Desktop render inline from the descriptor binding
+    // regardless of the result `_meta`. `openai/outputTemplate` above is the
+    // ChatGPT-only result key. Do NOT add a result-level `ui` /
+    // `io.modelcontextprotocol/ui` key here — no such linkage exists in the
+    // spec and hosts ignore it.
     expect(out.result._meta.ui).toBeUndefined();
     expect(out.result.structuredContent).toMatchObject({
       echoed: "hello",
