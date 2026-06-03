@@ -312,12 +312,6 @@ export function buildPlanHtml(bundle: PlanBundle): string {
   if (bundle.plan.html?.trim()) return bundle.plan.html;
   const title = escapeHtml(bundle.plan.title);
   const brief = escapeHtml(bundle.plan.brief);
-  const nav = bundle.sections
-    .map(
-      (section) =>
-        `<a href="#${escapeHtml(section.id)}">${escapeHtml(section.title)}</a>`,
-    )
-    .join("");
   const sectionHtml = bundle.sections
     .map((section) => renderSectionHtml(section))
     .join("\n");
@@ -330,10 +324,6 @@ export function buildPlanHtml(bundle: PlanBundle): string {
   <style>${DOCUMENT_CSS}</style>
 </head>
 <body>
-  <header class="topbar">
-    <strong>Agent-Native Plans</strong>
-    <nav>${nav}</nav>
-  </header>
   <main>
     <section class="hero">
       <p class="kicker">Working plan</p>
@@ -386,13 +376,24 @@ function markdownishToHtml(value: string) {
 
 function renderWireframeHtml(title: string) {
   return `<div class="wireframe-shell" aria-label="${escapeHtml(title)} wireframe">
-    <aside><span></span><span></span><span></span></aside>
-    <main>
-      <div class="bar wide"></div>
-      <div class="bar"></div>
-      <div class="cards"><i></i><i></i><i></i></div>
-      <div class="panel-row"><i></i><i></i></div>
-    </main>
+    <div class="window-bar"><i></i><i></i><i></i><strong>Plan review</strong></div>
+    <div class="screen-body">
+      <aside>
+        <span class="nav-dot"></span>
+        <span class="nav-line wide"></span>
+        <span class="nav-line"></span>
+        <span class="nav-line short"></span>
+      </aside>
+      <main>
+        <div class="toolbar"><span></span><span></span><button>Comment</button></div>
+        <div class="document-line title"></div>
+        <div class="document-line"></div>
+        <div class="wide-preview">
+          <div></div><div></div><div></div>
+        </div>
+        <div class="detail-row"><i></i><i></i><i></i></div>
+      </main>
+    </div>
   </div>`;
 }
 
@@ -436,16 +437,11 @@ const DOCUMENT_CSS = `
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
-.topbar { position: sticky; top: 0; z-index: 5; height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 max(24px, calc((100vw - 980px) / 2)); border-bottom: 1px solid var(--line); background: rgba(10,10,11,.84); backdrop-filter: blur(18px); }
-.topbar strong { font-size: 13px; letter-spacing: .01em; }
-.topbar nav { display: flex; gap: 18px; overflow-x: auto; white-space: nowrap; }
-.topbar a { color: var(--muted); text-decoration: none; font-size: 13px; }
-.topbar a:hover { color: var(--text); }
-main { width: min(980px, calc(100vw - 32px)); margin: 0 auto; padding: 72px 0 96px; }
-.hero { padding-bottom: 36px; border-bottom: 1px solid var(--line); }
+main { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 96px 0 96px; }
+.hero { max-width: 760px; padding-bottom: 30px; border-bottom: 1px solid var(--line); }
 .kicker, .section-type { margin: 0 0 12px; color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-h1 { max-width: 860px; margin: 0; font-size: clamp(42px, 8vw, 82px); line-height: .94; letter-spacing: -.055em; }
-.lede { max-width: 760px; margin: 24px 0 0; color: var(--soft); font-size: clamp(20px, 3vw, 28px); line-height: 1.35; }
+h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spacing: -.04em; }
+.lede { margin: 20px 0 0; color: var(--soft); font-size: clamp(18px, 2vw, 23px); line-height: 1.45; }
 .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
 .meta span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--muted); font-size: 12px; }
 .plan-section { border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
@@ -461,19 +457,26 @@ h1 { max-width: 860px; margin: 0; font-size: clamp(42px, 8vw, 82px); line-height
 .flow-diagram div:not(:last-child)::after { content: ""; position: absolute; top: 50%; right: -10px; width: 10px; height: 1px; background: var(--accent); }
 .flow-diagram strong { display: block; margin-bottom: 8px; }
 .flow-diagram span { color: var(--muted); font-size: 14px; }
-.wireframe-shell { min-height: 360px; display: grid; grid-template-columns: 190px 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--paper-2); }
-.wireframe-shell aside { display: grid; align-content: start; gap: 12px; padding: 18px; border-right: 1px solid var(--line); background: #0d0d0f; }
-.wireframe-shell span, .bar, .cards i, .panel-row i { display: block; border-radius: 999px; background: #3b3b40; }
-.wireframe-shell span { height: 10px; }
-.wireframe-shell span:nth-child(1) { width: 80%; }
-.wireframe-shell span:nth-child(2) { width: 62%; }
-.wireframe-shell span:nth-child(3) { width: 70%; }
-.wireframe-shell main { width: auto; margin: 0; padding: 22px; }
-.bar { height: 12px; width: 48%; margin-bottom: 12px; }
-.bar.wide { width: 72%; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 28px 0 12px; }
-.cards i { height: 112px; border-radius: 14px; background: var(--accent-soft); border: 1px solid rgba(100,210,200,.26); }
-.panel-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.panel-row i { height: 118px; border-radius: 14px; background: #202024; }
-@media (max-width: 760px) { .topbar { justify-content: flex-start; padding: 0 16px; } .topbar strong { display: none; } main { width: min(100vw - 24px, 980px); padding-top: 44px; } .flow-diagram, .wireframe-shell, .cards, .panel-row { grid-template-columns: 1fr; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+.wireframe-shell { overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--paper-2); }
+.window-bar { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.window-bar i { width: 8px; height: 8px; border-radius: 999px; background: #4a4a50; }
+.window-bar strong { margin-left: auto; font-weight: 600; color: var(--soft); }
+.screen-body { min-height: 430px; display: grid; grid-template-columns: 190px 1fr; }
+.wireframe-shell aside { display: grid; align-content: start; gap: 13px; padding: 18px; border-right: 1px solid var(--line); background: #0d0d0f; }
+.nav-dot { width: 34px; height: 34px; border-radius: 11px; background: var(--accent-soft); border: 1px solid rgba(100,210,200,.28); }
+.nav-line, .document-line, .toolbar span { display: block; border-radius: 999px; background: #3b3b40; }
+.nav-line { height: 9px; width: 72%; }
+.nav-line.wide { width: 86%; }
+.nav-line.short { width: 52%; }
+.wireframe-shell main { width: auto; margin: 0; padding: 18px; }
+.toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 24px; }
+.toolbar span { width: 34px; height: 30px; }
+.toolbar button { border: 0; border-radius: 8px; background: #ececef; color: #111113; padding: 0 18px; font: 700 12px/30px inherit; }
+.document-line { height: 13px; width: 46%; margin-bottom: 12px; }
+.document-line.title { height: 24px; width: 66%; background: #5b5b62; }
+.wide-preview { min-height: 190px; display: grid; grid-template-columns: 1.1fr .85fr .85fr; gap: 12px; margin: 26px 0 14px; }
+.wide-preview div { border-radius: 14px; background: var(--accent-soft); border: 1px solid rgba(100,210,200,.26); }
+.detail-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.detail-row i { height: 116px; border-radius: 14px; background: #202024; border: 1px solid var(--line); }
+@media (max-width: 760px) { main { width: min(100vw - 24px, 980px); padding-top: 72px; } .flow-diagram, .screen-body, .wide-preview, .detail-row { grid-template-columns: 1fr; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
 `;
