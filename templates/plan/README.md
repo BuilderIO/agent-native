@@ -2,7 +2,8 @@
 
 Agent-Native Plans is HTML plan mode for coding agents. It turns a normal
 Markdown/Codex/Claude Code plan into a visual review surface with diagrams,
-wireframes, prototype options, annotations, share links, and feedback.
+wireframes, prototype options, file/symbol implementation maps, code previews,
+annotations, share links, and feedback.
 
 ## Install
 
@@ -34,7 +35,7 @@ Command behavior:
 
 - `/visual-plan` creates a new rich HTML plan with docs-level detail, diagrams,
   detailed wireframes/mockups when UI is involved, tradeoffs, open questions,
-  and feedback prompts.
+  file/symbol implementation details, code previews, and feedback prompts.
 - `/visualize-plan` imports an existing text plan, preserves its intent, and
   adds visual structure so the user can annotate and react before implementation.
 
@@ -44,6 +45,8 @@ Plans should be visual by default:
 - detailed wireframes and quick mockups for UI work, including layout regions,
   controls, states, empty/loading/error paths, and copy placeholders
 - prototype options when interaction or design direction is uncertain
+- implementation maps for code work: files, symbols/components/functions,
+  planned changes, concise code snippets, and explicit editor-open affordances
 - plannotator-style comments, corrections, and annotations
 - review prompts for options, open questions, risky assumptions, and choices
 - README-like details when helpful: commands, MCP/link fallback, tool behavior,

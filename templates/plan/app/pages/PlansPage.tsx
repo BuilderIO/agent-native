@@ -246,6 +246,12 @@ export function PlansPage() {
       if (data?.type === "agent-native-plan-close-comment-popover") {
         setActiveAnnotation(null);
       }
+      if (data?.type === "agent-native-plan-open-editor" && data.href) {
+        if (/^(vscode|cursor):\/\/file\//i.test(data.href)) {
+          window.location.href = data.href;
+          toast.info("Opening file in your editor");
+        }
+      }
       if (data?.type === "agent-native-plan-link-blocked") {
         toast.info(
           "Plan links are disabled in review so the document stays put.",
@@ -1160,6 +1166,13 @@ function injectAnnotationRuntime(
     .an-plan-selection-toolbar button:hover { background: rgba(255,255,255,.08); }
     :root[data-agent-native-theme="light"] .an-plan-selection-toolbar button:hover { background: rgba(0,0,0,.06); }
     .an-plan-selection-toolbar svg { width: 17px; height: 17px; color: #00B5FF; }
+    .an-plan-code-popover { position: absolute; z-index: 2147483001; width: min(640px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 24px)); overflow: hidden; border: 1px solid rgba(255,255,255,.16); border-radius: 16px; background: rgba(16,16,18,.98); box-shadow: 0 24px 70px rgba(0,0,0,.42); backdrop-filter: blur(18px); }
+    :root[data-agent-native-theme="light"] .an-plan-code-popover { border-color: rgba(0,0,0,.12); background: rgba(255,255,255,.98); box-shadow: 0 24px 70px rgba(29,29,24,.16); }
+    .an-plan-code-popover-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line, rgba(255,255,255,.12)); padding: 8px 10px 8px 14px; color: var(--muted, #a4a4aa); font: 650 12px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .an-plan-code-popover-close { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font-size: 18px; }
+    .an-plan-code-popover-close:hover { background: rgba(255,255,255,.08); color: var(--text, #f4f4f5); }
+    :root[data-agent-native-theme="light"] .an-plan-code-popover-close:hover { background: rgba(0,0,0,.06); }
+    .an-plan-code-popover .code-preview pre { max-height: 430px; }
   </style><script>
     (() => {
       const state = ${payload};
@@ -1257,6 +1270,26 @@ function injectAnnotationRuntime(
         const toolbar = document.querySelector(".an-plan-selection-toolbar");
         if (toolbar) toolbar.style.display = "none";
       }
+      function hideCodePopover() {
+        document.querySelector(".an-plan-code-popover")?.remove();
+      }
+      function showCodePopover(button, templateId) {
+        const template = document.getElementById(templateId);
+        if (!(template instanceof HTMLTemplateElement)) return;
+        hideCodePopover();
+        const popover = document.createElement("div");
+        popover.className = "an-plan-code-popover";
+        popover.innerHTML = '<div class="an-plan-code-popover-header"><span>Code preview</span><button type="button" class="an-plan-code-popover-close" aria-label="Close code preview">×</button></div><div class="an-plan-code-popover-body"></div>';
+        popover.querySelector(".an-plan-code-popover-body")?.append(template.content.cloneNode(true));
+        popover.querySelector(".an-plan-code-popover-close")?.addEventListener("click", hideCodePopover);
+        document.body.appendChild(popover);
+        const rect = button.getBoundingClientRect();
+        const width = popover.offsetWidth || 640;
+        const left = clamp(rect.left + window.scrollX, window.scrollX + 12, window.scrollX + document.documentElement.clientWidth - width - 12);
+        const top = rect.bottom + window.scrollY + 8;
+        popover.style.left = left + "px";
+        popover.style.top = Math.min(top, window.scrollY + document.documentElement.clientHeight - (popover.offsetHeight || 420) - 12) + "px";
+      }
       function updateSelectionToolbar() {
         if (state.annotateMode) {
           hideSelectionToolbar();
@@ -1308,6 +1341,20 @@ function injectAnnotationRuntime(
       document.addEventListener("mouseup", () => setTimeout(updateSelectionToolbar, 0));
       document.addEventListener("keyup", updateSelectionToolbar);
       document.addEventListener("click", (event) => {
+        const previewButton = event.target instanceof Element ? event.target.closest("[data-agent-native-code-preview]") : null;
+        if (previewButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          showCodePopover(previewButton, previewButton.getAttribute("data-agent-native-code-preview") || "");
+          return;
+        }
+        const editorButton = event.target instanceof Element ? event.target.closest("[data-agent-native-open-editor]") : null;
+        if (editorButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          window.parent.postMessage({ type: "agent-native-plan-open-editor", href: editorButton.getAttribute("data-agent-native-open-editor") || "" }, "*");
+          return;
+        }
         const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
         if (!state.annotateMode && link) {
           const href = link.getAttribute("href") || "";
@@ -1320,6 +1367,8 @@ function injectAnnotationRuntime(
         }
         if (!state.annotateMode) {
           if (event.target instanceof Element && event.target.closest(".an-plan-selection-toolbar")) return;
+          if (event.target instanceof Element && event.target.closest(".an-plan-code-popover")) return;
+          hideCodePopover();
           window.parent.postMessage({ type: "agent-native-plan-close-comment-popover" }, "*");
           return;
         }

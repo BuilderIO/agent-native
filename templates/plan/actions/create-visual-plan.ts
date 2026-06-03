@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with diagrams, wireframes, prototypes, options, and annotations.",
+    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, and annotations.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -101,6 +101,13 @@ export default defineAction({
               title: "Review flow",
               body: "The plan is meant to be scanned, annotated, revised, then used for implementation.",
               order: 1,
+              createdBy: "agent" as const,
+            },
+            {
+              type: "implementation" as const,
+              title: "Files and symbols to review",
+              body: "Add file references here once the agent has inspected the repo, for example `app/routes/example.tsx` - symbols: `ExampleRoute`; update the route behavior and include a short code preview.",
+              order: 2,
               createdBy: "agent" as const,
             },
           ];

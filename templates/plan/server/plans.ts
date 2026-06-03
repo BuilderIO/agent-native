@@ -18,6 +18,17 @@ import {
   type PlanSummary,
 } from "../shared/types.js";
 
+type ImplementationFile = {
+  id: string;
+  path: string;
+  absolutePath?: string;
+  line?: number;
+  language: string;
+  summary: string;
+  symbols: string[];
+  previewCode?: string;
+};
+
 export const planStatusSchema = z.enum(PLAN_STATUSES);
 export const planSourceSchema = z.enum(PLAN_SOURCES);
 export const planSectionTypeSchema = z.enum(PLAN_SECTION_TYPES);
@@ -291,6 +302,14 @@ export function deriveSectionsFromText(planText: string) {
 
 function inferSectionType(title: string, body: string) {
   const text = `${title} ${body}`.toLowerCase();
+  if (
+    /\b(file|files|symbol|symbols|component|function|implementation|touch|update|modify)\b/.test(
+      text,
+    ) &&
+    findFileReferences(`${title}\n${body}`).length > 0
+  ) {
+    return "implementation" as const;
+  }
   if (/\b(wireframe|mockup|screen|ui|layout|prototype)\b/.test(text)) {
     return "wireframe" as const;
   }
@@ -315,7 +334,7 @@ export function buildPlanHtml(bundle: PlanBundle): string {
   const title = escapeHtml(bundle.plan.title);
   const brief = escapeHtml(bundle.plan.brief);
   const sectionHtml = bundle.sections
-    .map((section) => renderSectionHtml(section))
+    .map((section) => renderSectionHtml(section, bundle.plan.repoPath))
     .join("\n");
   return `<!doctype html>
 <html lang="en">
@@ -350,22 +369,269 @@ function normalizeStoredHtml(value: unknown): string {
   return String(value);
 }
 
-function renderSectionHtml(section: PlanSection) {
+function renderSectionHtml(section: PlanSection, repoPath?: string | null) {
   const body = markdownishToHtml(section.body);
   const custom = section.html?.trim();
   const visual =
     custom ||
-    (section.type === "wireframe"
-      ? renderWireframeHtml(section.title)
-      : section.type === "diagram"
-        ? renderFlowHtml(section.title)
-        : "");
+    (section.type === "implementation"
+      ? renderImplementationMapHtml(section.body, repoPath)
+      : section.type === "wireframe"
+        ? renderWireframeHtml(section.title)
+        : section.type === "diagram"
+          ? renderFlowHtml(section.title)
+          : "");
   return `<section id="${escapeHtml(section.id)}" class="plan-section ${escapeHtml(section.type)}">
   <p class="section-type">${escapeHtml(section.type.replace(/_/g, " "))}</p>
   <h2>${escapeHtml(section.title)}</h2>
   ${visual ? `<div class="visual">${visual}</div>` : ""}
   <div class="copy">${body}</div>
 </section>`;
+}
+
+const FILE_REFERENCE_PATTERN =
+  /(?:^|[\s([`])((?:\.{1,2}\/)?(?:[\w@.-]+\/)+[\w@(). -]+\.(?:tsx?|jsx?|css|scss|mdx?|json|jsonc|sql|py|go|rs|java|kt|swift|rb|php|ya?ml|toml|html|vue|svelte|astro|graphql|gql|prisma|sh|bash|zsh))(?:[:#](\d+))?/gim;
+
+function findFileReferences(value: string) {
+  const refs: Array<{ path: string; line?: number; index: number }> = [];
+  let match: RegExpExecArray | null;
+  FILE_REFERENCE_PATTERN.lastIndex = 0;
+  while ((match = FILE_REFERENCE_PATTERN.exec(value))) {
+    const rawPath = match[1]?.trim().replace(/[),.;\]]+$/, "");
+    if (!rawPath) continue;
+    refs.push({
+      path: rawPath,
+      line: match[2] ? Number(match[2]) : undefined,
+      index: match.index,
+    });
+  }
+  return refs;
+}
+
+function parseImplementationFiles(
+  body: string,
+  repoPath?: string | null,
+): ImplementationFile[] {
+  const files = new Map<string, ImplementationFile>();
+  const lines = body.split(/\r?\n/);
+
+  for (const line of lines) {
+    for (const ref of findFileReferences(line)) {
+      const existing = files.get(ref.path);
+      const summary = cleanImplementationSummary(line, ref.path);
+      const symbols = extractSymbols(line, ref.path);
+      if (existing) {
+        if (!existing.line && ref.line) existing.line = ref.line;
+        if (summary && !existing.summary) existing.summary = summary;
+        for (const symbol of symbols) {
+          if (!existing.symbols.includes(symbol)) existing.symbols.push(symbol);
+        }
+        continue;
+      }
+      files.set(ref.path, {
+        id: stableDomId(`impl-${ref.path}`),
+        path: ref.path,
+        absolutePath: resolveImplementationPath(repoPath, ref.path),
+        line: ref.line,
+        language: inferLanguage(ref.path),
+        summary,
+        symbols,
+      });
+    }
+  }
+
+  const fences = Array.from(body.matchAll(/```([^\n`]*)\n([\s\S]*?)```/g)).map(
+    (match) => ({
+      info: match[1]?.trim() ?? "",
+      code: match[2]?.trimEnd() ?? "",
+      index: match.index ?? 0,
+    }),
+  );
+
+  for (const fence of fences) {
+    const nearbyRefs = findFileReferences(
+      body.slice(Math.max(0, fence.index - 280), fence.index),
+    );
+    const hintedRef =
+      findFileReferences(fence.info)[0] || nearbyRefs[nearbyRefs.length - 1];
+    const item = hintedRef
+      ? files.get(hintedRef.path)
+      : Array.from(files.values()).find((candidate) => !candidate.previewCode);
+    if (!item) continue;
+    item.previewCode = fence.code;
+    item.language = inferLanguage(item.path, fence.info) || item.language;
+  }
+
+  return Array.from(files.values()).slice(0, 12);
+}
+
+function cleanImplementationSummary(line: string, path: string) {
+  return line
+    .replace(/^[-*]\s+/, "")
+    .replace(path, "")
+    .replace(/\s+[—-]\s+/, " ")
+    .replace(/\b(symbols?|components?|functions?)\s*:\s*[^.;]+[.;]?/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
+function extractSymbols(line: string, path: string) {
+  const symbols = new Set<string>();
+  const explicit = line.match(
+    /\b(?:symbols?|components?|functions?)\s*:\s*([^.;]+)/i,
+  );
+  if (explicit?.[1]) {
+    for (const part of explicit[1].split(/[,/]/)) {
+      const symbol = part.trim().replace(/^`|`$/g, "");
+      if (symbol && symbol !== path) symbols.add(symbol);
+    }
+  }
+  for (const match of line.matchAll(/`([^`]+)`/g)) {
+    const value = match[1]?.trim();
+    if (value && value !== path && !value.includes("/")) symbols.add(value);
+  }
+  return Array.from(symbols).slice(0, 5);
+}
+
+function resolveImplementationPath(
+  repoPath: string | null | undefined,
+  filePath: string,
+) {
+  if (filePath.startsWith("/")) return filePath;
+  if (!repoPath) return undefined;
+  return `${repoPath.replace(/\/+$/, "")}/${filePath.replace(/^\.?\//, "")}`;
+}
+
+function inferLanguage(filePath: string, info = "") {
+  const infoLang = info
+    .split(/\s+/)[0]
+    ?.replace(/[^\w#+-]/g, "")
+    .toLowerCase();
+  if (infoLang && !infoLang.includes("/")) return infoLang;
+  const extension = filePath.split(".").pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    ts: "ts",
+    tsx: "tsx",
+    js: "js",
+    jsx: "jsx",
+    css: "css",
+    scss: "scss",
+    md: "md",
+    mdx: "mdx",
+    json: "json",
+    jsonc: "json",
+    yaml: "yaml",
+    yml: "yaml",
+    html: "html",
+    py: "py",
+    rs: "rs",
+    go: "go",
+    sql: "sql",
+    sh: "sh",
+    bash: "sh",
+    zsh: "sh",
+  };
+  return (extension && map[extension]) || "text";
+}
+
+function stableDomId(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function editorHref(
+  scheme: "vscode" | "cursor",
+  absolutePath?: string,
+  line?: number,
+) {
+  if (!absolutePath) return "";
+  const suffix = line ? `:${line}:1` : "";
+  return `${scheme}://file${encodeURI(absolutePath)}${suffix}`;
+}
+
+function renderImplementationMapHtml(body: string, repoPath?: string | null) {
+  const files = parseImplementationFiles(body, repoPath);
+  if (files.length === 0) return "";
+  return `<div class="implementation-map" data-plan-implementation-map>
+    <div class="implementation-map-header">
+      <span>${files.length} file${files.length === 1 ? "" : "s"}</span>
+      <span>review file-level intent before implementation</span>
+    </div>
+    <div class="implementation-files">
+      ${files.map((file) => renderImplementationFileHtml(file)).join("")}
+    </div>
+  </div>`;
+}
+
+function renderImplementationFileHtml(file: ImplementationFile) {
+  const templateId = `${file.id}-preview`;
+  const previewCode =
+    file.previewCode ||
+    `// No embedded preview yet.\n// Ask the agent to add the exact snippet it plans to modify for ${file.path}.`;
+  const vscodeHref = editorHref("vscode", file.absolutePath, file.line);
+  const cursorHref = editorHref("cursor", file.absolutePath, file.line);
+  return `<article class="implementation-file" data-file-path="${escapeHtml(file.path)}">
+    <div>
+      <p class="file-path">${escapeHtml(file.path)}${file.line ? `<span>:${file.line}</span>` : ""}</p>
+      ${file.summary ? `<p class="file-summary">${escapeHtml(file.summary)}</p>` : ""}
+      ${
+        file.symbols.length
+          ? `<div class="symbol-list">${file.symbols
+              .map((symbol) => `<code>${escapeHtml(symbol)}</code>`)
+              .join("")}</div>`
+          : ""
+      }
+    </div>
+    <div class="file-actions">
+      <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}">Preview</button>
+      ${
+        vscodeHref
+          ? `<button type="button" data-agent-native-open-editor="${escapeHtml(vscodeHref)}">VS Code</button>`
+          : ""
+      }
+      ${
+        cursorHref
+          ? `<button type="button" data-agent-native-open-editor="${escapeHtml(cursorHref)}">Cursor</button>`
+          : ""
+      }
+    </div>
+    <template id="${escapeHtml(templateId)}">
+      <div class="code-preview">
+        <div class="code-preview-title"><strong>${escapeHtml(file.path)}</strong><span>${escapeHtml(file.language)}</span></div>
+        <pre><code>${highlightCodeHtml(previewCode, file.language)}</code></pre>
+      </div>
+    </template>
+  </article>`;
+}
+
+function highlightCodeHtml(code: string, language: string) {
+  const escaped = escapeHtml(code);
+  const highlighted = escaped
+    .replace(
+      /(&quot;[^&]*(?:&quot;)|&#39;[^&]*(?:&#39;)|`[^`]*`)/g,
+      '<span class="syntax-string">$1</span>',
+    )
+    .replace(
+      /\b(import|export|from|const|let|var|function|return|type|interface|class|extends|async|await|if|else|for|while|new|throw|try|catch|switch|case|default)\b/g,
+      '<span class="syntax-keyword">$1</span>',
+    )
+    .replace(
+      /\b(true|false|null|undefined)\b/g,
+      '<span class="syntax-literal">$1</span>',
+    );
+  if (/(sh|bash|zsh|py|yaml|yml)/.test(language)) {
+    return highlighted.replace(
+      /(^|\n)(\s*#.*)/g,
+      '$1<span class="syntax-comment">$2</span>',
+    );
+  }
+  return highlighted.replace(
+    /(^|\n)(\s*\/\/.*)/g,
+    '$1<span class="syntax-comment">$2</span>',
+  );
 }
 
 function markdownishToHtml(value: string) {
@@ -486,5 +752,24 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .wide-preview div { border-radius: 14px; background: var(--accent-soft); border: 1px solid rgba(0,181,255,.26); }
 .detail-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .detail-row i { height: 116px; border-radius: 14px; background: #202024; border: 1px solid var(--line); }
-@media (max-width: 760px) { main { width: min(100vw - 24px, 980px); padding-top: 72px; } .flow-diagram, .screen-body, .wide-preview, .detail-row { grid-template-columns: 1fr; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+.implementation-map { margin: 24px 0; border-top: 1px solid var(--line); }
+.implementation-map-header { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.implementation-files { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.implementation-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.file-path { margin: 0; color: var(--text); font: 650 15px/1.4 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.file-path span { color: var(--muted); }
+.file-summary { max-width: 760px; margin: 8px 0 0; color: var(--soft); font-size: 15px; }
+.symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.symbol-list code { border: 1px solid var(--line); border-radius: 7px; background: var(--paper-2); padding: 2px 6px; color: var(--soft); font-size: 12px; }
+.file-actions { display: flex; align-items: flex-start; gap: 6px; }
+.file-actions button { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
+.file-actions button:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }
+.code-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); padding: 10px 12px; color: var(--muted); font-size: 12px; }
+.code-preview-title strong { color: var(--text); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; }
+.code-preview pre { margin: 0; max-height: 360px; overflow: auto; padding: 14px 16px; background: #0c0c0e; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.syntax-keyword { color: #7cc7ff; }
+.syntax-string { color: #a6e3a1; }
+.syntax-literal { color: #f7c876; }
+.syntax-comment { color: #7a7a83; }
+@media (max-width: 760px) { main { width: min(100vw - 24px, 980px); padding-top: 72px; } .flow-diagram, .screen-body, .wide-preview, .detail-row, .implementation-file { grid-template-columns: 1fr; } .implementation-map-header, .file-actions { flex-wrap: wrap; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
 `;

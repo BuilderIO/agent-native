@@ -11,7 +11,8 @@ description: >-
 Agent-Native Plans is HTML plan mode for coding agents. Generate the kind of
 plan you would normally write in Markdown, but as a polished, scannable HTML
 document with visual blocks mixed in: diagrams, wireframes, mockups, prototype
-options, tradeoff cards, and annotation prompts.
+options, tradeoff cards, file/symbol implementation maps, code previews, and
+annotation prompts.
 
 The goal is impatient review. The user should be able to react to visuals first
 and read prose only where it helps.
@@ -35,11 +36,12 @@ companion.
 
 - `/visual-plan`: create a fresh rich HTML plan before implementation. Include
   a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
-  mockups when UI is involved, tradeoffs, open questions, and clear feedback
-  prompts.
+  mockups when UI is involved, an implementation map with files/symbols/snippets,
+  tradeoffs, open questions, and clear feedback prompts.
 - `/visualize-plan`: import an existing Codex, Claude Code, Markdown, or pasted
   text plan and turn it into a visual companion. Preserve the plan's intent,
-  then add diagrams, wireframes, option cards, and annotation prompts.
+  then add diagrams, wireframes, option cards, file/symbol maps, and annotation
+  prompts.
 
 ## When To Use
 
@@ -79,6 +81,14 @@ Create or update a visual plan when:
 - Complex tradeoffs get two or three option cards with consequences.
 - Open questions are surfaced as visual callouts, not buried in paragraphs.
 - Long prose is split into readable document sections with clear headings.
+- Implementation plans include a file map: file path, symbols/components to
+  touch, reason for the change, risk/coordination notes when relevant, and short
+  syntax-highlighted snippets for the code shape the agent expects to modify.
+- File previews should be concise and reviewable. Do not paste entire large
+  files; show the key region, public API, component boundary, schema, action, or
+  selector that matters for review.
+- Include editor-open links where `repoPath` is known. Prefer explicit user
+  clicks for opening VS Code/Cursor; never auto-open editor links.
 - Include README-like details when helpful: command names, tool behavior,
   install flow, MCP/link fallback, data shape, and what is in or out of scope.
 - Comments and corrections should feel plannotator-style: quick to add,
