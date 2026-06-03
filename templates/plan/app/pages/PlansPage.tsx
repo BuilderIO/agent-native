@@ -2037,7 +2037,10 @@ function injectAnnotationRuntime(
       highlightPlainCodeBlocks();
       postDocState();
       window.addEventListener("scroll", postDocState, { passive: true });
-      window.addEventListener("resize", postDocState);
+      window.addEventListener("resize", () => {
+        syncAnnotationMarkers();
+        postDocState();
+      });
       function pct(value, total) {
         return Math.max(0, Math.min(100, Number(((value / Math.max(total, 1)) * 100).toFixed(3))));
       }
