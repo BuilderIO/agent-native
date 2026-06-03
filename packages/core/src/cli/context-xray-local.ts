@@ -429,7 +429,7 @@ function candidateFiles(source, args) {
   const since = parseSince(args.since);
   const roots = source === "codex" ? [path.join(CODEX_DIR, "sessions"), path.join(CODEX_DIR, "archived_sessions")] : [path.join(CLAUDE_DIR, "projects")];
   const projectFragment = encodedProject(args.project);
-  return roots.flatMap(walk).filter((file) => {
+  const files = roots.flatMap(walk).filter((file) => {
     let stat;
     try {
       stat = fs.statSync(file);
@@ -439,7 +439,8 @@ function candidateFiles(source, args) {
     if (stat.mtimeMs < since) return false;
     if (args.allProjects || source === "codex") return true;
     return file.includes(projectFragment) || file.includes(path.basename(args.project));
-  }).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs).slice(0, args.scanLimit);
+  }).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return source === "codex" && !args.allProjects ? files : files.slice(0, args.scanLimit);
 }
 
 function projectMatches(session, args) {

@@ -313,8 +313,9 @@ describe("agent-native skills", () => {
         { baseDir: root },
       );
       const sessionsDir = path.join(codexHome, "sessions", "2026", "06", "02");
+      const projectSessionFile = path.join(sessionsDir, "project.jsonl");
       fs.writeFileSync(
-        path.join(sessionsDir, "project.jsonl"),
+        projectSessionFile,
         `${JSON.stringify({
           type: "session_meta",
           payload: {
@@ -328,21 +329,27 @@ describe("agent-native skills", () => {
           timestamp: "2026-06-02T12:01:00.000Z",
         })}\n`,
       );
-      fs.writeFileSync(
-        path.join(sessionsDir, "other.jsonl"),
-        `${JSON.stringify({
-          type: "session_meta",
-          payload: {
-            id: "22222222-2222-4222-8222-222222222222",
-            cwd: otherProject,
-            timestamp: "2026-06-02T13:00:00.000Z",
-          },
-        })}\n${JSON.stringify({
-          type: "response_item",
-          payload: { role: "assistant", content: "other session" },
-          timestamp: "2026-06-02T13:01:00.000Z",
-        })}\n`,
-      );
+      const baseTime = Date.now() / 1000;
+      fs.utimesSync(projectSessionFile, baseTime - 1000, baseTime - 1000);
+      for (let i = 0; i < 90; i += 1) {
+        const otherSessionFile = path.join(sessionsDir, `other-${i}.jsonl`);
+        fs.writeFileSync(
+          otherSessionFile,
+          `${JSON.stringify({
+            type: "session_meta",
+            payload: {
+              id: `22222222-2222-4222-8222-${String(i).padStart(12, "0")}`,
+              cwd: otherProject,
+              timestamp: "2026-06-02T13:00:00.000Z",
+            },
+          })}\n${JSON.stringify({
+            type: "response_item",
+            payload: { role: "assistant", content: `other session ${i}` },
+            timestamp: "2026-06-02T13:01:00.000Z",
+          })}\n`,
+        );
+        fs.utimesSync(otherSessionFile, baseTime + i, baseTime + i);
+      }
       const outFile = path.join(root, "context-xray.json");
       const run = spawnSync(
         process.execPath,
