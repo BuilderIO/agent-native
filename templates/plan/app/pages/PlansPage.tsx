@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
+  IconArrowsMaximize,
+  IconArrowsMinimize,
   IconChevronLeft,
   IconChevronRight,
   IconCursorText,
-  IconFileExport,
-  IconMessageCircle,
   IconMessagePlus,
   IconPlus,
-  IconRefresh,
+  IconShare3,
   IconSparkles,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
@@ -42,7 +42,6 @@ import {
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import {
   useCreatePlan,
-  useExportPlan,
   usePlan,
   usePlans,
   useUpdatePlan,
@@ -107,15 +106,16 @@ export function PlansPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(true);
+  const [planFullscreen, setPlanFullscreen] = useState(true);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
   const plansQuery = usePlans();
   const plans = plansQuery.data ?? [];
   const selectedId = params.id;
+  const immersiveReader = Boolean(selectedId && planFullscreen);
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
-  const exportQuery = useExportPlan(selectedId);
   const createPlan = useCreatePlan();
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
@@ -170,13 +170,11 @@ export function PlansPage() {
     }
   };
 
-  const copyExport = async () => {
+  const copyShareLink = async () => {
     if (!selectedId) return;
-    const result = await exportQuery.refetch();
-    const html = result.data?.html;
-    if (!html) return;
-    await navigator.clipboard.writeText(html);
-    toast.success("HTML copied to clipboard");
+    const url = `${window.location.origin}/plans/${selectedId}`;
+    await navigator.clipboard.writeText(url);
+    toast.success("Plan link copied");
   };
 
   const handleAnnotationClick = (
@@ -204,121 +202,124 @@ export function PlansPage() {
     <div className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div
         className="plans-grid grid min-h-0 flex-1"
+        data-view={immersiveReader ? "immersive" : "app"}
         data-rail={railCollapsed ? "collapsed" : "expanded"}
       >
-        <aside className="plans-rail-pane flex min-h-0 flex-col border-b border-border bg-muted/15 md:border-b-0">
-          <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
-            {!railCollapsed && (
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">Plans</p>
-                <p className="text-xs text-muted-foreground">
-                  {plans.length} document{plans.length === 1 ? "" : "s"}
-                </p>
-              </div>
-            )}
-            <Tooltip>
-              <TooltipTrigger asChild>
+        {!immersiveReader && (
+          <aside className="plans-rail-pane flex min-h-0 flex-col border-b border-border bg-muted/15 md:border-b-0">
+            <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
+              {!railCollapsed && (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">Plans</p>
+                  <p className="text-xs text-muted-foreground">
+                    {plans.length} document{plans.length === 1 ? "" : "s"}
+                  </p>
+                </div>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto"
+                    onClick={() => setRailCollapsed((value) => !value)}
+                    aria-label={
+                      railCollapsed ? "Expand plan list" : "Collapse plan list"
+                    }
+                  >
+                    {railCollapsed ? (
+                      <IconChevronRight className="size-4" />
+                    ) : (
+                      <IconChevronLeft className="size-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {railCollapsed ? "Expand plan list" : "Collapse plan list"}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            {railCollapsed ? (
+              <div className="flex flex-col items-center gap-2 p-2">
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="ml-auto"
-                  onClick={() => setRailCollapsed((value) => !value)}
-                  aria-label={
-                    railCollapsed ? "Expand plan list" : "Collapse plan list"
-                  }
+                  onClick={() => setCreateOpen(true)}
+                  aria-label="New plan"
                 >
-                  {railCollapsed ? (
-                    <IconChevronRight className="size-4" />
-                  ) : (
-                    <IconChevronLeft className="size-4" />
-                  )}
+                  <IconPlus className="size-4" />
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {railCollapsed ? "Expand plan list" : "Collapse plan list"}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          {railCollapsed ? (
-            <div className="flex flex-col items-center gap-2 p-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setCreateOpen(true)}
-                aria-label="New plan"
-              >
-                <IconPlus className="size-4" />
-              </Button>
-              {plans.slice(0, 8).map((plan) => (
-                <Tooltip key={plan.id}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to={`/plans/${plan.id}`}
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-md border text-xs font-medium",
-                        selectedId === plan.id
-                          ? "border-foreground/20 bg-accent text-foreground"
-                          : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                      )}
-                    >
-                      {plan.title.slice(0, 1).toUpperCase()}
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{plan.title}</TooltipContent>
-                </Tooltip>
-              ))}
-            </div>
-          ) : (
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="space-y-2 p-3">
-                {plansQuery.isLoading ? (
-                  <>
-                    <Skeleton className="h-24 rounded-lg" />
-                    <Skeleton className="h-24 rounded-lg" />
-                  </>
-                ) : plans.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                    Create a plan to see the HTML document surface.
-                  </div>
-                ) : (
-                  plans.map((plan) => (
-                    <Link
-                      key={plan.id}
-                      to={`/plans/${plan.id}`}
-                      className={cn(
-                        "block rounded-lg border p-3 transition-colors",
-                        selectedId === plan.id
-                          ? "border-foreground/20 bg-accent/60"
-                          : "border-border bg-background/30 hover:bg-accent/35",
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="min-w-0 truncate text-sm font-medium">
-                          {plan.title}
-                        </p>
-                        {plan.openCommentCount > 0 && (
-                          <Badge variant="secondary" className="shrink-0">
-                            {plan.openCommentCount}
-                          </Badge>
+                {plans.slice(0, 8).map((plan) => (
+                  <Tooltip key={plan.id}>
+                    <TooltipTrigger asChild>
+                      <Link
+                        to={`/plans/${plan.id}`}
+                        className={cn(
+                          "flex size-9 items-center justify-center rounded-md border text-xs font-medium",
+                          selectedId === plan.id
+                            ? "border-foreground/20 bg-accent text-foreground"
+                            : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                         )}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {plan.brief}
-                      </p>
-                      <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span>{statusLabel(plan.status)}</span>
-                        <span>·</span>
-                        <span>{shortDate(plan.updatedAt)}</span>
-                      </div>
-                    </Link>
-                  ))
-                )}
+                      >
+                        {plan.title.slice(0, 1).toUpperCase()}
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{plan.title}</TooltipContent>
+                  </Tooltip>
+                ))}
               </div>
-            </ScrollArea>
-          )}
-        </aside>
+            ) : (
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-2 p-3">
+                  {plansQuery.isLoading ? (
+                    <>
+                      <Skeleton className="h-24 rounded-lg" />
+                      <Skeleton className="h-24 rounded-lg" />
+                    </>
+                  ) : plans.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                      Create a plan to see the visual plan surface.
+                    </div>
+                  ) : (
+                    plans.map((plan) => (
+                      <Link
+                        key={plan.id}
+                        to={`/plans/${plan.id}`}
+                        className={cn(
+                          "block rounded-lg border p-3 transition-colors",
+                          selectedId === plan.id
+                            ? "border-foreground/20 bg-accent/60"
+                            : "border-border bg-background/30 hover:bg-accent/35",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="min-w-0 truncate text-sm font-medium">
+                            {plan.title}
+                          </p>
+                          {plan.openCommentCount > 0 && (
+                            <Badge variant="secondary" className="shrink-0">
+                              {plan.openCommentCount}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                          {plan.brief}
+                        </p>
+                        <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <span>{statusLabel(plan.status)}</span>
+                          <span>·</span>
+                          <span>{shortDate(plan.updatedAt)}</span>
+                        </div>
+                      </Link>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            )}
+          </aside>
+        )}
 
         <section className="flex min-h-0 min-w-0 flex-col">
           {!params.id ? (
@@ -338,17 +339,30 @@ export function PlansPage() {
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      variant={annotateMode ? "secondary" : "ghost"}
-                      size="sm"
-                      className="pointer-events-auto"
-                      onClick={() => setAnnotateMode((value) => !value)}
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      onClick={() =>
+                        setPlanFullscreen((value) => {
+                          if (value) setAnnotateMode(false);
+                          return !value;
+                        })
+                      }
+                      aria-label={
+                        immersiveReader
+                          ? "Minimize to app view"
+                          : "Open full screen"
+                      }
                     >
-                      <IconCursorText className="size-4" />
-                      Annotate
+                      {immersiveReader ? (
+                        <IconArrowsMinimize className="size-4" />
+                      ) : (
+                        <IconArrowsMaximize className="size-4" />
+                      )}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    Click anywhere in the plan to pin feedback
+                    {immersiveReader ? "App view" : "Full screen"}
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
@@ -357,64 +371,56 @@ export function PlansPage() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="pointer-events-auto relative size-8"
-                      onClick={() => setCommentsOpen(true)}
-                      aria-label="Open comments"
+                      className="pointer-events-auto size-8"
+                      onClick={copyShareLink}
+                      aria-label="Share plan"
                     >
-                      <IconMessageCircle className="size-4" />
-                      {bundle.summary.openCommentCount > 0 && (
+                      <IconShare3 className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy share link</TooltipContent>
+                </Tooltip>
+                {bundle.summary.openCommentCount > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="pointer-events-auto relative size-8"
+                        onClick={() => setCommentsOpen(true)}
+                        aria-label="Open comments"
+                      >
+                        <IconMessagePlus className="size-4" />
                         <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                          {bundle.summary.openCommentCount}
+                        </span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Comments</TooltipContent>
+                  </Tooltip>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant={annotateMode ? "secondary" : "default"}
+                      size="sm"
+                      className="pointer-events-auto relative"
+                      onClick={() => setAnnotateMode((value) => !value)}
+                    >
+                      <IconCursorText className="size-4" />
+                      {annotateMode ? "Cancel" : "Comment"}
+                      {!annotateMode && bundle.summary.openCommentCount > 0 && (
+                        <span className="ml-1 flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
                           {bundle.summary.openCommentCount}
                         </span>
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Comments</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={() => void planQuery.refetch()}
-                      aria-label="Refresh plan"
-                    >
-                      <IconRefresh className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Refresh</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={copyExport}
-                      aria-label="Export HTML"
-                    >
-                      <IconFileExport className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Export HTML</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={() => setCreateOpen(true)}
-                      aria-label="New plan"
-                    >
-                      <IconPlus className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>New Plan</TooltipContent>
+                  <TooltipContent>
+                    Click anywhere in the plan to pin feedback
+                  </TooltipContent>
                 </Tooltip>
               </div>
               {annotateMode && (
@@ -458,7 +464,10 @@ export function PlansPage() {
         onOpenChange={handleCommentsOpenChange}
         updatePlan={updatePlan}
         pendingAnnotation={pendingAnnotation}
-        onAnnotationSaved={() => setPendingAnnotation(null)}
+        onAnnotationSaved={() => {
+          setPendingAnnotation(null);
+          setAnnotateMode(false);
+        }}
       />
     </div>
   );

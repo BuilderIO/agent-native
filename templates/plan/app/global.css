@@ -111,6 +111,10 @@
     grid-template-columns: 56px minmax(0, 1fr);
   }
 
+  .plans-grid[data-view="immersive"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .plans-rail-pane {
     max-height: none;
     border-right-width: 1px;
