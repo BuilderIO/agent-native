@@ -22,15 +22,15 @@ interface LayoutProps {
  * global Header so they don't double-stack a header bar.
  */
 function routeOwnsToolbar(pathname: string): boolean {
-  return pathname.startsWith("/extensions");
+  return pathname.startsWith("/extensions") || pathname.startsWith("/plans");
 }
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("plans.sidebarCollapsed") === "true";
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("plans.sidebarCollapsed") !== "false";
   });
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export function Layout({ children }: LayoutProps) {
         </Sheet>
         <AgentSidebar
           position="right"
-          defaultOpen
+          defaultOpen={false}
           emptyStateText="Ask an agent to create an HTML plan before editing."
           suggestions={[
             "Create an HTML plan for this feature before implementation",

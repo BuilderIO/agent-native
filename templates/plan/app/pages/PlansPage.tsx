@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
-  IconBrowser,
   IconChevronLeft,
   IconChevronRight,
-  IconCopy,
+  IconCursorText,
   IconFileExport,
-  IconFileText,
-  IconLayoutBoard,
   IconMessageCircle,
+  IconMessagePlus,
   IconPlus,
   IconRefresh,
   IconSparkles,
@@ -48,10 +46,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import {
   useCreatePlan,
   useExportPlan,
@@ -80,6 +75,15 @@ const COMMENT_KINDS: Array<{ value: PlanCommentKind; label: string }> = [
   { value: "annotation", label: "Annotation" },
 ];
 
+type PlanAnnotationAnchor = {
+  x: number;
+  y: number;
+  sectionId?: string;
+  sectionTitle?: string;
+  snippet?: string;
+  tagName?: string;
+};
+
 function shortDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -96,9 +100,13 @@ function statusLabel(status: string) {
 export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(true);
+  const [annotateMode, setAnnotateMode] = useState(false);
+  const [pendingAnnotation, setPendingAnnotation] =
+    useState<PlanAnnotationAnchor | null>(null);
   const plansQuery = usePlans();
   const plans = plansQuery.data ?? [];
   const selectedId = params.id ?? plans[0]?.id;
@@ -117,33 +125,43 @@ export function PlansPage() {
     }
   }, [navigate, params.id, plans]);
 
-  useSetHeaderActions(
-    <div className="flex items-center gap-2">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={() => void planQuery.refetch()}
-            aria-label="Refresh plan"
-          >
-            <IconRefresh className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Refresh</TooltipContent>
-      </Tooltip>
-      <Button type="button" onClick={() => setCreateOpen(true)}>
-        <IconPlus className="size-4" />
-        New Plan
-      </Button>
-    </div>,
-  );
-
   const documentHtml = useMemo(() => {
     if (!bundle) return "";
     return bundle.html || bundle.plan.html || buildClientPlanHtml(bundle);
   }, [bundle]);
+
+  const annotatedDocumentHtml = useMemo(() => {
+    if (!bundle) return "";
+    return injectAnnotationRuntime(documentHtml, bundle.comments, annotateMode);
+  }, [annotateMode, bundle, documentHtml]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data as
+        | {
+            type?: string;
+            anchor?: PlanAnnotationAnchor;
+          }
+        | undefined;
+      if (data?.type === "agent-native-plan-annotate" && data.anchor) {
+        setPendingAnnotation(data.anchor);
+        setCommentsOpen(true);
+      }
+      if (data?.type === "agent-native-plan-open-comments") {
+        setCommentsOpen(true);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  const handleCommentsOpenChange = (open: boolean) => {
+    setCommentsOpen(open);
+    if (!open) {
+      setPendingAnnotation(null);
+    }
+  };
 
   const copyExport = async () => {
     if (!selectedId) return;
@@ -152,15 +170,6 @@ export function PlansPage() {
     if (!html) return;
     await navigator.clipboard.writeText(html);
     toast.success("HTML copied to clipboard");
-  };
-
-  const approvePlan = () => {
-    if (!selectedId) return;
-    updatePlan.mutate({
-      planId: selectedId,
-      status: "approved",
-      note: "Plan approved in the UI.",
-    });
   };
 
   return (
@@ -289,98 +298,107 @@ export function PlansPage() {
           ) : !bundle ? (
             <EmptyPlan onCreate={() => setCreateOpen(true)} />
           ) : (
-            <>
-              <div className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
-                <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <h1 className="truncate text-base font-semibold tracking-tight">
-                      {bundle.plan.title}
-                    </h1>
-                    <Badge variant="outline" className="hidden sm:inline-flex">
-                      {statusLabel(bundle.plan.status)}
-                    </Badge>
-                  </div>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {bundle.plan.source}
-                    {bundle.plan.repoPath ? ` / ${bundle.plan.repoPath}` : ""}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setCommentsOpen(true)}
-                  >
-                    <IconMessageCircle className="size-4" />
-                    Comments
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={copyExport}>
-                    <IconFileExport className="size-4" />
-                    Export
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={approvePlan}
-                    disabled={bundle.plan.status === "approved"}
-                  >
-                    Approve
-                  </Button>
-                </div>
+            <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+              <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant={annotateMode ? "secondary" : "ghost"}
+                      size="sm"
+                      className="pointer-events-auto"
+                      onClick={() => setAnnotateMode((value) => !value)}
+                    >
+                      <IconCursorText className="size-4" />
+                      Annotate
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Click anywhere in the plan to pin feedback
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto relative size-8"
+                      onClick={() => setCommentsOpen(true)}
+                      aria-label="Open comments"
+                    >
+                      <IconMessageCircle className="size-4" />
+                      {bundle.summary.openCommentCount > 0 && (
+                        <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                          {bundle.summary.openCommentCount}
+                        </span>
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Comments</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      onClick={() => void planQuery.refetch()}
+                      aria-label="Refresh plan"
+                    >
+                      <IconRefresh className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Refresh</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      onClick={copyExport}
+                      aria-label="Export HTML"
+                    >
+                      <IconFileExport className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Export HTML</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      onClick={() => setCreateOpen(true)}
+                      aria-label="New plan"
+                    >
+                      <IconPlus className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New Plan</TooltipContent>
+                </Tooltip>
               </div>
-
-              <div className="min-h-0 flex-1 overflow-auto bg-muted/20">
-                <div className="mx-auto flex min-h-full w-full max-w-[1180px] flex-col gap-4 px-3 py-4 sm:px-6 sm:py-6">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Metric
-                      icon={<IconFileText className="size-4" />}
-                      label="Sections"
-                      value={bundle.sections.length}
-                    />
-                    <Metric
-                      icon={<IconLayoutBoard className="size-4" />}
-                      label="Visual blocks"
-                      value={
-                        bundle.sections.filter((section) =>
-                          ["diagram", "wireframe", "prototype"].includes(
-                            section.type,
-                          ),
-                        ).length
-                      }
-                    />
-                    <Metric
-                      icon={<IconMessageCircle className="size-4" />}
-                      label="Open comments"
-                      value={bundle.summary.openCommentCount}
-                    />
-                  </div>
-
-                  <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
-                    <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <IconBrowser className="size-4" />
-                        HTML plan document
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={copyExport}
-                      >
-                        <IconCopy className="size-4" />
-                        Copy HTML
-                      </Button>
-                    </div>
-                    <iframe
-                      title={`${bundle.plan.title} HTML plan`}
-                      srcDoc={documentHtml}
-                      sandbox="allow-forms allow-popups allow-scripts"
-                      className="h-[calc(100vh-16rem)] min-h-[620px] w-full bg-black"
-                    />
-                  </div>
+              {annotateMode && (
+                <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
+                  Click the plan to pin feedback
                 </div>
-              </div>
-            </>
+              )}
+              <iframe
+                ref={iframeRef}
+                title={`${bundle.plan.title} HTML plan`}
+                srcDoc={annotatedDocumentHtml}
+                sandbox="allow-forms allow-scripts"
+                className={cn(
+                  "h-full min-h-full w-full border-0 bg-black",
+                  annotateMode && "ring-1 ring-inset ring-primary/35",
+                )}
+              />
+            </div>
           )}
         </section>
       </div>
@@ -395,29 +413,11 @@ export function PlansPage() {
       <CommentsSheet
         bundle={bundle}
         open={commentsOpen}
-        onOpenChange={setCommentsOpen}
+        onOpenChange={handleCommentsOpenChange}
         updatePlan={updatePlan}
+        pendingAnnotation={pendingAnnotation}
+        onAnnotationSaved={() => setPendingAnnotation(null)}
       />
-    </div>
-  );
-}
-
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-background px-3 py-2">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
   );
 }
@@ -599,15 +599,34 @@ function CommentsSheet({
   open,
   onOpenChange,
   updatePlan,
+  pendingAnnotation,
+  onAnnotationSaved,
 }: {
   bundle?: PlanBundle & { html?: string };
   open: boolean;
   onOpenChange: (open: boolean) => void;
   updatePlan: ReturnType<typeof useUpdatePlan>;
+  pendingAnnotation?: PlanAnnotationAnchor | null;
+  onAnnotationSaved: () => void;
 }) {
   const [message, setMessage] = useState("");
   const [kind, setKind] = useState<PlanCommentKind>("comment");
   const [sectionId, setSectionId] = useState<string>("plan");
+  const pendingSectionId =
+    pendingAnnotation?.sectionId &&
+    bundle?.sections.some(
+      (section) => section.id === pendingAnnotation.sectionId,
+    )
+      ? pendingAnnotation.sectionId
+      : "plan";
+
+  useEffect(() => {
+    if (!pendingAnnotation) return;
+    setKind("annotation");
+    setSectionId(pendingSectionId);
+    setMessage("");
+  }, [pendingAnnotation, pendingSectionId]);
+
   if (!bundle) return null;
   const submit = () => {
     if (!message.trim()) return;
@@ -619,6 +638,9 @@ function CommentsSheet({
             kind,
             message,
             sectionId: sectionId === "plan" ? undefined : sectionId,
+            anchor: pendingAnnotation
+              ? JSON.stringify(pendingAnnotation)
+              : undefined,
             createdBy: "human",
           },
         ],
@@ -628,6 +650,7 @@ function CommentsSheet({
         onSuccess: () => {
           setMessage("");
           setKind("comment");
+          onAnnotationSaved();
         },
       },
     );
@@ -670,6 +693,20 @@ function CommentsSheet({
               ))}
             </SelectContent>
           </Select>
+          {pendingAnnotation && (
+            <div className="rounded-lg border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
+              <div className="flex items-center gap-2 font-medium text-foreground">
+                <IconMessagePlus className="size-4" />
+                Pinned annotation
+              </div>
+              <p className="mt-1">
+                {formatAnchorLabel(pendingAnnotation)}
+                {pendingAnnotation.snippet
+                  ? ` near "${pendingAnnotation.snippet}"`
+                  : ""}
+              </p>
+            </div>
+          )}
           <Textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
@@ -703,6 +740,11 @@ function CommentsSheet({
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-6">{comment.message}</p>
+                  {comment.anchor && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {formatAnchorLabel(parseAnchor(comment.anchor))}
+                    </p>
+                  )}
                   <p className="mt-2 text-xs text-muted-foreground">
                     {shortDate(comment.createdAt)}
                   </p>
@@ -714,6 +756,138 @@ function CommentsSheet({
       </SheetContent>
     </Sheet>
   );
+}
+
+function parseAnchor(anchor: string | PlanAnnotationAnchor | null | undefined) {
+  if (!anchor) return null;
+  if (typeof anchor !== "string") return anchor;
+  try {
+    const parsed = JSON.parse(anchor) as Partial<PlanAnnotationAnchor>;
+    if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+      return parsed as PlanAnnotationAnchor;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function formatAnchorLabel(anchor: PlanAnnotationAnchor | null) {
+  if (!anchor) return "Pinned to plan";
+  const section = anchor.sectionTitle ? `${anchor.sectionTitle}, ` : "";
+  return `${section}${Math.round(anchor.x)}% across / ${Math.round(anchor.y)}% down`;
+}
+
+function injectAnnotationRuntime(
+  html: string,
+  comments: PlanBundle["comments"],
+  annotateMode: boolean,
+) {
+  const annotations = comments
+    .map((comment, index) => ({
+      id: comment.id,
+      index: index + 1,
+      message: comment.message,
+      kind: comment.kind,
+      status: comment.status,
+      anchor: parseAnchor(comment.anchor),
+    }))
+    .filter((comment) => comment.anchor);
+  const payload = JSON.stringify({ annotateMode, annotations }).replace(
+    /[<>&\u2028\u2029]/g,
+    (char) =>
+      ({
+        "<": "\\u003c",
+        ">": "\\u003e",
+        "&": "\\u0026",
+        "\u2028": "\\u2028",
+        "\u2029": "\\u2029",
+      })[char] ?? char,
+  );
+  const runtime = `<style>
+    .an-plan-annotating, .an-plan-annotating * { cursor: crosshair !important; }
+    .an-plan-annotation-layer { position: absolute; inset: 0; z-index: 2147483000; pointer-events: none; }
+    .an-plan-marker { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: #f3f3f4; color: #0a0a0b; font: 700 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 28px rgba(0,0,0,.36); pointer-events: auto; }
+    .an-plan-marker[data-status="resolved"] { opacity: .46; }
+    .an-plan-hint { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 2147483001; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: rgba(12,12,14,.86); color: #f2f2f3; padding: 8px 12px; font: 500 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; backdrop-filter: blur(18px); box-shadow: 0 10px 30px rgba(0,0,0,.28); }
+  </style><script>
+    (() => {
+      const state = ${payload};
+      const root = document.documentElement;
+      if (state.annotateMode) root.classList.add("an-plan-annotating");
+      function pct(value, total) {
+        return Math.max(0, Math.min(100, Number(((value / Math.max(total, 1)) * 100).toFixed(3))));
+      }
+      function closestSection(target) {
+        if (!(target instanceof Element)) return null;
+        return target.closest("[data-plan-section-id], section[id], article[id], [id]");
+      }
+      function textSnippet(target) {
+        if (!(target instanceof Element)) return "";
+        const text = (target.innerText || target.textContent || "").replace(/\\s+/g, " ").trim();
+        return text.slice(0, 90);
+      }
+      function ensureLayer() {
+        let layer = document.querySelector(".an-plan-annotation-layer");
+        if (!layer) {
+          layer = document.createElement("div");
+          layer.className = "an-plan-annotation-layer";
+          document.body.style.position = document.body.style.position || "relative";
+          document.body.appendChild(layer);
+        }
+        return layer;
+      }
+      const layer = ensureLayer();
+      for (const item of state.annotations) {
+        if (!item.anchor) continue;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "an-plan-marker";
+        button.dataset.status = item.status || "open";
+        button.dataset.agentNativePlanMarker = "true";
+        button.style.left = item.anchor.x + "%";
+        button.style.top = item.anchor.y + "%";
+        button.textContent = String(item.index);
+        button.title = item.message || "Plan comment";
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          window.parent.postMessage({ type: "agent-native-plan-open-comments", commentId: item.id }, "*");
+        });
+        layer.appendChild(button);
+      }
+      if (state.annotateMode) {
+        const hint = document.createElement("div");
+        hint.className = "an-plan-hint";
+        hint.textContent = "Click anywhere to pin a plan comment";
+        document.body.appendChild(hint);
+      }
+      document.addEventListener("click", (event) => {
+        if (!state.annotateMode) return;
+        if (event.target instanceof Element && event.target.closest("[data-agent-native-plan-marker]")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const doc = document.documentElement;
+        const section = closestSection(event.target);
+        const sectionTitle = section?.querySelector?.("h1,h2,h3,[data-plan-section-title]")?.textContent?.replace(/\\s+/g, " ").trim() || "";
+        window.parent.postMessage({
+          type: "agent-native-plan-annotate",
+          anchor: {
+            x: pct(event.pageX, doc.scrollWidth),
+            y: pct(event.pageY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
+            sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
+            sectionTitle: sectionTitle || undefined,
+            snippet: textSnippet(event.target),
+            tagName: event.target instanceof Element ? event.target.tagName.toLowerCase() : undefined
+          }
+        }, "*");
+      }, true);
+    })();
+  </script>`;
+  if (html.includes("</body>")) {
+    return html.replace("</body>", `${runtime}</body>`);
+  }
+  return `${html}${runtime}`;
 }
 
 function buildClientPlanHtml(bundle: PlanBundle) {
