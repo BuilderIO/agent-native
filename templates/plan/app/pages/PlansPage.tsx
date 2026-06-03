@@ -383,26 +383,6 @@ export function PlansPage() {
                   </TooltipTrigger>
                   <TooltipContent>Copy share link</TooltipContent>
                 </Tooltip>
-                {bundle.summary.openCommentCount > 0 && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="pointer-events-auto relative size-8"
-                        onClick={() => setCommentsOpen(true)}
-                        aria-label="Open comments"
-                      >
-                        <IconMessagePlus className="size-4" />
-                        <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
-                          {bundle.summary.openCommentCount}
-                        </span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Comments</TooltipContent>
-                  </Tooltip>
-                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
