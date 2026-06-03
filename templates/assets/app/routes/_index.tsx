@@ -849,7 +849,6 @@ function HomeGeneratePanel({
           <>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <IconPhotoPlus size={16} className="text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">
                   {popularLibraries.length
                     ? "Popular brand kits"
