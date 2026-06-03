@@ -37,6 +37,14 @@ export {
   appPath,
 } from "./api-path.js";
 export {
+  deleteClientAppState,
+  readClientAppState,
+  setClientAppState,
+  writeClientAppState,
+  type ClientAppStateReadOptions,
+  type ClientAppStateWriteOptions,
+} from "./application-state.js";
+export {
   ensureEmbedAuthFetchInterceptor,
   getEmbedAuthToken,
   isEmbedAuthActive,
