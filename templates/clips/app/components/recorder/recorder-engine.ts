@@ -429,6 +429,28 @@ export class RecorderEngine {
     return Math.max(0, now - this.startedAtMs - this.pausedAccumMs - pausedNow);
   }
 
+  canDownloadBufferedRecording(): boolean {
+    return this.localChunks.length > 0;
+  }
+
+  getBufferedRecordingDownload(): { blob: Blob; filename: string } | null {
+    if (this.localChunks.length === 0) return null;
+    const mimeType = this.mimeType || "video/webm";
+    const extension = /mp4/i.test(mimeType)
+      ? "mp4"
+      : /quicktime|mov/i.test(mimeType)
+        ? "mov"
+        : "webm";
+    const id =
+      this.opts.recordingId && this.opts.recordingId !== "__pending__"
+        ? this.opts.recordingId
+        : new Date().toISOString().replace(/[:.]/g, "-");
+    return {
+      blob: new Blob(this.localChunks, { type: mimeType }),
+      filename: `clips-recording-${id}.${extension}`,
+    };
+  }
+
   canRetryUpload(): boolean {
     return (
       this.state === "error" &&
