@@ -927,9 +927,10 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .editor-icon-xcode { color: #54a7ff; }
 .editor-picker-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 :root[data-agent-native-theme="light"] .editor-picker-option:hover, :root[data-agent-native-theme="light"] .editor-picker-option.is-active { background: rgba(0,0,0,.06); }
-.code-preview pre { margin: 0; max-height: 420px; overflow: auto; padding: 14px 16px; background: #0c0c0e; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.code-preview pre { margin: 0; max-height: 420px; overflow: auto; padding: 14px 16px; background: #0c0c0e !important; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .code-preview pre code { display: block; min-width: max-content; color: inherit !important; font: inherit; white-space: pre; }
-.code-preview pre code, .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
+.code-preview pre code, .code-preview pre code *, .inline-code-preview pre code, .inline-code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; background-image: none !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
+.code-preview pre code code, .inline-code-preview pre code code { display: inline !important; }
 .syntax-keyword { color: #7cc7ff; }
 .syntax-string { color: #a6e3a1; }
 .syntax-literal { color: #f7c876; }

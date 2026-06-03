@@ -1435,7 +1435,8 @@ function injectAnnotationRuntime(
     .an-plan-code-popover .code-preview { border: 0 !important; background: transparent !important; box-shadow: none !important; }
     .an-plan-code-popover .code-preview pre { max-height: 474px; background: transparent !important; }
     .an-plan-code-popover .code-preview pre code { display: block; min-width: max-content; color: inherit !important; font: inherit; white-space: pre; }
-    .an-plan-code-popover .code-preview pre code, .an-plan-code-popover .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
+    .an-plan-code-popover .code-preview pre code, .an-plan-code-popover .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; background-image: none !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
+    .an-plan-code-popover .code-preview pre code code { display: inline !important; }
     .editor-picker { position: relative; display: inline-flex; min-height: 32px; align-items: stretch; overflow: visible; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 8px; background: transparent; }
     .editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
     .editor-picker button { min-height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--soft, #d4d4d8); padding: 0 10px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
@@ -1489,6 +1490,9 @@ function injectAnnotationRuntime(
     .file-detail-body { padding-top: 16px; }
     .file-summary { max-width: 760px; margin: 0; color: var(--soft, #d4d4d8); font-size: 15px; }
     .inline-code-preview { margin-top: 18px; overflow: hidden; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 10px; background: #0c0c0e; }
+    .code-preview pre, .inline-code-preview pre { background: #0c0c0e !important; }
+    .code-preview pre code, .code-preview pre code *, .inline-code-preview pre code, .inline-code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; background-image: none !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
+    .code-preview pre code code, .inline-code-preview pre code code { display: inline !important; }
     .file-actions { display: flex; align-items: flex-start; gap: 8px; }
     @media (max-width: 760px) { .implementation-file-tabs { grid-template-columns: 1fr; } .implementation-file-list { border-right: 0; } .implementation-file-panels { border-top: 1px solid var(--line, rgba(255,255,255,.14)); } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } }
   </style><script>
