@@ -6,6 +6,7 @@ import {
   IconArrowLeft,
   IconCamera,
   IconDeviceDesktop,
+  IconDownload,
   IconExternalLink,
   IconMicrophone,
   IconRefresh,
@@ -518,12 +519,16 @@ function RecordingErrorCard({
   mode,
   micDeviceId,
   canRetryUpload,
+  canDownloadRecording,
+  onDownloadRecording,
   onTryAgain,
 }: {
   error: string;
   mode: RecordingMode;
   micDeviceId: string | null;
   canRetryUpload: boolean;
+  canDownloadRecording: boolean;
+  onDownloadRecording: () => void;
   onTryAgain: () => void;
 }) {
   const uploadFailure = isUploadFailureError(error);
@@ -577,6 +582,12 @@ function RecordingErrorCard({
       )}
 
       <div className="space-y-3 p-6">
+        {uploadFailure && canDownloadRecording && (
+          <Button onClick={onDownloadRecording} className="w-full gap-2">
+            <IconDownload className="h-4 w-4" />
+            Download recording
+          </Button>
+        )}
         <Button variant="outline" onClick={onTryAgain} className="w-full gap-2">
           <IconRefresh className="h-4 w-4" />
           {canRetryUpload ? "Retry upload" : "Try again"}
@@ -1546,6 +1557,24 @@ export default function RecordRoute() {
     }
   }, [finishSavedRecording]);
 
+  const downloadBufferedRecording = useCallback(() => {
+    const download = engineRef.current?.getBufferedRecordingDownload();
+    if (!download) {
+      toast.error("No local recording data is available to download.");
+      return;
+    }
+    const url = URL.createObjectURL(download.blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = download.filename;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    toast.success("Recording download started");
+  }, []);
+
   const requestStop = useCallback(() => {
     const engine = engineRef.current;
     if (engine && engine.getState() === "recording") {
@@ -1729,12 +1758,17 @@ export default function RecordRoute() {
       setPreviewStream(null);
       void engine?.cancel();
     };
+    const warnBeforeDiscard = (event: BeforeUnloadEvent) => {
+      if (!engineRef.current?.canDownloadBufferedRecording()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
 
     window.addEventListener("pagehide", releaseCapture);
-    window.addEventListener("beforeunload", releaseCapture);
+    window.addEventListener("beforeunload", warnBeforeDiscard);
     return () => {
       window.removeEventListener("pagehide", releaseCapture);
-      window.removeEventListener("beforeunload", releaseCapture);
+      window.removeEventListener("beforeunload", warnBeforeDiscard);
       releaseCapture();
     };
   }, [stopLiveTranscription]);
@@ -1988,6 +2022,10 @@ export default function RecordRoute() {
               mode={recordingMode}
               micDeviceId={pendingStartOptsRef.current?.micDeviceId ?? null}
               canRetryUpload={!!engineRef.current?.canRetryUpload()}
+              canDownloadRecording={
+                !!engineRef.current?.canDownloadBufferedRecording()
+              }
+              onDownloadRecording={downloadBufferedRecording}
               onTryAgain={() => {
                 if (engineRef.current?.canRetryUpload()) {
                   void retryFailedUpload();
