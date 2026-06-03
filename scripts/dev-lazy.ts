@@ -952,7 +952,10 @@ function proxyHttp(
         settled = true;
         clearTimeout(responseTimer);
         app.ready = true;
-        console.log(`[proxy] ← ${proxyRes.statusCode} ${req.method} ${req.url} (${app.id})`);
+        const redirectInfo = proxyRes.statusCode === 302 ? ` → ${proxyRes.headers.location}` : "";
+        console.log(
+          `[proxy] ← ${proxyRes.statusCode} ${req.method} ${req.url} (${app.id})${redirectInfo}`,
+        );
         res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
         proxyRes.once("error", (err: Error) => {
           console.error(`[proxy] proxyRes error ${req.url}: ${err.message}`);
