@@ -578,9 +578,11 @@ function appForRequest(req: http.IncomingMessage): TemplateApp | null {
     return selectedById.get(direct) ?? null;
 
   const fromState = extractOAuthStateAppId(params.get("state"));
-  console.log(`shomix - fromState - ${fromState} - url ${req.url}`);
+  console.log(JSON.stringify(selectedById));
+  console.log(`shomix - fromState - ${fromState} - ${selectedById.has(fromState)} - url ${req.url}`);
 
   if (fromState && selectedById.has(fromState)) {
+    console.log(`shomix - returning from here`);
     return selectedById.get(fromState) ?? null;
   }
 
