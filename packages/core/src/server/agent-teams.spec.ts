@@ -239,6 +239,31 @@ describe("agent teams message queue", () => {
         seq: 7,
       },
       message: "Reviewed the launch plan.",
+      metadata: { seq: 7, sourceSeq: 7 },
+    });
+
+    expect(
+      toAgentTaskBackgroundTranscriptEvent(
+        "run-task-task-1",
+        {
+          seq: 2,
+          event: { type: "text", text: "Continued in the next chunk." },
+        },
+        { seq: 12, sourceRunId: "run-task-task-1-c1" },
+      ),
+    ).toMatchObject({
+      id: "run-task-task-1-c1:2",
+      runId: "run-task-task-1",
+      sourceRecord: {
+        type: "agent-team-run-event",
+        id: "run-task-task-1-c1:2",
+        seq: 12,
+      },
+      metadata: {
+        seq: 12,
+        sourceSeq: 2,
+        sourceRunId: "run-task-task-1-c1",
+      },
     });
 
     expect(

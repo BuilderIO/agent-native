@@ -30,6 +30,7 @@ jobs:
               ['mail',          'dee98bb0-6143-4205-8c04-afe7bf83d5b5'],
               ['macros',        '0700a8ac-6a9f-4834-80dd-734102228132'],
               ['forms',         'aa0b2020-9983-4d6c-8fb0-65462f960fc4'],
+              ['plan',          '9d0d7a73-385d-4da1-ba10-1581ffc4d413'],
               ['dispatch',      '1171ef84-ed50-418b-bced-e19470475e49'],
               ['content',       '5c2198f5-bee4-41c3-8a6d-4869f400eec2'],
               ['calendar',      '954fe53b-052e-4401-aac2-2e973e498af8'],

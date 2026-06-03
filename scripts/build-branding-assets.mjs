@@ -90,7 +90,7 @@ const TEMPLATE_DIRS = [
   "templates/calendar",
   "templates/clips",
   "templates/content",
-  "templates/contracts",
+  "templates/plan",
   "templates/design",
   "templates/dispatch",
   "templates/forms",

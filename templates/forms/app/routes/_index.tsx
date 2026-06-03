@@ -1,4 +1,5 @@
 import { redirect } from "react-router";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import type { Route } from "./+types/_index";
 
 export function meta() {
@@ -13,7 +14,8 @@ export function meta() {
 }
 
 export function loader({}: Route.LoaderArgs) {
-  return redirect("/forms");
+  const appBasePath = getConfiguredAppBasePath();
+  return redirect(appBasePath ? `${appBasePath}/forms` : "/forms");
 }
 
 export default function Index() {

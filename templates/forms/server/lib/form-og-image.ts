@@ -209,7 +209,7 @@ function formOgResvgOptions(): ResvgRenderOptions {
 }
 
 async function loadResvg(): Promise<typeof import("@resvg/resvg-js")> {
-  return import(/* @vite-ignore */ "@resvg/resvg-js");
+  return import("@resvg/resvg-js");
 }
 
 export async function renderFormOgImage(

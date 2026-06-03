@@ -48,9 +48,11 @@ export default defineAction({
       ),
     connectionId: z
       .string()
+      .trim()
+      .min(1)
       .optional()
       .describe(
-        "Optional shared workspace connection id to use when the provider has multiple granted connections.",
+        "Optional workspace connection ID to use for provider credentials. When set, credentials must resolve from that connection.",
       ),
     accountId: z
       .string()

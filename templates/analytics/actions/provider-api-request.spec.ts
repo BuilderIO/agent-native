@@ -106,6 +106,7 @@ describe("provider API escape hatch", () => {
           },
         ],
       },
+      connectionId: "conn-1",
     })) as Record<string, any>;
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -123,6 +124,13 @@ describe("provider API escape hatch", () => {
       source: "workspace_connection",
       connectionId: "conn-1",
     });
+    expect(resolveAnalyticsProviderCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "hubspot",
+        keys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
+        connectionId: "conn-1",
+      }),
+    );
     expect(result.response.json).toEqual({ ok: true, echo: "[redacted]" });
     expect(JSON.stringify(result)).not.toContain("hub-token");
   });

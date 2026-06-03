@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "plans",
+  "displayName": "Agent-Native Plans",
+  "description": "Generate and review coding-agent plans as interactive HTML with diagrams, wireframes, prototypes, annotations, share links, and feedback.",
+  "hosted": {
+    "url": "https://plan.agent-native.com",
+    "mcpUrl": "https://plan.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": {
+    "serverName": "agent-native-plans"
+  },
+  "local": {
+    "template": "plan",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8105",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+  },
+  "surfaces": [
+    {
+      "id": "visual-plan",
+      "action": "create-visual-plan",
+      "path": "/plans",
+      "description": "Create or open an Agent-Native visual plan for a coding-agent task."
+    },
+    {
+      "id": "visualize-plan",
+      "action": "visualize-plan",
+      "path": "/plans",
+      "description": "Create an Agent-Native Plans companion from an existing Codex, Claude Code, Markdown, or pasted text plan."
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/visual-plans",
+      "visibility": "both",
+      "exportAs": "visual-plans"
+    },
+    {
+      "path": ".agents/skills/visualize-plan",
+      "visibility": "both",
+      "exportAs": "visualize-plan"
+    }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}

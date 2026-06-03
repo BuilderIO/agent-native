@@ -40,6 +40,8 @@ import {
   appendAgentChatContextToMessage,
   formatAgentChatContextItemsForPrompt,
   normalizeAgentChatContextItem,
+  publishAgentChatContextItems,
+  refreshAgentChatContext,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import {
@@ -3517,6 +3519,10 @@ export interface AssistantChatHandle {
   prefillMessage(text: string): void;
   /** Add or replace keyed context for the next composer submission. */
   setComposerContextItem(item: AgentChatContextItem): void;
+  /** Remove a keyed context item from the composer. */
+  removeComposerContextItem(key: string): void;
+  /** Clear all staged context items from the composer. */
+  clearComposerContextItems(): void;
   /** Programmatically send a recovery prompt without replacing the original request. */
   sendRecoveryMessage(
     text: string,
@@ -3557,6 +3563,8 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /** Whether this chat owns the active visible composer context snapshot. */
+  isActiveComposer?: boolean;
   /**
    * Identifies which surface hosts this chat. Defaults to "app", which keeps
    * dev filesystem/bash code-editing tools out of in-product sidebars.
@@ -3746,6 +3754,7 @@ const AssistantChatInner = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    isActiveComposer = true,
     onMessageCountChange,
     onSaveThread,
     onGenerateTitle,
@@ -3915,15 +3924,25 @@ const AssistantChatInner = forwardRef<
     AgentChatContextItem[]
   >([]);
   const composerContextItemsRef = useRef<AgentChatContextItem[]>([]);
+  const isActiveComposerRef = useRef(isActiveComposer);
+  isActiveComposerRef.current = isActiveComposer;
+  const publishComposerContextItems = useCallback(
+    (items: AgentChatContextItem[]) => {
+      if (!isActiveComposerRef.current) return;
+      publishAgentChatContextItems(items);
+    },
+    [],
+  );
   const updateComposerContextItems = useCallback(
     (updater: (previous: AgentChatContextItem[]) => AgentChatContextItem[]) => {
       setComposerContextItems((previous) => {
         const next = updater(previous);
         composerContextItemsRef.current = next;
+        publishComposerContextItems(next);
         return next;
       });
     },
-    [],
+    [publishComposerContextItems],
   );
   const stageComposerContextItem = useCallback(
     (rawItem: AgentChatContextItem) => {
@@ -3957,6 +3976,19 @@ const AssistantChatInner = forwardRef<
       includesContext: true,
     };
   }, []);
+
+  useEffect(() => {
+    if (!isActiveComposer) return;
+    let cancelled = false;
+    void refreshAgentChatContext().then((state) => {
+      if (cancelled || !isActiveComposerRef.current) return;
+      composerContextItemsRef.current = state.items;
+      setComposerContextItems(state.items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isActiveComposer]);
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
@@ -5017,6 +5049,12 @@ const AssistantChatInner = forwardRef<
         stageComposerContextItem(item);
         tiptapRef.current?.focus();
       },
+      removeComposerContextItem(key: string) {
+        removeComposerContextItem(key);
+      },
+      clearComposerContextItems() {
+        updateComposerContextItems(() => []);
+      },
       sendRecoveryMessage(
         text: string,
         recoveryAction: AgentRecoveryAction,
@@ -5728,6 +5766,7 @@ export const AssistantChat = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    isActiveComposer,
     ...props
   },
   ref,
@@ -5796,6 +5835,7 @@ export const AssistantChat = forwardRef<
               {...props}
               browserTabId={browserTabId}
               contextScope={contextScope}
+              isActiveComposer={isActiveComposer}
               apiUrl={apiUrl}
               tabId={tabId}
               threadId={threadId}

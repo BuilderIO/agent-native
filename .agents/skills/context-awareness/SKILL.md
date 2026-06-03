@@ -31,6 +31,7 @@ The UI writes a `navigation` key to application-state on every route change. Thi
 import { useEffect, useCallback } from "react";
 import { useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { setClientAppState } from "@agent-native/core/client";
 
 export function useNavigationState() {
   const location = useLocation();
@@ -38,11 +39,7 @@ export function useNavigationState() {
   // Sync route to app-state on every navigation
   useEffect(() => {
     const state = deriveNavigationState(location.pathname);
-    fetch("/_agent-native/application-state/navigation", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    }).catch(() => {});
+    setClientAppState("navigation", state).catch(() => {});
   }, [location.pathname]);
 
   // ... also listen for navigate commands (pattern 3)
@@ -112,15 +109,17 @@ await writeAppState("navigate", { view: "inbox", threadId: "abc123" });
 **UI side** — the hook polls for the command:
 
 ```ts
+import {
+  deleteClientAppState,
+  readClientAppState,
+} from "@agent-native/core/client";
+
 const { data: navCommand } = useQuery({
   queryKey: ["navigate-command"],
   queryFn: async () => {
-    const res = await fetch("/_agent-native/application-state/navigate");
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await readClientAppState<NavigateCommand>("navigate");
     if (data) {
-      // Delete the one-shot command after reading
-      fetch("/_agent-native/application-state/navigate", { method: "DELETE" });
+      await deleteClientAppState("navigate");
       return data;
     }
     return null;
@@ -138,6 +137,8 @@ useEffect(() => {
 ## Jitter Prevention
 
 When the agent writes to application-state via script helpers (`writeAppState`), the write is tagged with `requestSource: "agent"`. The UI uses the `ignoreSource` option on `useDbSync()` with a per-tab ID so it ignores its own writes while still picking up changes from agents, other tabs, and scripts.
+
+Client code can use `setClientAppState`, `writeClientAppState`, `readClientAppState`, and `deleteClientAppState` from `@agent-native/core/client` instead of hand-written `fetch` calls. Pass `{ requestSource: TAB_ID }` on UI writes when pairing with `useDbSync({ ignoreSource: TAB_ID })`; pass `{ keepalive: true }` for short-lived writes such as selection cleanup during unload.
 
 ```ts
 // app/root.tsx

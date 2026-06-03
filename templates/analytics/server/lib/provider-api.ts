@@ -1,6 +1,6 @@
 import {
-  PROVIDER_API_IDS,
   createProviderApiRuntime,
+  listProviderApiIdsForTemplateUse,
   type ProviderApiCredentialResolver,
   type ProviderApiId,
   type ProviderApiMethod,
@@ -9,7 +9,9 @@ import {
 import { requireRequestCredentialContext } from "./credentials-context";
 import { resolveAnalyticsProviderCredential } from "./provider-credentials";
 
-export const ANALYTICS_PROVIDER_API_IDS = PROVIDER_API_IDS;
+export const ANALYTICS_PROVIDER_API_IDS = listProviderApiIdsForTemplateUse(
+  "analytics",
+) as [ProviderApiId, ...ProviderApiId[]];
 export type AnalyticsProviderApiId = ProviderApiId;
 export type { ProviderApiMethod, ProviderApiRequestArgs };
 
@@ -18,12 +20,14 @@ const resolveAnalyticsCredential: ProviderApiCredentialResolver = async ({
   key,
   ctx,
   workspaceProvider,
+  connectionId,
 }) => {
   const credential = await resolveAnalyticsProviderCredential({
     provider: workspaceProvider ?? provider,
     keys: [key],
     ctx,
     workspaceConnection: Boolean(workspaceProvider),
+    connectionId,
   });
   if (!credential) return null;
   return {
@@ -39,6 +43,7 @@ const resolveAnalyticsCredential: ProviderApiCredentialResolver = async ({
 
 const runtime = createProviderApiRuntime({
   appId: "analytics",
+  providerIds: ANALYTICS_PROVIDER_API_IDS,
   localCredentialSource: "analytics_local",
   getCredentialContext: () =>
     requireRequestCredentialContext("provider API credential"),

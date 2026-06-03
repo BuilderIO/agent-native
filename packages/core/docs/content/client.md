@@ -1,6 +1,6 @@
 ---
 title: "Client"
-description: "React hooks and utilities for agent-native apps: sendToAgentChat, setContextToAgentChat, useDbSync, useAgentChatGenerating, and cn."
+description: "React hooks and utilities for agent-native apps: sendToAgentChat, optional agent chat context state, useDbSync, useAgentChatGenerating, and cn."
 ---
 
 # Client
@@ -115,59 +115,64 @@ sendToAgentChat({
 | `preset`              | `string?`   | Optional preset name for downstream consumers  |
 | `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
 
-## setContextToAgentChat(opts) {#setcontexttoagentchat}
+## Agent Chat Context State (Advanced) {#agent-chat-context-state}
 
-Stage one or more hidden context nuggets in the active agent chat composer
-without submitting a message or filling the prompt text. Use this when the UI
-lets a user select app objects, rows, elements, files, or other structured data
-that should inform the next prompt, while still letting the user write the
-visible request themselves.
+The context-state APIs are optional plumbing for UI that needs two-way sync with
+staged context chips: rendering the current staged items outside the composer,
+reflecting whether an item is already attached, or providing explicit
+remove/clear controls.
 
-Each context nugget has a stable `key`. Calling `setContextToAgentChat()` again
-with the same key replaces that nugget. Calling it with a new key stacks another
-nugget. The composer shows each nugget as a removable chip, and the framework
-includes the staged context in a hidden `<context>` block only when the user
-submits the prompt.
+Do not reach for these helpers for simple "send this to the agent" or
+"prefill this draft for review" flows. Use `sendToAgentChat()` with `context`
+and `submit` for those.
 
-`addContextToAgentChat()` is an alias for the same replace-by-key behavior.
+| API                               | Use when                                                               |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `useAgentChatContext()`           | A React component needs the live staged context list                   |
+| `setAgentChatContextItem(item)`   | Imperative code should stage or replace one keyed context item         |
+| `listAgentChatContext()`          | Non-React code needs a one-time snapshot of staged context             |
+| `removeAgentChatContextItem(key)` | UI should remove one staged context item by its stable `key`           |
+| `clearAgentChatContext()`         | UI should clear all staged context, such as after a view or mode reset |
+| `refreshAgentChatContext()`       | Imperative code should re-read the latest persisted context snapshot   |
 
-```ts
-import { setContextToAgentChat } from "@agent-native/core";
+`useAgentChatContext()` returns `{ items, set, remove, clear, refresh }`.
 
-setContextToAgentChat({
-  key: "selected-element:.thing#hello",
-  title: "Selected Element",
-  context: [
-    "CSS selector: .thing#hello",
-    "HTML:",
-    '<button class="thing" id="hello">Buy now</button>',
-  ].join("\n"),
-});
+```tsx
+import { useAgentChatContext } from "@agent-native/core";
 
-setContextToAgentChat({
-  key: "cart",
-  title: "Cart",
-  context: "2 items: Pro plan, extra seat",
-});
+function SelectionContextButton({ record }: { record: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-record:${record.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Record",
+          context: JSON.stringify(record, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
 ```
 
-If an app should only ever stage one item of a kind, reuse the same key:
+`listAgentChatContext()` is for imperative code that only needs to inspect the
+current staged items once. `clearAgentChatContext()` is intentionally broad; use
+`removeAgentChatContextItem(key)` when only one selection changed.
 
-```ts
-setContextToAgentChat({
-  key: "selected-record",
-  title: "Selected Record",
-  context: JSON.stringify(record, null, 2),
-});
-```
-
-Use `sendToAgentChat({ message, context, submit: true })` when the UI already
-knows the message to send immediately. Use `sendToAgentChat({ submit: false })`
-only when you want to prefill editable prompt text. Use
-`setContextToAgentChat()` when the UI should add context while leaving the
-prompt box available for the user's own request.
-
-### AgentChatContextMessage {#agentchatcontextmessage}
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
 
 | Option        | Type       | Description                                            |
 | ------------- | ---------- | ------------------------------------------------------ |

@@ -7,15 +7,28 @@ stripAuthRedirectParamFromUrl();
 export {
   addContextToAgentChat,
   appendAgentChatContextToMessage,
+  clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
+  listAgentChatContext,
+  refreshAgentChatContext,
+  removeAgentChatContextItem,
   sendToAgentChat,
+  setAgentChatContextItem,
   setContextToAgentChat,
   generateTabId,
   type AgentChatContextItem,
   type AgentChatContextMessage,
+  type AgentChatContextMutationOptions,
+  type AgentChatContextRemoveOptions,
+  type AgentChatContextSetOptions,
+  type AgentChatContextState,
   type AgentChatMessage,
 } from "./agent-chat.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
+export {
+  useAgentChatContext,
+  type UseAgentChatContextResult,
+} from "./use-agent-chat-context.js";
 export { useCodeMode, useDevMode } from "./use-dev-mode.js";
 export {
   agentNativePath,
@@ -23,6 +36,14 @@ export {
   appBasePath,
   appPath,
 } from "./api-path.js";
+export {
+  deleteClientAppState,
+  readClientAppState,
+  setClientAppState,
+  writeClientAppState,
+  type ClientAppStateReadOptions,
+  type ClientAppStateWriteOptions,
+} from "./application-state.js";
 export {
   ensureEmbedAuthFetchInterceptor,
   getEmbedAuthToken,
@@ -491,9 +512,12 @@ export {
   type DevOptionValue,
 } from "./dev-overlay/index.js";
 export {
+  callAction,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
+  type ClientActionCallOptions,
+  type ClientActionMethod,
 } from "./use-action.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "./use-pinch-zoom.js";
 export {

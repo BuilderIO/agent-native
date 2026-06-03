@@ -213,4 +213,12 @@ describe("hubspot-deals action", () => {
     });
     expect(result.guidance).toContain("Structured filters were applied");
   });
+
+  it("rejects impossible closed date filter boundaries", async () => {
+    await expect(
+      hubspotDeals.run({
+        closedDateFrom: "2026-02-30",
+      }),
+    ).rejects.toThrow(/Invalid closedDateFrom/);
+  });
 });

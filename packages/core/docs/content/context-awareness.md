@@ -92,22 +92,10 @@ Use the `selection` app-state key for durable selection that should survive a mo
 Write it from the UI when the user selects, focuses, or multi-selects meaningful objects:
 
 ```tsx
-import { agentNativePath } from "@agent-native/core/client";
+import { setClientAppState } from "@agent-native/core/client";
 
 async function syncSelection(selection: unknown | null) {
-  const url = agentNativePath("/_agent-native/application-state/selection");
-
-  if (!selection) {
-    await fetch(url, { method: "DELETE", keepalive: true });
-    return;
-  }
-
-  await fetch(url, {
-    method: "PUT",
-    keepalive: true,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(selection),
-  });
+  await setClientAppState("selection", selection, { keepalive: true });
 }
 ```
 
@@ -134,17 +122,15 @@ The production agent injects that key into the next turn as immediate selection 
 Custom editors can write the same key when their selection is not represented by native browser selection:
 
 ```tsx
-await fetch(
-  agentNativePath("/_agent-native/application-state/pending-selection-context"),
+import { setClientAppState } from "@agent-native/core/client";
+
+await setClientAppState(
+  "pending-selection-context",
   {
-    method: "PUT",
-    keepalive: true,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: selectedMarkdown,
-      capturedAt: Date.now(),
-    }),
+    text: selectedMarkdown,
+    capturedAt: Date.now(),
   },
+  { keepalive: true },
 );
 ```
 
@@ -275,15 +261,17 @@ The UI polls for this command and navigates when it appears:
 
 ```ts
 // UI side -- poll for navigate commands
+import {
+  deleteClientAppState,
+  readClientAppState,
+} from "@agent-native/core/client";
+
 const { data: navCommand } = useQuery({
   queryKey: ["navigate-command"],
   queryFn: async () => {
-    const res = await fetch("/_agent-native/application-state/navigate");
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await readClientAppState<NavigateCommand>("navigate");
     if (data) {
-      // Delete the one-shot command after reading
-      fetch("/_agent-native/application-state/navigate", { method: "DELETE" });
+      await deleteClientAppState("navigate");
       return data;
     }
     return null;
@@ -308,17 +296,14 @@ The `use-navigation-state.ts` hook syncs routes to application-state on every na
 // app/hooks/use-navigation-state.ts
 import { useEffect } from "react";
 import { useLocation } from "react-router";
+import { setClientAppState } from "@agent-native/core/client";
 
 export function useNavigationState() {
   const location = useLocation();
 
   useEffect(() => {
     const state = deriveNavigationState(location.pathname);
-    fetch("/_agent-native/application-state/navigation", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    }).catch(() => {});
+    setClientAppState("navigation", state).catch(() => {});
   }, [location.pathname]);
 }
 ```
@@ -328,6 +313,8 @@ The `deriveNavigationState()` function is template-specific -- it parses the URL
 ## Jitter prevention {#jitter-prevention}
 
 When the agent writes to application-state, the sync system might cause the UI to refetch data it just wrote. This creates jitter. The solution is source tagging:
+
+Use `setClientAppState`, `writeClientAppState`, `readClientAppState`, and `deleteClientAppState` from `@agent-native/core/client` for browser-side application-state access. Pass `{ requestSource: TAB_ID }` on UI writes when pairing with `useDbSync({ ignoreSource: TAB_ID })`; pass `{ keepalive: true }` for short-lived writes such as selection cleanup during unload.
 
 ```ts
 // app/root.tsx

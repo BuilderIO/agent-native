@@ -865,6 +865,9 @@ export function listProviderApiCatalog(
   options: { providerIds?: readonly (ProviderApiId | string)[] } = {},
 ) {
   const providerIds = normalizeProviderIds(options.providerIds);
+  if (provider) {
+    assertProviderAllowed(provider, providerIds);
+  }
   const configs = provider
     ? [getProviderApiConfig(provider)]
     : providerIds.map((id) => getProviderApiConfig(id));
@@ -1490,8 +1493,9 @@ async function resolveOptionalCredential(options: {
     connectionId: options.connectionId,
     localCredentialSource,
   };
-  const customCredential = await options.runtime.resolveCredential?.(lookup);
-  if (customCredential?.value) return customCredential;
+  if (options.runtime.resolveCredential) {
+    return options.runtime.resolveCredential(lookup);
+  }
   return defaultProviderApiCredentialResolver(lookup);
 }
 
@@ -1922,8 +1926,17 @@ function pemToPkcs8(pem: string): Uint8Array {
 
 const keyCache = new Map<string, Promise<CryptoKey>>();
 
-function importRs256Key(privateKeyPem: string): Promise<CryptoKey> {
-  let cached = keyCache.get(privateKeyPem);
+async function privateKeyCacheKey(privateKeyPem: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(privateKeyPem) as BufferSource,
+  );
+  return `sha256:${base64UrlEncode(new Uint8Array(digest))}`;
+}
+
+async function importRs256Key(privateKeyPem: string): Promise<CryptoKey> {
+  const cacheKey = await privateKeyCacheKey(privateKeyPem);
+  let cached = keyCache.get(cacheKey);
   if (!cached) {
     cached = crypto.subtle.importKey(
       "pkcs8",
@@ -1932,7 +1945,7 @@ function importRs256Key(privateKeyPem: string): Promise<CryptoKey> {
       false,
       ["sign"],
     );
-    keyCache.set(privateKeyPem, cached);
+    keyCache.set(cacheKey, cached);
   }
   return cached;
 }

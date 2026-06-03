@@ -46,6 +46,9 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import {
+  AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
   appendAgentChatContextToMessage,
   normalizeAgentChatContextItem,
   type AgentChatContextItem,
@@ -893,6 +896,31 @@ export function MultiTabAssistantChat({
     [],
   );
 
+  const removeContextInTab = useCallback((threadId: string, key: string) => {
+    const ref = chatRefs.current.get(threadId);
+    if (ref) {
+      ref.removeComposerContextItem(key);
+      return;
+    }
+    const existing = pendingContextItems.current.get(threadId);
+    if (!existing) return;
+    const next = existing.filter((item) => item.key !== key);
+    if (next.length === 0) {
+      pendingContextItems.current.delete(threadId);
+    } else {
+      pendingContextItems.current.set(threadId, next);
+    }
+  }, []);
+
+  const clearContextInTab = useCallback((threadId: string) => {
+    const ref = chatRefs.current.get(threadId);
+    if (ref) {
+      ref.clearComposerContextItems();
+      return;
+    }
+    pendingContextItems.current.delete(threadId);
+  }, []);
+
   const resolveThreadModelSelection = useCallback(
     (threadId: string) =>
       resolveModelSelection(
@@ -1497,7 +1525,7 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
-      if (event.data?.type === "agentNative.setChatContext") {
+      if (event.data?.type === AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE) {
         const item = normalizeAgentChatContextItem(event.data.data);
         if (!item) return;
         const openSidebar = event.data.data?.openSidebar as boolean | undefined;
@@ -1508,6 +1536,33 @@ export function MultiTabAssistantChat({
         const currentTabId = activeThreadIdRef.current;
         if (!currentTabId) return;
         setContextInTab(currentTabId, item);
+        return;
+      }
+      if (event.data?.type === AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE) {
+        const key =
+          typeof event.data.data?.key === "string"
+            ? event.data.data.key.trim()
+            : "";
+        if (!key) return;
+        const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+        if (openSidebar === true) {
+          window.dispatchEvent(new CustomEvent("agent-panel:open"));
+        }
+        if (postMessageSubmissionsDisabled) return;
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        removeContextInTab(currentTabId, key);
+        return;
+      }
+      if (event.data?.type === AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE) {
+        const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+        if (openSidebar === true) {
+          window.dispatchEvent(new CustomEvent("agent-panel:open"));
+        }
+        if (postMessageSubmissionsDisabled) return;
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        clearContextInTab(currentTabId);
         return;
       }
       if (event.data?.type !== "agentNative.submitChat") return;
@@ -1604,8 +1659,10 @@ export function MultiTabAssistantChat({
   }, [
     availableModels,
     bumpModelSelectionVersion,
+    clearContextInTab,
     createThread,
     postMessageSubmissionsDisabled,
+    removeContextInTab,
     setContextInTab,
     switchThread,
   ]);
@@ -1737,6 +1794,7 @@ export function MultiTabAssistantChat({
           }
           chatRefs.current.delete(key);
           pendingSends.current.delete(key);
+          pendingContextItems.current.delete(key);
           newThreadIds.current.delete(key);
           threadModelRef.current.delete(key);
         }
@@ -1768,6 +1826,7 @@ export function MultiTabAssistantChat({
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
+      pendingContextItems.current.clear();
       threadModelRef.current.clear();
       setParentMap({});
       setSubAgentNames({});
@@ -2396,6 +2455,7 @@ export function MultiTabAssistantChat({
                   tabId={tabId}
                   browserTabId={browserTabId}
                   contextScope={tabScope}
+                  isActiveComposer={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)

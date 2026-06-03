@@ -6,6 +6,16 @@ import path from "node:path";
 const targetName = process.argv[2];
 const repoRoot = process.cwd();
 
+const retiredTargets = new Set([
+  "contracts",
+  "images",
+  "issues",
+  "meeting-notes",
+  "recruiting",
+  "scheduling",
+  "voice",
+]);
+
 const globalPaths = [
   ".nvmrc",
   "package.json",
@@ -17,6 +27,11 @@ const globalPaths = [
 if (!targetName) {
   console.error("[netlify-ignore] Missing template/package name argument.");
   process.exit(1);
+}
+
+if (retiredTargets.has(targetName)) {
+  console.log(`[netlify-ignore] Skipping retired Netlify site: ${targetName}.`);
+  process.exit(0);
 }
 
 function normalizePath(filePath) {

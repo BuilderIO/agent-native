@@ -7,7 +7,9 @@
  */
 
 import type {
-  AgentChatContextMessage,
+  AgentChatContextMutationOptions,
+  AgentChatContextRemoveOptions,
+  AgentChatContextSetOptions,
   AgentChatMessage,
 } from "./agent-chat.js";
 
@@ -26,7 +28,17 @@ export interface SubmitChatMessage {
 
 export interface SetChatContextMessage {
   type: "agentNative.setChatContext";
-  data: AgentChatContextMessage;
+  data: AgentChatContextSetOptions;
+}
+
+export interface RemoveChatContextMessage {
+  type: "agentNative.removeChatContext";
+  data: AgentChatContextRemoveOptions;
+}
+
+export interface ClearChatContextMessage {
+  type: "agentNative.clearChatContext";
+  data: AgentChatContextMutationOptions;
 }
 
 export interface GetUserInfoMessage {
@@ -76,6 +88,8 @@ export type AppToFrameMessage =
   | AppReadyMessage
   | SubmitChatMessage
   | SetChatContextMessage
+  | RemoveChatContextMessage
+  | ClearChatContextMessage
   | GetUserInfoMessage
   | SetEnvVarsMessage
   | DevModeChangeMessage

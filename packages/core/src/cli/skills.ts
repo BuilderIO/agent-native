@@ -32,13 +32,13 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plans|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|plans|visual-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
-  agent-native skills add visual-plans
+  agent-native skills add plans
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
@@ -208,21 +208,45 @@ iteration, or a human-in-the-loop choice among design directions.
 const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plans
 description: >-
-  Use Visual Plans for coding-agent work that needs an interactive HTML plan,
-  diagrams, wireframes, prototype options, annotations, implementation tasks,
-  feedback, and proof gates through the hosted Visual Plans MCP app.
+  Use Agent-Native Plans when coding-agent work needs an interactive HTML plan
+  document with diagrams, wireframes, mockups, prototypes, annotations, and
+  comments.
 metadata:
   visibility: exported
 ---
 
-# Visual Plans
+# Agent-Native Plans
 
-Use Visual Plans as HTML plan mode for coding work. The point is not to create a
-prettier Markdown plan. The point is to give the user something visual to react
-to before the agent edits code: diagrams, wireframes, option cards, clickable
-prototype sketches, assumptions, tasks, annotations, and proof gates.
+Agent-Native Plans is HTML plan mode for coding agents. Generate the kind of
+plan you would normally write in Markdown, but as a scannable HTML plan
+document with visual blocks mixed in: diagrams, wireframes, mockups, prototype
+options, tradeoff cards, file/symbol implementation maps, code previews, and
+annotation prompts. It is a plan document, not a marketing page.
 
-Text is the fallback layer. Default to visual artifacts.
+The goal is impatient review. The user should be able to react to visuals first
+and read prose only where it helps.
+
+Install with the Agent-Native CLI. It adds the skills and the MCP connector:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add plans
+\`\`\`
+
+Then start typing \`/visual-plan\` for a fresh plan or \`/visualize-plan\` to
+turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual
+companion. The hosted MCP app opens inline where supported and falls back to a
+browser link everywhere else.
+
+## Slash Commands
+
+- \`/visual-plan\`: create a fresh rich HTML plan before implementation. Include
+  a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
+  mockups when UI is involved, an implementation map with files/symbols/snippets,
+  tradeoffs, open questions, and clear feedback prompts.
+- \`/visualize-plan\`: import an existing Codex, Claude Code, Markdown, or pasted
+  text plan and turn it into a visual companion. Preserve the plan's intent,
+  then add diagrams, wireframes, option cards, file/symbol maps, and annotation
+  prompts.
 
 ## When To Use
 
@@ -232,73 +256,182 @@ Create or update a visual plan when:
   diagrams, wireframes, mockups, prototype options, comments, or annotations;
 - work is multi-file, ambiguous, long-running, risky, or UI-heavy;
 - the user needs to react quickly to direction rather than read prose;
-- the task touches auth, billing, migrations, public APIs, tests, production
-  config, data, security, permissions, or deploy behavior;
-- you would otherwise proceed on a material assumption;
-- you are about to claim the work is complete and need proof gates checked.
+- architecture, data flow, UI direction, options, or open questions would be
+  clearer visually;
+- you need the user to react before implementation.
 
-Do not log every trivial inference. An assumption is material when changing it
-would affect user-visible behavior, data model, permissions, billing, public API
-shape, migrations/backfills/data loss, test strategy, architecture boundaries,
-deployment/configuration, file scope, or the definition of done.
+The companion \`visualize-plan\` skill is installed with this one. Use it when
+the user already has a Codex, Claude Code, Markdown, or pasted text plan and
+wants a visual companion instead of a fresh plan.
 
 ## Core Workflow
 
-1. Call \`create-visual-plan\` with the goal, source, repo path, and initial
-   plan nodes before implementation.
-2. Surface the returned Visual Plans link or inline MCP App. In CLI hosts, tell
-   the user to open the link and review the visual plan.
-3. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
-   prototypes over paragraphs.
-4. Call \`get-plan-feedback\` before editing, after review, after any long pause,
+1. Call \`create-visual-plan\` with the title, brief, source, repo path, and plan
+   sections before implementation.
+2. Put the best possible plan document in \`html\` when you can. It should feel
+   like a bespoke HTML version of a strong Markdown implementation plan, not a
+   dashboard or landing page.
+3. Surface the returned Plans link or inline MCP App. In CLI hosts, ask the user
+   to review the plan visually.
+4. Prefer diagrams, wireframes, UI mockups, option cards, implementation maps,
+   and small interactive prototypes over paragraphs.
+5. Call \`get-plan-feedback\` before editing, after review, after any long pause,
    and before the final response.
-5. If the user comments, accepts, rejects, corrects, or requests proof, consume
-   the structured feedback and update the implementation plan accordingly.
-6. If new facts require a change after approval, create an amendment or
-   deviation with \`update-visual-plan\` instead of drifting silently.
-7. Attach command/test/log/diff/screenshot/design artifacts with
-   \`record-plan-evidence\`. Agent claims are not proof.
-8. Export an HTML/JSON/Markdown receipt with \`export-visual-plan\` when the
+6. Incorporate comments/corrections with \`update-visual-plan\`; update the HTML
+   document when feedback changes the direction.
+7. Export an HTML/JSON/Markdown receipt with \`export-visual-plan\` when the
    user wants a shareable summary.
 
 ## Visual Defaults
 
-- UI work gets wireframes or prototype options before coding.
+- Use implementation-plan structure first: objective, scope/non-goals, proposed
+  approach, phases or steps, files/symbols/snippets, risks, open questions, and
+  validation.
+- UI work gets detailed wireframes, mockups, or prototype options before coding.
+- Wireframes should be concrete enough to critique: layout regions, controls,
+  states, empty/loading/error paths, review affordances, and copy placeholders.
 - Backend/refactor work gets architecture and data-flow diagrams.
 - Complex tradeoffs get two or three option cards with consequences.
-- Assumptions are shown as reviewable visual callouts, not hidden prose.
-- Proof gates stay compact: what must pass, current evidence, and missing proof.
-- Long prose is collapsed behind the visual plan.
+- Open questions are surfaced as visual callouts, not buried in paragraphs.
+- Long prose is split into readable document sections with clear headings.
+- Visuals should be review aids, not decoration. Avoid decorative hero art,
+  gradient/hero backgrounds, brand/logo chrome, nav bars, slogans, fluffy value
+  props, huge landing-page H1s, or marketing-style cards unless the user
+  explicitly asks.
+- Implementation plans include a file map: file path, symbols/components to
+  touch, reason for the change, risk/coordination notes when relevant, and short
+  syntax-highlighted snippets for the code shape the agent expects to modify.
+- File previews should be concise and reviewable. Do not paste entire large
+  files; show the key region, public API, component boundary, schema, action, or
+  selector that matters for review.
+- Include README-like detail when helpful: command names, tool behavior,
+  install flow, MCP/link fallback, data shape, and what is in or out of scope.
+- Comments, corrections, replacements, and annotations should feel
+  plannotator-style: fast to mark up, structured enough for the agent to
+  consume, and easy to share when the user chooses.
 
 ## Tool Guidance
 
-- \`create-visual-plan\`: start one visual plan per agent task/run.
-- \`update-visual-plan\`: bulk add/update plan nodes, options, assumptions,
-  decisions, tasks, risks, deviations, annotations, and proof gates.
-- \`get-visual-plan\` and \`get-plan-review-queue\`: read current plan state.
+- \`create-visual-plan\`: start one HTML plan per agent task/run.
+- \`visualize-plan\`: create a visual companion from an existing text plan.
+- \`update-visual-plan\`: revise the plan document, sections, status, or comments.
+- \`get-visual-plan\`: read the current plan document and annotations.
 - \`get-plan-feedback\`: read unconsumed human feedback. Use it frequently.
-- \`record-plan-progress\`: update phase/status and mark feedback consumed only
-  after you incorporated it.
-- \`record-plan-evidence\`: attach artifacts and provenance. Use high trust for
-  captured commands/tests/CI, human_confirmed for explicit human confirmation,
-  and low trust for agent-only statements.
-- \`analyze-visual-plan\`: import pasted Markdown/text and create possible
-  visual plan nodes. Treat detections as possible, not authoritative.
+- \`export-visual-plan\`: export HTML, Markdown fallback, and structured JSON.
+
+## HTML Guidance
+
+- Prefer semantic HTML with scoped CSS inside the document.
+- Match Agent-Native's dark, restrained theme unless the user asks otherwise.
+- Keep the first viewport legible and plan-like: title, brief, concise scope,
+  and a useful diagram/checklist/table when it helps.
+- Use tabs, accordions, or small interactions only when they make review faster.
+- Do not paste huge HTML into chat. Store it in Plans and surface the MCP app or
+  link.
 
 ## Guardrails
 
 - Keep it simple. Do not build a ten-tab dashboard unless the user asks.
-- Before high-risk actions, create a blocking review item or ask the user
-  directly.
-- Never modify tests merely to make implementation pass unless the visual plan
-  explicitly approves test expectation changes.
-- If proof is missing, say so. Do not call the task complete just because code
-  was changed.
 - Do not hand-roll MCP HTTP requests with curl. Use host-exposed tools after
   restart/reload, or use the returned browser/deep-link fallback.
 - Hosted default: connect
-  \`https://plans.agent-native.com/_agent-native/mcp\`. Do not put shared
+  \`https://plan.agent-native.com/_agent-native/mcp\`. Do not put shared
   secrets in skill files.
+`;
+
+const VISUALIZE_PLAN_SKILL_MD = `---
+name: visualize-plan
+description: >-
+  Convert an existing Codex, Claude Code, Markdown, or pasted plan into a
+  Agent-Native Plans HTML companion with diagrams, wireframes, annotations, and
+  feedback.
+metadata:
+  visibility: exported
+---
+
+# Visualize Plan
+
+Use this as the visual companion for an existing text plan. The native Codex or
+Claude Code plan can stay exactly where it is; Agent-Native Plans turns it into
+an interactive HTML review surface with diagrams, wireframes, prototype options,
+annotations, questions, and feedback.
+
+This is for impatient review. Default to things the user can scan and react to.
+It should still read like a plan, not a marketing page.
+
+Install with the Agent-Native CLI if Plans is not already available:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add plans
+\`\`\`
+
+That installs both \`/visual-plan\` and \`/visualize-plan\` plus the MCP
+connector.
+
+## When To Use
+
+Use \`visualize-plan\` when:
+
+- the user has an existing Codex, Claude Code, Markdown, or pasted plan;
+- the user asks to visualize, annotate, plannotate, mock up, diagram, or make a
+  plan easier to review;
+- the plan is long enough that the user may not read it closely;
+- UI direction, architecture, data flow, risky assumptions, or open questions
+  would be clearer visually;
+- the user wants feedback on wireframes, design/prototype options, diagrams, or
+  tradeoffs before implementation.
+
+If there is no existing plan text available, ask for it or use \`visual-plans\`
+to create a fresh plan instead.
+
+## Workflow
+
+1. Gather the existing plan text from the user's paste, a referenced file, or
+   the recent agent-visible plan. Do not invent a source plan.
+2. Call \`visualize-plan\` with \`planText\`, \`title\`, \`goal\`, \`source\`,
+   and \`repoPath\` when available.
+3. Surface the returned Plans link or inline MCP App.
+4. Enrich the imported plan with \`update-visual-plan\` when helpful:
+   - diagrams for architecture, data flow, state machines, or dependencies;
+   - detailed wireframes/mockups for user-visible UI changes, including layout,
+     controls, states, empty/loading/error paths, and copy placeholders;
+   - two or three option cards when there are real tradeoffs;
+   - small prototype sketches for interactions, states, or animation choices;
+   - reviewable assumptions and open questions;
+5. Ask the user to react in the visual plan. Then call \`get-plan-feedback\`
+   before implementing, after review, and before final response.
+6. Treat the imported text as source material. Structured Plans state is
+   canonical for feedback, assumptions, and decisions.
+
+## Visual Defaults
+
+- Keep the first screen simple and plan-like: title, brief, concise scope, and
+  one useful diagram/checklist/table when it helps.
+- Prefer one strong diagram or wireframe over a wall of sections.
+- Preserve the source plan's implementation substance: phases or steps,
+  files/symbols/snippets, risks, open questions, and validation.
+- Hide long prose behind disclosure controls or source references when it helps
+  review speed.
+- Add README-like detail when the source is too terse: slash commands, tool
+  behavior, install flow, MCP/link fallback, data shape, and scope.
+- Avoid decorative hero art, gradient/hero backgrounds, logos, nav bars,
+  slogans, fluffy value props, huge landing-page H1s, and marketing-style cards
+  unless the user explicitly asks.
+- Visuals should be review aids, not decoration.
+- Label inferred items as possible, not confirmed.
+- Ask for feedback with targeted prompts: "Which option?", "Is this flow
+  right?", "What assumption is wrong?", "What should change?"
+- Preserve native-agent momentum: this companion should make the plan easier to
+  approve or revise, not force a giant planning ceremony.
+
+## Guardrails
+
+- Do not replace a native plan unless the user asks. Build beside it.
+- Do not pretend the companion has feedback until \`get-plan-feedback\` returns
+  it or the user pastes it back.
+- Do not use visual polish as a substitute for clarity. The point is review.
+- Do not hand-roll MCP HTTP requests with curl. Use host-exposed tools after
+  restart/reload, or use the returned browser/deep-link fallback.
 `;
 
 const BUILT_IN_APP_SKILLS = {
@@ -394,26 +527,34 @@ const BUILT_IN_APP_SKILLS = {
   },
   "visual-plans": {
     skillName: "visual-plans",
+    extraSkills: {
+      "visualize-plan": VISUALIZE_PLAN_SKILL_MD,
+    },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
-      displayName: "Visual Plans",
+      displayName: "Agent-Native Plans",
       description:
-        "Review coding-agent plans as interactive HTML with diagrams, wireframes, annotations, and proof gates.",
+        "Generate and review coding-agent plans as interactive HTML with diagrams, wireframes, prototypes, annotations, and feedback.",
       hosted: {
-        url: "https://plans.agent-native.com",
-        mcpUrl: "https://plans.agent-native.com/_agent-native/mcp",
+        url: "https://plan.agent-native.com",
+        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
       },
-      mcp: { serverName: "agent-native-visual-plans" },
+      mcp: { serverName: "agent-native-plans" },
       auth: {
         mode: "oauth",
         setup:
-          "Authenticate with the Visual Plans MCP connector in the host app. No shared secrets are stored in skill files.",
+          "Install with the Agent-Native CLI to add /visual-plan and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
           id: "visual-plan",
           action: "create-visual-plan",
+          path: "/plans",
+        },
+        {
+          id: "visualize-plan",
+          action: "visualize-plan",
           path: "/plans",
         },
       ],
@@ -422,6 +563,11 @@ const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-plans",
           visibility: "exported",
           exportAs: "visual-plans",
+        },
+        {
+          path: "skills/visualize-plan",
+          visibility: "exported",
+          exportAs: "visualize-plan",
         },
       ],
       hostAdapters: [
@@ -474,6 +620,7 @@ const BUILT_IN_APP_SKILLS = {
     manifest: AppSkillManifest;
     skillMarkdown: string;
     skillName: string;
+    extraSkills?: Record<string, string>;
     localOnly?: boolean;
   }
 >;
@@ -498,18 +645,14 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "agent-native-design-exploration": "design",
   "visual-plans": "visual-plans",
   "visual-plan": "visual-plans",
+  "visualize-plan": "visual-plans",
+  "visualize-plans": "visual-plans",
   plans: "visual-plans",
   plan: "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
   plannotator: "visual-plans",
-  contracts: "visual-plans",
-  contract: "visual-plans",
-  proof: "visual-plans",
-  "proof-check": "visual-plans",
-  "assumption-review": "visual-plans",
-  "agent-native-contracts": "visual-plans",
   "agent-native-visual-plans": "visual-plans",
   "context-xray": "context-xray",
   "local-context-xray": "context-xray",
@@ -526,13 +669,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "ux-exploration",
     "agent-native-design-exploration",
   ],
-  "visual-plans": [
-    "plans",
-    "html-plan",
-    "plannotate",
-    "contracts",
-    "proof-check",
-  ],
+  "visual-plans": ["plans", "visualize-plan", "html-plan", "plannotate"],
   "context-xray": ["xray", "context-window", "context-usage"],
 } satisfies Record<BuiltInAppSkillId, string[]>;
 
@@ -643,6 +780,18 @@ function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
 ): boolean {
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
+}
+
+function builtInExtraSkills(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): Record<string, string> {
+  return "extraSkills" in entry && entry.extraSkills ? entry.extraSkills : {};
+}
+
+function builtInSkillNames(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): string[] {
+  return [entry.skillName, ...Object.keys(builtInExtraSkills(entry))];
 }
 
 function normalizeClientIds(values: unknown): ClientId[] {
@@ -835,6 +984,7 @@ function loadSkillTarget(target: string): SkillInstallTarget {
   const knownTarget = normalizeKnownSkillTarget(target);
   if (knownTarget) {
     const builtIn = BUILT_IN_APP_SKILLS[knownTarget];
+    const skillNames = builtInSkillNames(builtIn);
     return {
       id: builtIn.manifest.id,
       displayName: builtIn.manifest.displayName,
@@ -843,15 +993,21 @@ function loadSkillTarget(target: string): SkillInstallTarget {
         file: `<built-in:${builtIn.manifest.id}>`,
         dir: process.cwd(),
       },
-      skillNames: [builtIn.skillName],
+      skillNames,
       materializeInstructions(outDir) {
-        const skillDir = path.join(outDir, "skills", builtIn.skillName);
-        fs.mkdirSync(skillDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(skillDir, "SKILL.md"),
-          builtIn.skillMarkdown,
-          "utf-8",
-        );
+        const skills: Record<string, string> = {
+          [builtIn.skillName]: builtIn.skillMarkdown,
+          ...builtInExtraSkills(builtIn),
+        };
+        for (const [skillName, skillMarkdown] of Object.entries(skills)) {
+          const skillDir = path.join(outDir, "skills", skillName);
+          fs.mkdirSync(skillDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(skillDir, "SKILL.md"),
+            skillMarkdown,
+            "utf-8",
+          );
+        }
         return outDir;
       },
     };

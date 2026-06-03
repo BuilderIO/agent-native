@@ -2,7 +2,7 @@
 
 ### Agentic applications you own.
 
-Don't choose between structured user flows and autonomous agents. Every Agent-Native app is both.
+Don't choose between rich user interfaces and autonomous agents. Every Agent-Native app is both.
 
 ## Agents and UIs — Fully Connected
 

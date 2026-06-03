@@ -24,6 +24,7 @@ import {
   isTrustedBuilderMessage,
   sendToBuilderChat,
 } from "./builder-frame.js";
+import { agentNativePath } from "./api-path.js";
 
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
@@ -91,7 +92,7 @@ export interface AgentChatContextItem {
   context: string;
 }
 
-export interface AgentChatContextMessage extends AgentChatContextItem {
+export interface AgentChatContextSetOptions extends AgentChatContextItem {
   /**
    * Whether to open the agent sidebar if it's currently hidden.
    * Defaults to true so the user can see the staged context.
@@ -99,9 +100,43 @@ export interface AgentChatContextMessage extends AgentChatContextItem {
   openSidebar?: boolean;
 }
 
+/** @deprecated Use `AgentChatContextSetOptions` instead. */
+export type AgentChatContextMessage = AgentChatContextSetOptions;
+
+export interface AgentChatContextState {
+  items: AgentChatContextItem[];
+  updatedAt: number;
+}
+
+export interface AgentChatContextMutationOptions {
+  /**
+   * Whether to open the agent sidebar if it's currently hidden.
+   * Defaults to true for set/add and false for remove/clear.
+   */
+  openSidebar?: boolean;
+}
+
+export interface AgentChatContextRemoveOptions extends AgentChatContextMutationOptions {
+  /** Stable key of the staged context nugget to remove. */
+  key: string;
+}
+
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
-const AGENT_CHAT_CONTEXT_MESSAGE_TYPE = "agentNative.setChatContext";
+const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
+export const AGENT_CHAT_CONTEXT_CHANGED_EVENT =
+  "agentNative.chatContextChanged";
+export const AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE = "agentNative.setChatContext";
+export const AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE =
+  "agentNative.removeChatContext";
+export const AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE =
+  "agentNative.clearChatContext";
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
+
+let agentChatContextState: AgentChatContextState = {
+  items: [],
+  updatedAt: 0,
+};
+const agentChatContextListeners = new Set<() => void>();
 
 /**
  * Listen for chatRunning messages from the frame (postMessage)
@@ -152,6 +187,135 @@ export function normalizeAgentChatContextItem(
   };
 }
 
+export function normalizeAgentChatContextItems(
+  items: unknown,
+): AgentChatContextItem[] {
+  if (!Array.isArray(items)) return [];
+  const deduped = new Map<string, AgentChatContextItem>();
+  for (const rawItem of items) {
+    const item = normalizeAgentChatContextItem(rawItem);
+    if (!item) continue;
+    deduped.set(item.key, item);
+  }
+  return [...deduped.values()];
+}
+
+function normalizeAgentChatContextState(
+  value: unknown,
+): AgentChatContextState | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as {
+    value?: unknown;
+    items?: unknown;
+    updatedAt?: unknown;
+  };
+  const candidate =
+    raw.value && typeof raw.value === "object"
+      ? (raw.value as { items?: unknown; updatedAt?: unknown })
+      : raw;
+  const items = normalizeAgentChatContextItems(candidate.items);
+  return {
+    items,
+    updatedAt:
+      typeof candidate.updatedAt === "number" ? candidate.updatedAt : 0,
+  };
+}
+
+function withReplacedAgentChatContextItem(
+  items: readonly AgentChatContextItem[],
+  item: AgentChatContextItem,
+): AgentChatContextItem[] {
+  const index = items.findIndex((current) => current.key === item.key);
+  if (index === -1) return [...items, item];
+  return items.map((current, currentIndex) =>
+    currentIndex === index ? item : current,
+  );
+}
+
+function notifyAgentChatContextListeners(): void {
+  for (const listener of agentChatContextListeners) listener();
+}
+
+function persistAgentChatContextState(state: AgentChatContextState): void {
+  if (typeof window === "undefined" || typeof fetch !== "function") return;
+  fetch(
+    agentNativePath(
+      `/_agent-native/application-state/${AGENT_CHAT_CONTEXT_STATE_KEY}`,
+    ),
+    {
+      method: "PUT",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+    },
+  ).catch(() => {});
+}
+
+export function publishAgentChatContextItems(
+  items: readonly AgentChatContextItem[],
+  options?: { persist?: boolean; updatedAt?: number },
+): AgentChatContextState {
+  const next: AgentChatContextState = {
+    items: normalizeAgentChatContextItems([...items]),
+    updatedAt: options?.updatedAt ?? Date.now(),
+  };
+  if (next.updatedAt < agentChatContextState.updatedAt) {
+    return agentChatContextState;
+  }
+  agentChatContextState = next;
+  notifyAgentChatContextListeners();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(AGENT_CHAT_CONTEXT_CHANGED_EVENT, {
+        detail: next,
+      }),
+    );
+  }
+  if (options?.persist !== false) {
+    persistAgentChatContextState(next);
+  }
+  return next;
+}
+
+export function getAgentChatContextState(): AgentChatContextState {
+  return agentChatContextState;
+}
+
+export function listAgentChatContext(): AgentChatContextItem[] {
+  return [...agentChatContextState.items];
+}
+
+export function subscribeAgentChatContext(listener: () => void): () => void {
+  agentChatContextListeners.add(listener);
+  return () => {
+    agentChatContextListeners.delete(listener);
+  };
+}
+
+export async function refreshAgentChatContext(): Promise<AgentChatContextState> {
+  if (typeof window === "undefined" || typeof fetch !== "function") {
+    return agentChatContextState;
+  }
+  try {
+    const res = await fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${AGENT_CHAT_CONTEXT_STATE_KEY}`,
+      ),
+    );
+    if (!res.ok || res.status === 204) return agentChatContextState;
+    const text = await res.text();
+    if (!text) return agentChatContextState;
+    const state = normalizeAgentChatContextState(JSON.parse(text));
+    if (!state) return agentChatContextState;
+    return publishAgentChatContextItems(state.items, {
+      persist: false,
+      updatedAt: state.updatedAt,
+    });
+  } catch {
+    return agentChatContextState;
+  }
+}
+
 export function formatAgentChatContextItemsForPrompt(
   items: readonly AgentChatContextItem[],
 ): string {
@@ -169,6 +333,46 @@ export function appendAgentChatContextToMessage(
   const trimmedContext = context.trim();
   if (!trimmedContext) return message;
   return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
+}
+
+function postAgentChatContextMessage(
+  type:
+    | typeof AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE
+    | typeof AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE
+    | typeof AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+  data: unknown,
+  options: { openSidebar: boolean },
+): void {
+  if (typeof window === "undefined") return;
+
+  const payload = { type, data };
+  const targetSelf = isInBuilderFrame() || isDirectMcpAppEmbedSession();
+  const target = targetSelf
+    ? window
+    : window.parent !== window
+      ? window.parent
+      : window;
+  const targetOrigin = targetSelf
+    ? window.location.origin
+    : getFramePostMessageTargetOrigin() || window.location.origin;
+
+  if (options.openSidebar) {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", {
+        detail: { mode: "chat" },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent("agent-panel:open"));
+  } else {
+    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
+  }
+
+  const postToTarget = () => target.postMessage(payload, targetOrigin);
+  if (target === window) {
+    setTimeout(postToTarget, 0);
+  } else {
+    postToTarget();
+  }
 }
 
 function isMcpAppChatBridgeEnabled(): boolean {
@@ -280,42 +484,58 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
  * Add or replace a keyed context nugget in the active agent chat composer.
  * The context is not submitted until the user sends the prompt.
  */
-export function setContextToAgentChat(opts: AgentChatContextMessage): void {
+export function setAgentChatContextItem(
+  opts: AgentChatContextSetOptions,
+): void {
   const item = normalizeAgentChatContextItem(opts);
   if (!item || typeof window === "undefined") return;
 
-  const payload = {
-    type: AGENT_CHAT_CONTEXT_MESSAGE_TYPE,
-    data: item,
-  };
-  const shouldOpenSidebar = opts.openSidebar !== false;
-  const targetSelf = isInBuilderFrame() || isDirectMcpAppEmbedSession();
-  const target = targetSelf
-    ? window
-    : window.parent !== window
-      ? window.parent
-      : window;
-  const targetOrigin = targetSelf
-    ? window.location.origin
-    : getFramePostMessageTargetOrigin() || window.location.origin;
-
-  if (shouldOpenSidebar) {
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:set-mode", {
-        detail: { mode: "chat" },
-      }),
-    );
-    window.dispatchEvent(new CustomEvent("agent-panel:open"));
-  } else {
-    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
-  }
-
-  const postToTarget = () => target.postMessage(payload, targetOrigin);
-  if (target === window) {
-    setTimeout(postToTarget, 0);
-  } else {
-    postToTarget();
-  }
+  publishAgentChatContextItems(
+    withReplacedAgentChatContextItem(agentChatContextState.items, item),
+  );
+  postAgentChatContextMessage(AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE, item, {
+    openSidebar: opts.openSidebar !== false,
+  });
 }
 
-export const addContextToAgentChat = setContextToAgentChat;
+/** @deprecated Use `setAgentChatContextItem` instead. */
+export const setContextToAgentChat = setAgentChatContextItem;
+
+/** @deprecated Use `setAgentChatContextItem` instead. */
+export const addContextToAgentChat = setAgentChatContextItem;
+
+export function removeAgentChatContextItem(
+  keyOrOpts: string | AgentChatContextRemoveOptions,
+): void {
+  const key =
+    typeof keyOrOpts === "string" ? keyOrOpts.trim() : keyOrOpts.key.trim();
+  if (!key || typeof window === "undefined") return;
+  const openSidebar =
+    typeof keyOrOpts === "string" ? false : keyOrOpts.openSidebar === true;
+
+  publishAgentChatContextItems(
+    agentChatContextState.items.filter((item) => item.key !== key),
+  );
+  postAgentChatContextMessage(
+    AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+    { key },
+    { openSidebar },
+  );
+}
+
+export function clearAgentChatContext(
+  opts: AgentChatContextMutationOptions = {},
+): void {
+  if (typeof window === "undefined") return;
+  publishAgentChatContextItems([]);
+  postAgentChatContextMessage(
+    AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+    {},
+    { openSidebar: opts.openSidebar === true },
+  );
+}
+
+export function _resetAgentChatContextForTests(): void {
+  agentChatContextState = { items: [], updatedAt: 0 };
+  notifyAgentChatContextListeners();
+}

@@ -63,10 +63,9 @@ export interface RequestContext {
   orgId?: string;
   timezone?: string;
   /**
-   * Set when SSR code reads authenticated request context. The SSR cache layer
-   * uses this as a last-resort leak guard: public shell/data should not read
-   * user/org state during render, but older templates still do. Routes that
-   * need CDN caching should move those reads behind client-side actions/API.
+   * Set when code reads authenticated request context. Public SSR shell/data
+   * should not depend on this value; user/org-specific reads belong behind
+   * client-side actions/API after hydration.
    */
   authContextAccessed?: boolean;
   /**

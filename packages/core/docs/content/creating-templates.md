@@ -133,7 +133,7 @@ Use the [Database](/docs/database) and [Security](/docs/security) docs before ad
 
 ## Define Operations As Actions {#actions}
 
-Actions are the single source of truth for app behavior. The agent calls them as tools, the frontend calls them through hooks or HTTP, and other apps can reach them through MCP/A2A.
+Actions are the single source of truth for app behavior. The agent calls them as tools, the frontend calls them through hooks, and other apps can reach them through MCP/A2A.
 
 ```ts
 // actions/create-project.ts
@@ -196,7 +196,7 @@ export function AppSync() {
 }
 ```
 
-**The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook refetches when a mutating action emits `source: "action"`. If you reach for raw `useQuery` with a custom key (e.g. for a non-action HTTP endpoint, integration status, etc.), fold the per-source counter into the queryKey for targeted refreshes:
+**The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook refetches when a mutating action emits `source: "action"`. If you reach for raw `useQuery` with a custom key (for example, a low-level client helper that reads integration status), fold the per-source counter into the queryKey for targeted refreshes:
 
 ```tsx
 import { useChangeVersions } from "@agent-native/core/client";

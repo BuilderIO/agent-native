@@ -45,6 +45,7 @@ Defined in the workflow's matrix. Update it when adding a new hosted template.
 | forms     | curly-glade-91979555    | aa0b2020-9983-4d6c-8fb0-65462f960fc4 |
 | issues    | crimson-wave-50288362   | 76b94d46-f566-43cd-bddd-01123137ab9a |
 | mail      | patient-cake-44789837   | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
+| plan      | late-pine-39936033      | 9d0d7a73-385d-4da1-ba10-1581ffc4d413 |
 | slides    | hidden-thunder-16834477 | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
 | videos    | soft-pine-75308618      | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
 
@@ -56,6 +57,11 @@ in each template's `server/plugins/db.ts` — additive SQL only
 (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ADD COLUMN IF NOT EXISTS`).
 
 ## Follow-ups
+
+- **Agent-Native Plans DNS/TLS.** The Plans Neon project and Netlify site are
+  configured and included in the preview-branch workflows. To complete the
+  public cutover, `plan.agent-native.com` should resolve as a DNS-only CNAME to
+  `agent-native-plan.netlify.app`; then provision/verify TLS in Netlify.
 
 - **Preview-only actions.** Actions that reach outside the DB (send email,
   charge a card, post to Slack) need their own preview-vs-prod gating so

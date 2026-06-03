@@ -109,7 +109,7 @@ describe("agent-native skills", () => {
     );
   });
 
-  it("accepts legacy contracts aliases for the built-in Visual Plans skill", async () => {
+  it("accepts shorthand aliases for the built-in Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
     fs.mkdirSync(codexHome, { recursive: true });
@@ -121,7 +121,7 @@ describe("agent-native skills", () => {
       const result = await addAgentNativeSkill(
         parseSkillsArgs([
           "add",
-          "assumption-review",
+          "plannotate",
           "--client",
           "codex",
           "--scope",
@@ -137,26 +137,65 @@ describe("agent-native skills", () => {
       );
 
       expect(result.id).toBe("visual-plans");
-      expect(result.skillNames).toEqual(["visual-plans"]);
+      expect(result.skillNames).toEqual(["visual-plans", "visualize-plan"]);
       expect(commands[0].args).toEqual(
         expect.arrayContaining([
           "--skill",
           "visual-plans",
+          "--skill",
+          "visualize-plan",
           "-a",
           "codex",
           "-y",
         ]),
       );
       expect(result.mcpUrl).toBe(
-        "https://plans.agent-native.com/_agent-native/mcp",
+        "https://plan.agent-native.com/_agent-native/mcp",
       );
       expect(
         fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
-      ).toContain('url = "https://plans.agent-native.com/_agent-native/mcp"');
+      ).toContain('url = "https://plan.agent-native.com/_agent-native/mcp"');
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
     }
+  });
+
+  it("accepts visualize-plan as a Plans companion alias", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "visualize-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("visual-plans");
+    expect(result.skillNames).toEqual(["visual-plans", "visualize-plan"]);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "--skill",
+        "visual-plans",
+        "--skill",
+        "visualize-plan",
+      ]),
+    );
+    expect(result.mcpUrl).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
   });
 
   it("installs project-scoped local Context X-Ray artifacts without global agent instructions", async () => {

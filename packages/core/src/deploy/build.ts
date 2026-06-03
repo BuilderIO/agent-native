@@ -505,8 +505,7 @@ function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
   // data fetches fill CDN cache instead of bypassing it and slamming origin.
   // Do not re-add a blanket auth-signal bypass here; logged-in browsers still
   // need CDN-cached public route data. Worker SSR does not populate
-  // getRequestUserEmail()/accessFilter() context for private loaders, and
-  // Node/H3 has an auth-context access guard for older loaders that still do.
+  // getRequestUserEmail()/accessFilter() context for private loaders.
   // Also do not preserve route-level private/no-store for React Router .data:
   // if a route needs per-user data, it belongs behind a client-side action/API
   // call rather than in the shared SSR payload.

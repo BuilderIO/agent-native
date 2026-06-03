@@ -161,6 +161,9 @@ vi.mock("../chat-threads/store.js", () => ({
 
 // ── run-manager: drive runFn then onComplete with a synthetic run ─────────
 const runAgentLoopMock = vi.fn();
+const abortRunMock = vi.fn();
+const getRunMock = vi.fn();
+const subscribeToRunMock = vi.fn();
 vi.mock("../agent/run-manager.js", () => ({
   startRun: (
     runId: string,
@@ -205,13 +208,16 @@ vi.mock("../agent/run-manager.js", () => ({
       startedAt: Date.now(),
     };
   },
-  abortRun: vi.fn(),
+  abortRun: abortRunMock,
   getActiveRunForThreadAsync: vi.fn(async () => null),
-  getRun: vi.fn(),
-  subscribeToRun: vi.fn(),
+  getRun: getRunMock,
+  subscribeToRun: subscribeToRunMock,
 }));
 
-vi.mock("../agent/run-store.js", () => ({ getRunEventsSince: vi.fn() }));
+const getRunEventsSinceMock = vi.fn(async () => []);
+vi.mock("../agent/run-store.js", () => ({
+  getRunEventsSince: getRunEventsSinceMock,
+}));
 
 // ── production-agent: scripted agent loop ─────────────────────────────────
 vi.mock("../agent/production-agent.js", () => ({
@@ -255,15 +261,20 @@ vi.mock("./request-context.js", () => ({
 
 // ── capture self-fire dispatches ──────────────────────────────────────────
 const dispatches: Array<{ taskId: string; body?: any; event?: any }> = [];
+const fireInternalDispatchMock = vi.fn(async (o: any) => {
+  dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
+});
 vi.mock("./self-dispatch.js", () => ({
-  fireInternalDispatch: vi.fn(async (o: any) => {
-    dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
-  }),
+  fireInternalDispatch: fireInternalDispatchMock,
 }));
 
 const queue = await import("./agent-teams-run-queue.js");
-const { processAgentTeamRun, reconcileAgentTeamRunsForOwner } =
-  await import("./agent-teams.js");
+const {
+  listAgentTeamBackgroundTranscriptEvents,
+  processAgentTeamRun,
+  reconcileAgentTeamRunsForOwner,
+  stopAgentTeamBackgroundRun,
+} = await import("./agent-teams.js");
 const { runWithRequestContext } = await import("./request-context.js");
 
 const OWNER = "owner@example.com";
@@ -309,6 +320,15 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     activeRequestContext = undefined;
     queue._agentTeamRunQueueForTests.resetInit();
     runAgentLoopMock.mockReset();
+    getRunMock.mockReset();
+    abortRunMock.mockReset();
+    subscribeToRunMock.mockReset();
+    getRunEventsSinceMock.mockReset();
+    getRunEventsSinceMock.mockResolvedValue([]);
+    fireInternalDispatchMock.mockReset();
+    fireInternalDispatchMock.mockImplementation(async (o: any) => {
+      dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
+    });
     vi.clearAllMocks();
   });
 
@@ -428,5 +448,196 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(dispatches[0].event).toBe(event);
     nowSpy.mockRestore();
+  });
+
+  it("fails stale queued work when the processor rejects the self-dispatch", async () => {
+    const now = Date.UTC(2026, 5, 2, 12, 0, 0);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    await seedTask("t5-dispatch-fail");
+    const row = queueRows.find((x) => x.task_id === "t5-dispatch-fail");
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.updated_at = now - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+    fireInternalDispatchMock.mockRejectedValueOnce(
+      new Error(
+        "Self-dispatch to /_agent-native/agent-teams/_process-run returned HTTP 503 Service Unavailable",
+      ),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      reconcileAgentTeamRunsForOwner(OWNER),
+    );
+
+    const task = appState.get("agent-task:t5-dispatch-fail");
+    expect(task.status).toBe("errored");
+    expect(task.error).toContain("Failed to start sub-agent");
+    expect(
+      (await queue.getAgentTeamRunDispatchState("t5-dispatch-fail"))?.status,
+    ).toBe("failed");
+    nowSpy.mockRestore();
+  });
+
+  it("lists transcript events from chunked run ids for the base background run", async () => {
+    await seedTask("t5");
+    const row = queueRows.find((x) => x.task_id === "t5");
+    if (!row) throw new Error("missing queued task row");
+    row.status = "done";
+    row.continuation_count = 1;
+    getRunEventsSinceMock.mockImplementation(async (runId: string) => {
+      if (runId === "run-task-t5-c0") {
+        return [
+          {
+            seq: 0,
+            eventData: JSON.stringify({ type: "text", text: "first chunk" }),
+          },
+          {
+            seq: 1,
+            eventData: JSON.stringify({
+              type: "text",
+              text: "first chunk second event",
+            }),
+          },
+        ];
+      }
+      if (runId === "run-task-t5-c1") {
+        return [
+          {
+            seq: 0,
+            eventData: JSON.stringify({ type: "text", text: "second chunk" }),
+          },
+          {
+            seq: 1,
+            eventData: JSON.stringify({
+              type: "text",
+              text: "second chunk second event",
+            }),
+          },
+        ];
+      }
+      return [];
+    });
+
+    const events = await listAgentTeamBackgroundTranscriptEvents("run-task-t5");
+
+    expect(events.map((event) => event.id)).toEqual([
+      "run-task-t5-c0:0",
+      "run-task-t5-c0:1",
+      "run-task-t5-c1:0",
+      "run-task-t5-c1:1",
+    ]);
+    expect(events.map((event) => event.runId)).toEqual([
+      "run-task-t5",
+      "run-task-t5",
+      "run-task-t5",
+      "run-task-t5",
+    ]);
+    expect(events.map((event) => event.message)).toEqual([
+      "first chunk",
+      "first chunk second event",
+      "second chunk",
+      "second chunk second event",
+    ]);
+    expect(events.map((event) => event.metadata?.sourceRunId)).toEqual([
+      "run-task-t5-c0",
+      "run-task-t5-c0",
+      "run-task-t5-c1",
+      "run-task-t5-c1",
+    ]);
+    expect(events.map((event) => event.metadata?.seq)).toEqual([0, 1, 2, 3]);
+    expect(events.map((event) => event.metadata?.sourceSeq)).toEqual([
+      0, 1, 0, 1,
+    ]);
+  });
+
+  it("stops the currently active chunk run for a background task", async () => {
+    await seedTask("t6");
+    getRunMock.mockImplementation((runId: string) =>
+      runId === "run-task-t6-c0"
+        ? { runId, events: [], status: "running" }
+        : null,
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-t6"),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t6-c0", "user");
+    expect((await queue.getAgentTeamRunDispatchState("t6"))?.status).toBe(
+      "failed",
+    );
+  });
+
+  it("stops the durable active chunk when it is running on another instance", async () => {
+    await seedTask("t7");
+    const row = queueRows.find((x) => x.task_id === "t7");
+    expect(row).toBeTruthy();
+    row.status = "running";
+    row.continuation_count = 3;
+    getRunMock.mockReturnValue(null);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-t7"),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t7-c3", "user");
+    expect((await queue.getAgentTeamRunDispatchState("t7"))?.status).toBe(
+      "failed",
+    );
+  });
+
+  it("prefers the durable active chunk over a retained terminal old chunk", async () => {
+    await seedTask("t8");
+    const row = queueRows.find((x) => x.task_id === "t8");
+    expect(row).toBeTruthy();
+    row.status = "running";
+    row.continuation_count = 1;
+    getRunMock.mockImplementation((runId: string) =>
+      runId === "run-task-t8-c0"
+        ? { runId, events: [], status: "completed" }
+        : null,
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-t8"),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t8-c1", "user");
+    expect((await queue.getAgentTeamRunDispatchState("t8"))?.status).toBe(
+      "failed",
+    );
+  });
+
+  it("does not strip chunk-looking suffixes from stable background run ids", async () => {
+    await seedTask("task-ending-c1");
+    getRunMock.mockImplementation((runId: string) =>
+      runId === "run-task-task-ending-c1-c0"
+        ? { runId, events: [], status: "running" }
+        : null,
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-task-ending-c1"),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(abortRunMock).toHaveBeenCalledWith(
+      "run-task-task-ending-c1-c0",
+      "user",
+    );
   });
 });

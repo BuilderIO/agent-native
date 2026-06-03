@@ -11,10 +11,12 @@ coding agents can discover the same workspace-wide guidance from the root.
 - All AI/LLM behavior goes through the app's agent chat. UI and server code
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
-  work. When selected UI data should become hidden context for the user's next
-  prompt without submitting anything, use `setContextToAgentChat()` with a
-  stable `key`. Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
-  before building agent-driven UI or "AI" features.
+  work, including hidden `context` and `submit: false` prefill/review flows.
+  Only use `useAgentChatContext`, `setAgentChatContextItem`,
+  `listAgentChatContext`, `removeAgentChatContextItem`, and
+  `clearAgentChatContext` when UI needs two-way sync with staged context chips.
+  Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md` before
+  building agent-driven UI or "AI" features.
 
 ## Workspace Resources
 
