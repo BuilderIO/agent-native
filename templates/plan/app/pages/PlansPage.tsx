@@ -136,6 +136,9 @@ type PlanAnnotationAnchor = {
   tabPanelId?: string;
   tabLabel?: string;
   snippet?: string;
+  targetSelector?: string;
+  targetX?: number;
+  targetY?: number;
   tagName?: string;
   anchorKind?: "text" | "visual" | "point";
   textQuote?: string;
@@ -2096,6 +2099,66 @@ function injectAnnotationRuntime(
       function clamp(value, min, max) {
         return Math.max(min, Math.min(max, value));
       }
+      function cssEscape(value) {
+        if (window.CSS?.escape) return window.CSS.escape(String(value));
+        return String(value).replace(/[^a-zA-Z0-9_-]/g, (char) => "\\\\" + char);
+      }
+      function cssAttr(value) {
+        return String(value || "").replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\"');
+      }
+      function uniqueSelector(selector) {
+        try {
+          return document.querySelectorAll(selector).length === 1;
+        } catch {
+          return false;
+        }
+      }
+      function selectorForElement(element) {
+        if (!(element instanceof Element)) return "";
+        if (element.id) {
+          const selector = "#" + cssEscape(element.id);
+          if (uniqueSelector(selector)) return selector;
+        }
+        for (const attr of ["data-plan-section-id", "data-tab-panel", "data-file-path"]) {
+          const value = element.getAttribute(attr);
+          if (!value) continue;
+          const selector = element.tagName.toLowerCase() + "[" + attr + '="' + cssAttr(value) + '"]';
+          if (uniqueSelector(selector)) return selector;
+        }
+        const parts = [];
+        let current = element;
+        while (current && current !== document.body && current !== document.documentElement) {
+          let part = current.tagName.toLowerCase();
+          const parent = current.parentElement;
+          if (!parent) break;
+          const sameTagSiblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+          if (sameTagSiblings.length > 1) {
+            part += ":nth-of-type(" + (sameTagSiblings.indexOf(current) + 1) + ")";
+          }
+          parts.unshift(part);
+          const selector = "body > " + parts.join(" > ");
+          if (uniqueSelector(selector)) return selector;
+          current = parent;
+        }
+        return parts.length ? "body > " + parts.join(" > ") : "";
+      }
+      function anchorTargetForElement(element) {
+        if (!(element instanceof Element)) return null;
+        const visual = closestVisualContext(element);
+        if (visual) return visual;
+        return closestTextElement(element) || element.closest("[data-tab-panel], [data-plan-section-id], section[id], article[id]") || element;
+      }
+      function withTargetAnchor(anchor, target, clientX, clientY) {
+        const targetElement = anchorTargetForElement(target);
+        const rect = targetElement?.getBoundingClientRect?.();
+        if (!targetElement || !rect || (!rect.width && !rect.height)) return anchor;
+        return {
+          ...anchor,
+          targetSelector: selectorForElement(targetElement) || undefined,
+          targetX: pct(clamp(clientX, rect.left, rect.right) - rect.left, rect.width),
+          targetY: pct(clamp(clientY, rect.top, rect.bottom) - rect.top, rect.height)
+        };
+      }
       function ensureLayer() {
         let layer = document.querySelector(".an-plan-annotation-layer");
         if (!layer) {
@@ -2138,6 +2201,107 @@ function injectAnnotationRuntime(
         if (!tabPanelId) return true;
         const panel = Array.from(document.querySelectorAll("[data-tab-panel]")).find((candidate) => candidate.getAttribute("data-tab-panel") === tabPanelId);
         return Boolean(panel?.classList.contains("is-active"));
+      }
+      function elementTabPanelId(element) {
+        if (!(element instanceof Element)) return "";
+        return element.closest("[data-tab-panel]")?.getAttribute("data-tab-panel") || "";
+      }
+      function isElementTabActive(element) {
+        const tabPanelId = elementTabPanelId(element);
+        return !tabPanelId || isTabContextActive(tabPanelId);
+      }
+      function resolveAnchorTarget(anchor) {
+        if (!anchor) return null;
+        if (anchor.targetSelector) {
+          try {
+            const target = document.querySelector(anchor.targetSelector);
+            if (target) return target;
+          } catch {
+            // Ignore stale selectors and fall back to quote matching.
+          }
+        }
+        const quote = normalizeText(anchor.textQuote || anchor.snippet || "");
+        if (!quote) return null;
+        const needle = quote.slice(0, 120);
+        const scopes = [];
+        if (anchor.sectionId) {
+          const escapedSection = cssEscape(anchor.sectionId);
+          scopes.push(
+            document.querySelector('[data-plan-section-id="' + cssAttr(anchor.sectionId) + '"]'),
+            document.getElementById(anchor.sectionId),
+            document.querySelector("#" + escapedSection)
+          );
+        }
+        scopes.push(document);
+        for (const scope of scopes.filter(Boolean)) {
+          const candidates = Array.from(scope.querySelectorAll?.([
+            "p",
+            "li",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "td",
+            "th",
+            "blockquote",
+            "figcaption",
+            "summary",
+            "button",
+            "a",
+            "label",
+            "pre",
+            "code",
+            "[data-plan-text]"
+          ].join(",")) || []);
+          const match = candidates.find((candidate) => normalizeText(candidate.textContent || "").includes(needle));
+          if (match) return anchorTargetForElement(match);
+        }
+        return null;
+      }
+      function pointForAnchor(anchor) {
+        const doc = document.documentElement;
+        const docHeight = Math.max(doc.scrollHeight, document.body.scrollHeight);
+        const target = resolveAnchorTarget(anchor);
+        if (target) {
+          if (!isElementTabActive(target)) return null;
+          const rect = target.getBoundingClientRect();
+          if (rect && (rect.width || rect.height)) {
+            return {
+              left: rect.left + window.scrollX + ((anchor.targetX ?? anchor.visualX ?? 50) / 100) * rect.width,
+              top: rect.top + window.scrollY + ((anchor.targetY ?? anchor.visualY ?? 50) / 100) * rect.height
+            };
+          }
+        }
+        const tabContext = anchor.tabPanelId ? { tabPanelId: anchor.tabPanelId } : tabContextForPoint(anchor);
+        if (!isTabContextActive(tabContext.tabPanelId)) return null;
+        return {
+          left: (anchor.x / 100) * doc.scrollWidth,
+          top: (anchor.y / 100) * docHeight
+        };
+      }
+      function setMarkerVisibility(marker, visible) {
+        marker.style.display = visible ? "inline-flex" : "none";
+        marker.setAttribute("aria-hidden", String(!visible));
+      }
+      function positionMarker(marker, item) {
+        const point = pointForAnchor(item.anchor);
+        if (!point) {
+          setMarkerVisibility(marker, false);
+          return;
+        }
+        marker.style.left = point.left + "px";
+        marker.style.top = point.top + "px";
+        setMarkerVisibility(marker, true);
+      }
+      function anchorWithCurrentPoint(anchor) {
+        const point = pointForAnchor(anchor);
+        if (!point) return anchor;
+        const doc = document.documentElement;
+        return {
+          ...anchor,
+          x: pct(point.left, doc.scrollWidth),
+          y: pct(point.top, Math.max(doc.scrollHeight, document.body.scrollHeight))
+        };
       }
       function rangeFromPoint(clientX, clientY) {
         if (document.caretPositionFromPoint) {
@@ -2223,7 +2387,7 @@ function injectAnnotationRuntime(
         const doc = document.documentElement;
         const textQuote = closestTextContext(textElement);
         const section = closestSection(textElement);
-        return {
+        const anchor = {
           x: pct(clamp(clientX, rect.left, rect.right) + window.scrollX, doc.scrollWidth),
           y: pct(clamp(clientY, rect.top, rect.bottom) + window.scrollY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
           sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
@@ -2234,6 +2398,7 @@ function injectAnnotationRuntime(
           anchorKind: textQuote ? "text" : "point",
           tagName: textElement.tagName.toLowerCase()
         };
+        return withTargetAnchor(anchor, textElement, clientX, clientY);
       }
       function anchorFromRange(range, selectedText) {
         const rect = range.getBoundingClientRect();
@@ -2241,7 +2406,7 @@ function injectAnnotationRuntime(
         const doc = document.documentElement;
         const section = sectionForNode(range.commonAncestorContainer);
         const rangeElement = range.commonAncestorContainer instanceof Element ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
-        return {
+        const anchor = {
           x: pct(rect.left + window.scrollX + rect.width / 2, doc.scrollWidth),
           y: pct(rect.top + window.scrollY + rect.height / 2, Math.max(doc.scrollHeight, document.body.scrollHeight)),
           sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
@@ -2252,6 +2417,7 @@ function injectAnnotationRuntime(
           anchorKind: "text",
           tagName: "selection"
         };
+        return withTargetAnchor(anchor, rangeElement, rect.left + rect.width / 2, rect.top + rect.height / 2);
       }
       function ensureSelectionToolbar() {
         let toolbar = document.querySelector(".an-plan-selection-toolbar");
@@ -2355,8 +2521,12 @@ function injectAnnotationRuntime(
       }
       function syncAnnotationMarkers() {
         for (const marker of document.querySelectorAll("[data-agent-native-plan-marker]")) {
+          if (marker.__agentNativePlanAnnotation) {
+            positionMarker(marker, marker.__agentNativePlanAnnotation);
+            continue;
+          }
           const tabPanelId = marker.getAttribute("data-tab-panel-id") || "";
-          marker.hidden = !isTabContextActive(tabPanelId);
+          setMarkerVisibility(marker, isTabContextActive(tabPanelId));
         }
       }
       const layer = ensureLayer();
@@ -2368,21 +2538,26 @@ function injectAnnotationRuntime(
         button.className = "an-plan-marker";
         button.dataset.status = item.status || "open";
         button.dataset.agentNativePlanMarker = "true";
+        button.__agentNativePlanAnnotation = item;
         if (tabContext.tabPanelId) {
           button.dataset.tabPanelId = tabContext.tabPanelId;
         }
         if (tabContext.tabLabel) {
           button.dataset.tabLabel = tabContext.tabLabel;
         }
-        button.style.left = item.anchor.x + "%";
-        button.style.top = item.anchor.y + "%";
-        button.hidden = !isTabContextActive(tabContext.tabPanelId);
+        positionMarker(button, item);
         button.textContent = String(item.index);
         button.title = item.message || "Plan comment";
         button.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          window.parent.postMessage({ type: "agent-native-plan-open-comment", comment: item }, "*");
+          window.parent.postMessage({
+            type: "agent-native-plan-open-comment",
+            comment: {
+              ...item,
+              anchor: anchorWithCurrentPoint(item.anchor)
+            }
+          }, "*");
         });
         layer.appendChild(button);
       }
@@ -2491,9 +2666,10 @@ function injectAnnotationRuntime(
           visualY,
           tagName: target ? target.tagName.toLowerCase() : undefined
         };
+        const anchoredFallback = withTargetAnchor(fallbackAnchor, visual || target, event.clientX, event.clientY);
         window.parent.postMessage({
           type: "agent-native-plan-annotate",
-          anchor: textAnchor ? { ...textAnchor, ...tabContext } : fallbackAnchor
+          anchor: textAnchor ? { ...textAnchor, ...tabContext } : anchoredFallback
         }, "*");
       }, true);
     })();
