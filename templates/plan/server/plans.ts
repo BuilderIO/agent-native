@@ -336,7 +336,7 @@ export function buildPlanHtml(bundle: PlanBundle): string {
   </header>
   <main>
     <section class="hero">
-      <p class="kicker">HTML plan mode</p>
+      <p class="kicker">Working plan</p>
       <h1>${title}</h1>
       <p class="lede">${brief}</p>
       <div class="meta">
@@ -344,23 +344,6 @@ export function buildPlanHtml(bundle: PlanBundle): string {
         <span>${escapeHtml(bundle.plan.status.replace(/_/g, " "))}</span>
         ${bundle.plan.repoPath ? `<span>${escapeHtml(bundle.plan.repoPath)}</span>` : ""}
       </div>
-    </section>
-    <section class="glance">
-      <article>
-        <span>Visuals</span>
-        <strong>${bundle.sections.filter((section) => ["diagram", "wireframe", "prototype"].includes(section.type)).length}</strong>
-        <p>Diagrams, mockups, or prototype sections.</p>
-      </article>
-      <article>
-        <span>Review</span>
-        <strong>${bundle.summary.openCommentCount}</strong>
-        <p>Open comments and annotations.</p>
-      </article>
-      <article>
-        <span>Plan</span>
-        <strong>${bundle.sections.length}</strong>
-        <p>Readable sections in this companion.</p>
-      </article>
     </section>
     ${sectionHtml}
   </main>
@@ -465,12 +448,7 @@ h1 { max-width: 860px; margin: 0; font-size: clamp(42px, 8vw, 82px); line-height
 .lede { max-width: 760px; margin: 24px 0 0; color: var(--soft); font-size: clamp(20px, 3vw, 28px); line-height: 1.35; }
 .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
 .meta span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--muted); font-size: 12px; }
-.glance { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 28px 0 52px; }
-.glance article, .plan-section { border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
-.glance article { padding: 18px; }
-.glance span { display: block; margin-bottom: 10px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
-.glance strong { font-size: 34px; line-height: 1; }
-.glance p { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+.plan-section { border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
 .plan-section { margin-top: 18px; padding: clamp(22px, 4vw, 34px); scroll-margin-top: 72px; }
 .plan-section h2 { margin: 0; font-size: clamp(26px, 4vw, 42px); letter-spacing: -.035em; }
 .copy { max-width: 760px; margin-top: 18px; color: var(--soft); font-size: 17px; }
@@ -497,5 +475,5 @@ h1 { max-width: 860px; margin: 0; font-size: clamp(42px, 8vw, 82px); line-height
 .cards i { height: 112px; border-radius: 14px; background: var(--accent-soft); border: 1px solid rgba(100,210,200,.26); }
 .panel-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .panel-row i { height: 118px; border-radius: 14px; background: #202024; }
-@media (max-width: 760px) { .topbar { justify-content: flex-start; padding: 0 16px; } .topbar strong { display: none; } main { width: min(100vw - 24px, 980px); padding-top: 44px; } .glance, .flow-diagram, .wireframe-shell, .cards, .panel-row { grid-template-columns: 1fr; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+@media (max-width: 760px) { .topbar { justify-content: flex-start; padding: 0 16px; } .topbar strong { display: none; } main { width: min(100vw - 24px, 980px); padding-top: 44px; } .flow-diagram, .wireframe-shell, .cards, .panel-row { grid-template-columns: 1fr; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
 `;

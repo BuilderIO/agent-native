@@ -424,7 +424,7 @@ export function PlansPage() {
               )}
               <iframe
                 ref={iframeRef}
-                title={`${bundle.plan.title} HTML plan`}
+                title={`${bundle.plan.title} plan`}
                 srcDoc={annotatedDocumentHtml}
                 sandbox="allow-forms allow-scripts"
                 className={cn(
@@ -485,8 +485,8 @@ function EmptyPlan({ onCreate }: { onCreate: () => void }) {
           Start with an HTML plan
         </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Create a plan that reads like a polished document, then layer in
-          diagrams, wireframes, prototypes, and comments.
+          Create a polished plan with diagrams, wireframes, prototypes, and
+          comments before implementation starts.
         </p>
         <Button className="mt-5" onClick={onCreate}>
           <IconPlus className="size-4" />
@@ -582,7 +582,7 @@ function CreatePlanDialog({
   visualizePlan: ReturnType<typeof useVisualizePlan>;
   onCreated: (id: string) => void;
 }) {
-  const [title, setTitle] = useState("Agent-Native Plans HTML Plan Mode");
+  const [title, setTitle] = useState("Agent-Native Plans Product Plan");
   const [brief, setBrief] = useState(
     "Make coding-agent plans visual, scannable, and commentable before implementation.",
   );
@@ -621,7 +621,7 @@ function CreatePlanDialog({
           {
             type: "wireframe",
             title: "Review surface",
-            body: "A document-first plan with a generated HTML page in the center and annotations off to the side.",
+            body: "A document-first plan with visuals in the center and annotations one click away.",
           },
           {
             type: "diagram",
@@ -638,10 +638,10 @@ function CreatePlanDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Create HTML plan</DialogTitle>
+          <DialogTitle>Create plan</DialogTitle>
           <DialogDescription>
             Start fresh or paste an existing Claude Code/Codex plan to turn it
-            into a visual companion.
+            into a richer visual version.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">

@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Create an Agent-Native Plans HTML plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with diagrams, wireframes, prototypes, options, and annotations.",
+    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with diagrams, wireframes, prototypes, options, and annotations.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -63,14 +63,14 @@ export default defineAction({
     isConsequential: true,
     title: "Create Visual Plan",
     description:
-      "Create an HTML plan document where a person can scan visuals, annotate, and respond before the agent builds.",
+      "Create a plan where a person can scan visuals, annotate, and respond before the agent builds.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
       title: "Plan",
       description:
-        "Open the Agent-Native Plans HTML review surface for diagrams, wireframes, mockups, prototypes, and comments.",
+        "Open the Agent-Native Plans review surface for diagrams, wireframes, mockups, prototypes, and comments.",
       iframeTitle: "Agent-Native Plans",
       openLabel: "Open Plan",
       height: 860,

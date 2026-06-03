@@ -62,7 +62,7 @@ describe("Plans helpers", () => {
     expect(sections.some((item) => item.type === "diagram")).toBe(true);
   });
 
-  it("renders a complete iframe-safe HTML plan document", () => {
+  it("renders a complete iframe-safe visual plan", () => {
     const bundle: PlanBundle = {
       plan: {
         id: "plan_1",
