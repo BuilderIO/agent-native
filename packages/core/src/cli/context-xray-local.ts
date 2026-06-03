@@ -259,13 +259,13 @@ function codexTitle(id) {
 
 function observedCodexTokens(payload) {
   if (!payload || payload.type !== "token_count" || !payload.info) return 0;
-  const last = payload.info.last_token_usage;
-  if (last && Number(last.total_tokens)) return Number(last.total_tokens);
   const total = payload.info.total_token_usage;
   if (total && Number(total.total_tokens)) return Number(total.total_tokens);
   if (total && typeof total === "object") {
     return ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"].reduce((sum, key) => sum + (Number(total[key]) || 0), 0);
   }
+  const last = payload.info.last_token_usage;
+  if (last && Number(last.total_tokens)) return Number(last.total_tokens);
   return 0;
 }
 
@@ -920,8 +920,358 @@ function sortedEntries(counter, limit) {
   return Object.entries(counter || {}).sort((a, b) => b[1] - a[1]).slice(0, limit);
 }
 
-function recommendations(sessions) {
+function normalizedTarget(value) {
+  return String(value || "").replace(/^file:\/\//, "").replace(/:\d+(:\d+)?$/g, "").replace(/\/+/g, "/").trim();
+}
+
+function severity(score) {
+  if (score >= 90) return "critical";
+  if (score >= 70) return "high";
+  if (score >= 40) return "medium";
+  if (score >= 15) return "low";
+  return "info";
+}
+
+function addFinding(findings, rule, score, category, title, summary, evidence, recommendation, action) {
+  findings.push({
+    rule,
+    severity: severity(score),
+    score: Math.round(score),
+    category,
+    title,
+    summary,
+    evidence: (evidence || []).filter(Boolean).slice(0, 5),
+    recommendation,
+    action: action || "prompt",
+    confidence: score >= 70 ? "high" : score >= 40 ? "medium" : "low",
+  });
+}
+
+function cacheStability(session) {
+  const series = session.usage && session.usage.series || [];
+  if (series.length < 5) {
+    return { classification: "stable", turnsAboveThreshold: 0, totalTurns: series.length, avgCacheCreationPct: 0, perTurnRatios: [] };
+  }
+  const ratios = series.map((turn) => {
+    const total = (turn.inputTokens || 0) + (turn.cacheCreationInputTokens || 0) + (turn.cacheReadInputTokens || 0);
+    return total ? (turn.cacheCreationInputTokens || 0) / total : 0;
+  });
+  const turnsAboveThreshold = ratios.filter((ratio) => ratio > 0.3).length;
+  const mid = Math.floor(ratios.length / 2);
+  const first = ratios.slice(0, mid);
+  const second = ratios.slice(mid);
+  const avg = (items) => items.length ? items.reduce((sum, item) => sum + item, 0) / items.length : 0;
+  const firstAvg = avg(first);
+  const secondAvg = avg(second);
+  const classification = secondAvg > firstAvg && secondAvg > 0.15 ? "degrading" : turnsAboveThreshold > 5 ? "churning" : "stable";
+  return {
+    classification,
+    turnsAboveThreshold,
+    totalTurns: series.length,
+    avgCacheCreationPct: avg(ratios) * 100,
+    perTurnRatios: ratios.map((ratio) => Math.round(ratio * 1000) / 10),
+  };
+}
+
+function contextGrowth(session) {
+  const series = session.usage && session.usage.series || [];
+  const perTurnInput = series.map((turn) => (turn.inputTokens || 0) + (turn.cacheCreationInputTokens || 0) + (turn.cacheReadInputTokens || 0));
+  let growthFactor = 0;
+  let flagged = false;
+  if (perTurnInput.length > 5 && perTurnInput[4] > 0) {
+    growthFactor = perTurnInput[perTurnInput.length - 1] / perTurnInput[4];
+    flagged = growthFactor > 2;
+  }
+  let pressureWindows = 0;
+  let peakWindowAvg = 0;
+  if (perTurnInput.length >= PRESSURE_WINDOW) {
+    for (let i = 0; i <= perTurnInput.length - PRESSURE_WINDOW; i++) {
+      const window = perTurnInput.slice(i, i + PRESSURE_WINDOW);
+      const avg = window.reduce((sum, value) => sum + value, 0) / PRESSURE_WINDOW;
+      if (avg > PRESSURE_TOKENS) pressureWindows += 1;
+      if (avg > peakWindowAvg) peakWindowAvg = avg;
+    }
+  }
+  return {
+    flagged,
+    growthFactor: Math.round(growthFactor * 10) / 10,
+    perTurnInput: perTurnInput.slice(0, 260),
+    pressureWindows,
+    peakWindowAvg: Math.round(peakWindowAvg),
+  };
+}
+
+function duplicateReadGroups(sessions) {
+  const groups = {};
+  let duplicateCount = 0;
+  for (const session of sessions) {
+    const seen = {};
+    const steps = (session.steps || []).slice().sort((a, b) => a.index - b.index);
+    for (const step of steps) {
+      const target = normalizedTarget(step.target);
+      if (!target || !target.includes("/")) continue;
+      if (step.family === "write") {
+        delete seen[target];
+        continue;
+      }
+      if (step.family !== "read") continue;
+      if (!seen[target]) {
+        seen[target] = step;
+        continue;
+      }
+      duplicateCount += 1;
+      const key = session.sessionId + "|" + target;
+      if (!groups[key]) {
+        groups[key] = {
+          path: target,
+          sessionId: session.sessionId,
+          sessionTitle: session.title,
+          count: 1,
+          firstIndex: seen[target].index,
+          repeated: [],
+        };
+      }
+      groups[key].count += 1;
+      groups[key].repeated.push(step.index);
+    }
+  }
+  return { duplicateCount, groups: Object.values(groups).sort((a, b) => b.count - a.count) };
+}
+
+function commandRetryGroups(sessions) {
+  const retries = [];
+  for (const session of sessions) {
+    const steps = (session.steps || []).slice().sort((a, b) => a.index - b.index);
+    let current = null;
+    let streak = [];
+    const flush = () => {
+      if (current && streak.length >= 3) {
+        retries.push({
+          command: current,
+          sessionId: session.sessionId,
+          sessionTitle: session.title,
+          count: streak.length,
+          steps: streak.map((step) => step.index),
+        });
+      }
+    };
+    for (const step of steps) {
+      const command = step.family === "execute" ? step.normalizedCommand : "";
+      if (command && command === current) {
+        streak.push(step);
+      } else {
+        flush();
+        current = command || null;
+        streak = command ? [step] : [];
+      }
+    }
+    flush();
+  }
+  return retries.sort((a, b) => b.count - a.count);
+}
+
+function failedToolLoops(sessions) {
+  const loops = [];
+  for (const session of sessions) {
+    const steps = (session.steps || []).slice().sort((a, b) => a.index - b.index);
+    let currentTool = "";
+    let streak = [];
+    const flush = () => {
+      if (currentTool && streak.length >= 3) {
+        loops.push({
+          tool: currentTool,
+          sessionId: session.sessionId,
+          sessionTitle: session.title,
+          count: streak.length,
+          steps: streak.map((step) => step.index),
+          sample: streak[0] && (streak[0].errorPreview || streak[0].preview),
+        });
+      }
+    };
+    for (const step of steps) {
+      if (step.isError && step.tool === currentTool) {
+        streak.push(step);
+      } else {
+        flush();
+        currentTool = step.isError ? step.tool : "";
+        streak = step.isError ? [step] : [];
+      }
+    }
+    flush();
+  }
+  return loops.sort((a, b) => b.count - a.count);
+}
+
+function dayKey(value) {
+  const date = new Date(value || Date.now());
+  if (!Number.isFinite(date.getTime())) return "unknown";
+  return date.toISOString().slice(0, 10);
+}
+
+function analyzeContext(sessions, args, mcpServers) {
+  const agg = aggregate(sessions);
+  const steps = agg.steps || [];
+  const familyCounts = {};
+  let failedTools = 0;
+  for (const step of steps) {
+    addCounter(familyCounts, step.family || "tool", 1);
+    if (step.isError) failedTools += 1;
+  }
+  const reads = familyCounts.read || 0;
+  const searches = familyCounts.search || 0;
+  const writes = familyCounts.write || 0;
+  const executes = familyCounts.execute || 0;
+  const agents = familyCounts.agent || 0;
+  const mcpCalls = familyCounts.mcp || 0;
+  const readSearch = reads + searches;
+  const explorationRatio = writes ? readSearch / writes : readSearch;
+  const usage = agg.usage || emptyUsage();
+  const cacheDenom = (usage.inputTokens || 0) + (usage.cacheCreationInputTokens || 0) + (usage.cacheReadInputTokens || 0);
+  const cacheHitRatio = cacheDenom ? (usage.cacheReadInputTokens || 0) / cacheDenom : 0;
+  const cacheCreationPct = cacheDenom ? (usage.cacheCreationInputTokens || 0) / cacheDenom : 0;
+  const duplicateReads = duplicateReadGroups(sessions);
+  const retries = commandRetryGroups(sessions);
+  const failureLoops = failedToolLoops(sessions);
+  const cacheSessions = sessions.map((session) => Object.assign({ sessionId: session.sessionId, sessionTitle: session.title }, cacheStability(session)));
+  const growthSessions = sessions.map((session) => Object.assign({ sessionId: session.sessionId, sessionTitle: session.title }, contextGrowth(session)));
+  const churning = cacheSessions.filter((item) => item.classification !== "stable");
+  const growing = growthSessions.filter((item) => item.flagged);
+  const pressure = growthSessions.filter((item) => item.pressureWindows > 0);
+  const byDay = {};
+  for (const session of sessions) {
+    const key = dayKey(session.updatedAt || session.startedAt || session.mtime);
+    if (!byDay[key]) byDay[key] = { day: key, sessions: 0, tokens: 0, observed: 0, codex: 0, claude: 0 };
+    byDay[key].sessions += 1;
+    byDay[key].tokens += session.tokens || 0;
+    if (session.tokenMethod === "observed") byDay[key].observed += 1;
+    byDay[key][session.source] = (byDay[key][session.source] || 0) + 1;
+  }
+  const categoryTotal = Object.values(agg.categories).reduce((sum, value) => sum + value, 0);
+  const toolOutputPct = pct(agg.categories.tool_output || 0, categoryTotal);
+  const metadataPct = pct(agg.categories.metadata || 0, categoryTotal);
+  const assistantPct = pct(agg.categories.assistant || 0, categoryTotal);
+  const maxSession = sessions.length ? sessions.reduce((a, b) => a.tokens > b.tokens ? a : b) : null;
+  const failureRate = steps.length ? failedTools / steps.length : 0;
+  const findings = [];
+  if (duplicateReads.duplicateCount > 0) {
+    addFinding(findings, "duplicate_read", Math.min(86, 35 + duplicateReads.duplicateCount * 6), "context", "Repeated file reads", duplicateReads.duplicateCount + " file reads repeated without an intervening edit/write.", duplicateReads.groups.slice(0, 4).map((group) => group.path + " read " + group.count + "x in " + group.sessionTitle), "Ask the agent to keep a short file-role note after the first read and reopen the file only when it needs exact line numbers.", "prompt");
+  }
+  if (retries.length) {
+    addFinding(findings, "command_retry_loop", 78, "loop", "Repeated command loop", "One or more shell commands ran 3+ times in a row.", retries.slice(0, 4).map((retry) => retry.command + " · " + retry.count + "x in " + retry.sessionTitle), "Ask the agent to stop after two identical failures, summarize the error, and change strategy before rerunning the command.", "prompt");
+  }
+  if (failureLoops.length || (failedTools >= 3 && failureRate > 0.12)) {
+    addFinding(findings, "failed_tool_loop", failureLoops.length ? 82 : 55, "loop", "Tool failures need a recovery plan", failedTools + " failed tool calls detected across " + steps.length + " normalized tool steps.", (failureLoops.length ? failureLoops : steps.filter((step) => step.isError).slice(0, 4)).map((item) => (item.tool || item.title || "tool") + " · " + (item.count || "failed") + " · " + (item.sessionTitle || item.sessionId || "")), "Tell the agent to diagnose the first failure, propose the next attempt, and avoid repeating the same tool call unchanged.", "prompt");
+  }
+  if (explorationRatio > 5 && readSearch >= 10) {
+    addFinding(findings, "exploration_ratio", Math.min(80, 35 + explorationRatio * 5), "workflow", "Exploration outweighs edits", "Read/search calls are " + explorationRatio.toFixed(1) + "x edit/write calls.", ["Reads/searches: " + readSearch, "Writes/edits: " + writes, "Execute calls: " + executes], "Give the agent a concrete inspection budget, then ask for a short implementation plan before more reading.", "prompt");
+  }
+  if (agents > 3) {
+    addFinding(findings, "subagent_sprawl", Math.min(72, 35 + agents * 6), "workflow", "Subagent usage is broad", agents + " agent/delegation tool calls were detected.", ["Agent-family calls: " + agents], "Ask for a coordination summary after subagents finish: decisions, files touched, and what should stay in the main thread.", "prompt");
+  }
+  if (churning.length) {
+    addFinding(findings, "cache_churn", churning.some((item) => item.classification === "churning") ? 78 : 62, "cache", "Cache is churning or degrading", churning.length + " session(s) had sustained or rising cache creation.", churning.slice(0, 4).map((item) => item.sessionTitle + " · " + item.classification + " · avg create " + item.avgCacheCreationPct.toFixed(0) + "%"), "Move stable instructions into a skill/repo doc and start long follow-up work from a compact handoff so cache writes settle earlier.", "workflow");
+  }
+  if (growing.length) {
+    addFinding(findings, "context_growth", 74, "context", "Context keeps growing late in the session", growing.length + " session(s) grew >2x from turn 5 to the final observed turn.", growing.slice(0, 4).map((item) => item.sessionTitle + " · " + item.growthFactor + "x growth"), "After a milestone, ask for a handoff summary and continue in a fresh thread rather than carrying the full transcript forward.", "workflow");
+  }
+  if (pressure.length) {
+    addFinding(findings, "context_pressure", 70, "context", "High context pressure windows", pressure.length + " session(s) crossed a " + fmtTokens(PRESSURE_TOKENS) + " five-turn average input window.", pressure.slice(0, 4).map((item) => item.sessionTitle + " · peak avg " + fmtTokens(item.peakWindowAvg)), "Use a context reset before the next implementation phase and preserve only decisions, current files, and known failing commands.", "workflow");
+  }
+  if (toolOutputPct > 45) {
+    addFinding(findings, "tool_output_heavy", Math.min(76, 35 + toolOutputPct), "context", "Tool output dominates the window", toolOutputPct.toFixed(0) + "% of transcript text came from tool output.", sortedEntries(agg.tools, 4).map((entry) => entry[0] + " x" + entry[1]), "Ask the agent to cap logs, request targeted excerpts, and summarize failing output unless exact lines are needed.", "prompt");
+  }
+  if (metadataPct > 18) {
+    addFinding(findings, "metadata_pressure", Math.min(64, 25 + metadataPct), "context", "Metadata is a visible share", metadataPct.toFixed(0) + "% of local transcript text was metadata or protocol state.", sortedEntries(agg.metadata, 4).map((entry) => entry[0] + " · about " + fmtTokens(estimateTokens(entry[1]))), "Keep the report in drilldown mode: inspect metadata when diagnosing protocol overhead, but optimize prompts around user/tool/output buckets first.", "workflow");
+  }
+  if (assistantPct > 45) {
+    addFinding(findings, "assistant_prose", Math.min(68, 25 + assistantPct), "workflow", "Assistant narration is heavy", assistantPct.toFixed(0) + "% of transcript text came from assistant prose.", ["Assistant bucket: about " + fmtTokens(estimateTokens(agg.categories.assistant || 0))], "Ask for concise progress notes and a final decision log, with detailed rationale moved into docs only when useful.", "prompt");
+  }
+  if (maxSession && maxSession.tokens > 80000) {
+    addFinding(findings, "large_session", Math.min(82, 42 + maxSession.tokens / 5000), "context", "One session is carrying a lot", "Largest session is about " + fmtTokens(maxSession.tokens) + " " + maxSession.tokenMethod + " tokens.", [maxSession.title + " · " + maxSession.source + " · " + (maxSession.cwd || maxSession.path)], "Start the next large change with a compact handoff summary instead of continuing the whole thread.", "workflow");
+  }
+  if ((mcpServers || []).length > 12 && mcpCalls < 3) {
+    addFinding(findings, "mcp_surface", 28, "mcp", "Configured MCP surface is broad", (mcpServers || []).length + " MCP servers are configured, but only " + mcpCalls + " MCP-style calls were detected.", (mcpServers || []).slice(0, 5).map((server) => server.source + " · " + server.name), "For focused CLI work, keep rarely used MCP servers disabled or project-scoped so tool lists stay easier to scan.", "configuration");
+  }
+  let score = 100;
+  score -= Math.min(18, duplicateReads.duplicateCount * 2);
+  score -= retries.length ? 14 : 0;
+  score -= failureLoops.length ? 16 : Math.min(12, Math.round(failureRate * 60));
+  score -= explorationRatio > 5 ? Math.min(15, Math.round((explorationRatio - 5) * 2)) : 0;
+  score -= churning.length ? 14 : 0;
+  score -= growing.length ? 12 : 0;
+  score -= pressure.length ? 10 : 0;
+  score -= toolOutputPct > 45 ? 8 : 0;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  findings.sort((a, b) => b.score - a.score);
+  return {
+    score,
+    scoreLabel: score >= 85 ? "healthy" : score >= 70 ? "watch" : score >= 50 ? "strained" : "critical",
+    metrics: {
+      normalizedSteps: steps.length,
+      failedTools,
+      failureRate,
+      successRate: steps.length ? 1 - failureRate : 1,
+      familyCounts,
+      reads,
+      searches,
+      writes,
+      executes,
+      agents,
+      mcpCalls,
+      explorationRatio: Math.round(explorationRatio * 10) / 10,
+      duplicateReadCount: duplicateReads.duplicateCount,
+      retryLoopCount: retries.length,
+      failureLoopCount: failureLoops.length,
+      cacheHitRatio,
+      cacheCreationPct,
+      tokenUsage: usage,
+      observedSessionCoverage: sessions.length ? sessions.filter((session) => session.tokenMethod === "observed").length / sessions.length : 0,
+      toolOutputPct,
+      metadataPct,
+      assistantPct,
+    },
+    findings,
+    evidence: {
+      duplicateReads: duplicateReads.groups.slice(0, 20),
+      commandRetries: retries.slice(0, 20),
+      failureLoops: failureLoops.slice(0, 20),
+      cacheStability: cacheSessions,
+      contextGrowth: growthSessions,
+    },
+    trends: {
+      byDay: Object.values(byDay).sort((a, b) => a.day.localeCompare(b.day)),
+      topTools: sortedEntries(agg.tools, 12),
+      topPaths: sortedEntries(agg.paths, 12),
+      topMetadata: sortedEntries(agg.metadata, 12),
+    },
+    sourceModel: {
+      sourceProjectSession: sessions.map((session) => ({
+        source: session.source,
+        project: session.cwd || args.project,
+        sessionId: session.sessionId,
+        title: session.title,
+        tokens: session.tokens,
+        updatedAt: session.updatedAt,
+        tokenMethod: session.tokenMethod,
+        steps: session.totalSteps || 0,
+      })),
+      privacy: "Metadata-first: the report stores counters, tool names, paths, short previews, and line offsets where available; transcript bodies stay local.",
+    },
+  };
+}
+
+function recommendations(sessions, analysis) {
   if (!sessions.length) return ["No matching sessions found. Try context-xray threads --all-projects --since 2w --open."];
+  if (analysis && analysis.findings && analysis.findings.length) {
+    const seen = {};
+    const fromFindings = [];
+    for (const finding of analysis.findings) {
+      if (!finding.recommendation || seen[finding.recommendation]) continue;
+      seen[finding.recommendation] = true;
+      fromFindings.push(finding.recommendation);
+    }
+    if (fromFindings.length) return fromFindings.slice(0, 6);
+  }
   const agg = aggregate(sessions);
   const total = Object.values(agg.categories).reduce((sum, value) => sum + value, 0);
   const tips = [];
@@ -1046,6 +1396,8 @@ function sourceCounts(sessions) {
 
 function buildReport(sessions, args) {
   const agg = aggregate(sessions);
+  const mcpServers = readMcpServers(args.project);
+  const analysis = analyzeContext(sessions, args, mcpServers);
   return {
     generatedAt: new Date().toISOString(),
     generatedLabel: new Date().toLocaleString(),
@@ -1063,10 +1415,12 @@ function buildReport(sessions, args) {
     metadata: sortedEntries(agg.metadata, 50),
     mcpUsage: sortedEntries(agg.mcpUsage, 50),
     mcpTools: sortedEntries(agg.mcpTools, 50),
-    mcpServers: readMcpServers(args.project),
-    recommendations: recommendations(sessions),
+    mcpServers,
+    analysis,
+    recommendations: recommendations(sessions, analysis),
     toolEvents: agg.toolEvents,
     metadataEvents: agg.metadataEvents,
+    steps: agg.steps,
     sessions,
   };
 }
@@ -1278,6 +1632,302 @@ function overviewEnhancementScript() {
   }.toString() + ")();";
 }
 
+function insightsEnhancementScript() {
+  return "(" + function () {
+    const dataEl = document.getElementById("xray-data");
+    if (!dataEl) return;
+    const report = JSON.parse(dataEl.textContent || "{}");
+    const analysis = report.analysis || {};
+    const metrics = analysis.metrics || {};
+    const findings = analysis.findings || [];
+    const cats = ["user", "assistant", "tool_call", "tool_output", "reasoning", "instructions", "attachment", "metadata", "other"];
+    const labels = {
+      user: "User asks",
+      assistant: "Assistant text",
+      tool_call: "Tool calls",
+      tool_output: "Tool output",
+      reasoning: "Reasoning",
+      instructions: "Instructions/context",
+      attachment: "Attachments",
+      metadata: "Metadata",
+      other: "Other",
+    };
+    const colors = {
+      user: "#2563eb",
+      assistant: "#16a34a",
+      tool_call: "#d97706",
+      tool_output: "#dc2626",
+      reasoning: "#7c3aed",
+      instructions: "#0891b2",
+      attachment: "#b45309",
+      metadata: "#64748b",
+      other: "#94a3b8",
+    };
+
+    function esc(value) {
+      return String(value || "").replace(/[&<>"']/g, function (ch) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch];
+      });
+    }
+
+    function fmt(value) {
+      const number = Number(value) || 0;
+      if (Math.abs(number) >= 1000000) return (number / 1000000).toFixed(1) + "m";
+      if (Math.abs(number) >= 1000) return (number / 1000).toFixed(1) + "k";
+      return String(Math.round(number * 10) / 10);
+    }
+
+    function pctText(value) {
+      return Math.round((Number(value) || 0) * 100) + "%";
+    }
+
+    function totalCounter(counter) {
+      return Object.keys(counter || {}).reduce(function (sum, key) {
+        return sum + (Number(counter[key]) || 0);
+      }, 0);
+    }
+
+    function tok(chars) {
+      chars = Number(chars) || 0;
+      return chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : 0;
+    }
+
+    function addStyle() {
+      if (document.getElementById("xray-insights-style")) return;
+      const style = document.createElement("style");
+      style.id = "xray-insights-style";
+      style.textContent = [
+        ".health-shell{display:grid;grid-template-columns:270px minmax(0,1fr);gap:14px;align-items:stretch;margin-bottom:14px}",
+        ".health-card{display:flex;gap:16px;align-items:center;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:8px;padding:16px;box-shadow:var(--shadow)}",
+        ".health-dial{width:112px;height:112px;border-radius:999px;display:grid;place-items:center;background:conic-gradient(#16a34a calc(var(--score)*1%),hsl(var(--muted)) 0);position:relative;flex:0 0 auto}",
+        ".health-dial:after{content:\"\";position:absolute;inset:9px;border-radius:inherit;background:hsl(var(--card))}",
+        ".health-score{position:relative;z-index:1;font-size:30px;font-weight:750;letter-spacing:0}",
+        ".health-copy{min-width:0}.health-copy h2{font-size:18px}.health-copy p{margin-top:6px;color:hsl(var(--muted-foreground));font-size:13px}",
+        ".metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}",
+        ".metric-tile{border:1px solid hsl(var(--border));border-radius:8px;padding:12px;background:hsl(var(--card));min-height:84px}",
+        ".metric-tile strong{display:block;font-size:22px;line-height:1.1;margin-top:7px}",
+        ".metric-tile span{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:650;color:hsl(var(--muted-foreground))}",
+        ".finding-button{width:100%;border:1px solid hsl(var(--border));border-radius:8px;background:hsl(var(--card));padding:12px;text-align:left;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;cursor:pointer;margin-bottom:8px}",
+        ".finding-button:hover,.finding-button.active{background:hsl(var(--accent)/.45);border-color:hsl(var(--ring)/.45)}",
+        ".finding-title{font-size:14px;font-weight:650}.finding-summary{font-size:12px;color:hsl(var(--muted-foreground));margin-top:4px;overflow-wrap:anywhere}",
+        ".severity{display:inline-flex;align-items:center;border-radius:999px;border:1px solid hsl(var(--border));padding:3px 7px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;background:hsl(var(--background))}",
+        ".severity.critical,.severity.high{color:#dc2626;border-color:rgba(220,38,38,.28);background:rgba(220,38,38,.08)}",
+        ".severity.medium{color:#b45309;border-color:rgba(180,83,9,.28);background:rgba(180,83,9,.08)}",
+        ".severity.low,.severity.info{color:#0369a1;border-color:rgba(3,105,161,.26);background:rgba(3,105,161,.08)}",
+        ".insight-detail{position:sticky;top:82px}.evidence-list{display:grid;gap:7px;margin-top:10px}.evidence-item{border-left:3px solid hsl(var(--border));padding:7px 0 7px 10px;font-size:12px;overflow-wrap:anywhere}",
+        ".context-split{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:14px;align-items:start}.category-button{width:100%;display:grid;grid-template-columns:minmax(0,1fr) 74px 54px;gap:10px;border:0;background:transparent;border-radius:6px;padding:8px;text-align:left;cursor:pointer}.category-button:hover{background:hsl(var(--accent)/.4)}",
+        ".inline-bar{height:8px;border-radius:999px;background:hsl(var(--muted));overflow:hidden;margin-top:8px}.inline-bar span{display:block;height:100%}",
+        ".trend-bars{display:grid;gap:8px}.trend-row{display:grid;grid-template-columns:86px minmax(0,1fr) 80px;gap:10px;align-items:center;font-size:12px}.trend-track{height:9px;border-radius:999px;background:hsl(var(--muted));overflow:hidden}.trend-track span{display:block;height:100%;background:#2563eb}",
+        ".timeline-list{display:grid;gap:10px}.timeline-session{border:1px solid hsl(var(--border));border-radius:8px;background:hsl(var(--card));padding:12px}.timeline-top{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px}.turn-strip{display:flex;gap:2px;align-items:end;height:42px}.turn-strip button{flex:1;min-width:3px;border:0;border-radius:3px 3px 0 0;background:#2563eb;cursor:pointer}.turn-strip button:hover{filter:brightness(1.15)}",
+        ".source-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.source-row{border:1px solid hsl(var(--border));border-radius:8px;background:hsl(var(--card));padding:11px;min-width:0}.source-row strong{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-row p{font-size:12px;color:hsl(var(--muted-foreground));overflow-wrap:anywhere}",
+        ".raw-note{border:1px dashed hsl(var(--border));border-radius:8px;padding:12px;background:hsl(var(--muted)/.2);font-size:12px;color:hsl(var(--muted-foreground))}",
+        "@media(max-width:920px){.health-shell,.context-split{grid-template-columns:1fr}.metric-grid,.source-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.insight-detail{position:static}}",
+        "@media(max-width:620px){.metric-grid,.source-grid{grid-template-columns:1fr}.trend-row{grid-template-columns:74px minmax(0,1fr) 54px}.health-card{align-items:flex-start}.health-dial{width:88px;height:88px}.health-score{font-size:24px}}",
+      ].join("");
+      document.head.appendChild(style);
+    }
+
+    function ensureTab(name, label) {
+      const nav = document.querySelector(".tabs");
+      if (!nav || document.querySelector("[data-tab=\"" + name + "\"]")) return;
+      const button = document.createElement("button");
+      button.className = "tab";
+      button.setAttribute("data-tab", name);
+      button.type = "button";
+      button.textContent = label;
+      nav.appendChild(button);
+    }
+
+    function ensurePanel(name) {
+      if (document.getElementById("panel-" + name)) return;
+      const footer = document.querySelector(".footer");
+      const panel = document.createElement("section");
+      panel.className = "panel";
+      panel.id = "panel-" + name;
+      if (footer && footer.parentNode) footer.parentNode.insertBefore(panel, footer);
+    }
+
+    function activate(name) {
+      Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
+        tab.classList.toggle("active", tab.getAttribute("data-tab") === name);
+      });
+      Array.prototype.forEach.call(document.querySelectorAll(".panel"), function (panel) {
+        panel.classList.toggle("active", panel.id === "panel-" + name);
+      });
+      if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+    }
+
+    function wireTabs() {
+      Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
+        tab.onclick = function () {
+          activate(tab.getAttribute("data-tab"));
+        };
+      });
+    }
+
+    function metric(label, value, detail) {
+      return "<div class=\"metric-tile\"><span>" + esc(label) + "</span><strong>" + esc(value) + "</strong><p class=\"meta\">" + esc(detail || "") + "</p></div>";
+    }
+
+    function findingButton(finding, index) {
+      return "<button class=\"finding-button\" data-finding=\"" + index + "\"><span><span class=\"finding-title\">" + esc(finding.title) + "</span><span class=\"finding-summary\">" + esc(finding.summary) + "</span></span><span class=\"severity " + esc(finding.severity) + "\">" + esc(finding.severity) + "</span></button>";
+    }
+
+    function renderFindingDetail(index, targetId) {
+      const finding = findings[index] || findings[0];
+      const el = document.getElementById(targetId || "finding-detail");
+      if (!el) return;
+      if (!finding) {
+        el.innerHTML = "<h2>No Findings</h2><p class=\"empty\">No deterministic warning crossed the reporting threshold.</p>";
+        return;
+      }
+      const evidence = (finding.evidence || []).map(function (item) {
+        return "<div class=\"evidence-item\">" + esc(item) + "</div>";
+      }).join("") || "<p class=\"empty\">No evidence sample captured.</p>";
+      el.innerHTML = "<div class=\"section-head\"><div><span class=\"severity " + esc(finding.severity) + "\">" + esc(finding.severity) + "</span><h2 style=\"margin-top:8px\">" + esc(finding.title) + "</h2><p class=\"meta\">" + esc(finding.rule) + " · confidence " + esc(finding.confidence) + " · " + esc(finding.action) + "</p></div><strong>" + esc(finding.score) + "</strong></div><p>" + esc(finding.summary) + "</p><div class=\"mini-label\">Evidence</div><div class=\"evidence-list\">" + evidence + "</div><div class=\"mini-label\">Recommended Move</div><p class=\"raw-note\">" + esc(finding.recommendation || "No recommendation captured.") + "</p>";
+    }
+
+    function categoryRows() {
+      const total = totalCounter(report.categories);
+      return cats.map(function (cat) {
+        const chars = (report.categories || {})[cat] || 0;
+        if (!chars) return "";
+        const percentage = total ? chars / total : 0;
+        return "<button class=\"category-button\" data-category=\"" + esc(cat) + "\"><span><span class=\"badge\"><span class=\"dot\" style=\"background:" + colors[cat] + "\"></span>" + esc(labels[cat]) + "</span><span class=\"inline-bar\"><span style=\"width:" + Math.max(2, percentage * 100).toFixed(1) + "%;background:" + colors[cat] + "\"></span></span></span><span class=\"row-meta\">" + fmt(tok(chars)) + " tok</span><span class=\"row-meta\">" + Math.round(percentage * 100) + "%</span></button>";
+      }).join("");
+    }
+
+    function renderStats() {
+      const stats = document.getElementById("stats");
+      if (!stats) return;
+      stats.innerHTML = metric("Health", (analysis.score || 0) + "/100", analysis.scoreLabel || "unknown") +
+        metric("Findings", findings.length, findings.length ? findings[0].title : "no threshold crossed") +
+        metric("Cache hit", pctText(metrics.cacheHitRatio || 0), "create " + pctText(metrics.cacheCreationPct || 0)) +
+        metric("Tool success", pctText(metrics.successRate == null ? 1 : metrics.successRate), fmt(metrics.normalizedSteps || 0) + " normalized steps");
+    }
+
+    function renderOverview() {
+      const panel = document.getElementById("panel-overview");
+      if (!panel) return;
+      const topFindings = findings.slice(0, 4).map(findingButton).join("") || "<p class=\"empty\">No major issues found. Recent sessions look balanced.</p>";
+      panel.innerHTML = "<div class=\"health-shell\"><section class=\"health-card\"><div class=\"health-dial\" style=\"--score:" + esc(analysis.score || 0) + "\"><span class=\"health-score\">" + esc(analysis.score || 0) + "</span></div><div class=\"health-copy\"><div class=\"eyebrow\">Context Health</div><h2>" + esc(analysis.scoreLabel || "unknown") + "</h2><p>Score combines cache behavior, context pressure, duplicate reads, retry loops, tool failures, and exploration-to-edit ratio.</p></div></section><section class=\"card\" id=\"overview-finding-detail\"></section></div><div class=\"context-split\"><section class=\"card\"><div class=\"section-head\"><div><h2>Top Findings</h2><p class=\"meta\">Click a finding to inspect evidence and the suggested move.</p></div></div>" + topFindings + "</section><section class=\"card\"><div class=\"section-head\"><div><h2>Where Context Is Going</h2><p class=\"meta\">Bucket rows are clickable and stay local to this report.</p></div></div>" + categoryRows() + "</section></div><div class=\"metric-grid\" style=\"margin-top:14px\">" + metric("Exploration ratio", (metrics.explorationRatio || 0) + "x", "read/search to edit/write") + metric("Duplicate reads", metrics.duplicateReadCount || 0, "suppressed after edits") + metric("Retry loops", metrics.retryLoopCount || 0, "3+ identical commands") + metric("MCP calls", metrics.mcpCalls || 0, (report.mcpServers || []).length + " configured") + "</div>";
+      Array.prototype.forEach.call(panel.querySelectorAll("[data-finding]"), function (button) {
+        button.onclick = function () {
+          Array.prototype.forEach.call(panel.querySelectorAll("[data-finding]"), function (item) { item.classList.remove("active"); });
+          button.classList.add("active");
+          renderFindingDetail(Number(button.getAttribute("data-finding")), "overview-finding-detail");
+        };
+      });
+      Array.prototype.forEach.call(panel.querySelectorAll("[data-category]"), function (button) {
+        button.onclick = function () {
+          const category = button.getAttribute("data-category");
+          const sessions = (report.sessions || []).filter(function (session) { return (session.categories || {})[category]; }).slice(0, 4);
+          const detail = document.getElementById("overview-finding-detail");
+          if (!detail) return;
+          detail.innerHTML = "<div class=\"section-head\"><div><h2>" + esc(labels[category] || category) + "</h2><p class=\"meta\">Sessions contributing to this bucket.</p></div></div><div class=\"evidence-list\">" + (sessions.map(function (session) { return "<div class=\"evidence-item\"><strong>" + esc(session.title || session.sessionId) + "</strong><br>" + esc(session.source + " · " + fmt(tok((session.categories || {})[category] || 0)) + " tok · " + (session.cwd || session.path)) + "</div>"; }).join("") || "<p class=\"empty\">No sessions matched.</p>") + "</div>";
+        };
+      });
+      renderFindingDetail(0, "overview-finding-detail");
+      const first = panel.querySelector("[data-finding]");
+      if (first) first.classList.add("active");
+    }
+
+    function renderFindings() {
+      const panel = document.getElementById("panel-findings");
+      if (!panel) return;
+      panel.innerHTML = "<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Findings</h2><p class=\"meta\">Deterministic checks adapted from AgentSight, Argus, Cogpit, and usage dashboards.</p></div></div>" + (findings.map(findingButton).join("") || "<p class=\"empty\">No findings crossed threshold.</p>") + "</section><aside class=\"card detail insight-detail\" id=\"finding-detail\"></aside></div>";
+      Array.prototype.forEach.call(panel.querySelectorAll("[data-finding]"), function (button) {
+        button.onclick = function () {
+          Array.prototype.forEach.call(panel.querySelectorAll("[data-finding]"), function (item) { item.classList.remove("active"); });
+          button.classList.add("active");
+          renderFindingDetail(Number(button.getAttribute("data-finding")), "finding-detail");
+        };
+      });
+      renderFindingDetail(0, "finding-detail");
+      const first = panel.querySelector("[data-finding]");
+      if (first) first.classList.add("active");
+    }
+
+    function renderTrends() {
+      const panel = document.getElementById("panel-trends");
+      if (!panel) return;
+      const days = (analysis.trends && analysis.trends.byDay || []).slice(-14);
+      const maxTokens = days.reduce(function (max, day) { return Math.max(max, day.tokens || 0); }, 1);
+      const dayRows = days.map(function (day) {
+        return "<div class=\"trend-row\"><span>" + esc(day.day) + "</span><span class=\"trend-track\"><span style=\"width:" + Math.max(2, ((day.tokens || 0) / maxTokens) * 100).toFixed(1) + "%\"></span></span><span class=\"row-meta\">" + fmt(day.tokens || 0) + " tok</span></div>";
+      }).join("") || "<p class=\"empty\">No trend window found.</p>";
+      const toolRows = (analysis.trends && analysis.trends.topTools || []).slice(0, 10).map(function (entry) {
+        return "<tr><td>" + esc(entry[0]) + "</td><td>" + esc(entry[1]) + "</td></tr>";
+      }).join("") || "<tr><td>No tools detected</td><td></td></tr>";
+      const pathRows = (analysis.trends && analysis.trends.topPaths || []).slice(0, 10).map(function (entry) {
+        return "<tr><td>" + esc(entry[0]) + "</td><td>" + esc(entry[1]) + "</td></tr>";
+      }).join("") || "<tr><td>No paths detected</td><td></td></tr>";
+      panel.innerHTML = "<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Daily Trend</h2><p class=\"meta\">Sessions and observed/estimated token load by day.</p></div></div><div class=\"trend-bars\">" + dayRows + "</div></section><section class=\"card\"><h2>Hotspots</h2><div class=\"grid equal\" style=\"margin-top:10px\"><div><div class=\"mini-label\">Tools</div><table class=\"table\"><tbody>" + toolRows + "</tbody></table></div><div><div class=\"mini-label\">Paths</div><table class=\"table\"><tbody>" + pathRows + "</tbody></table></div></div></section></div>";
+    }
+
+    function turnHeight(turn, max) {
+      const value = Number(turn.totalTokens || turn.inputTokens || 0);
+      return Math.max(4, Math.round((value / Math.max(1, max)) * 40));
+    }
+
+    function renderTimeline() {
+      const panel = document.getElementById("panel-timeline");
+      if (!panel) return;
+      const sessions = (report.sessions || []).slice(0, 30);
+      panel.innerHTML = "<div class=\"timeline-list\">" + (sessions.map(function (session) {
+        const series = session.usage && session.usage.series || [];
+        const maxTurn = series.reduce(function (max, turn) { return Math.max(max, turn.totalTokens || turn.inputTokens || 0); }, 1);
+        const strip = series.length ? series.map(function (turn, index) {
+          const cache = (turn.cacheReadInputTokens || 0) + (turn.cachedInputTokens || 0);
+          const color = turn.cacheCreationInputTokens > turn.inputTokens ? "#b45309" : cache > turn.inputTokens ? "#16a34a" : "#2563eb";
+          return "<button title=\"" + esc((turn.label || "turn " + (index + 1)) + " · " + fmt(turn.totalTokens || 0) + " tokens") + "\" style=\"height:" + turnHeight(turn, maxTurn) + "px;background:" + color + "\"></button>";
+        }).join("") : "<p class=\"empty\">No observed per-turn token series in this session.</p>";
+        const cache = cacheStabilityClient(session);
+        const growth = contextGrowthClient(session);
+        return "<article class=\"timeline-session\"><div class=\"timeline-top\"><div><div class=\"eyebrow\">" + esc(session.source + " · " + (session.updatedAt || "unknown time")) + "</div><h2>" + esc(session.title || session.sessionId) + "</h2><p class=\"meta\">" + esc(session.cwd || session.path) + "</p></div><div style=\"text-align:right\"><strong>" + fmt(session.tokens || 0) + "</strong><p class=\"meta\">" + esc(session.tokenMethod || "") + "</p></div></div><div class=\"turn-strip\">" + strip + "</div><div class=\"badge-list\" style=\"margin-top:10px\"><span class=\"badge\">cache " + esc(cache.classification) + "</span><span class=\"badge\">growth " + esc(growth.growthFactor || 0) + "x</span><span class=\"badge\">steps " + esc(session.totalSteps || 0) + "</span></div></article>";
+      }).join("") || "<section class=\"card\"><p class=\"empty\">No sessions found.</p></section>") + "</div>";
+    }
+
+    function cacheStabilityClient(session) {
+      const match = (analysis.evidence && analysis.evidence.cacheStability || []).filter(function (item) { return item.sessionId === session.sessionId; })[0];
+      return match || { classification: "unknown" };
+    }
+
+    function contextGrowthClient(session) {
+      const match = (analysis.evidence && analysis.evidence.contextGrowth || []).filter(function (item) { return item.sessionId === session.sessionId; })[0];
+      return match || { growthFactor: 0 };
+    }
+
+    function renderSources() {
+      const panel = document.getElementById("panel-sources");
+      if (!panel) return;
+      const rows = (analysis.sourceModel && analysis.sourceModel.sourceProjectSession || []).slice(0, 60).map(function (item) {
+        return "<article class=\"source-row\"><strong>" + esc(item.title || item.sessionId) + "</strong><p>" + esc(item.source + " · " + fmt(item.tokens || 0) + " tok · " + (item.project || "")) + "</p><p>" + esc(item.updatedAt || "") + "</p></article>";
+      }).join("") || "<p class=\"empty\">No source records found.</p>";
+      panel.innerHTML = "<section class=\"card\"><div class=\"section-head\"><div><h2>Source / Project / Session</h2><p class=\"meta\">Metadata-first browser model for local Codex and Claude Code sessions.</p></div></div><p class=\"raw-note\">" + esc(analysis.sourceModel && analysis.sourceModel.privacy || "Transcript content stays local.") + "</p><div class=\"source-grid\" style=\"margin-top:12px\">" + rows + "</div></section>";
+    }
+
+    addStyle();
+    ensureTab("findings", "Findings");
+    ensureTab("timeline", "Timeline");
+    ensureTab("trends", "Trends");
+    ensureTab("sources", "Sources");
+    ensurePanel("findings");
+    ensurePanel("timeline");
+    ensurePanel("trends");
+    ensurePanel("sources");
+    wireTabs();
+    renderStats();
+    renderOverview();
+    renderFindings();
+    renderTimeline();
+    renderTrends();
+    renderSources();
+    const initial = (location.hash || "#overview").slice(1);
+    if (document.getElementById("panel-" + initial)) activate(initial);
+  }.toString() + ")();";
+}
+
 function renderHtml(sessions, args) {
   const report = buildReport(sessions, args);
   return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Context X-Ray</title><style>" +
@@ -1287,7 +1937,7 @@ function renderHtml(sessions, args) {
     "*{box-sizing:border-box}html{background:hsl(var(--background))}body{margin:0;background:hsl(var(--background));color:hsl(var(--foreground));font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-feature-settings:\"cv02\",\"cv03\",\"cv04\",\"cv11\";line-height:1.45}button{font:inherit;color:inherit}main{max-width:1180px;margin:0 auto;padding:20px 18px 44px}.topbar{border-bottom:1px solid hsl(var(--border));background:hsl(var(--background));position:sticky;top:0;z-index:10}.topbar-inner{max-width:1180px;margin:0 auto;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.title-row{display:flex;align-items:center;gap:9px}.logo-dot{width:10px;height:10px;border-radius:999px;background:#38bdf8;box-shadow:0 0 0 4px rgba(56,189,248,.12)}h1{font-size:20px;line-height:1.1;margin:0;font-weight:650;letter-spacing:0}h2{font-size:15px;line-height:1.2;margin:0;font-weight:650}h3{font-size:14px;line-height:1.3;margin:0;font-weight:600}p{margin:0}.muted,.eyebrow,.meta,.empty{color:hsl(var(--muted-foreground))}.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:650}.meta{font-size:12px}.tabs{display:inline-flex;align-items:center;gap:2px;border:1px solid hsl(var(--border));background:hsl(var(--muted)/.35);border-radius:8px;padding:2px}.tab{border:0;background:transparent;border-radius:6px;padding:6px 10px;font-size:12px;line-height:1.1;cursor:pointer}.tab:hover{background:hsl(var(--accent)/.5)}.tab.active{background:hsl(var(--background));box-shadow:var(--shadow)}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0}.card{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:8px;padding:14px;box-shadow:var(--shadow)}.stat-value{display:block;font-size:28px;line-height:1.1;font-weight:700;margin-top:6px}.panel{display:none}.panel.active{display:block}.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.8fr);gap:14px;align-items:start}.grid.equal{grid-template-columns:repeat(2,minmax(0,1fr))}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}.bar{display:flex;overflow:hidden;height:10px;border-radius:999px;background:hsl(var(--muted));margin:10px 0 12px}.bar span{display:block;min-width:2px}.table{width:100%;border-collapse:collapse;font-size:12px}.table th{text-align:left;color:hsl(var(--muted-foreground));font-weight:600;border-bottom:1px solid hsl(var(--border));padding:7px 8px}.table td{border-bottom:1px solid hsl(var(--border));padding:8px;vertical-align:top}.table th:last-child,.table td:last-child{text-align:right}.row-button{width:100%;display:grid;grid-template-columns:minmax(0,1fr) 74px 70px;gap:10px;align-items:center;text-align:left;border:1px solid transparent;background:transparent;border-radius:6px;padding:8px;cursor:pointer}.row-button:hover,.row-button.active{border-color:hsl(var(--border));background:hsl(var(--accent)/.35)}.row-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-meta{font-size:12px;color:hsl(var(--muted-foreground));text-align:right}.badge-list{display:flex;flex-wrap:wrap;gap:6px}.badge{display:inline-flex;align-items:center;gap:5px;border:1px solid hsl(var(--border));border-radius:999px;padding:3px 7px;font-size:11px;background:hsl(var(--background));max-width:100%}.badge .dot{width:7px;height:7px;border-radius:999px;flex:0 0 auto}.tips{margin:0;padding-left:20px}.tips li{margin:0 0 8px}.detail{min-height:228px}.detail-list{display:grid;gap:8px;margin-top:10px}.sample{border:1px solid hsl(var(--border));border-radius:8px;padding:10px;background:hsl(var(--muted)/.22)}.sample-top{display:flex;justify-content:space-between;gap:10px;margin-bottom:5px;font-size:11px;color:hsl(var(--muted-foreground))}.sample p{font-size:12px;color:hsl(var(--foreground));overflow-wrap:anywhere}.session-card{border:1px solid hsl(var(--border));border-radius:8px;background:hsl(var(--card));margin-bottom:10px;overflow:hidden}.session-card summary{list-style:none;display:flex;justify-content:space-between;gap:14px;cursor:pointer;padding:13px 14px}.session-card summary::-webkit-details-marker{display:none}.session-body{border-top:1px solid hsl(var(--border));padding:12px 14px}.session-title{font-size:13px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.session-path{font-size:12px;color:hsl(var(--muted-foreground));margin-top:3px;overflow-wrap:anywhere}.token-big{font-size:20px;font-weight:700;white-space:nowrap}.mini-label{margin:10px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:650;color:hsl(var(--muted-foreground))}.footer{margin-top:20px;color:hsl(var(--muted-foreground));font-size:12px}.hidden{display:none!important}@media(max-width:840px){.topbar-inner{align-items:flex-start;flex-direction:column}.stats,.grid,.grid.equal{grid-template-columns:1fr}.tabs{width:100%;overflow:auto}.tab{white-space:nowrap}.row-button{grid-template-columns:minmax(0,1fr) 64px 58px}.session-card summary{align-items:flex-start;flex-direction:column}}" +
     "</style></head><body><header class=\"topbar\"><div class=\"topbar-inner\"><div><div class=\"title-row\"><span class=\"logo-dot\"></span><h1>Context X-Ray</h1></div><p class=\"meta\">Generated " + escapeHtml(report.generatedLabel) + " · mode=" + escapeHtml(report.mode) + " · source=" + escapeHtml(report.source) + " · since=" + escapeHtml(report.since) + "</p></div><nav class=\"tabs\" aria-label=\"Report views\"><button class=\"tab active\" data-tab=\"overview\">Overview</button><button class=\"tab\" data-tab=\"tools\">Tool Calls</button><button class=\"tab\" data-tab=\"mcp\">MCP</button><button class=\"tab\" data-tab=\"metadata\">Metadata</button><button class=\"tab\" data-tab=\"sessions\">Sessions</button></nav></div></header><main><section class=\"stats\" id=\"stats\"></section><section class=\"panel active\" id=\"panel-overview\"></section><section class=\"panel\" id=\"panel-tools\"></section><section class=\"panel\" id=\"panel-mcp\"></section><section class=\"panel\" id=\"panel-metadata\"></section><section class=\"panel\" id=\"panel-sessions\"></section><p class=\"footer\">Reads local transcript and MCP config files only. No transcript content is uploaded.</p></main><script type=\"application/json\" id=\"xray-data\">" + jsonScript(report) + "</script><script>" +
     "(function(){var report=JSON.parse(document.getElementById('xray-data').textContent);var cats=['user','assistant','tool_call','tool_output','reasoning','instructions','attachment','metadata','other'];var labels={user:'User asks',assistant:'Assistant text',tool_call:'Tool calls',tool_output:'Tool output',reasoning:'Reasoning',instructions:'Instructions/context',attachment:'Attachments',metadata:'Metadata',other:'Other'};var colors={user:'#8ba8ff',assistant:'#55b982',tool_call:'#f0a85b',tool_output:'#e06b73',reasoning:'#a77be8',instructions:'#6ac3d5',attachment:'#d6a85a',metadata:'#9aa3ad',other:'#c3c8ce'};function esc(v){return String(v||'').replace(/[&<>\"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch];});}function fmt(n){n=Number(n)||0;if(n>=1000000)return(n/1000000).toFixed(1)+'m';if(n>=1000)return(n/1000).toFixed(1)+'k';return String(n);}function tok(chars){chars=Number(chars)||0;return chars>0?Math.max(1,Math.ceil(chars/4)):0;}function pc(part,total){return total>0?Math.max(0,Math.min(100,(part/total)*100)):0;}function totalCounter(counter){return Object.keys(counter||{}).reduce(function(sum,key){return sum+(Number(counter[key])||0);},0);}function bar(counter){var total=totalCounter(counter);if(!total)return'<div class=\"bar\"></div>';return'<div class=\"bar\">'+cats.map(function(cat){var value=counter[cat]||0;if(!value)return'';return'<span title=\"'+esc(labels[cat])+'\" style=\"width:'+Math.max(1,pc(value,total)).toFixed(2)+'%;background:'+colors[cat]+'\"></span>';}).join('')+'</div>';}function metric(label,value){return'<article class=\"card\"><div class=\"eyebrow\">'+esc(label)+'</div><span class=\"stat-value\">'+esc(value)+'</span></article>';}function tableRows(entries,kind){if(!entries||!entries.length)return'<tr><td>None detected</td><td></td></tr>';return entries.map(function(entry){var value=entry[1];var shown=kind==='chars'?fmt(tok(value)):(kind==='tokens'?fmt(value):String(value));return'<tr><td>'+esc(entry[0])+'</td><td>'+esc(shown)+'</td></tr>';}).join('');}function toolToken(name){var found=(report.toolTokens||[]).filter(function(entry){return entry[0]===name;})[0];return found?found[1]:0;}function renderStats(){var counts=report.sourceCounts||{};document.getElementById('stats').innerHTML=metric('Sessions',report.sessionCount)+metric('Observed/estimated tokens',fmt(report.totalTokens))+metric('Codex',counts.codex||0)+metric('Claude',counts.claude||0);}function renderOverview(){var categoryTotal=totalCounter(report.categories);var categoryRows=cats.map(function(cat){var chars=(report.categories||{})[cat]||0;if(!chars)return'';return'<tr><td><span class=\"badge\"><span class=\"dot\" style=\"background:'+colors[cat]+'\"></span>'+esc(labels[cat])+'</span></td><td>'+fmt(tok(chars))+'</td><td>'+pc(chars,categoryTotal).toFixed(0)+'%</td></tr>';}).join('');document.getElementById('panel-overview').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Where The Context Is Going</h2><p class=\"meta\">Approximate contribution by transcript bucket.</p></div></div>'+bar(report.categories)+'<table class=\"table\"><tbody>'+categoryRows+'</tbody></table></section><section class=\"card\"><div class=\"section-head\"><div><h2>Warnings And Optimizations</h2><p class=\"meta\">Promptable changes you control.</p></div></div><ol class=\"tips\">'+(report.recommendations||[]).map(function(tip){return'<li>'+esc(tip)+'</li>';}).join('')+'</ol></section></div><div class=\"grid equal\" style=\"margin-top:14px\"><section class=\"card\"><h2>Top Paths</h2><table class=\"table\"><tbody>'+tableRows(report.paths,'count')+'</tbody></table></section><section class=\"card\"><h2>Metadata Types</h2><table class=\"table\"><tbody>'+tableRows(report.metadata,'chars')+'</tbody></table></section></div>';}function renderTools(){var rows=(report.tools||[]).map(function(entry,index){var name=entry[0];var count=entry[1];return'<button class=\"row-button'+(index===0?' active':'')+'\" data-tool=\"'+esc(name)+'\"><span><span class=\"row-title\">'+esc(name)+'</span><span class=\"meta\">Click to inspect sampled calls</span></span><span class=\"row-meta\">x'+count+'</span><span class=\"row-meta\">'+fmt(toolToken(name))+' tok</span></button>';}).join('')||'<div class=\"empty\">No tool calls detected in these sessions.</div>';document.getElementById('panel-tools').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Tool Calls</h2><p class=\"meta\">Calls are clickable; samples are capped so the report stays light.</p></div></div><div>'+rows+'</div></section><aside class=\"card detail\" id=\"tool-detail\"></aside></div>';Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'),function(btn){btn.addEventListener('click',function(){Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'),function(item){item.classList.remove('active');});btn.classList.add('active');renderToolDetail(btn.getAttribute('data-tool'));});});if((report.tools||[]).length)renderToolDetail(report.tools[0][0]);else document.getElementById('tool-detail').innerHTML='<h2>Tool Detail</h2><p class=\"empty\">Nothing to inspect yet.</p>';}function renderToolDetail(name){var events=(report.toolEvents||[]).filter(function(event){return event.tool===name;}).slice(0,30);document.getElementById('tool-detail').innerHTML='<div class=\"section-head\"><div><h2>'+esc(name)+'</h2><p class=\"meta\">'+events.length+' sampled call'+(events.length===1?'':'s')+'</p></div></div><div class=\"detail-list\">'+(events.map(function(event){return'<article class=\"sample\"><div class=\"sample-top\"><span>'+esc(event.source)+' · '+esc(event.sessionTitle||event.sessionId)+'</span><span>'+fmt(event.tokens||0)+' tok</span></div><p>'+esc(event.preview||'No preview captured.')+'</p></article>';}).join('')||'<p class=\"empty\">No sampled call payloads for this tool.</p>')+'</div>';}function renderMcp(){var servers=report.mcpServers||[];var usage=report.mcpUsage||[];var configured=servers.map(function(server){return'<button class=\"row-button\" data-mcp=\"'+esc(server.name)+'\"><span><span class=\"row-title\">'+esc(server.name)+'</span><span class=\"meta\">'+esc(server.source)+' · '+esc(server.target)+'</span></span><span class=\"row-meta\">config</span><span class=\"row-meta\"></span></button>';}).join('')||'<div class=\"empty\">No MCP server config found in the common local config files.</div>';var detected=usage.map(function(entry,index){return'<button class=\"row-button'+(!servers.length&&index===0?' active':'')+'\" data-mcp=\"'+esc(entry[0])+'\"><span><span class=\"row-title\">'+esc(entry[0])+'</span><span class=\"meta\">Detected from mcp__server__tool style names</span></span><span class=\"row-meta\">x'+entry[1]+'</span><span class=\"row-meta\"></span></button>';}).join('')||'<div class=\"empty\">No MCP-prefixed tool calls detected in the selected sessions.</div>';document.getElementById('panel-mcp').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>MCP Servers</h2><p class=\"meta\">Configured locally plus inferred calls from transcripts.</p></div></div><div class=\"mini-label\">Configured</div>'+configured+'<div class=\"mini-label\">Detected usage</div>'+detected+'</section><aside class=\"card detail\" id=\"mcp-detail\"></aside></div>';Array.prototype.forEach.call(document.querySelectorAll('[data-mcp]'),function(btn){btn.addEventListener('click',function(){Array.prototype.forEach.call(document.querySelectorAll('[data-mcp]'),function(item){item.classList.remove('active');});btn.classList.add('active');renderMcpDetail(btn.getAttribute('data-mcp'));});});if(usage.length)renderMcpDetail(usage[0][0]);else if(servers.length)renderMcpDetail(servers[0].name);else document.getElementById('mcp-detail').innerHTML='<h2>MCP Detail</h2><p class=\"empty\">Install or run sessions with MCP tools to see usage here.</p>';}function renderMcpDetail(name){var server=(report.mcpServers||[]).filter(function(item){return item.name===name;})[0];var tools=(report.mcpTools||[]).filter(function(entry){return entry[0].indexOf(name+' / ')===0;});var events=(report.toolEvents||[]).filter(function(event){return event.mcpServer===name;}).slice(0,25);document.getElementById('mcp-detail').innerHTML='<div class=\"section-head\"><div><h2>'+esc(name)+'</h2><p class=\"meta\">'+(server?esc(server.source+' · '+server.target):'Detected from tool call names')+'</p></div></div><div class=\"mini-label\">Tools</div><table class=\"table\"><tbody>'+tableRows(tools,'count')+'</tbody></table><div class=\"mini-label\">Sample calls</div><div class=\"detail-list\">'+(events.map(function(event){return'<article class=\"sample\"><div class=\"sample-top\"><span>'+esc(event.mcpTool||event.tool)+'</span><span>'+fmt(event.tokens||0)+' tok</span></div><p>'+esc(event.preview||'No preview captured.')+'</p></article>';}).join('')||'<p class=\"empty\">No sampled MCP calls for this server in the selected sessions.</p>')+'</div>';}function renderMetadata(){var rows=(report.metadata||[]).map(function(entry,index){return'<button class=\"row-button'+(index===0?' active':'')+'\" data-meta=\"'+esc(entry[0])+'\"><span><span class=\"row-title\">'+esc(entry[0])+'</span><span class=\"meta\">Click to inspect sampled records</span></span><span class=\"row-meta\">'+fmt(tok(entry[1]))+' tok</span><span class=\"row-meta\">'+fmt(entry[1])+' ch</span></button>';}).join('')||'<div class=\"empty\">No metadata-heavy records detected.</div>';document.getElementById('panel-metadata').innerHTML='<div class=\"grid\"><section class=\"card\"><div class=\"section-head\"><div><h2>Metadata</h2><p class=\"meta\">Breakdown by transcript record type.</p></div></div>'+rows+'</section><aside class=\"card detail\" id=\"metadata-detail\"></aside></div>';Array.prototype.forEach.call(document.querySelectorAll('[data-meta]'),function(btn){btn.addEventListener('click',function(){Array.prototype.forEach.call(document.querySelectorAll('[data-meta]'),function(item){item.classList.remove('active');});btn.classList.add('active');renderMetadataDetail(btn.getAttribute('data-meta'));});});if((report.metadata||[]).length)renderMetadataDetail(report.metadata[0][0]);else document.getElementById('metadata-detail').innerHTML='<h2>Metadata Detail</h2><p class=\"empty\">Nothing to inspect yet.</p>';}function renderMetadataDetail(type){var events=(report.metadataEvents||[]).filter(function(event){return event.type===type;}).slice(0,30);document.getElementById('metadata-detail').innerHTML='<div class=\"section-head\"><div><h2>'+esc(type)+'</h2><p class=\"meta\">'+events.length+' sampled record'+(events.length===1?'':'s')+'</p></div></div><div class=\"detail-list\">'+(events.map(function(event){return'<article class=\"sample\"><div class=\"sample-top\"><span>'+esc(event.source)+' · '+esc(event.sessionTitle||event.sessionId)+'</span><span>'+fmt(event.tokens||0)+' tok</span></div><p>'+esc(event.preview||'No preview captured.')+'</p></article>';}).join('')||'<p class=\"empty\">No sampled records for this metadata type.</p>')+'</div>';}function renderSessions(){document.getElementById('panel-sessions').innerHTML=(report.sessions||[]).map(function(session,index){var catRows=Object.keys(session.categories||{}).sort(function(a,b){return session.categories[b]-session.categories[a];}).map(function(cat){var chars=session.categories[cat];return'<tr><td>'+esc(labels[cat]||cat)+'</td><td>'+fmt(tok(chars))+'</td><td>'+pc(chars,session.totalChars||0).toFixed(0)+'%</td></tr>';}).join('');var tools=(session.tools?Object.keys(session.tools):[]).sort(function(a,b){return session.tools[b]-session.tools[a];}).slice(0,8).map(function(name){return'<span class=\"badge\">'+esc(name)+' x'+session.tools[name]+'</span>';}).join('')||'<span class=\"empty\">none detected</span>';var paths=(session.paths?Object.keys(session.paths):[]).sort(function(a,b){return session.paths[b]-session.paths[a];}).slice(0,8).map(function(name){return'<span class=\"badge\">'+esc(name)+' x'+session.paths[name]+'</span>';}).join('')||'<span class=\"empty\">none detected</span>';return'<details class=\"session-card\"'+(index===0?' open':'')+'><summary><span><span class=\"eyebrow\">'+esc(session.source)+' · '+esc(session.updatedAt||'unknown time')+'</span><span class=\"session-title\">'+esc(session.title||session.sessionId)+'</span><span class=\"session-path\">'+esc(session.cwd||session.path)+'</span></span><span class=\"token-big\">'+fmt(session.tokens)+'</span></summary><div class=\"session-body\">'+bar(session.categories)+'<div class=\"grid equal\"><div><div class=\"mini-label\">Buckets</div><table class=\"table\"><tbody>'+catRows+'</tbody></table></div><div><div class=\"mini-label\">Frequent tools</div><div class=\"badge-list\">'+tools+'</div><div class=\"mini-label\">Repeated paths</div><div class=\"badge-list\">'+paths+'</div></div></div></div></details>';}).join('')||'<section class=\"card\"><p class=\"empty\">No matching sessions found.</p></section>';}function activate(name){Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(tab){tab.classList.toggle('active',tab.getAttribute('data-tab')===name);});Array.prototype.forEach.call(document.querySelectorAll('.panel'),function(panel){panel.classList.toggle('active',panel.id==='panel-'+name);});if(location.hash!=='#'+name)history.replaceState(null,'','#'+name);}Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(tab){tab.addEventListener('click',function(){activate(tab.getAttribute('data-tab'));});});renderStats();renderOverview();renderTools();renderMcp();renderMetadata();renderSessions();var initial=(location.hash||'#overview').slice(1);if(document.getElementById('panel-'+initial))activate(initial);})();" +
-    "</script><script>" + overviewEnhancementScript() + "</script></body></html>";
+    "</script><script>" + overviewEnhancementScript() + "</script><script>" + insightsEnhancementScript() + "</script></body></html>";
 }
 
 function writeJson(sessions, args, file) {
@@ -1304,11 +1954,15 @@ function openUrl(url) {
 
 function printSummary(sessions, args, file, url) {
   const total = sessions.reduce((sum, s) => sum + s.tokens, 0);
+  const analysis = analyzeContext(sessions, args, readMcpServers(args.project));
+  const topFinding = analysis.findings && analysis.findings[0];
   console.log("Context X-Ray: analyzed " + sessions.length + " session(s), about " + fmtTokens(total) + " observed/estimated tokens.");
   if (url) console.log("Open: " + url);
   else console.log("Report: " + file);
+  console.log("Health: " + analysis.score + "/100 (" + analysis.scoreLabel + ")" + (topFinding ? " · " + topFinding.title : ""));
+  if (topFinding && topFinding.evidence && topFinding.evidence.length) console.log("Evidence: " + topFinding.evidence[0]);
   console.log("");
-  for (const tip of recommendations(sessions).slice(0, 4)) console.log("- " + tip);
+  for (const tip of recommendations(sessions, analysis).slice(0, 4)) console.log("- " + tip);
   const tools = sortedEntries(aggregate(sessions).tools, 5);
   if (tools.length) console.log("- Frequent tools: " + tools.map((entry) => entry[0] + " x" + entry[1]).join(", "));
 }
@@ -1384,16 +2038,19 @@ background report server running.
 
 ## Interpret
 
+- Treat the Overview score as a triage signal, then open Findings for evidence.
+- Repeated file reads: ask the agent to keep a short file-role note and reopen
+  only when exact line numbers are needed.
+- Retry loops or failed tool loops: ask the agent to stop after two identical
+  failures, summarize the error, and change strategy before rerunning.
+- Exploration heavy: give an inspection budget, then ask for a short
+  implementation plan before more reading.
+- Cache churn or context growth: move stable instructions into skills or repo
+  docs and continue large work from a compact handoff summary.
 - Tool output heavy: ask the agent to cap command output, summarize failures,
   and only expand logs when exact lines matter.
-- Instructions heavy: move stable behavior into skills or AGENTS/CLAUDE files.
-- Assistant prose heavy: ask for brief progress updates and a final decision
-  log.
-- One huge session: ask for a handoff summary, then continue in a fresh thread.
-- Repeated path: ask the agent to keep a short file-role summary and reopen the
-  file only when exact lines are needed.
-- Repeated tool: ask the agent to batch independent inspection and avoid
-  rerunning diagnostics unless state changed.
+- Metadata heavy: use Metadata/Sources drilldowns for protocol overhead, but
+  prioritize prompt changes around user/tool/output buckets first.
 `;
 
 export const CONTEXT_XRAY_COMMAND_MD = `---
@@ -1428,8 +2085,8 @@ After the command finishes, summarize:
 
 - the report link
 - sessions analyzed
-- the largest context bucket
-- the most important warning
+- the health score and most important finding
+- one concrete evidence point
 - two or three promptable ways to improve this thread
 `;
 

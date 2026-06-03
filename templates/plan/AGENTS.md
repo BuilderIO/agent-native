@@ -1,8 +1,8 @@
-# Visual Plans — Agent Guide
+# Agent-Native Plans — Agent Guide
 
-Visual Plans is a local-first HTML plan mode for coding agents. Its job is to
-turn agent plans into diagrams, wireframes, options, annotations, progress, and
-proof gates that a person can review before code changes happen.
+Agent-Native Plans is a local-first HTML plan mode for coding agents. Its job is
+to turn agent plans into diagrams, wireframes, prototype options, annotations,
+progress, and proof gates that a person can review before code changes happen.
 
 ## Core Rules
 
@@ -15,6 +15,9 @@ proof gates that a person can review before code changes happen.
 - For new features, update UI, actions, skills/instructions, and application
   state when applicable.
 - Default to visual artifacts over long Markdown. Text is a fallback layer.
+- Simple local plan generation should not require an account. Account or Google
+  sign-in is only for hosted persistence, private sharing, reviewer links, and
+  cross-device/team workflows.
 - Keep proof gates separate from agent claims. Evidence and verification are
   separate.
 - Surface material assumptions only when they change behavior, data, security,
@@ -30,9 +33,14 @@ proof gates that a person can review before code changes happen.
 
 ## Skills
 
-Use `.agents/skills/visual-plans/SKILL.md` for Visual Plans behavior. Use
+Use `.agents/skills/visual-plans/SKILL.md` for Agent-Native Plans behavior. Use
 `.agents/skills/visualize-plan/SKILL.md` when the agent already has a Codex,
 Claude Code, Markdown, or pasted text plan and should create a visual companion.
+The exported install flow is simple: `agent-native skills add plans` installs
+the `/visual-plan` and `/visualize-plan` skills plus the MCP connector. In
+Claude Code, Codex, and other supported hosts, users can then type
+`/visual-plan` for a fresh interactive plan or `/visualize-plan` to enrich an
+existing text plan.
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
 `frontend-design`, `shadcn-ui`, and `self-modifying-code`.

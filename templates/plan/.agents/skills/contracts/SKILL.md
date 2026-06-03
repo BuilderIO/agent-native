@@ -1,13 +1,13 @@
 ---
 name: contracts
 description: >-
-  Legacy alias for Visual Plans. Use this when older instructions ask for
-  Contracts; prefer the visual-plans skill and Visual Plans MCP tools.
+  Legacy alias for Agent-Native Plans. Use this when older instructions ask for
+  Contracts; prefer the visual-plans skill and Plans MCP tools.
 ---
 
 # Contracts Alias
 
-Contracts has been renamed to **Visual Plans**.
+Contracts has been renamed to **Agent-Native Plans**.
 
 Use `.agents/skills/visual-plans/SKILL.md` for current behavior. If this legacy
 skill is already installed, create an interactive HTML plan before

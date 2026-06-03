@@ -2,17 +2,30 @@
 name: visualize-plan
 description: >-
   Convert an existing Codex, Claude Code, Markdown, or pasted plan into a
-  Visual Plans companion with diagrams, wireframes, annotations, and proof gates.
+  Plans companion with diagrams, wireframes, annotations, and proof gates.
 ---
 
 # Visualize Plan
 
 Use this as the visual companion for an existing text plan. The native Codex or
-Claude Code plan can stay exactly where it is; Visual Plans turns it into an
-interactive HTML review surface with diagrams, wireframes, prototype options,
+Claude Code plan can stay exactly where it is; Agent-Native Plans turns it into
+an interactive HTML review surface with diagrams, wireframes, prototype options,
 annotations, assumptions, and proof gates.
 
 This is for impatient review. Default to things the user can scan and react to.
+
+## Install And Use
+
+Users install Plans with the Agent-Native CLI:
+
+```sh
+agent-native skills add plans
+```
+
+That installs both `/visual-plan` and `/visualize-plan` plus the MCP connector.
+Use `/visualize-plan` when there is already a native Codex, Claude Code,
+Markdown, or pasted text plan and the user wants diagrams, wireframes,
+prototype options, and plannotator-style annotations layered on top.
 
 ## When To Use
 
@@ -36,7 +49,7 @@ create a fresh plan instead.
    the recent agent-visible plan. Do not invent a source plan.
 2. Call `visualize-plan` with `planText`, `title`, `goal`, `source`, and
    `repoPath` when available.
-3. Surface the returned Visual Plans link or inline MCP App.
+3. Surface the returned Agent-Native Plans link or inline MCP App.
 4. Enrich the imported plan with `update-visual-plan` when helpful:
    - diagrams for architecture, data flow, state machines, or dependencies;
    - wireframes/mockups for user-visible UI changes;
@@ -46,8 +59,8 @@ create a fresh plan instead.
    - compact proof gates for tests, screenshots, CI, rollout, or rollback.
 5. Ask the user to react in the visual plan. Then call `get-plan-feedback`
    before implementing, after review, and before final response.
-6. Treat the imported text as source material. Structured Visual Plans state is
-   canonical for feedback, assumptions, decisions, and proof.
+6. Treat the imported text as source material. Structured Agent-Native Plans
+   state is canonical for feedback, assumptions, decisions, and proof.
 
 ## Visual Defaults
 

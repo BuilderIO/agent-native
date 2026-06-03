@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "visual-plans",
-  "displayName": "Visual Plans",
-  "description": "Review coding-agent plans as interactive HTML with diagrams, wireframes, annotations, and proof gates.",
+  "id": "plans",
+  "displayName": "Agent-Native Plans",
+  "description": "Generate and review coding-agent plans as interactive HTML with diagrams, wireframes, prototypes, annotations, share links, feedback, and proof gates.",
   "hosted": {
-    "url": "https://plans.agent-native.com",
-    "mcpUrl": "https://plans.agent-native.com/_agent-native/mcp"
+    "url": "https://plan.agent-native.com",
+    "mcpUrl": "https://plan.agent-native.com/_agent-native/mcp"
   },
   "mcp": {
-    "serverName": "agent-native-visual-plans"
+    "serverName": "agent-native-plans"
   },
   "local": {
-    "template": "contracts",
+    "template": "plan",
     "sourcePath": ".",
     "defaultUrl": "http://127.0.0.1:8105",
     "commands": {
@@ -22,20 +22,20 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Authenticate with the Visual Plans MCP connector in the host app or use agent-native app-skill ensure to register the URL-only connector."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan and /visualize-plan skills plus the Plans MCP connector. Authenticate only when you want account-backed sharing or hosted access."
   },
   "surfaces": [
     {
       "id": "visual-plan",
       "action": "create-visual-plan",
       "path": "/plans",
-      "description": "Create or open a Visual Plan for a coding-agent task."
+      "description": "Create or open an Agent-Native visual plan for a coding-agent task."
     },
     {
       "id": "visualize-plan",
       "action": "visualize-plan",
       "path": "/plans",
-      "description": "Create a visual companion from an existing Codex, Claude Code, Markdown, or pasted text plan."
+      "description": "Create an Agent-Native Plans companion from an existing Codex, Claude Code, Markdown, or pasted text plan."
     }
   ],
   "skills": [

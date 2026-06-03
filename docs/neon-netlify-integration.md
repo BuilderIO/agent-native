@@ -57,6 +57,14 @@ in each template's `server/plugins/db.ts` — additive SQL only
 
 ## Follow-ups
 
+- **Agent-Native Plans hosting.** The template is prepared at
+  `templates/plan` with a Netlify build target for `plan.agent-native.com`.
+  To finish first-party hosting, create the Netlify site and Neon project,
+  set production `DATABASE_URL`/auth/OAuth environment variables on the site,
+  attach the `plan.agent-native.com` custom domain, then add the real Neon
+  project ID and Netlify site ID to `.github/workflows/neon-preview-branches.yml`
+  and `.github/workflows/cancel-stale-netlify-previews.yml`.
+
 - **Preview-only actions.** Actions that reach outside the DB (send email,
   charge a card, post to Slack) need their own preview-vs-prod gating so
   preview deploys don't trigger real-world side effects.

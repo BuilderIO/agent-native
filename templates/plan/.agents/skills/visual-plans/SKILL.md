@@ -1,19 +1,37 @@
 ---
 name: visual-plans
 description: >-
-  Use Visual Plans for coding-agent work that needs an interactive HTML plan,
-  diagrams, wireframes, prototype options, annotations, implementation tasks,
-  feedback, and proof gates.
+  Use Agent-Native Plans for coding-agent work that needs an interactive HTML
+  plan, diagrams, wireframes, prototype options, annotations, implementation
+  tasks, feedback, and proof gates.
 ---
 
-# Visual Plans
+# Agent-Native Plans
 
-Use Visual Plans as HTML plan mode for coding work. The point is not to create a
-prettier Markdown plan. The point is to give the user something visual to react
-to before the agent edits code: diagrams, wireframes, option cards, clickable
-prototype sketches, assumptions, tasks, annotations, and proof gates.
+Use Agent-Native Plans as HTML plan mode for coding work. The point is not to
+create a prettier Markdown plan. The point is to give the user something visual
+to react to before the agent edits code: diagrams, wireframes, option cards,
+clickable prototype sketches, assumptions, tasks, annotations, and proof gates.
 
 Text is the fallback layer. Default to visual artifacts.
+
+## Install And Use
+
+Users install Plans with the Agent-Native CLI:
+
+```sh
+agent-native skills add plans
+```
+
+That one command installs the exported skills and registers the hosted MCP app
+connector for supported hosts such as Claude Code and Codex. After the host
+reloads, the user can type `/visual-plan` to create a fresh interactive plan.
+The companion `/visualize-plan` command is installed with it for existing Codex,
+Claude Code, Markdown, or pasted text plans.
+
+Simple local visual plan generation should not require an account. Hosted
+persistence, private reviewer links, team feedback, and cross-device review can
+use optional account or Google sign-in.
 
 ## When To Use
 
@@ -32,8 +50,8 @@ Create or update a visual plan when:
 
 1. Call `create-visual-plan` with the goal, source, repo path, and initial
    plan nodes before implementation.
-2. Surface the returned Visual Plans link or inline MCP App. In CLI hosts, tell
-   the user to open the link and review the visual plan.
+2. Surface the returned Agent-Native Plans link or inline MCP App. In CLI hosts,
+   tell the user to open the link and review the visual plan.
 3. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
    prototypes over paragraphs.
 4. Call `get-plan-feedback` before editing, after review, after any long pause,
@@ -58,7 +76,7 @@ feedback prompts.
 Use this when the user says things like "visualize this plan", "make this
 reviewable", "turn the plan into mockups/diagrams", or "build off the existing
 Claude/Codex plan." The original text plan remains source material; structured
-Visual Plans state becomes canonical for feedback and proof.
+Agent-Native Plans state becomes canonical for feedback and proof.
 
 ## Visual Defaults
 

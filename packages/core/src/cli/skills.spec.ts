@@ -109,7 +109,7 @@ describe("agent-native skills", () => {
     );
   });
 
-  it("accepts legacy contracts aliases for the built-in Visual Plans skill", async () => {
+  it("accepts legacy contracts aliases for the built-in Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
     fs.mkdirSync(codexHome, { recursive: true });
@@ -150,18 +150,18 @@ describe("agent-native skills", () => {
         ]),
       );
       expect(result.mcpUrl).toBe(
-        "https://plans.agent-native.com/_agent-native/mcp",
+        "https://plan.agent-native.com/_agent-native/mcp",
       );
       expect(
         fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
-      ).toContain('url = "https://plans.agent-native.com/_agent-native/mcp"');
+      ).toContain('url = "https://plan.agent-native.com/_agent-native/mcp"');
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
     }
   });
 
-  it("accepts visualize-plan as a Visual Plans companion alias", async () => {
+  it("accepts visualize-plan as a Plans companion alias", async () => {
     const root = tmpDir();
     const commands: { cmd: string; args: string[] }[] = [];
 
@@ -194,7 +194,7 @@ describe("agent-native skills", () => {
       ]),
     );
     expect(result.mcpUrl).toBe(
-      "https://plans.agent-native.com/_agent-native/mcp",
+      "https://plan.agent-native.com/_agent-native/mcp",
     );
   });
 

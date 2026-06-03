@@ -98,6 +98,7 @@ assertSameMembers(
     "dispatch",
     "forms",
     "mail",
+    "plan",
     "slides",
     "starter",
   ],

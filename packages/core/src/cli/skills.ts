@@ -32,13 +32,13 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plans|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|plans|visual-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
-  agent-native skills add visual-plans
+  agent-native skills add plans
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
@@ -208,21 +208,32 @@ iteration, or a human-in-the-loop choice among design directions.
 const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plans
 description: >-
-  Use Visual Plans for coding-agent work that needs an interactive HTML plan,
+  Use Agent-Native Plans for coding-agent work that needs an interactive HTML plan,
   diagrams, wireframes, prototype options, annotations, implementation tasks,
-  feedback, and proof gates through the hosted Visual Plans MCP app.
+  feedback, and proof gates through the hosted Plans MCP app.
 metadata:
   visibility: exported
 ---
 
-# Visual Plans
+# Agent-Native Plans
 
-Use Visual Plans as HTML plan mode for coding work. The point is not to create a
-prettier Markdown plan. The point is to give the user something visual to react
-to before the agent edits code: diagrams, wireframes, option cards, clickable
-prototype sketches, assumptions, tasks, annotations, and proof gates.
+Use Agent-Native Plans as HTML plan mode for coding work. The point is not to
+create a prettier Markdown plan. The point is to give the user something visual
+to react to before the agent edits code: diagrams, wireframes, option cards,
+clickable prototype sketches, assumptions, tasks, annotations, and proof gates.
 
 Text is the fallback layer. Default to visual artifacts.
+
+Install with the Agent-Native CLI. It adds the skills and the MCP connector:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add plans
+\`\`\`
+
+Then start typing \`/visual-plan\` for a fresh plan or \`/visualize-plan\` to
+turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual
+companion. The hosted MCP app opens inline where supported and falls back to an
+openable link everywhere else.
 
 ## When To Use
 
@@ -250,7 +261,7 @@ wants a visual companion instead of a fresh plan.
 
 1. Call \`create-visual-plan\` with the goal, source, repo path, and initial
    plan nodes before implementation.
-2. Surface the returned Visual Plans link or inline MCP App. In CLI hosts, tell
+2. Surface the returned Plans link or inline MCP App. In CLI hosts, tell
    the user to open the link and review the visual plan.
 3. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
    prototypes over paragraphs.
@@ -302,7 +313,7 @@ wants a visual companion instead of a fresh plan.
 - Do not hand-roll MCP HTTP requests with curl. Use host-exposed tools after
   restart/reload, or use the returned browser/deep-link fallback.
 - Hosted default: connect
-  \`https://plans.agent-native.com/_agent-native/mcp\`. Do not put shared
+  \`https://plan.agent-native.com/_agent-native/mcp\`. Do not put shared
   secrets in skill files.
 `;
 
@@ -310,7 +321,7 @@ const VISUALIZE_PLAN_SKILL_MD = `---
 name: visualize-plan
 description: >-
   Convert an existing Codex, Claude Code, Markdown, or pasted plan into a
-  Visual Plans companion with diagrams, wireframes, annotations, and proof gates.
+  Plans companion with diagrams, wireframes, annotations, and proof gates.
 metadata:
   visibility: exported
 ---
@@ -318,8 +329,8 @@ metadata:
 # Visualize Plan
 
 Use this as the visual companion for an existing text plan. The native Codex or
-Claude Code plan can stay exactly where it is; Visual Plans turns it into an
-interactive HTML review surface with diagrams, wireframes, prototype options,
+Claude Code plan can stay exactly where it is; Agent-Native Plans turns it into
+an interactive HTML review surface with diagrams, wireframes, prototype options,
 annotations, assumptions, and proof gates.
 
 This is for impatient review. Default to things the user can scan and react to.
@@ -346,7 +357,7 @@ to create a fresh plan instead.
    the recent agent-visible plan. Do not invent a source plan.
 2. Call \`visualize-plan\` with \`planText\`, \`title\`, \`goal\`, \`source\`,
    and \`repoPath\` when available.
-3. Surface the returned Visual Plans link or inline MCP App.
+3. Surface the returned Plans link or inline MCP App.
 4. Enrich the imported plan with \`update-visual-plan\` when helpful:
    - diagrams for architecture, data flow, state machines, or dependencies;
    - wireframes/mockups for user-visible UI changes;
@@ -356,7 +367,7 @@ to create a fresh plan instead.
    - compact proof gates for tests, screenshots, CI, rollout, or rollback.
 5. Ask the user to react in the visual plan. Then call \`get-plan-feedback\`
    before implementing, after review, and before final response.
-6. Treat the imported text as source material. Structured Visual Plans state is
+6. Treat the imported text as source material. Structured Plans state is
    canonical for feedback, assumptions, decisions, and proof.
 
 ## Visual Defaults
@@ -479,18 +490,18 @@ const BUILT_IN_APP_SKILLS = {
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
-      displayName: "Visual Plans",
+      displayName: "Agent-Native Plans",
       description:
-        "Review coding-agent plans as interactive HTML with diagrams, wireframes, annotations, and proof gates.",
+        "Generate and review coding-agent plans as interactive HTML with diagrams, wireframes, prototypes, annotations, and proof gates.",
       hosted: {
-        url: "https://plans.agent-native.com",
-        mcpUrl: "https://plans.agent-native.com/_agent-native/mcp",
+        url: "https://plan.agent-native.com",
+        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
       },
-      mcp: { serverName: "agent-native-visual-plans" },
+      mcp: { serverName: "agent-native-plans" },
       auth: {
         mode: "oauth",
         setup:
-          "Authenticate with the Visual Plans MCP connector in the host app. No shared secrets are stored in skill files.",
+          "Install with the Agent-Native CLI to add /visual-plan and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {

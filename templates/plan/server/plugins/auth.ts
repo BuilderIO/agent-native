@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Visual Plans",
+    appName: "Agent-Native Plans",
     tagline:
       "Catch risky agent assumptions before they become code and require proof before done.",
     features: [

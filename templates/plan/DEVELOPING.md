@@ -1,6 +1,7 @@
-# Visual Plans — Development Guide
+# Agent-Native Plans — Development Guide
 
-This guide is for development-mode agents editing this app's source code. For app operations and tools, see AGENTS.md.
+This guide is for development-mode agents editing this app's source code. For
+app operations and tools, see AGENTS.md.
 
 ## Tech Stack
 

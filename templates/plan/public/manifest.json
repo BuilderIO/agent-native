@@ -1,7 +1,7 @@
 {
-  "name": "Visual Plans",
-  "short_name": "Visual Plans",
-  "description": "Review coding-agent assumptions and proof before work is called done.",
+  "name": "Agent-Native Plans",
+  "short_name": "Plans",
+  "description": "Generate and review coding-agent plans with diagrams, wireframes, prototypes, annotations, sharing, and proof gates.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",

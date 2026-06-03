@@ -1,42 +1,46 @@
 ---
 name: visual-plans
 description: >-
-  Use Visual Plans for coding-agent work that needs an interactive HTML plan,
+  Use Agent-Native Plans for coding-agent work that needs an interactive HTML plan,
   diagrams, wireframes, prototype options, annotations, implementation tasks,
-  feedback, and proof gates through the hosted Visual Plans MCP app.
+  feedback, and proof gates through the hosted Plans MCP app.
 metadata:
   visibility: exported
 ---
 
-# Visual Plans
+# Agent-Native Plans
 
-Use Visual Plans as HTML plan mode for coding work. The point is not to create a
-prettier Markdown plan. The point is to give the user something visual to react
-to before the agent edits code: diagrams, wireframes, option cards, clickable
-prototype sketches, assumptions, tasks, annotations, and proof gates.
+Use Agent-Native Plans as HTML plan mode for coding work. The point is not to
+create a prettier Markdown plan. The point is to give the user something visual
+to react to before the agent edits code: diagrams, wireframes, option cards,
+clickable prototype sketches, assumptions, tasks, annotations, and proof gates.
 
 Text is the fallback layer. Default to visual artifacts.
 
 ## Setup
 
-Recommended install path:
+Use the Agent-Native CLI so the agent gets both skills and MCP:
 
 ```bash
-npx @agent-native/core@latest skills add visual-plans
+npx @agent-native/core@latest skills add plans
 ```
 
 That installs `visual-plans` plus the companion `visualize-plan` skill, and
-registers the hosted Visual Plans MCP connector for the selected agent client.
+registers the hosted Plans MCP connector for the selected agent client.
 Add `--client claude-code`, `--client codex`, or `--client all` when needed.
+
+Then start typing `/visual-plan` for a fresh visual plan or `/visualize-plan`
+to turn an existing Codex, Claude Code, Markdown, or pasted plan into an
+interactive visual companion.
 
 OAuth-capable hosts can add this remote MCP URL directly:
 
 ```text
-https://plans.agent-native.com/_agent-native/mcp
+https://plan.agent-native.com/_agent-native/mcp
 ```
 
-The legacy `contracts` skill name should be treated as an alias for Visual
-Plans.
+The legacy `contracts` skill name should be treated as an alias for
+Agent-Native Plans.
 
 ## When To Use
 
@@ -55,7 +59,7 @@ Create or update a visual plan when:
 
 1. Call `create-visual-plan` with the goal, source, repo path, and initial
    plan nodes before implementation.
-2. Surface the returned Visual Plans link or inline MCP App. In CLI hosts, tell
+2. Surface the returned Plans link or inline MCP App. In CLI hosts, tell
    the user to open the link and review the visual plan.
 3. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
    prototypes over paragraphs.
@@ -81,7 +85,7 @@ feedback prompts.
 Use this when the user says things like "visualize this plan", "make this
 reviewable", "turn the plan into mockups/diagrams", or "build off the existing
 Claude/Codex plan." The original text plan remains source material; structured
-Visual Plans state becomes canonical for feedback and proof.
+Agent-Native Plans state becomes canonical for feedback and proof.
 
 ## Visual Defaults
 
