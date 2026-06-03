@@ -23,18 +23,18 @@ on:
   push:
     branches: [main]
     paths:
-      # changesets-managed npm packages — any source change reaches here
-      # via the Version Packages PR merge bumping their package.json.
+      # npm-published packages — any source change reaches here via the
+      # Version Packages PR merge bumping their package.json.
       - "packages/core/**"
       - "packages/dispatch/**"
-      - "packages/embedding/**"
-      - "packages/frame/**"
-      - "packages/migrate/**"
       - "packages/pinpoint/**"
       - "packages/scheduling/**"
       # Ignored internal packages are not versioned by changesets, but changes
       # here should still exercise release preflight/publish no-op behavior.
       - "packages/code-agents-ui/**"
+      - "packages/embedding/**"
+      - "packages/frame/**"
+      - "packages/migrate/**"
       - "packages/shared-app-config/**"
       - ".changeset/**"
       # Release workflow plumbing changes should exercise the npm release job.

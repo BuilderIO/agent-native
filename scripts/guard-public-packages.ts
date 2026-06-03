@@ -7,18 +7,25 @@ const repoRoot = path.resolve(
   "..",
 );
 
+const npmPublishAllowlist = new Set([
+  "@agent-native/core",
+  "@agent-native/dispatch",
+  "@agent-native/pinpoint",
+  "@agent-native/scheduling",
+]);
+
 // Packages that are NOT published to npm and therefore exempt from the
-// publish-readiness checks below. Apps (desktop-app/docs/frame/mobile-app) plus
-// internal-only libraries that are consumed exclusively via `workspace:` by the
-// apps/templates above and have never been published (code-agents-ui,
-// shared-app-config). These are also listed in `.changeset/config.json` `ignore`
-// so version-packages never attempts to publish them.
-const packageAppAllowlist = new Set([
+// publish-readiness checks below. Apps are private. Workspace-only libraries are
+// consumed through `workspace:` and must stay ignored by changesets until npm
+// trusted publishing is configured for them.
+const workspaceOnlyPackageAllowlist = new Set([
   "@agent-native/desktop-app",
   "@agent-native/docs",
   "@agent-native/frame",
   "@agent-native/mobile-app",
   "@agent-native/code-agents-ui",
+  "@agent-native/embedding",
+  "@agent-native/migrate",
   "@agent-native/shared-app-config",
 ]);
 
@@ -91,7 +98,21 @@ for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
 
   const pkg = readJson<PackageJson>(packageJsonPath);
   if (!pkg.name?.startsWith("@agent-native/")) continue;
-  if (packageAppAllowlist.has(pkg.name)) continue;
+  if (workspaceOnlyPackageAllowlist.has(pkg.name)) {
+    if (pkg.private !== true && !ignoredPackages.has(pkg.name)) {
+      failures.push(
+        `${pkg.name} is workspace-only and must be listed in .changeset/config.json ignore until npm publishing is enabled`,
+      );
+    }
+    continue;
+  }
+
+  if (!npmPublishAllowlist.has(pkg.name)) {
+    failures.push(
+      `${pkg.name} is not in the npm publish allowlist; add it only after npm trusted publishing is configured, or mark it workspace-only`,
+    );
+    continue;
+  }
 
   if (pkg.private === true) {
     failures.push(`${pkg.name} must not set "private": true`);
