@@ -808,6 +808,25 @@ export function PlansPage() {
                     <DropdownMenuGroup>
                       <DropdownMenuItem
                         onClick={() =>
+                          setAnnotationsOpen((value) => {
+                            if (!value) closeInlineComment();
+                            return !value;
+                          })
+                        }
+                        className="gap-2"
+                      >
+                        <IconMessageCircle className="size-4" />
+                        <span className="flex-1">
+                          {annotationsOpen ? "Hide comments" : "Comments"}
+                        </span>
+                        {bundle.summary.openCommentCount > 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            {bundle.summary.openCommentCount}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
                           setPlanFullscreen((value) => {
                             if (value) closeInlineComment();
                             return !value;
@@ -1270,7 +1289,6 @@ function AnnotationPopover({
 }) {
   const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState(annotation.message);
-  const anchorQuote = annotation.anchor.textQuote || annotation.anchor.snippet;
   const canSave = message.trim().length > 0 && !isPending;
   const save = () => {
     if (!canSave) return;
@@ -1320,24 +1338,24 @@ function AnnotationPopover({
         </div>
       ) : (
         <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            {anchorQuote && (
-              <blockquote className="mb-2 rounded-md bg-muted/45 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
-                "{anchorQuote}"
-              </blockquote>
-            )}
-            <p className="text-sm leading-6">{annotation.message}</p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-8 shrink-0 gap-1.5 px-2 text-xs"
-            onClick={() => setEditing(true)}
-          >
-            <IconPencil className="size-3.5" />
-            Edit
-          </Button>
+          <p className="min-w-0 flex-1 text-sm leading-6">
+            {annotation.message}
+          </p>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8 shrink-0"
+                onClick={() => setEditing(true)}
+                aria-label="Edit comment"
+              >
+                <IconPencil className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit comment</TooltipContent>
+          </Tooltip>
         </div>
       )}
     </div>
@@ -1383,25 +1401,17 @@ function AnnotationsPanel({
               No annotations yet. Click Comment, then click the plan.
             </p>
           ) : (
-            comments.map((comment) => {
-              const anchor = parseAnchor(comment.anchor);
-              return (
-                <article
-                  key={comment.id}
-                  className="rounded-lg border border-border/80 bg-muted/20 p-3"
-                >
-                  {(anchor?.textQuote || anchor?.snippet) && (
-                    <blockquote className="mb-2 rounded-md bg-muted/45 px-2 py-1.5 font-mono text-xs leading-5 text-muted-foreground">
-                      "{anchor.textQuote || anchor.snippet}"
-                    </blockquote>
-                  )}
-                  <p className="text-sm leading-6">{comment.message}</p>
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    {shortDate(comment.createdAt)}
-                  </p>
-                </article>
-              );
-            })
+            comments.map((comment) => (
+              <article
+                key={comment.id}
+                className="rounded-lg border border-border/80 bg-muted/20 p-3"
+              >
+                <p className="text-sm leading-6">{comment.message}</p>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  {shortDate(comment.createdAt)}
+                </p>
+              </article>
+            ))
           )}
         </div>
       </ScrollArea>
