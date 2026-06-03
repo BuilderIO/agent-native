@@ -512,9 +512,12 @@ export {
   type DevOptionValue,
 } from "./dev-overlay/index.js";
 export {
+  callAction,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
+  type ClientActionCallOptions,
+  type ClientActionMethod,
 } from "./use-action.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "./use-pinch-zoom.js";
 export {
