@@ -544,10 +544,9 @@ function stableDomId(value: string) {
     .replace(/^-|-$/g, "");
 }
 
-function editorFilePath(absolutePath?: string, line?: number) {
+function editorFilePath(absolutePath?: string) {
   if (!absolutePath) return "";
-  const suffix = line ? `:${line}:1` : "";
-  return `${absolutePath}${suffix}`;
+  return absolutePath;
 }
 
 function renderImplementationMapHtml(body: string, repoPath?: string | null) {
@@ -569,7 +568,10 @@ function renderImplementationFileHtml(file: ImplementationFile) {
   const previewCode =
     file.previewCode ||
     `// No embedded preview yet.\n// Ask the agent to add the exact snippet it plans to modify for ${file.path}.`;
-  const editorPath = editorFilePath(file.absolutePath, file.line);
+  const editorPath = editorFilePath(file.absolutePath);
+  const editorLine = file.line
+    ? ` data-agent-native-open-line="${escapeHtml(String(file.line))}"`
+    : "";
   return `<article class="implementation-file" data-file-path="${escapeHtml(file.path)}">
     <div>
       <p class="file-path">${escapeHtml(file.path)}${file.line ? `<span>:${file.line}</span>` : ""}</p>
@@ -590,15 +592,18 @@ function renderImplementationFileHtml(file: ImplementationFile) {
               <select data-agent-native-editor-select aria-label="Preferred editor">
                 <option value="vscode">VS Code</option>
                 <option value="cursor">Cursor</option>
+                <option value="finder">Finder</option>
+                <option value="terminal">Terminal</option>
+                <option value="ghostty">Ghostty</option>
+                <option value="xcode">Xcode</option>
               </select>
-              <button type="button" data-agent-native-open-file="${escapeHtml(editorPath)}">Open</button>
+              <button type="button" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Open</button>
             </div>`
           : ""
       }
     </div>
     <template id="${escapeHtml(templateId)}">
-      <div class="code-preview">
-        <div class="code-preview-title"><strong>${escapeHtml(file.path)}</strong><span>${escapeHtml(file.language)}</span></div>
+      <div class="code-preview" data-file-path="${escapeHtml(file.path)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>
         <pre><code>${highlightCodeHtml(previewCode, file.language)}</code></pre>
       </div>
     </template>
@@ -811,12 +816,13 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .editor-picker { display: inline-flex; min-height: 32px; align-items: stretch; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: transparent; }
 .editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
 .editor-picker select, .editor-picker button { border: 0; border-radius: 0; min-height: 30px; }
-.editor-picker select { min-width: 96px; appearance: auto; color-scheme: dark; padding-right: 6px; }
+.editor-picker select { min-width: 104px; appearance: auto; color-scheme: dark; padding-right: 6px; }
 .editor-picker button { border-left: 1px solid var(--line); color: var(--text); }
 :root[data-agent-native-theme="light"] .editor-picker select { color-scheme: light; }
 .code-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); padding: 10px 12px; color: var(--muted); font-size: 12px; }
 .code-preview-title strong { color: var(--text); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; }
 .code-preview pre { margin: 0; max-height: 360px; overflow: auto; padding: 14px 16px; background: #0c0c0e; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.code-preview pre code, .code-preview pre code span { border: 0 !important; border-radius: 0 !important; background: transparent !important; padding: 0 !important; }
 .syntax-keyword { color: #7cc7ff; }
 .syntax-string { color: #a6e3a1; }
 .syntax-literal { color: #f7c876; }
