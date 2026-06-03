@@ -930,6 +930,8 @@ function proxyHttp(
 
   const dispatch = () => {
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
+    console.log(`shomix - app.port - ${app.port}`);
+    console.log(`shomix - req.url - ${req.url}`);
     let settled = false;
     let responseTimer: NodeJS.Timeout;
     const responseTimeoutMs = wantsHtml(req)
