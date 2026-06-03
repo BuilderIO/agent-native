@@ -111,6 +111,7 @@ interface MeetingTranscriptionSession {
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
+  paused: boolean;
   audioMode: "mic-system" | "mic-only";
 }
 
@@ -1034,6 +1035,7 @@ export function App() {
           unlisten: [],
           flushTimer: null,
           stopping: false,
+          paused: false,
           audioMode: "mic-system",
         };
         meetingTranscriptionRef.current = session;
@@ -1117,18 +1119,131 @@ export function App() {
           }),
         );
 
+        const silenceDetectorConfig = {
+          silenceThreshold: 0.05,
+          silenceMs: 15 * 60 * 1000,
+          callEndedMs: 2 * 60 * 1000,
+          watchSleep: true,
+          watchCallEnded: true,
+        };
+
+        const startMeetingAudio = async () => {
+          if (session.audioMode === "mic-system") {
+            await invoke("meeting_audio_start", {
+              meetingId: resolvedMeetingId,
+              locale: navigator.language || "en-US",
+              micDeviceId: selectedMicId || null,
+              micDeviceLabel: selectedMicLabel || null,
+            });
+          } else {
+            await invoke("native_speech_start", {
+              locale: navigator.language || "en-US",
+              micDeviceId: selectedMicId || null,
+              micDeviceLabel: selectedMicLabel || null,
+            });
+          }
+        };
+
+        // Pause/resume is reconciled through a tiny state machine. The user's
+        // desired state (`desiredPaused`) is recorded immediately, while the
+        // actual capture state lives in `session.paused`. Only one transition
+        // runs at a time (`applyingTransition`); after each async step settles
+        // we reconcile again. This guarantees a click that lands mid-transition
+        // (e.g. pause while a resume is still starting audio) still wins.
+        let desiredPaused = false;
+        let applyingTransition = false;
+
+        const applyMeetingAudioState = async () => {
+          if (applyingTransition) return;
+          if (meetingTranscriptionRef.current !== session || session.stopping) {
+            return;
+          }
+          if (desiredPaused === session.paused) return;
+          applyingTransition = true;
+          try {
+            if (desiredPaused) {
+              if (session.flushTimer) {
+                window.clearTimeout(session.flushTimer);
+                session.flushTimer = null;
+              }
+              // Stop the silence detector so a pause isn't mistaken for a
+              // silent/ended call and torn down entirely.
+              await invoke("silence_detector_stop").catch(() => {});
+              try {
+                if (session.audioMode === "mic-system") {
+                  await invoke("meeting_audio_stop");
+                } else {
+                  await invoke("native_speech_stop");
+                }
+              } catch (err) {
+                // Could not stop audio — it may still be running, so do NOT
+                // claim the session is paused. Revert to running and bring the
+                // silence detector back up.
+                console.warn(
+                  "[clips-popover] meeting audio pause failed; staying live:",
+                  err,
+                );
+                desiredPaused = false;
+                session.paused = false;
+                await invoke("silence_detector_start", {
+                  config: silenceDetectorConfig,
+                }).catch(() => {});
+                return;
+              }
+              // Persist whatever was captured before the pause.
+              await flushMeetingTranscript().catch(() => {});
+              session.paused = true;
+            } else {
+              try {
+                await startMeetingAudio();
+              } catch (err) {
+                // Could not restart audio — keep the session paused so the user
+                // can retry resume instead of silently losing the rest of the
+                // transcript. Do NOT fall back to a different audio mode.
+                console.warn(
+                  "[clips-popover] meeting audio resume failed; staying paused:",
+                  err,
+                );
+                desiredPaused = true;
+                session.paused = true;
+                return;
+              }
+              session.paused = false;
+              await invoke("silence_detector_start", {
+                config: silenceDetectorConfig,
+              }).catch(() => {});
+            }
+          } finally {
+            applyingTransition = false;
+          }
+          // The desired state may have changed while we were awaiting (e.g. the
+          // user clicked pause during a resume); reconcile again.
+          void applyMeetingAudioState();
+        };
+
+        const requestMeetingAudioState = (paused: boolean) => {
+          desiredPaused = paused;
+          void applyMeetingAudioState();
+        };
+
+        addUnlisten(
+          listen("clips:recorder-pause", () => {
+            requestMeetingAudioState(true);
+          }),
+        );
+        addUnlisten(
+          listen("clips:recorder-resume", () => {
+            requestMeetingAudioState(false);
+          }),
+        );
+
         await invoke("recording_pill_show", {
           meetingId: resolvedMeetingId,
           mode: "meeting",
         });
 
         try {
-          await invoke("meeting_audio_start", {
-            meetingId: resolvedMeetingId,
-            locale: navigator.language || "en-US",
-            micDeviceId: selectedMicId || null,
-            micDeviceLabel: selectedMicLabel || null,
-          });
+          await startMeetingAudio();
         } catch (err) {
           console.warn(
             "[clips-popover] mic + system meeting audio failed, falling back to mic-only:",
@@ -1143,13 +1258,7 @@ export function App() {
         }
 
         await invoke("silence_detector_start", {
-          config: {
-            silenceThreshold: 0.05,
-            silenceMs: 15 * 60 * 1000,
-            callEndedMs: 2 * 60 * 1000,
-            watchSleep: true,
-            watchCallEnded: true,
-          },
+          config: silenceDetectorConfig,
         }).catch(() => {});
 
         if (payload.joinUrl && payload.reason !== "user") {
