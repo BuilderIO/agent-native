@@ -14,9 +14,9 @@ import {
 
 export default defineAction({
   description:
-    "Bulk create or update Visual Plan nodes, and optionally add human annotation feedback for the agent to consume.",
+    "Bulk create or update visual plan nodes, and optionally add human annotation feedback for the agent to consume.",
   schema: z.object({
-    contractId: z.string().describe("Visual Plan ID"),
+    contractId: z.string().describe("Plan ID"),
     items: z.array(itemInputSchema).optional().default([]),
     feedback: z.array(feedbackInputSchema).optional().default([]),
   }),
@@ -25,7 +25,7 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Update Visual Plan",
+    title: "Update Plan",
     description:
       "Add or update plan nodes, options, assumptions, decisions, proof gates, deviations, and feedback.",
   },

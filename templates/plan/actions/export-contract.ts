@@ -4,9 +4,9 @@ import { loadContractBundle } from "./_contracts.js";
 
 export default defineAction({
   description:
-    "Export a Visual Plan as interactive HTML, Markdown fallback, and structured JSON.",
+    "Export a visual plan as interactive HTML, Markdown fallback, and structured JSON.",
   schema: z.object({
-    contractId: z.string().describe("Visual Plan ID"),
+    contractId: z.string().describe("Plan ID"),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -14,8 +14,8 @@ export default defineAction({
     expose: true,
     readOnly: true,
     requiresAuth: true,
-    title: "Export Visual Plan",
-    description: "Export a Visual Plan as HTML, Markdown, and JSON.",
+    title: "Export Plan",
+    description: "Export a visual plan as HTML, Markdown, and JSON.",
   },
   run: async (args) => {
     const bundle = await loadContractBundle(args.contractId);

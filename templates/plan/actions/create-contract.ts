@@ -18,7 +18,7 @@ import {
 
 export default defineAction({
   description:
-    "Create a Visual Plan for a coding-agent task. Use this before implementation to show diagrams, wireframes, options, annotations, tasks, and proof gates in an MCP app.",
+    "Create an Agent-Native Plans visual plan for a coding-agent task. Use this before implementation to show diagrams, wireframes, options, annotations, tasks, and proof gates in an MCP app.",
   schema: z.object({
     title: z.string().optional().describe("Short visual plan title"),
     goal: z.string().min(1).describe("Goal the agent is trying to accomplish"),

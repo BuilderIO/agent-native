@@ -13,9 +13,9 @@ import {
 
 export default defineAction({
   description:
-    "Record agent progress against a Visual Plan, update status/phase, and mark feedback as consumed after incorporating it.",
+    "Record agent progress against a visual plan, update status/phase, and mark feedback as consumed after incorporating it.",
   schema: z.object({
-    contractId: z.string().describe("Visual Plan ID"),
+    contractId: z.string().describe("Plan ID"),
     status: contractStatusSchema.optional(),
     currentPhase: z.string().optional(),
     items: z.array(itemInputSchema).optional().default([]),
@@ -27,7 +27,7 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Record Visual Plan progress",
+    title: "Record Plan progress",
     description:
       "Record task progress and acknowledge feedback consumed by the coding agent.",
   },

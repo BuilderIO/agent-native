@@ -15,7 +15,7 @@ export default runMigrations(
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   approved_at TEXT,
-  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  owner_email TEXT NOT NULL,
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
 )`,

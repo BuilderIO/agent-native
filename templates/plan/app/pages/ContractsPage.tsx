@@ -3277,7 +3277,7 @@ function CreateContractDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>New Visual Plan</DialogTitle>
+          <DialogTitle>New Plan</DialogTitle>
           <DialogDescription>
             Create a visual review surface for an agent run.
           </DialogDescription>

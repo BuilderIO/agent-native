@@ -31,7 +31,7 @@ function inferTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Create a Visual Plan companion from an existing Codex, Claude Code, Markdown, or pasted text plan. Use this to turn a text plan into a reviewable HTML plan with detected assumptions, proof gates, and a browser/MCP app link.",
+    "Create an Agent-Native Plans companion from an existing Codex, Claude Code, Markdown, or pasted text plan. Use this to turn a text plan into a reviewable HTML plan with detected assumptions, proof gates, and a browser/MCP app link.",
   schema: z.object({
     title: z.string().optional().describe("Short title for the visual plan"),
     goal: z
@@ -58,7 +58,7 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Visual Plan Companion",
+      title: "Plan Companion",
       description:
         "Open the Agent-Native Plans review surface for an imported Codex or Claude Code plan.",
       iframeTitle: "Agent-Native Plans",

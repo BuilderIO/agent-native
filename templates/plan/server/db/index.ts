@@ -9,7 +9,7 @@ registerShareableResource({
   type: "contract",
   resourceTable: schema.contracts,
   sharesTable: schema.contractShares,
-  displayName: "Visual Plan",
+  displayName: "Plan",
   titleColumn: "title",
   getResourcePath: (contract) => `/plans/${contract.id}`,
   getDb,

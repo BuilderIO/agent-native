@@ -24,7 +24,7 @@ export default defineAction({
       .enum(["plans", "plan", "contracts", "contract", "extensions", "team"])
       .optional()
       .describe("View name to navigate to"),
-    contractId: z.string().optional().describe("Visual Plan to open"),
+    contractId: z.string().optional().describe("Plan to open"),
   }),
   http: false,
   run: async (args) => {

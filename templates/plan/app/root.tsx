@@ -91,11 +91,9 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => {}}>
-            Search plans
-          </CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => {}}>Search plans</CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">
           <CommandMenu.Item

@@ -4,9 +4,9 @@ import { loadContractBundle } from "./_contracts.js";
 
 export default defineAction({
   description:
-    "Get unconsumed human annotations and feedback for an active Visual Plan. Agents should call this before editing, after review, and before finalizing.",
+    "Get unconsumed human annotations and feedback for an active visual plan. Agents should call this before editing, after review, and before finalizing.",
   schema: z.object({
-    contractId: z.string().describe("Visual Plan ID"),
+    contractId: z.string().describe("Plan ID"),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -14,7 +14,7 @@ export default defineAction({
     expose: true,
     readOnly: true,
     requiresAuth: true,
-    title: "Get Visual Plan feedback",
+    title: "Get Plan feedback",
     description:
       "Read unconsumed plan annotations and structured feedback for the agent.",
   },
