@@ -96,6 +96,24 @@ const PREFERRED_EDITOR_VALUES: PreferredEditor[] = [
   "xcode",
 ];
 
+const EDITOR_OPTIONS: Array<{ value: PreferredEditor; label: string }> = [
+  { value: "vscode", label: "VS Code" },
+  { value: "cursor", label: "Cursor" },
+  { value: "finder", label: "Finder" },
+  { value: "terminal", label: "Terminal" },
+  { value: "ghostty", label: "Ghostty" },
+  { value: "xcode", label: "Xcode" },
+];
+
+const EDITOR_ICON_HTML: Record<PreferredEditor, string> = {
+  vscode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-vscode" aria-hidden="true"><path d="M16 3v18l4 -2.5v-13l-4 -2.5"></path><path d="M9.165 13.903l-4.165 3.597l-2 -1l4.333 -4.5m1.735 -1.802l6.932 -7.198v5l-4.795 4.141"></path><path d="M16 16.5l-11 -10l-2 1l13 13.5"></path></svg>`,
+  cursor: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-cube" aria-hidden="true"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0 -1 -1.717l-7 -4.008a2.016 2.016 0 0 0 -2 0l-7 4.008c-.619 .355 -1 1.01 -1 1.718v8.018c0 .709 .381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7 -4.008c.619 -.355 1 -1.01 1 -1.718"></path><path d="M12 22v-10"></path><path d="M12 12l8.73 -5.04"></path><path d="M3.27 6.96l8.73 5.04"></path></svg>`,
+  finder: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-finder" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -14"></path><path d="M7 8v1"></path><path d="M17 8v1"></path><path d="M12.5 4c-.654 1.486 -1.26 3.443 -1.5 9h2.5c-.19 2.867 .094 5.024 .5 7"></path><path d="M7 15.5c3.667 2 6.333 2 10 0"></path></svg>`,
+  terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-terminal-2" aria-hidden="true"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg>`,
+  ghostty: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-ghost-3" aria-hidden="true"><path d="M5 11a7 7 0 0 1 14 0v7a1.78 1.78 0 0 1 -3.1 1.4a1.65 1.65 0 0 0 -2.6 0a1.65 1.65 0 0 1 -2.6 0a1.65 1.65 0 0 0 -2.6 0a1.78 1.78 0 0 1 -3.1 -1.4v-7"></path><path d="M10 10h.01"></path><path d="M14 10h.01"></path></svg>`,
+  xcode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-hammer" aria-hidden="true"><path d="M11.414 10l-7.383 7.418a2.091 2.091 0 0 0 0 2.967a2.11 2.11 0 0 0 2.976 0l7.407 -7.385"></path><path d="M18.121 15.293l2.586 -2.586a1 1 0 0 0 0 -1.414l-7.586 -7.586a1 1 0 0 0 -1.414 0l-2.586 2.586a1 1 0 0 0 0 1.414l7.586 7.586a1 1 0 0 0 1.414 0"></path></svg>`,
+};
+
 function readPreferredEditor(): PreferredEditor {
   if (typeof window === "undefined") return "vscode";
   const stored = window.localStorage.getItem(PREFERRED_EDITOR_STORAGE_KEY);
@@ -1348,6 +1366,34 @@ function injectAnnotationRuntime(
       }[char] ?? char
     );
   });
+  const editorOptionsPayload = JSON.stringify(EDITOR_OPTIONS).replace(
+    /[<>&\u2028\u2029]/g,
+    (char) => {
+      return (
+        {
+          "<": "\\u003c",
+          ">": "\\u003e",
+          "&": "\\u0026",
+          "\u2028": "\\u2028",
+          "\u2029": "\\u2029",
+        }[char] ?? char
+      );
+    },
+  );
+  const editorIconPayload = JSON.stringify(EDITOR_ICON_HTML).replace(
+    /[<>&\u2028\u2029]/g,
+    (char) => {
+      return (
+        {
+          "<": "\\u003c",
+          ">": "\\u003e",
+          "&": "\\u0026",
+          "\u2028": "\\u2028",
+          "\u2029": "\\u2029",
+        }[char] ?? char
+      );
+    },
+  );
   const runtime = `<style>
     :root[data-agent-native-theme="light"] {
       color-scheme: light;
@@ -1407,14 +1453,30 @@ function injectAnnotationRuntime(
     .an-plan-code-popover .code-preview pre { max-height: 474px; background: transparent !important; }
     .an-plan-code-popover .code-preview pre code { display: block; min-width: max-content; color: inherit !important; font: inherit; white-space: pre; }
     .an-plan-code-popover .code-preview pre code, .an-plan-code-popover .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
-    .editor-picker { display: inline-flex; min-height: 32px; align-items: stretch; overflow: hidden; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 8px; background: transparent; }
+    .editor-picker { position: relative; display: inline-flex; min-height: 32px; align-items: stretch; overflow: visible; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 8px; background: transparent; }
     .editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
-    .editor-picker select, .editor-picker button { min-height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--soft, #d4d4d8); padding: 0 10px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
-    .editor-picker select { min-width: 104px; appearance: auto; color-scheme: dark; padding-right: 6px; }
-    .editor-picker button { border-left: 1px solid var(--line, rgba(255,255,255,.14)); color: var(--text, #f4f4f5); }
-    .editor-picker select:hover, .editor-picker button:hover { color: var(--text, #f4f4f5); background: rgba(255,255,255,.05); }
-    :root[data-agent-native-theme="light"] .editor-picker select { color-scheme: light; }
-    :root[data-agent-native-theme="light"] .editor-picker select, :root[data-agent-native-theme="light"] .editor-picker button { color: var(--soft, #4b4b4b); }
+    .editor-picker button { min-height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--soft, #d4d4d8); padding: 0 10px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
+    .editor-picker button:hover { color: var(--text, #f4f4f5); background: rgba(255,255,255,.05); }
+    .editor-picker-trigger { display: inline-flex; width: 48px; align-items: center; justify-content: center; gap: 6px; border-right: 1px solid var(--line, rgba(255,255,255,.14)) !important; border-radius: 7px 0 0 7px !important; }
+    .editor-picker-open { border-radius: 0 7px 7px 0 !important; color: var(--text, #f4f4f5) !important; }
+    .editor-picker-select { display: none; }
+    .editor-picker-caret { width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-1px) rotate(45deg); opacity: .72; }
+    .editor-picker-menu { position: absolute; top: calc(100% + 7px); right: 0; z-index: 2147483002; display: none; width: 188px; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 12px; background: var(--paper, #111113); padding: 6px; box-shadow: 0 18px 50px rgba(0,0,0,.32); }
+    .editor-picker[data-open="true"] .editor-picker-menu { display: grid; gap: 2px; }
+    .editor-picker-option { display: flex !important; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; border-radius: 8px !important; text-align: left; }
+    .editor-picker-option:hover, .editor-picker-option.is-active { background: rgba(255,255,255,.06); color: var(--text, #f4f4f5); }
+    .editor-icon { display: inline-flex; width: 18px; height: 18px; flex: 0 0 auto; align-items: center; justify-content: center; }
+    .editor-icon svg { width: 18px; height: 18px; stroke-width: 2; }
+    .editor-icon-vscode { color: #41a6f6; }
+    .editor-icon-cursor { color: var(--text, #f4f4f5); }
+    .editor-icon-finder { color: #4aa9ff; }
+    .editor-icon-terminal { color: #73d99f; }
+    .editor-icon-ghostty { color: #a78bfa; }
+    .editor-icon-xcode { color: #54a7ff; }
+    .editor-picker-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+    :root[data-agent-native-theme="light"] .editor-picker button { color: var(--soft, #4b4b4b); }
+    :root[data-agent-native-theme="light"] .editor-picker button:hover, :root[data-agent-native-theme="light"] .editor-picker-option.is-active { background: rgba(0,0,0,.06); color: var(--text, #171717); }
+    :root[data-agent-native-theme="light"] .editor-picker-menu { background: var(--paper, #ffffff); box-shadow: 0 18px 50px rgba(29,29,24,.13); }
     .visual-tabs[data-plan-tabs] { display: grid; gap: 14px; }
     .visual-tabs[data-plan-tabs] .tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 4px; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 11px; background: var(--paper-2, rgba(255,255,255,.04)); padding: 4px; overflow-x: auto; }
     .visual-tabs[data-plan-tabs] .tab-button { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, #a4a4aa); padding: 0 11px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; }
@@ -1450,6 +1512,8 @@ function injectAnnotationRuntime(
   </style><script>
     (() => {
       const state = ${payload};
+      const editorOptions = ${editorOptionsPayload};
+      const editorIconMap = ${editorIconPayload};
       const root = document.documentElement;
       root.dataset.agentNativeTheme = state.theme || "dark";
       if (state.annotateMode) root.classList.add("an-plan-annotating");
@@ -1580,29 +1644,57 @@ function injectAnnotationRuntime(
           });
         }
       }
-      const editorValues = ["vscode", "cursor", "finder", "terminal", "ghostty", "xcode"];
+      const editorValues = editorOptions.map((option) => option.value);
       let preferredEditor = normalizeEditor(state.preferredEditor);
       function normalizeEditor(value) {
         return editorValues.includes(value) ? value : "vscode";
       }
+      function editorLabel(editor) {
+        return editorOptions.find((option) => option.value === editor)?.label || "VS Code";
+      }
+      function editorIconHtml(editor) {
+        const normalized = normalizeEditor(editor);
+        return '<span class="editor-icon editor-icon-' + normalized + '">' + (editorIconMap[normalized] || "") + '</span>';
+      }
+      function editorTriggerHtml(editor) {
+        const normalized = normalizeEditor(editor);
+        return editorIconHtml(normalized) + '<span class="editor-picker-sr">Preferred editor: ' + editorLabel(normalized) + '</span><span class="editor-picker-caret" aria-hidden="true"></span>';
+      }
+      function editorSelectOptionsHtml() {
+        return editorOptions.map(({ value, label }) => '<option value="' + value + '">' + label + '</option>').join("");
+      }
+      function editorMenuHtml(activeEditor) {
+        const active = normalizeEditor(activeEditor);
+        return editorOptions.map(({ value, label }) => {
+          const selected = value === active;
+          return '<button type="button" class="editor-picker-option' + (selected ? " is-active" : "") + '" data-agent-native-editor-option="' + value + '" role="menuitemradio" aria-checked="' + (selected ? "true" : "false") + '">' + editorIconHtml(value) + '<span>' + label + '</span></button>';
+        }).join("");
+      }
+      function closeEditorMenus(exceptPicker) {
+        for (const picker of document.querySelectorAll("[data-agent-native-editor-picker]")) {
+          if (picker !== exceptPicker) {
+            picker.removeAttribute("data-open");
+            picker.querySelector("[data-agent-native-editor-trigger]")?.setAttribute("aria-expanded", "false");
+          }
+        }
+      }
       function setPreferredEditor(editor, notifyParent) {
         preferredEditor = normalizeEditor(editor);
-        for (const select of document.querySelectorAll("[data-agent-native-editor-select]")) {
-          select.value = preferredEditor;
+        for (const picker of document.querySelectorAll("[data-agent-native-editor-picker]")) {
+          picker.dataset.editor = preferredEditor;
+          const trigger = picker.querySelector("[data-agent-native-editor-trigger]");
+          if (trigger) {
+            trigger.innerHTML = editorTriggerHtml(preferredEditor);
+            trigger.setAttribute("aria-label", "Choose editor. Current: " + editorLabel(preferredEditor));
+          }
+          const select = picker.querySelector("[data-agent-native-editor-select]");
+          if (select) select.value = preferredEditor;
+          const menu = picker.querySelector("[data-agent-native-editor-menu]");
+          if (menu) menu.innerHTML = editorMenuHtml(preferredEditor);
         }
         if (notifyParent) {
           window.parent.postMessage({ type: "agent-native-plan-editor-preference", editor: preferredEditor }, "*");
         }
-      }
-      function editorOptionHtml() {
-        return [
-          ["vscode", "VS Code"],
-          ["cursor", "Cursor"],
-          ["finder", "Finder"],
-          ["terminal", "Terminal"],
-          ["ghostty", "Ghostty"],
-          ["xcode", "Xcode"]
-        ].map(([value, label]) => '<option value="' + value + '">' + label + '</option>').join("");
       }
       function splitFileLocation(filePath, explicitLine) {
         const value = filePath || "";
@@ -1642,25 +1734,62 @@ function injectAnnotationRuntime(
         const picker = document.createElement("div");
         picker.className = "editor-picker";
         picker.dataset.agentNativeEditorPicker = "true";
+        picker.dataset.editor = preferredEditor;
+        const trigger = document.createElement("button");
+        trigger.type = "button";
+        trigger.className = "editor-picker-trigger";
+        trigger.dataset.agentNativeEditorTrigger = "true";
+        trigger.setAttribute("aria-haspopup", "menu");
+        trigger.setAttribute("aria-expanded", "false");
+        trigger.setAttribute("aria-label", "Choose editor. Current: " + editorLabel(preferredEditor));
+        trigger.innerHTML = editorTriggerHtml(preferredEditor);
         const select = document.createElement("select");
+        select.className = "editor-picker-select";
         select.dataset.agentNativeEditorSelect = "true";
-        select.setAttribute("aria-label", "Preferred editor");
-        select.innerHTML = editorOptionHtml();
+        select.setAttribute("aria-hidden", "true");
+        select.setAttribute("tabindex", "-1");
+        select.innerHTML = editorSelectOptionsHtml();
+        const menu = document.createElement("div");
+        menu.className = "editor-picker-menu";
+        menu.dataset.agentNativeEditorMenu = "true";
+        menu.setAttribute("role", "menu");
+        menu.innerHTML = editorMenuHtml(preferredEditor);
         const open = document.createElement("button");
         open.type = "button";
+        open.className = "editor-picker-open";
         open.textContent = "Open";
         open.dataset.agentNativeOpenSelectedEditor = "true";
         if (openFile) open.dataset.agentNativeOpenFile = openFile;
         if (line) open.dataset.agentNativeOpenLine = line;
         if (hrefs.vscode) open.dataset.agentNativeOpenVscode = hrefs.vscode;
         if (hrefs.cursor) open.dataset.agentNativeOpenCursor = hrefs.cursor;
-        picker.append(select, open);
+        picker.append(trigger, select, menu, open);
         return picker;
+      }
+      function upgradeEditorPickerElement(picker) {
+        if (picker.querySelector("[data-agent-native-editor-trigger]")) return;
+        const select = picker.querySelector("[data-agent-native-editor-select]");
+        const open = picker.querySelector("[data-agent-native-open-selected-editor], [data-agent-native-open-file]") || document.createElement("button");
+        const editor = normalizeEditor(select?.value || picker.dataset.editor || preferredEditor);
+        const openFile = open.getAttribute?.("data-agent-native-open-file") || "";
+        const openLine = open.getAttribute?.("data-agent-native-open-line") || "";
+        const vscode = open.getAttribute?.("data-agent-native-open-vscode") || "";
+        const cursor = open.getAttribute?.("data-agent-native-open-cursor") || "";
+        const upgraded = createEditorPicker(openFile, { vscode, cursor }, openLine);
+        picker.replaceChildren(...Array.from(upgraded.childNodes));
+        picker.className = "editor-picker";
+        picker.dataset.agentNativeEditorPicker = "true";
+        picker.dataset.editor = editor;
       }
       function initializeEditorPickers() {
         const actionGroups = Array.from(document.querySelectorAll(".file-actions"));
         for (const actions of actionGroups) {
-          if (actions.querySelector("[data-agent-native-editor-picker]")) continue;
+          if (actions.querySelector("[data-agent-native-editor-picker]")) {
+            for (const picker of Array.from(actions.querySelectorAll("[data-agent-native-editor-picker]"))) {
+              upgradeEditorPickerElement(picker);
+            }
+            continue;
+          }
           const legacyButtons = Array.from(actions.querySelectorAll("[data-agent-native-open-editor]"));
           if (legacyButtons.length === 0) continue;
           const hrefs = {};
@@ -1673,6 +1802,9 @@ function injectAnnotationRuntime(
           const openFile = openFileFromHref(hrefs.vscode || hrefs.cursor);
           if (!openFile && !hrefs.cursor && !hrefs.vscode) continue;
           actions.appendChild(createEditorPicker(openFile, hrefs));
+        }
+        for (const picker of Array.from(document.querySelectorAll("[data-agent-native-editor-picker]"))) {
+          upgradeEditorPickerElement(picker);
         }
         setPreferredEditor(preferredEditor, false);
       }
@@ -1912,12 +2044,39 @@ function injectAnnotationRuntime(
       document.addEventListener("selectionchange", () => requestAnimationFrame(updateSelectionToolbar));
       document.addEventListener("mouseup", () => setTimeout(updateSelectionToolbar, 0));
       document.addEventListener("keyup", updateSelectionToolbar);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeEditorMenus();
+      });
       document.addEventListener("change", (event) => {
         const editorSelect = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-select]") : null;
         if (!editorSelect) return;
         setPreferredEditor(editorSelect.value, true);
       });
       document.addEventListener("click", (event) => {
+        const editorOption = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-option]") : null;
+        if (editorOption) {
+          event.preventDefault();
+          event.stopPropagation();
+          setPreferredEditor(editorOption.getAttribute("data-agent-native-editor-option"), true);
+          closeEditorMenus();
+          return;
+        }
+        const editorTrigger = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-trigger]") : null;
+        if (editorTrigger) {
+          event.preventDefault();
+          event.stopPropagation();
+          const picker = editorTrigger.closest("[data-agent-native-editor-picker]");
+          const willOpen = picker?.getAttribute("data-open") !== "true";
+          closeEditorMenus(picker);
+          if (picker && willOpen) {
+            picker.setAttribute("data-open", "true");
+            editorTrigger.setAttribute("aria-expanded", "true");
+          } else {
+            picker?.removeAttribute("data-open");
+            editorTrigger.setAttribute("aria-expanded", "false");
+          }
+          return;
+        }
         const previewButton = event.target instanceof Element ? event.target.closest("[data-agent-native-code-preview]") : null;
         if (previewButton) {
           event.preventDefault();
@@ -1931,11 +2090,12 @@ function injectAnnotationRuntime(
           event.stopPropagation();
           const picker = editorButton.closest("[data-agent-native-editor-picker]");
           const select = picker?.querySelector?.("[data-agent-native-editor-select]");
-          const editor = normalizeEditor(select?.value || preferredEditor);
+          const editor = normalizeEditor(picker?.getAttribute("data-editor") || select?.value || preferredEditor);
           const directHref = editorButton.getAttribute("data-agent-native-open-" + editor) || "";
           const filePath = editorButton.getAttribute("data-agent-native-open-file") || "";
           const line = editorButton.getAttribute("data-agent-native-open-line") || "";
           const href = directHref || hrefForEditor(editor, filePath, line);
+          closeEditorMenus();
           window.parent.postMessage({ type: "agent-native-plan-open-editor", href }, "*");
           return;
         }
@@ -1952,6 +2112,7 @@ function injectAnnotationRuntime(
         if (!state.annotateMode) {
           if (event.target instanceof Element && event.target.closest(".an-plan-selection-toolbar")) return;
           if (event.target instanceof Element && event.target.closest(".an-plan-code-popover")) return;
+          closeEditorMenus();
           hideCodePopover();
           window.parent.postMessage({ type: "agent-native-plan-close-comment-popover" }, "*");
           return;

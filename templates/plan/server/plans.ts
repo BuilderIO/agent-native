@@ -554,6 +554,67 @@ function editorFilePath(absolutePath?: string) {
   return absolutePath;
 }
 
+const EDITOR_OPTIONS = [
+  {
+    value: "vscode",
+    label: "VS Code",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-vscode" aria-hidden="true"><path d="M16 3v18l4 -2.5v-13l-4 -2.5"></path><path d="M9.165 13.903l-4.165 3.597l-2 -1l4.333 -4.5m1.735 -1.802l6.932 -7.198v5l-4.795 4.141"></path><path d="M16 16.5l-11 -10l-2 1l13 13.5"></path></svg>`,
+  },
+  {
+    value: "cursor",
+    label: "Cursor",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-cube" aria-hidden="true"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0 -1 -1.717l-7 -4.008a2.016 2.016 0 0 0 -2 0l-7 4.008c-.619 .355 -1 1.01 -1 1.718v8.018c0 .709 .381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7 -4.008c.619 -.355 1 -1.01 1 -1.718"></path><path d="M12 22v-10"></path><path d="M12 12l8.73 -5.04"></path><path d="M3.27 6.96l8.73 5.04"></path></svg>`,
+  },
+  {
+    value: "finder",
+    label: "Finder",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-finder" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -14"></path><path d="M7 8v1"></path><path d="M17 8v1"></path><path d="M12.5 4c-.654 1.486 -1.26 3.443 -1.5 9h2.5c-.19 2.867 .094 5.024 .5 7"></path><path d="M7 15.5c3.667 2 6.333 2 10 0"></path></svg>`,
+  },
+  {
+    value: "terminal",
+    label: "Terminal",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-terminal-2" aria-hidden="true"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg>`,
+  },
+  {
+    value: "ghostty",
+    label: "Ghostty",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-ghost-3" aria-hidden="true"><path d="M5 11a7 7 0 0 1 14 0v7a1.78 1.78 0 0 1 -3.1 1.4a1.65 1.65 0 0 0 -2.6 0a1.65 1.65 0 0 1 -2.6 0a1.65 1.65 0 0 0 -2.6 0a1.78 1.78 0 0 1 -3.1 -1.4v-7"></path><path d="M10 10h.01"></path><path d="M14 10h.01"></path></svg>`,
+  },
+  {
+    value: "xcode",
+    label: "Xcode",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-hammer" aria-hidden="true"><path d="M11.414 10l-7.383 7.418a2.091 2.091 0 0 0 0 2.967a2.11 2.11 0 0 0 2.976 0l7.407 -7.385"></path><path d="M18.121 15.293l2.586 -2.586a1 1 0 0 0 0 -1.414l-7.586 -7.586a1 1 0 0 0 -1.414 0l-2.586 2.586a1 1 0 0 0 0 1.414l7.586 7.586a1 1 0 0 0 1.414 0"></path></svg>`,
+  },
+] as const;
+
+function renderEditorIconHtml(editor: (typeof EDITOR_OPTIONS)[number]) {
+  return `<span class="editor-icon editor-icon-${escapeHtml(editor.value)}">${editor.icon}</span>`;
+}
+
+function renderEditorPickerHtml(editorPath: string, editorLine: string) {
+  const current = EDITOR_OPTIONS[0];
+  return `<div class="editor-picker" data-agent-native-editor-picker data-editor="${current.value}">
+    <button type="button" class="editor-picker-trigger" data-agent-native-editor-trigger aria-haspopup="menu" aria-expanded="false" aria-label="Choose editor">
+      ${renderEditorIconHtml(current)}
+      <span class="editor-picker-sr">Preferred editor: ${current.label}</span>
+      <span class="editor-picker-caret" aria-hidden="true"></span>
+    </button>
+    <select class="editor-picker-select" data-agent-native-editor-select aria-hidden="true" tabindex="-1">
+      ${EDITOR_OPTIONS.map((editor) => `<option value="${escapeHtml(editor.value)}">${escapeHtml(editor.label)}</option>`).join("")}
+    </select>
+    <div class="editor-picker-menu" data-agent-native-editor-menu role="menu">
+      ${EDITOR_OPTIONS.map(
+        (editor) =>
+          `<button type="button" class="editor-picker-option${editor.value === current.value ? " is-active" : ""}" data-agent-native-editor-option="${escapeHtml(editor.value)}" role="menuitemradio" aria-checked="${editor.value === current.value ? "true" : "false"}">
+            ${renderEditorIconHtml(editor)}
+            <span>${escapeHtml(editor.label)}</span>
+          </button>`,
+      ).join("")}
+    </div>
+    <button type="button" class="editor-picker-open" data-agent-native-open-selected-editor data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Open</button>
+  </div>`;
+}
+
 function renderImplementationMapHtml(body: string, repoPath?: string | null) {
   const files = parseImplementationFiles(body, repoPath);
   if (files.length === 0) return "";
@@ -617,21 +678,7 @@ function renderImplementationFileHtml(
       </div>
       <div class="file-actions">
         <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Preview</button>
-        ${
-          editorPath
-            ? `<div class="editor-picker" data-agent-native-editor-picker>
-                <select data-agent-native-editor-select aria-label="Preferred editor">
-                  <option value="vscode">VS Code</option>
-                  <option value="cursor">Cursor</option>
-                  <option value="finder">Finder</option>
-                  <option value="terminal">Terminal</option>
-                  <option value="ghostty">Ghostty</option>
-                  <option value="xcode">Xcode</option>
-                </select>
-                <button type="button" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Open</button>
-              </div>`
-            : ""
-        }
+        ${editorPath ? renderEditorPickerHtml(editorPath, editorLine) : ""}
       </div>
     </div>
     <div class="file-detail-body">
@@ -892,14 +939,29 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
 .symbol-list code { border: 1px solid var(--line); border-radius: 7px; background: transparent; padding: 2px 6px; color: var(--muted); font-size: 12px; }
 .file-actions { display: flex; align-items: flex-start; gap: 8px; }
-.file-actions button, .editor-picker select { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
-.file-actions button:hover, .editor-picker select:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }
-.editor-picker { display: inline-flex; min-height: 32px; align-items: stretch; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: transparent; }
+.file-actions button { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
+.file-actions button:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }
+.editor-picker { position: relative; display: inline-flex; min-height: 32px; align-items: stretch; overflow: visible; border: 1px solid var(--line); border-radius: 8px; background: transparent; }
 .editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
-.editor-picker select, .editor-picker button { border: 0; border-radius: 0; min-height: 30px; }
-.editor-picker select { min-width: 104px; appearance: auto; color-scheme: dark; padding-right: 6px; }
-.editor-picker button { border-left: 1px solid var(--line); color: var(--text); }
-:root[data-agent-native-theme="light"] .editor-picker select { color-scheme: light; }
+.editor-picker button { min-height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
+.editor-picker-trigger { display: inline-flex; width: 48px; align-items: center; justify-content: center; gap: 6px; border-right: 1px solid var(--line) !important; border-radius: 7px 0 0 7px !important; }
+.editor-picker-open { border-radius: 0 7px 7px 0 !important; color: var(--text) !important; }
+.editor-picker-select { display: none; }
+.editor-picker-caret { width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-1px) rotate(45deg); opacity: .72; }
+.editor-picker-menu { position: absolute; top: calc(100% + 7px); right: 0; z-index: 20; display: none; width: 188px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); padding: 6px; box-shadow: 0 18px 50px rgba(0,0,0,.26); }
+.editor-picker[data-open="true"] .editor-picker-menu { display: grid; gap: 2px; }
+.editor-picker-option { display: flex !important; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; border-radius: 8px !important; text-align: left; }
+.editor-picker-option:hover, .editor-picker-option.is-active { background: rgba(255,255,255,.06); color: var(--text); }
+.editor-icon { display: inline-flex; width: 18px; height: 18px; flex: 0 0 auto; align-items: center; justify-content: center; }
+.editor-icon svg { width: 18px; height: 18px; stroke-width: 2; }
+.editor-icon-vscode { color: #41a6f6; }
+.editor-icon-cursor { color: var(--text); }
+.editor-icon-finder { color: #4aa9ff; }
+.editor-icon-terminal { color: #73d99f; }
+.editor-icon-ghostty { color: #a78bfa; }
+.editor-icon-xcode { color: #54a7ff; }
+.editor-picker-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+:root[data-agent-native-theme="light"] .editor-picker-option:hover, :root[data-agent-native-theme="light"] .editor-picker-option.is-active { background: rgba(0,0,0,.06); }
 .code-preview pre { margin: 0; max-height: 360px; overflow: auto; padding: 14px 16px; background: #0c0c0e; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .code-preview pre code { display: block; min-width: max-content; color: inherit !important; font: inherit; white-space: pre; }
 .code-preview pre code, .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }

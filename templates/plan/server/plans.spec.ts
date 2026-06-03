@@ -218,8 +218,12 @@ describe("Plans helpers", () => {
     expect(html).not.toContain("PlansPage.tsx:210");
     expect(html).toContain("data-agent-native-code-preview");
     expect(html).toContain("data-agent-native-editor-picker");
+    expect(html).toContain("data-agent-native-editor-trigger");
+    expect(html).toContain('data-agent-native-editor-option="cursor"');
     expect(html).toContain("data-agent-native-open-file");
     expect(html).toContain("/Users/steve/project/");
+    expect(html).toContain("tabler-icon-brand-vscode");
+    expect(html).toContain("tabler-icon-brand-finder");
     expect(html).toContain('<option value="finder">Finder</option>');
     expect(html).toContain('<option value="terminal">Terminal</option>');
     expect(html).toContain('<option value="ghostty">Ghostty</option>');
