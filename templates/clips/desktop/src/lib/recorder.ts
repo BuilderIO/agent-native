@@ -53,7 +53,9 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { createCameraCompositeStream } from "./camera-composite";
 import {
   createLocalRecordingFolderName,
+  exportBlobChunksToLocalRecordingFile,
   prepareLocalRecordingExport,
+  type LocalBlobExportResult,
   type LocalRecordingExportHandle,
   type LocalExportedFile,
   type LocalRecordingTarget,
@@ -567,6 +569,28 @@ export async function discardBrowserRecordingBackup(
   recordingId: string,
 ): Promise<void> {
   await deleteBrowserRecordingBackup(recordingId);
+}
+
+export async function exportBrowserRecordingBackup(
+  recordingId: string,
+): Promise<LocalBlobExportResult> {
+  const meta = await getBrowserRecordingBackupMeta(recordingId);
+  if (!meta) {
+    throw new Error("Local recording backup not found");
+  }
+  const chunks = await getBrowserRecordingBackupChunks(recordingId);
+  if (chunks.length === 0) {
+    throw new Error("Local recording backup has no chunks");
+  }
+
+  return exportBlobChunksToLocalRecordingFile({
+    chunks: chunks.map((chunk) => chunk.blob),
+    role: "composed",
+    mimeType: meta.mimeType || chunks[0]?.mimeType || "video/webm",
+    durationMs: meta.durationMs,
+    width: meta.width,
+    height: meta.height,
+  });
 }
 
 async function markBrowserRecordingBackupError(
@@ -2749,6 +2773,16 @@ async function startNativeRecordingInner(
       elapsedMs,
     }).catch(() => {});
   }
+
+  async function openFailedRecordingPage() {
+    const viewUrl = `/r/${id}?saveFailed=1`;
+    try {
+      await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
+    } catch (err) {
+      console.error("[clips-recorder] openExternal failed:", err);
+    }
+  }
+
   const tickHandle = setInterval(() => emitState(pausedAt != null), 500);
 
   // 5. Wire toolbar events.
@@ -2987,6 +3021,7 @@ async function startNativeRecordingInner(
         invoke("hide_finalizing").catch((err) =>
           console.error("[clips-recorder] hide_finalizing failed:", err),
         );
+        await openFailedRecordingPage();
         throw failed;
       }
 
@@ -3027,9 +3062,11 @@ async function startNativeRecordingInner(
         await markBrowserRecordingBackupError(id, error.message).catch(
           () => {},
         );
+        await abortRecordingUpload(params.serverUrl, id, error.message);
         invoke("hide_finalizing").catch((hideErr) =>
           console.error("[clips-recorder] hide_finalizing failed:", hideErr),
         );
+        await openFailedRecordingPage();
         throw error;
       }
       await deleteBrowserRecordingBackup(id).catch((err) => {
