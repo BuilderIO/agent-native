@@ -675,7 +675,8 @@ export function PlansPage() {
                       variant="ghost"
                       size="icon"
                       className="pointer-events-auto size-8"
-                      aria-label="Send plan to agent"
+                      onClick={openPlansAgent}
+                      aria-label="Open agent sidebar"
                     >
                       <IconMessageDots className="size-4" />
                     </Button>
