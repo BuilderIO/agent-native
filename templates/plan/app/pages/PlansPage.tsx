@@ -8,7 +8,7 @@ import {
   IconChevronRight,
   IconClipboardText,
   IconCopy,
-  IconDots,
+  IconDotsVertical,
   IconLayoutSidebarRight,
   IconPencil,
   IconMessageCircle,
@@ -23,9 +23,10 @@ import {
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import {
-  focusAgentChat,
+  SIDEBAR_STATE_CHANGE_EVENT,
   sendToAgentChat,
   setAgentChatContextItem,
+  type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -268,6 +269,7 @@ export function PlansPage() {
   const [preferredEditor, setPreferredEditor] = useState<PreferredEditor>(() =>
     readPreferredEditor(),
   );
+  const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
   const [inlineCommentPosition, setInlineCommentPosition] =
@@ -315,6 +317,17 @@ export function PlansPage() {
         : `${window.location.origin}/plans/${selectedId}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
   }, [bundle, documentHtml, selectedId]);
+
+  useEffect(() => {
+    const onSidebarState = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      setAgentSidebarOpen(detail?.open === true);
+    };
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, onSidebarState);
+    return () =>
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, onSidebarState);
+  }, []);
 
   const postRuntimeState = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -446,15 +459,22 @@ export function PlansPage() {
     setAnnotateMode(true);
   };
 
-  const openPlansAgent = () => {
+  const togglePlansAgent = () => {
     if (!bundle) return;
-    setAgentChatContextItem({
-      key: `visual-plan:${bundle.plan.id}`,
-      title: bundle.plan.title,
-      context: planAgentContext,
-      openSidebar: true,
-    });
-    focusAgentChat();
+    if (!agentSidebarOpen) {
+      setAgentChatContextItem({
+        key: `visual-plan:${bundle.plan.id}`,
+        title: bundle.plan.title,
+        context: planAgentContext,
+        openSidebar: false,
+      });
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:set-mode", {
+          detail: { mode: "chat" },
+        }),
+      );
+    }
+    window.dispatchEvent(new Event("agent-panel:toggle"));
   };
 
   const sendPlanFeedbackToInlineAgent = () => {
@@ -762,7 +782,7 @@ export function PlansPage() {
                       className="pointer-events-auto size-8"
                       aria-label="Plan actions"
                     >
-                      <IconDots className="size-4" />
+                      <IconDotsVertical className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 rounded-xl">
