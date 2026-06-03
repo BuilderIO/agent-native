@@ -87,7 +87,7 @@ For lists, drop a `<VisibilityBadge visibility={row.visibility} />` next to each
 
 ## Same model, agent and UI {#agent-and-ui}
 
-The framework auto-mounts these actions in every template — the agent calls them as tools, the UI calls them as HTTP endpoints:
+The framework auto-mounts these actions in every template — the agent calls them as tools, and the UI calls them through `useActionQuery` / `useActionMutation`:
 
 | Action                    | What it does                                                                                   |
 | ------------------------- | ---------------------------------------------------------------------------------------------- |

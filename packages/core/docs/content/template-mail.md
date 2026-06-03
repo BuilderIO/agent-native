@@ -170,7 +170,7 @@ Routes in the UI:
 
 Mail is yours to change. Everything important lives in a handful of places — start there.
 
-**Adding an agent capability.** Add a new file under `templates/mail/actions/` using `defineAction`. Your action becomes both a CLI command (`pnpm action <name>`) and an HTTP endpoint (`/_agent-native/actions/<name>`). Look at `templates/mail/actions/star-email.ts` for a short example or `templates/mail/actions/manage-automations.ts` for one with multiple sub-actions. See the [actions](/docs/actions) docs for the full pattern.
+**Adding an agent capability.** Add a new file under `templates/mail/actions/` using `defineAction`. Your action becomes an agent tool, a CLI command (`pnpm action <name>`), and a typed frontend hook surface through `useActionQuery` / `useActionMutation`. Look at `templates/mail/actions/star-email.ts` for a short example or `templates/mail/actions/manage-automations.ts` for one with multiple sub-actions. See the [actions](/docs/actions) docs for the full pattern.
 
 **Changing the UI.** Routes are in `templates/mail/app/routes/` and components in `templates/mail/app/components/email/` and `templates/mail/app/components/layout/`. The app uses shadcn/ui primitives from `app/components/ui/` and Tabler Icons — stick to those.
 
