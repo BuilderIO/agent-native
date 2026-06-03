@@ -1009,7 +1009,7 @@ function proxyHttp(
     return;
   }
 
-    console.log(`shomix - app is not yet ready ${app.ready} - ${cold}`);
+  console.log(`shomix - app is not yet ready ${app.ready} - ${cold}`);
 
   void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
