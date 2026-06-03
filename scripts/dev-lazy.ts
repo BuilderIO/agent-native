@@ -930,13 +930,12 @@ function proxyHttp(
 
   const dispatch = () => {
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
-    console.log(`shomix - app.port - ${app.port}`);
-    console.log(`shomix - req.url - ${req.url}`);
     let settled = false;
     let responseTimer: NodeJS.Timeout;
     const responseTimeoutMs = wantsHtml(req)
       ? proxyResponseTimeoutMs
       : proxyNonHtmlResponseTimeoutMs;
+    console.log(`[proxy] → ${req.method} ${req.url} → ${app.id}:${app.port}`);
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -953,8 +952,10 @@ function proxyHttp(
         settled = true;
         clearTimeout(responseTimer);
         app.ready = true;
+        console.log(`[proxy] ← ${proxyRes.statusCode} ${req.method} ${req.url} (${app.id})`);
         res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-        proxyRes.once("error", () => {
+        proxyRes.once("error", (err: Error) => {
+          console.error(`[proxy] proxyRes error ${req.url}: ${err.message}`);
           if (!res.destroyed) res.destroy();
         });
         proxyRes.pipe(res);
@@ -974,6 +975,7 @@ function proxyHttp(
       app.ready = false;
       proxyReq.destroy();
       ensureReadinessProbe(app);
+      console.warn(`[proxy] timeout ${req.method} ${req.url} (${app.id}, ${formatProxyReadyTimeout(responseTimeoutMs)})`);
       if (res.headersSent) {
         res.end();
         return;
@@ -993,6 +995,7 @@ function proxyHttp(
       clearTimeout(responseTimer);
       if (settled) return;
       settled = true;
+      console.error(`[proxy] proxyReq error ${req.method} ${req.url} (${app.id}): ${err.message}`);
       if (res.headersSent) {
         res.end();
         return;
