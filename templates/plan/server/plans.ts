@@ -870,26 +870,26 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .detail-row i { height: 116px; border-radius: 14px; background: #202024; border: 1px solid var(--line); }
 .implementation-map { margin: 24px 0; border-top: 1px solid var(--line); }
 .implementation-map-header { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-.implementation-file-tabs { display: grid; gap: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
-.implementation-file-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
-.implementation-file-tab { flex: 0 0 min(280px, 76vw); min-height: 56px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--muted); padding: 9px 11px; text-align: left; cursor: pointer; }
-.implementation-file-tab:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.07); }
-.implementation-file-tab.is-active { border-color: rgba(0,181,255,.5); background: var(--accent-soft); color: var(--text); }
+.implementation-file-tabs { min-height: 330px; display: grid; grid-template-columns: minmax(220px, .44fr) minmax(0, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.implementation-file-list { display: grid; align-content: start; border-right: 1px solid var(--line); }
+.implementation-file-tab { width: 100%; display: grid; gap: 3px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--muted); padding: 13px 14px; text-align: left; cursor: pointer; }
+.implementation-file-tab:hover { background: rgba(255,255,255,.035); color: var(--soft); }
+.implementation-file-tab.is-active { background: var(--paper-2); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
 .file-tab-name, .file-tab-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-tab-name { font: 700 13px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-.file-tab-path { margin-top: 4px; font: 500 11px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--muted); }
-.implementation-file-panels { border-top: 1px solid var(--line); }
-.implementation-file-panel { display: none; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.file-tab-name { font: 700 14px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.file-tab-path { font: 500 12px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--muted); }
+.implementation-file-tab.is-active .file-tab-path { color: var(--soft); }
+.implementation-file-panels { min-width: 0; }
+.implementation-file-panel { display: none; min-height: 100%; padding: 18px 20px 20px; }
 .implementation-file-panel.is-active { display: block; }
-.file-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-.file-title-stack { min-width: 0; }
-.file-name { margin: 0; color: var(--text); font: 700 17px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-.file-path { margin: 0; color: var(--text); font: 650 15px/1.4 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-.file-title-stack .file-path { margin-top: 3px; color: var(--muted); font-size: 12px; }
-.file-path span { color: var(--muted); }
-.file-summary { max-width: 760px; margin: 8px 0 0; color: var(--soft); font-size: 15px; }
-.symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.symbol-list code { border: 1px solid var(--line); border-radius: 7px; background: var(--paper-2); padding: 2px 6px; color: var(--soft); font-size: 12px; }
+.file-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.file-title-stack { min-width: 0; display: grid; gap: 5px; }
+.file-name { margin: 0; color: var(--text); font: 750 18px/1.25 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.file-path { margin: 0; overflow-wrap: anywhere; color: var(--muted); font: 500 12px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.file-detail-body { padding-top: 16px; }
+.file-summary { max-width: 760px; margin: 0; color: var(--soft); font-size: 15px; }
+.symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+.symbol-list code { border: 1px solid var(--line); border-radius: 7px; background: transparent; padding: 2px 6px; color: var(--muted); font-size: 12px; }
 .file-actions { display: flex; align-items: flex-start; gap: 8px; }
 .file-actions button, .editor-picker select { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
 .file-actions button:hover, .editor-picker select:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }
@@ -906,5 +906,5 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .syntax-string { color: #a6e3a1; }
 .syntax-literal { color: #f7c876; }
 .syntax-comment { color: #7a7a83; }
-@media (max-width: 760px) { main { width: min(100vw - 24px, 980px); padding-top: 72px; } .flow-diagram, .screen-body, .wide-preview, .detail-row { grid-template-columns: 1fr; } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+@media (max-width: 760px) { main { width: min(100vw - 24px, 980px); padding-top: 72px; } .flow-diagram, .screen-body, .wide-preview, .detail-row, .implementation-file-tabs { grid-template-columns: 1fr; } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } .implementation-file-list { border-right: 0; } .implementation-file-panels { border-top: 1px solid var(--line); } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
 `;
