@@ -101,6 +101,76 @@ describe("Plans helpers", () => {
     expect(html).toContain("Review the UI");
   });
 
+  it("renders tabbed visual sections for diagrams and wireframes", () => {
+    const bundle: PlanBundle = {
+      plan: {
+        id: "plan_1",
+        title: "Tabbed visuals",
+        brief: "Compare multiple views without stacking them.",
+        status: "review",
+        source: "codex",
+        repoPath: null,
+        currentFocus: null,
+        html: null,
+        markdown: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        approvedAt: null,
+      },
+      sections: [
+        section("sec_wire", "wireframe", "Reader states"),
+        section("sec_diagram", "diagram", "Agent flow"),
+      ],
+      comments: [],
+      events: [],
+      summary: {
+        sectionCounts: { wireframe: 1, diagram: 1 },
+        commentCount: 0,
+        openCommentCount: 0,
+      },
+    };
+
+    const html = buildPlanHtml(bundle);
+    expect(html).toContain("data-plan-tabs");
+    expect(html).toContain('data-tab-target="reader"');
+    expect(html).toContain('data-tab-target="handoff"');
+  });
+
+  it("skips divider-only empty sections", () => {
+    const empty = section("sec_empty", "summary", "");
+    empty.body = "";
+    empty.html = "";
+    const filled = section("sec_filled", "summary", "Keep me");
+    const bundle: PlanBundle = {
+      plan: {
+        id: "plan_1",
+        title: "No empty sections",
+        brief: "Avoid blank dividers.",
+        status: "review",
+        source: "codex",
+        repoPath: null,
+        currentFocus: null,
+        html: null,
+        markdown: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        approvedAt: null,
+      },
+      sections: [empty, filled],
+      comments: [],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 2 },
+        commentCount: 0,
+        openCommentCount: 0,
+      },
+    };
+
+    const html = buildPlanHtml(bundle);
+    expect(html).not.toContain('id="sec_empty"');
+    expect(html).toContain('id="sec_filled"');
+  });
+
   it("renders file references as previewable implementation rows", () => {
     const implementation = section(
       "sec_impl",

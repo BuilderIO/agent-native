@@ -32,7 +32,7 @@ function inferTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Convert an existing Codex, Claude Code, Markdown, or pasted text plan into an Agent-Native Plans HTML companion with visual sections, file/symbol implementation maps, code previews, and annotation space.",
+    "Convert an existing Codex, Claude Code, Markdown, or pasted text plan into an Agent-Native Plans HTML companion with tabbed diagrams/wireframes, file/symbol implementation maps, code previews, and annotation space.",
   schema: z.object({
     title: z.string().optional().describe("Short title for the visual plan"),
     brief: z

@@ -76,6 +76,10 @@ Create or update a visual plan when:
 - Wireframes should be concrete enough to critique: show layout regions,
   controls, states, empty/loading/error paths, review affordances, and copy
   placeholders. Avoid vague rectangle-only sketches.
+- When showing multiple diagrams, wireframes, mockups, or design directions, use
+  compact tabs so the plan stays readable. Use `data-plan-tabs`,
+  `data-tab-target`, and `data-tab-panel`; the Plans iframe runtime will wire
+  up the interaction.
 - Backend/refactor work gets architecture, sequence, data-flow, or dependency
   diagrams.
 - Complex tradeoffs get two or three option cards with consequences.

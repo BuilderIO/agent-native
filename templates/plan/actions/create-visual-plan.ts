@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, and annotations.",
+    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with tabbed diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, and annotations.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -37,7 +37,9 @@ export default defineAction({
       html: z
         .string()
         .optional()
-        .describe("Full bespoke HTML document to render in the plan iframe"),
+        .describe(
+          "Full bespoke HTML document to render in the plan iframe. Use data-plan-tabs for multiple diagrams, wireframes, mockups, or design options.",
+        ),
       markdown: z
         .string()
         .optional()

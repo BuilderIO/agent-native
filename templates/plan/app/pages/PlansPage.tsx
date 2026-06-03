@@ -1173,12 +1173,58 @@ function injectAnnotationRuntime(
     .an-plan-code-popover-close:hover { background: rgba(255,255,255,.08); color: var(--text, #f4f4f5); }
     :root[data-agent-native-theme="light"] .an-plan-code-popover-close:hover { background: rgba(0,0,0,.06); }
     .an-plan-code-popover .code-preview pre { max-height: 430px; }
+    .visual-tabs[data-plan-tabs] { display: grid; gap: 14px; }
+    .visual-tabs[data-plan-tabs] .tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 4px; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 11px; background: var(--paper-2, rgba(255,255,255,.04)); padding: 4px; overflow-x: auto; }
+    .visual-tabs[data-plan-tabs] .tab-button { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, #a4a4aa); padding: 0 11px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; }
+    .visual-tabs[data-plan-tabs] .tab-button:hover { color: var(--text, #f4f4f5); background: rgba(255,255,255,.05); }
+    .visual-tabs[data-plan-tabs] .tab-button.is-active { background: var(--text, #f4f4f5); color: var(--bg, #0a0a0b); }
+    :root[data-agent-native-theme="light"] .visual-tabs[data-plan-tabs] .tab-button:hover { background: rgba(0,0,0,.06); }
+    .visual-tabs[data-plan-tabs] .tab-panel { display: none; }
+    .visual-tabs[data-plan-tabs] .tab-panel.is-active { display: block; }
   </style><script>
     (() => {
       const state = ${payload};
       const root = document.documentElement;
       root.dataset.agentNativeTheme = state.theme || "dark";
       if (state.annotateMode) root.classList.add("an-plan-annotating");
+      function removeEmptyPlanSections() {
+        const candidates = Array.from(document.querySelectorAll("section[data-plan-section-id], section.plan-section, section[id]"));
+        for (const section of candidates) {
+          const text = (section.textContent || "").replace(/\\s+/g, " ").trim();
+          const hasMedia = Boolean(section.querySelector("img,svg,canvas,video,iframe,table,pre,code,template,.visual,.flow-diagram,.wireframe-shell,.implementation-map,[data-plan-tabs],[data-agent-native-code-preview]"));
+          if (!text && !hasMedia) section.remove();
+        }
+      }
+      function initializePlanTabs() {
+        const tabsets = Array.from(document.querySelectorAll("[data-plan-tabs]"));
+        for (const tabset of tabsets) {
+          const buttons = Array.from(tabset.querySelectorAll("[data-tab-target]"));
+          const panels = Array.from(tabset.querySelectorAll("[data-tab-panel]"));
+          if (buttons.length === 0 || panels.length === 0) continue;
+          const activate = (target) => {
+            for (const button of buttons) {
+              const isActive = button.getAttribute("data-tab-target") === target;
+              button.classList.toggle("is-active", isActive);
+              button.setAttribute("aria-selected", String(isActive));
+            }
+            for (const panel of panels) {
+              panel.classList.toggle("is-active", panel.getAttribute("data-tab-panel") === target);
+            }
+            postDocState();
+          };
+          for (const button of buttons) {
+            button.setAttribute("role", "tab");
+            button.addEventListener("click", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              activate(button.getAttribute("data-tab-target") || "");
+            });
+          }
+          for (const panel of panels) panel.setAttribute("role", "tabpanel");
+          const initial = buttons.find((button) => button.classList.contains("is-active")) || buttons[0];
+          activate(initial.getAttribute("data-tab-target") || "");
+        }
+      }
       function postDocState() {
         const doc = document.documentElement;
         window.parent.postMessage({
@@ -1193,6 +1239,8 @@ function injectAnnotationRuntime(
           }
         }, "*");
       }
+      removeEmptyPlanSections();
+      initializePlanTabs();
       postDocState();
       window.addEventListener("scroll", postDocState, { passive: true });
       window.addEventListener("resize", postDocState);

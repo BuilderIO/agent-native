@@ -335,6 +335,7 @@ export function buildPlanHtml(bundle: PlanBundle): string {
   const brief = escapeHtml(bundle.plan.brief);
   const sectionHtml = bundle.sections
     .map((section) => renderSectionHtml(section, bundle.plan.repoPath))
+    .filter(Boolean)
     .join("\n");
   return `<!doctype html>
 <html lang="en">
@@ -381,11 +382,12 @@ function renderSectionHtml(section: PlanSection, repoPath?: string | null) {
         : section.type === "diagram"
           ? renderFlowHtml(section.title)
           : "");
+  if (!section.title.trim() && !body && !visual) return "";
   return `<section id="${escapeHtml(section.id)}" class="plan-section ${escapeHtml(section.type)}">
   <p class="section-type">${escapeHtml(section.type.replace(/_/g, " "))}</p>
   <h2>${escapeHtml(section.title)}</h2>
   ${visual ? `<div class="visual">${visual}</div>` : ""}
-  <div class="copy">${body}</div>
+  ${body ? `<div class="copy">${body}</div>` : ""}
 </section>`;
 }
 
@@ -650,6 +652,29 @@ function markdownishToHtml(value: string) {
 }
 
 function renderWireframeHtml(title: string) {
+  return `<div class="visual-tabs" data-plan-tabs>
+    <div class="tab-list" role="tablist" aria-label="${escapeHtml(title)} visual options">
+      <button type="button" class="tab-button is-active" data-tab-target="reader">Reader</button>
+      <button type="button" class="tab-button" data-tab-target="comments">Comments</button>
+      <button type="button" class="tab-button" data-tab-target="review">Review</button>
+    </div>
+    <div class="tab-panel is-active" data-tab-panel="reader">
+      ${renderWireframeShellHtml(title, "Plan review", "Comment")}
+    </div>
+    <div class="tab-panel" data-tab-panel="comments">
+      ${renderWireframeShellHtml(title, "Inline annotations", "Reply")}
+    </div>
+    <div class="tab-panel" data-tab-panel="review">
+      ${renderWireframeShellHtml(title, "Feedback queue", "Apply")}
+    </div>
+  </div>`;
+}
+
+function renderWireframeShellHtml(
+  title: string,
+  label: string,
+  action: string,
+) {
   return `<div class="wireframe-shell" aria-label="${escapeHtml(title)} wireframe">
     <div class="window-bar"><i></i><i></i><i></i><strong>Plan review</strong></div>
     <div class="screen-body">
@@ -660,11 +685,11 @@ function renderWireframeHtml(title: string) {
         <span class="nav-line short"></span>
       </aside>
       <main>
-        <div class="toolbar"><span></span><span></span><button>Comment</button></div>
+        <div class="toolbar"><span></span><span></span><button>${escapeHtml(action)}</button></div>
         <div class="document-line title"></div>
         <div class="document-line"></div>
         <div class="wide-preview">
-          <div></div><div></div><div></div>
+          <div aria-label="${escapeHtml(label)} primary area"></div><div></div><div></div>
         </div>
         <div class="detail-row"><i></i><i></i><i></i></div>
       </main>
@@ -673,11 +698,27 @@ function renderWireframeHtml(title: string) {
 }
 
 function renderFlowHtml(title: string) {
-  return `<div class="flow-diagram" aria-label="${escapeHtml(title)} diagram">
-    <div><strong>Intent</strong><span>User asks for a plan</span></div>
-    <div><strong>Visualize</strong><span>Agent creates HTML companion</span></div>
-    <div><strong>React</strong><span>User annotates visuals</span></div>
-    <div><strong>Build</strong><span>Agent follows the revised plan</span></div>
+  return `<div class="visual-tabs" data-plan-tabs>
+    <div class="tab-list" role="tablist" aria-label="${escapeHtml(title)} diagram options">
+      <button type="button" class="tab-button is-active" data-tab-target="flow">Flow</button>
+      <button type="button" class="tab-button" data-tab-target="handoff">Agent handoff</button>
+    </div>
+    <div class="tab-panel is-active" data-tab-panel="flow">
+      <div class="flow-diagram" aria-label="${escapeHtml(title)} flow diagram">
+        <div><strong>Intent</strong><span>User asks for a plan</span></div>
+        <div><strong>Visualize</strong><span>Agent creates HTML companion</span></div>
+        <div><strong>React</strong><span>User annotates visuals</span></div>
+        <div><strong>Build</strong><span>Agent follows the revised plan</span></div>
+      </div>
+    </div>
+    <div class="tab-panel" data-tab-panel="handoff">
+      <div class="flow-diagram" aria-label="${escapeHtml(title)} handoff diagram">
+        <div><strong>Markdown plan</strong><span>Dense text gets skimmed</span></div>
+        <div><strong>HTML plan</strong><span>Diagrams and UI make intent concrete</span></div>
+        <div><strong>Annotations</strong><span>Feedback is pinned to exact context</span></div>
+        <div><strong>Agent loop</strong><span>Agent reads comments before edits</span></div>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -726,6 +767,13 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .copy ul { margin: 0; padding-left: 20px; }
 .copy li { margin: 9px 0; }
 .visual { margin: 24px 0; }
+.visual-tabs { display: grid; gap: 14px; }
+.tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 4px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper-2); padding: 4px; overflow-x: auto; }
+.tab-button { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); padding: 0 11px; font: 650 12px/30px inherit; white-space: nowrap; cursor: pointer; }
+.tab-button:hover { color: var(--text); background: rgba(255,255,255,.05); }
+.tab-button.is-active { background: var(--text); color: var(--bg); }
+.tab-panel { display: none; }
+.tab-panel.is-active { display: block; }
 .flow-diagram { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .flow-diagram div { position: relative; min-height: 124px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper-2); padding: 16px; }
 .flow-diagram div:not(:last-child)::after { content: ""; position: absolute; top: 50%; right: -10px; width: 10px; height: 1px; background: var(--accent); }

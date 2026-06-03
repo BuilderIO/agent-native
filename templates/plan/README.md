@@ -44,6 +44,8 @@ Plans should be visual by default:
 - diagrams for architecture, data flow, dependencies, and state machines
 - detailed wireframes and quick mockups for UI work, including layout regions,
   controls, states, empty/loading/error paths, and copy placeholders
+- tabs for multiple diagrams, wireframes, mockups, and design options so rich
+  plans do not become long stacks of visuals
 - prototype options when interaction or design direction is uncertain
 - implementation maps for code work: files, symbols/components/functions,
   planned changes, concise code snippets, and explicit editor-open affordances
