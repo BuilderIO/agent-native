@@ -21,7 +21,6 @@ import {
   focusAgentChat,
   sendToAgentChat,
   setAgentChatContextItem,
-  useSendToAgentChat,
 } from "@agent-native/core/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,14 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -277,7 +268,6 @@ export function PlansPage() {
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
   const { resolvedTheme, setTheme } = useTheme();
-  const { send: sendToMainAgent, codeRequiredDialog } = useSendToAgentChat();
   const isDarkTheme = resolvedTheme !== "light";
   const planTheme = isDarkTheme ? "dark" : "light";
 
@@ -409,6 +399,12 @@ export function PlansPage() {
     toast.success("Plan link copied");
   };
 
+  const startCommenting = () => {
+    setActiveAnnotation(null);
+    setAnnotationsOpen(false);
+    setAnnotateMode(true);
+  };
+
   const openPlansAgent = () => {
     if (!bundle) return;
     setAgentChatContextItem({
@@ -420,26 +416,20 @@ export function PlansPage() {
     focusAgentChat();
   };
 
-  const sendPlanToPlansAgent = () => {
+  const sendPlanFeedbackToAgent = () => {
     if (!bundle) return;
+    const openCommentCount = bundle.summary.openCommentCount;
+    if (openCommentCount === 0) {
+      startCommenting();
+      return;
+    }
     sendToAgentChat({
       type: "content",
       submit: true,
       context: planAgentContext,
-      message:
-        "Help me iterate on the current visual plan side by side. Read the plan with get-visual-plan, use get-plan-feedback for comments, and patch the HTML with update-visual-plan when I ask for changes.",
+      message: `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update the HTML plan and any related implementation details as needed.`,
     });
-  };
-
-  const sendPlanToMainAgent = () => {
-    if (!bundle) return;
-    sendToMainAgent({
-      type: "code",
-      submit: true,
-      context: planAgentContext,
-      message:
-        "Use this Agent-Native Plans document as implementation context. If the user's next request changes the app, patch the codebase. If the plan needs to stay in sync, update it through get-visual-plan and update-visual-plan.",
-    });
+    toast.success("Sent comments to the agent");
   };
 
   const submitInlineComment = (message: string) => {
@@ -722,14 +712,18 @@ export function PlansPage() {
                       onClick={() => {
                         if (annotateMode) {
                           closeInlineComment();
-                          return;
+                        } else if (bundle.summary.openCommentCount > 0) {
+                          sendPlanFeedbackToAgent();
+                        } else {
+                          startCommenting();
                         }
-                        setActiveAnnotation(null);
-                        setAnnotationsOpen(false);
-                        setAnnotateMode(true);
                       }}
                     >
-                      {annotateMode ? "Cancel" : "Comment"}
+                      {annotateMode
+                        ? "Cancel"
+                        : bundle.summary.openCommentCount > 0
+                          ? "Send to agent"
+                          : "Comment"}
                       {!annotateMode && bundle.summary.openCommentCount > 0 && (
                         <span className="ml-1 flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
                           {bundle.summary.openCommentCount}
@@ -738,11 +732,13 @@ export function PlansPage() {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    Click anywhere in the plan to pin feedback
+                    {bundle.summary.openCommentCount > 0
+                      ? "Send open comments to the agent"
+                      : "Click anywhere in the plan to pin feedback"}
                   </TooltipContent>
                 </Tooltip>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <Button
                       type="button"
                       variant="ghost"
@@ -753,21 +749,9 @@ export function PlansPage() {
                     >
                       <IconMessageDots className="size-4" />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuLabel>Send to agent</DropdownMenuLabel>
-                    <DropdownMenuItem onSelect={openPlansAgent}>
-                      Open sidebar
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={sendPlanToPlansAgent}>
-                      Plans agent
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={sendPlanToMainAgent}>
-                      Main agent
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </TooltipTrigger>
+                  <TooltipContent>Open side chat</TooltipContent>
+                </Tooltip>
               </div>
               {annotateMode && (
                 <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
@@ -834,7 +818,6 @@ export function PlansPage() {
         visualizePlan={visualizePlan}
         onCreated={(id) => navigate(`/plans/${id}`)}
       />
-      {codeRequiredDialog}
     </div>
   );
 }
