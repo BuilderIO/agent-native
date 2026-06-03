@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.9.1
+
+### Patch Changes
+
+- 56888a3: Update React Router dependencies to 7.16.0.
+
 ## 0.9.0
 
 ### Minor Changes
