@@ -1,5 +1,21 @@
 # @agent-native/core
 
+## 0.35.0
+
+### Minor Changes
+
+- 4740d41: Add a local Context X-Ray skill installer that writes a turnkey context-xray
+  command, Codex/Claude skill instructions, and slash-command prompts for
+  visualizing local coding-agent context usage.
+
+  Project-scoped installs now stay in project `.agents` artifacts, Codex session
+  analysis honors `--project`, `--open` uses a local HTML file instead of a
+  detached server, and Windows installs get a native command launcher.
+
+- 4740d41: Add Context X-Ray for inspecting and managing the agent context window with
+  segment manifests, pin/evict/restore actions, durable directives, and a chat
+  composer cockpit.
+
 ## 0.34.0
 
 ### Minor Changes
