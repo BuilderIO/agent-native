@@ -1339,8 +1339,10 @@ function injectAnnotationRuntime(
     .an-plan-code-popover-close:hover { background: rgba(255,255,255,.08); color: var(--text, #f4f4f5); }
     :root[data-agent-native-theme="light"] .an-plan-code-popover-close:hover { background: rgba(0,0,0,.06); }
     .an-plan-code-popover .code-preview-title { display: none !important; }
-    .an-plan-code-popover .code-preview pre { max-height: 474px; }
-    .an-plan-code-popover .code-preview pre code, .an-plan-code-popover .code-preview pre code span { border: 0 !important; border-radius: 0 !important; background: transparent !important; padding: 0 !important; }
+    .an-plan-code-popover .code-preview { border: 0 !important; background: transparent !important; box-shadow: none !important; }
+    .an-plan-code-popover .code-preview pre { max-height: 474px; background: transparent !important; }
+    .an-plan-code-popover .code-preview pre code { display: block; min-width: max-content; color: inherit !important; font: inherit; white-space: pre; }
+    .an-plan-code-popover .code-preview pre code, .an-plan-code-popover .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; }
     .editor-picker { display: inline-flex; min-height: 32px; align-items: stretch; overflow: hidden; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 8px; background: transparent; }
     .editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
     .editor-picker select, .editor-picker button { min-height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--soft, #d4d4d8); padding: 0 10px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
@@ -1604,7 +1606,7 @@ function injectAnnotationRuntime(
         const content = template.content.cloneNode(true);
         const codePreview = content.querySelector?.(".code-preview");
         const oldTitle = content.querySelector?.(".code-preview-title");
-        const fileTitle = codePreview?.getAttribute?.("data-file-path") || oldTitle?.querySelector?.("strong")?.textContent?.trim() || button.closest(".implementation-file")?.getAttribute("data-file-path") || "Code preview";
+        const fileTitle = codePreview?.getAttribute?.("data-file-path") || oldTitle?.querySelector?.("strong")?.textContent?.trim() || button.closest(".implementation-file")?.getAttribute("data-file-path") || "Snippet";
         const hrefs = {};
         const fileActions = button.closest(".implementation-file")?.querySelector(".file-actions");
         for (const openButton of Array.from(fileActions?.querySelectorAll("[data-agent-native-open-editor], [data-agent-native-open-selected-editor], [data-agent-native-open-file]") || [])) {
