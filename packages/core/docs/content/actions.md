@@ -9,6 +9,7 @@ Actions are the single source of truth for anything your app does. Define an act
 
 - **An agent tool** — the agent sees it with a zod-derived JSON Schema and can call it in chat.
 - **Typesafe React hooks** — `useActionQuery("name")` and `useActionMutation("name")` on the frontend, types inferred from the schema.
+- **Imperative client calls** — `callAction("name", params)` when a hook does not fit.
 - **Framework transport** — auto-mounted by the framework behind those hooks and available to external HTTP clients.
 - **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP client.
 - **An A2A tool** — called by other agent-native apps over A2A.

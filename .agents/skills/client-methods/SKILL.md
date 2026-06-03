@@ -29,6 +29,7 @@ method gives the UI, docs, and future agents one stable contract.
    | Need | Use |
    | --- | --- |
    | App action reads/writes | `useActionQuery` / `useActionMutation` from `@agent-native/core/client` |
+   | Imperative action calls | `callAction` from `@agent-native/core/client` |
    | Browser application state | `readClientAppState`, `writeClientAppState`, `setClientAppState`, `deleteClientAppState` |
    | Agent chat context | Agent chat client helpers from `@agent-native/core/client` |
    | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` |
@@ -96,3 +97,8 @@ the behavior.
 - `context-awareness` — application-state navigation and selection helpers.
 - `real-time-sync` — keeping helper-backed UI reads fresh.
 - `server-plugins` — when a new route is actually warranted.
+
+## References
+
+- `references/legacy-client-fetch-audit-2026-06-03.md` — known legacy cleanup
+  targets found when this rule was added.

@@ -47,7 +47,7 @@ If no server provider is configured at all, the route returns a 400 the composer
 - **Origin check:** same-origin only.
 - **Max size:** 25 MB.
 
-You don't need to call this directly — the composer does. But if you're building a custom input surface and want the same transcription, POST a `FormData` with an `audio` blob to the same route.
+You don't need to call this directly — the composer does. If you're building a custom input surface, first reuse the shared composer/voice client pieces from `@agent-native/core/client`. Treat this route as the low-level transport boundary for custom helpers that need to send multipart audio.
 
 ## Customizing the provider {#customizing}
 
