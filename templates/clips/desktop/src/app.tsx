@@ -1144,69 +1144,97 @@ export function App() {
           }
         };
 
-        const pauseMeetingAudio = async () => {
-          if (
-            meetingTranscriptionRef.current !== session ||
-            session.stopping ||
-            session.paused
-          ) {
+        // Pause/resume is reconciled through a tiny state machine. The user's
+        // desired state (`desiredPaused`) is recorded immediately, while the
+        // actual capture state lives in `session.paused`. Only one transition
+        // runs at a time (`applyingTransition`); after each async step settles
+        // we reconcile again. This guarantees a click that lands mid-transition
+        // (e.g. pause while a resume is still starting audio) still wins.
+        let desiredPaused = false;
+        let applyingTransition = false;
+
+        const applyMeetingAudioState = async () => {
+          if (applyingTransition) return;
+          if (meetingTranscriptionRef.current !== session || session.stopping) {
             return;
           }
-          session.paused = true;
-          if (session.flushTimer) {
-            window.clearTimeout(session.flushTimer);
-            session.flushTimer = null;
-          }
-          // Stop the silence detector so a pause isn't mistaken for a
-          // silent/ended call and torn down entirely.
-          await invoke("silence_detector_stop").catch(() => {});
+          if (desiredPaused === session.paused) return;
+          applyingTransition = true;
           try {
-            if (session.audioMode === "mic-system") {
-              await invoke("meeting_audio_stop");
+            if (desiredPaused) {
+              if (session.flushTimer) {
+                window.clearTimeout(session.flushTimer);
+                session.flushTimer = null;
+              }
+              // Stop the silence detector so a pause isn't mistaken for a
+              // silent/ended call and torn down entirely.
+              await invoke("silence_detector_stop").catch(() => {});
+              try {
+                if (session.audioMode === "mic-system") {
+                  await invoke("meeting_audio_stop");
+                } else {
+                  await invoke("native_speech_stop");
+                }
+              } catch (err) {
+                console.warn("[clips-popover] meeting audio pause failed:", err);
+              }
+              // Persist whatever was captured before the pause.
+              await flushMeetingTranscript().catch(() => {});
+              session.paused = true;
             } else {
-              await invoke("native_speech_stop");
+              try {
+                await startMeetingAudio();
+              } catch (err) {
+                console.warn(
+                  "[clips-popover] mic + system meeting audio resume failed, falling back to mic-only:",
+                  err,
+                );
+                try {
+                  session.audioMode = "mic-only";
+                  await invoke("native_speech_start", {
+                    locale: navigator.language || "en-US",
+                    micDeviceId: selectedMicId || null,
+                    micDeviceLabel: selectedMicLabel || null,
+                  });
+                } catch (fallbackErr) {
+                  // Could not restart audio — keep the session paused so the
+                  // user can retry resume instead of silently losing the rest
+                  // of the transcript.
+                  console.warn(
+                    "[clips-popover] meeting audio resume fallback failed:",
+                    fallbackErr,
+                  );
+                  desiredPaused = true;
+                  session.paused = true;
+                  return;
+                }
+              }
+              session.paused = false;
+              await invoke("silence_detector_start", {
+                config: silenceDetectorConfig,
+              }).catch(() => {});
             }
-          } catch (err) {
-            console.warn("[clips-popover] meeting audio pause failed:", err);
+          } finally {
+            applyingTransition = false;
           }
-          // Persist whatever was captured before the pause so nothing is lost.
-          await flushMeetingTranscript().catch(() => {});
+          // The desired state may have changed while we were awaiting (e.g. the
+          // user clicked pause during a resume); reconcile again.
+          void applyMeetingAudioState();
         };
 
-        const resumeMeetingAudio = async () => {
-          if (
-            meetingTranscriptionRef.current !== session ||
-            session.stopping ||
-            !session.paused
-          ) {
-            return;
-          }
-          try {
-            await startMeetingAudio();
-          } catch (err) {
-            console.warn(
-              "[clips-popover] mic + system meeting audio resume failed, falling back to mic-only:",
-              err,
-            );
-            // Keep the session marked paused so the user can retry resume
-            // instead of silently losing the rest of the transcript.
-            return;
-          }
-          // Only clear the paused flag once audio is actually running again.
-          session.paused = false;
-          await invoke("silence_detector_start", {
-            config: silenceDetectorConfig,
-          }).catch(() => {});
+        const requestMeetingAudioState = (paused: boolean) => {
+          desiredPaused = paused;
+          void applyMeetingAudioState();
         };
 
         addUnlisten(
           listen("clips:recorder-pause", () => {
-            pauseMeetingAudio().catch(() => {});
+            requestMeetingAudioState(true);
           }),
         );
         addUnlisten(
           listen("clips:recorder-resume", () => {
-            resumeMeetingAudio().catch(() => {});
+            requestMeetingAudioState(false);
           }),
         );
 
