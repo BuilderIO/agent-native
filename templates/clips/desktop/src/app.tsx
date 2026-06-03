@@ -1185,29 +1185,16 @@ export function App() {
               try {
                 await startMeetingAudio();
               } catch (err) {
+                // Could not restart audio — keep the session paused so the user
+                // can retry resume instead of silently losing the rest of the
+                // transcript. Do NOT fall back to a different audio mode.
                 console.warn(
-                  "[clips-popover] mic + system meeting audio resume failed, falling back to mic-only:",
+                  "[clips-popover] meeting audio resume failed; staying paused:",
                   err,
                 );
-                try {
-                  session.audioMode = "mic-only";
-                  await invoke("native_speech_start", {
-                    locale: navigator.language || "en-US",
-                    micDeviceId: selectedMicId || null,
-                    micDeviceLabel: selectedMicLabel || null,
-                  });
-                } catch (fallbackErr) {
-                  // Could not restart audio — keep the session paused so the
-                  // user can retry resume instead of silently losing the rest
-                  // of the transcript.
-                  console.warn(
-                    "[clips-popover] meeting audio resume fallback failed:",
-                    fallbackErr,
-                  );
-                  desiredPaused = true;
-                  session.paused = true;
-                  return;
-                }
+                desiredPaused = true;
+                session.paused = true;
+                return;
               }
               session.paused = false;
               await invoke("silence_detector_start", {
