@@ -470,7 +470,7 @@ function parseImplementationFiles(
 function cleanImplementationSummary(line: string, path: string) {
   return line
     .replace(/^[-*]\s+/, "")
-    .replace(path, "")
+    .replace(new RegExp(`${escapeRegExp(path)}(?::\\d+)?`), "")
     .replace(/\s+[—-]\s+/, " ")
     .replace(/\b(symbols?|components?|functions?)\s*:\s*[^.;]+[.;]?/i, "")
     .replace(/\s+/g, " ")
@@ -544,6 +544,10 @@ function stableDomId(value: string) {
     .replace(/^-|-$/g, "");
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function editorFilePath(absolutePath?: string) {
   if (!absolutePath) return "";
   return absolutePath;
@@ -552,19 +556,50 @@ function editorFilePath(absolutePath?: string) {
 function renderImplementationMapHtml(body: string, repoPath?: string | null) {
   const files = parseImplementationFiles(body, repoPath);
   if (files.length === 0) return "";
-  return `<div class="implementation-map" data-plan-implementation-map>
+  const mapId =
+    stableDomId(`impl-map-${files.map((file) => file.path).join("-")}`) ||
+    "implementation-map";
+  return `<div class="implementation-map" data-plan-implementation-map data-plan-tabs>
     <div class="implementation-map-header">
       <span>${files.length} file${files.length === 1 ? "" : "s"}</span>
-      <span>review file-level intent before implementation</span>
+      <span>select a file to review intent, snippet, and editor link</span>
     </div>
-    <div class="implementation-files">
-      ${files.map((file) => renderImplementationFileHtml(file)).join("")}
+    <div class="implementation-file-tabs">
+      <div class="implementation-file-list" role="tablist" aria-label="Files touched">
+        ${files
+          .map((file, index) =>
+            renderImplementationFileTabHtml(file, `${mapId}-${file.id}`, index),
+          )
+          .join("")}
+      </div>
+      <div class="implementation-file-panels">
+        ${files
+          .map((file, index) =>
+            renderImplementationFileHtml(file, `${mapId}-${file.id}`, index),
+          )
+          .join("")}
+      </div>
     </div>
   </div>`;
 }
 
-function renderImplementationFileHtml(file: ImplementationFile) {
-  const templateId = `${file.id}-preview`;
+function renderImplementationFileTabHtml(
+  file: ImplementationFile,
+  targetId: string,
+  index: number,
+) {
+  return `<button type="button" class="implementation-file-tab${index === 0 ? " is-active" : ""}" data-tab-target="${escapeHtml(targetId)}">
+    <span class="file-tab-name">${escapeHtml(fileBasename(file.path))}</span>
+    <span class="file-tab-path">${escapeHtml(file.path)}</span>
+  </button>`;
+}
+
+function renderImplementationFileHtml(
+  file: ImplementationFile,
+  targetId: string,
+  index: number,
+) {
+  const templateId = `${targetId}-preview`;
   const previewCode =
     file.previewCode ||
     `// No embedded preview yet.\n// Ask the agent to add the exact snippet it plans to modify for ${file.path}.`;
@@ -572,33 +607,39 @@ function renderImplementationFileHtml(file: ImplementationFile) {
   const editorLine = file.line
     ? ` data-agent-native-open-line="${escapeHtml(String(file.line))}"`
     : "";
-  return `<article class="implementation-file" data-file-path="${escapeHtml(file.path)}">
-    <div>
-      <p class="file-path">${escapeHtml(file.path)}${file.line ? `<span>:${file.line}</span>` : ""}</p>
+  const symbols = displaySymbols(file);
+  return `<article class="implementation-file implementation-file-panel tab-panel${index === 0 ? " is-active" : ""}" data-tab-panel="${escapeHtml(targetId)}" data-file-path="${escapeHtml(file.path)}">
+    <div class="file-detail-header">
+      <div class="file-title-stack">
+        <p class="file-name">${escapeHtml(fileBasename(file.path))}</p>
+        <p class="file-path">${escapeHtml(file.path)}</p>
+      </div>
+      <div class="file-actions">
+        <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Preview</button>
+        ${
+          editorPath
+            ? `<div class="editor-picker" data-agent-native-editor-picker>
+                <select data-agent-native-editor-select aria-label="Preferred editor">
+                  <option value="vscode">VS Code</option>
+                  <option value="cursor">Cursor</option>
+                  <option value="finder">Finder</option>
+                  <option value="terminal">Terminal</option>
+                  <option value="ghostty">Ghostty</option>
+                  <option value="xcode">Xcode</option>
+                </select>
+                <button type="button" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Open</button>
+              </div>`
+            : ""
+        }
+      </div>
+    </div>
+    <div class="file-detail-body">
       ${file.summary ? `<p class="file-summary">${escapeHtml(file.summary)}</p>` : ""}
       ${
-        file.symbols.length
-          ? `<div class="symbol-list">${file.symbols
+        symbols.length
+          ? `<div class="symbol-list">${symbols
               .map((symbol) => `<code>${escapeHtml(symbol)}</code>`)
               .join("")}</div>`
-          : ""
-      }
-    </div>
-    <div class="file-actions">
-      <button type="button" data-agent-native-code-preview="${escapeHtml(templateId)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Preview</button>
-      ${
-        editorPath
-          ? `<div class="editor-picker" data-agent-native-editor-picker>
-              <select data-agent-native-editor-select aria-label="Preferred editor">
-                <option value="vscode">VS Code</option>
-                <option value="cursor">Cursor</option>
-                <option value="finder">Finder</option>
-                <option value="terminal">Terminal</option>
-                <option value="ghostty">Ghostty</option>
-                <option value="xcode">Xcode</option>
-              </select>
-              <button type="button" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>Open</button>
-            </div>`
           : ""
       }
     </div>
@@ -608,6 +649,32 @@ function renderImplementationFileHtml(file: ImplementationFile) {
       </div>
     </template>
   </article>`;
+}
+
+function fileBasename(path: string) {
+  return path.split("/").filter(Boolean).pop() || path;
+}
+
+function displaySymbols(file: ImplementationFile) {
+  if (/^(md|mdx|text)$/i.test(file.language)) return [];
+  const basename = fileBasename(file.path)
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase();
+  const extension = file.path.split(".").pop()?.toLowerCase();
+  return file.symbols
+    .filter((symbol) => {
+      const value = symbol.trim();
+      if (!value || value.length > 42) return false;
+      if (
+        value.toLowerCase() === basename ||
+        value.toLowerCase() === extension
+      ) {
+        return false;
+      }
+      if (/^[a-z][a-z0-9_-]*$/.test(value)) return false;
+      return /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(value);
+    })
+    .slice(0, 3);
 }
 
 function highlightCodeHtml(code: string, language: string) {
@@ -803,9 +870,22 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .detail-row i { height: 116px; border-radius: 14px; background: #202024; border: 1px solid var(--line); }
 .implementation-map { margin: 24px 0; border-top: 1px solid var(--line); }
 .implementation-map-header { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-.implementation-files { display: grid; gap: 0; border-top: 1px solid var(--line); }
-.implementation-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.implementation-file-tabs { display: grid; gap: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.implementation-file-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.implementation-file-tab { flex: 0 0 min(280px, 76vw); min-height: 56px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--muted); padding: 9px 11px; text-align: left; cursor: pointer; }
+.implementation-file-tab:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.07); }
+.implementation-file-tab.is-active { border-color: rgba(0,181,255,.5); background: var(--accent-soft); color: var(--text); }
+.file-tab-name, .file-tab-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-tab-name { font: 700 13px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.file-tab-path { margin-top: 4px; font: 500 11px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--muted); }
+.implementation-file-panels { border-top: 1px solid var(--line); }
+.implementation-file-panel { display: none; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.implementation-file-panel.is-active { display: block; }
+.file-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.file-title-stack { min-width: 0; }
+.file-name { margin: 0; color: var(--text); font: 700 17px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .file-path { margin: 0; color: var(--text); font: 650 15px/1.4 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.file-title-stack .file-path { margin-top: 3px; color: var(--muted); font-size: 12px; }
 .file-path span { color: var(--muted); }
 .file-summary { max-width: 760px; margin: 8px 0 0; color: var(--soft); font-size: 15px; }
 .symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
@@ -826,5 +906,5 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .syntax-string { color: #a6e3a1; }
 .syntax-literal { color: #f7c876; }
 .syntax-comment { color: #7a7a83; }
-@media (max-width: 760px) { main { width: min(100vw - 24px, 980px); padding-top: 72px; } .flow-diagram, .screen-body, .wide-preview, .detail-row, .implementation-file { grid-template-columns: 1fr; } .implementation-map-header, .file-actions { flex-wrap: wrap; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+@media (max-width: 760px) { main { width: min(100vw - 24px, 980px); padding-top: 72px; } .flow-diagram, .screen-body, .wide-preview, .detail-row { grid-template-columns: 1fr; } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } .flow-diagram div::after { display: none; } .wireframe-shell aside { border-right: 0; border-bottom: 1px solid var(--line); } }
 `;

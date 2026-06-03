@@ -206,6 +206,8 @@ describe("Plans helpers", () => {
 
     const html = buildPlanHtml(bundle);
     expect(html).toContain("implementation-map");
+    expect(html).toContain("implementation-file-tab");
+    expect(html).toContain("implementation-file-panel tab-panel");
     expect(html).toContain("templates/plan/app/pages/PlansPage.tsx");
     expect(html).toContain("data-agent-native-code-preview");
     expect(html).toContain("data-agent-native-editor-picker");
