@@ -28,10 +28,21 @@ function routeOwnsToolbar(pathname: string): boolean {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("plans.sidebarCollapsed") === "true";
+  });
 
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "plans.sidebarCollapsed",
+      String(sidebarCollapsed),
+    );
+  }, [sidebarCollapsed]);
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
 
@@ -39,7 +50,10 @@ export function Layout({ children }: LayoutProps) {
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
         <div className="hidden md:block">
-          <Sidebar />
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={setSidebarCollapsed}
+          />
         </div>
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
@@ -47,7 +61,7 @@ export function Layout({ children }: LayoutProps) {
             <SheetDescription className="sr-only">
               App navigation links
             </SheetDescription>
-            <Sidebar />
+            <Sidebar collapsed={false} collapsible={false} />
           </SheetContent>
         </Sheet>
         <AgentSidebar

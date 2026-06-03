@@ -17,7 +17,7 @@ import { loadContractBundle, summarizeContracts } from "./_contracts.js";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at in Visual Plans, including active plan, review queue, feedback, annotations, and proof summary.",
+    "See what the user is currently looking at in Agent-Native Plans, including active plan, review queue, feedback, annotations, and proof summary.",
   schema: z.object({}),
   http: false,
   readOnly: true,

@@ -235,6 +235,10 @@ turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual
 companion. The hosted MCP app opens inline where supported and falls back to an
 openable link everywhere else.
 
+Simple local visual plan generation should not require an account. Hosted
+persistence, private reviewer links, team feedback, and cross-device review can
+use optional account or Google sign-in.
+
 ## When To Use
 
 Create or update a visual plan when:
@@ -284,6 +288,9 @@ wants a visual companion instead of a fresh plan.
 - Assumptions are shown as reviewable visual callouts, not hidden prose.
 - Proof gates stay compact: what must pass, current evidence, and missing proof.
 - Long prose is collapsed behind the visual plan.
+- Comments, corrections, replacements, and annotations should feel
+  plannotator-style: fast to mark up, structured enough for the agent to
+  consume, and easy to share when the user chooses.
 
 ## Tool Guidance
 
@@ -334,6 +341,15 @@ an interactive HTML review surface with diagrams, wireframes, prototype options,
 annotations, assumptions, and proof gates.
 
 This is for impatient review. Default to things the user can scan and react to.
+
+Install with the Agent-Native CLI if Plans is not already available:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add plans
+\`\`\`
+
+That installs both \`/visual-plan\` and \`/visualize-plan\` plus the MCP
+connector.
 
 ## When To Use
 

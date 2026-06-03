@@ -53,16 +53,16 @@ export default defineAction({
     isConsequential: true,
     title: "Visualize Plan",
     description:
-      "Import an existing text plan and create an interactive Visual Plans companion for review and feedback.",
+      "Import an existing text plan and create an interactive Agent-Native Plans companion for review and feedback.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
       title: "Visual Plan Companion",
       description:
-        "Open the Visual Plans review surface for an imported Codex or Claude Code plan.",
-      iframeTitle: "Agent-Native Visual Plans",
-      openLabel: "Open Visual Plan",
+        "Open the Agent-Native Plans review surface for an imported Codex or Claude Code plan.",
+      iframeTitle: "Agent-Native Plans",
+      openLabel: "Open Plan",
       height: 820,
     }),
   },
@@ -122,7 +122,7 @@ export default defineAction({
       url: contractPath(id),
       detections,
       fallbackInstructions:
-        "Open the Visual Plan companion, react to the diagrams/options/wireframes and detected review items, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
+        "Open the Agent-Native Plans companion, react to the diagrams/options/wireframes and detected review items, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
     };
   },
   link: ({ result }) => {
@@ -131,7 +131,7 @@ export default defineAction({
     if (!contract?.id) return null;
     return {
       url: contractDeepLink(contract.id),
-      label: "Open Visual Plan",
+      label: "Open Plan",
       view: "plan",
     };
   },

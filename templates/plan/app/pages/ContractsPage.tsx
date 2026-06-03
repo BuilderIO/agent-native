@@ -327,7 +327,7 @@ export function ContractsPage() {
   const recordEvidence = useRecordEvidence();
   const exportContract = useExportContract(selectedId);
 
-  useSetPageTitle("Visual Plans");
+  useSetPageTitle("Plans");
 
   const headerActions = useMemo(
     () => (
@@ -344,7 +344,7 @@ export function ContractsPage() {
               <IconRefresh className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Refresh visual plans</TooltipContent>
+          <TooltipContent>Refresh plans</TooltipContent>
         </Tooltip>
         <Button
           variant="outline"
@@ -353,7 +353,7 @@ export function ContractsPage() {
           className="shrink-0"
         >
           <IconPlus className="h-4 w-4" />
-          <span className="hidden sm:inline">New Visual Plan</span>
+          <span className="hidden sm:inline">New Plan</span>
           <span className="sm:hidden">New</span>
         </Button>
       </>
@@ -703,7 +703,7 @@ function ContractsList({
         {!collapsed && (
           <div className="flex min-w-0 items-center gap-2">
             <IconClipboardCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="truncate text-sm font-semibold">Visual Plans</span>
+            <span className="truncate text-sm font-semibold">Plans</span>
             <Badge variant="outline" className="shrink-0">
               {contracts.length}
             </Badge>
@@ -3549,15 +3549,13 @@ function EmptyContracts({ onCreate }: { onCreate: () => void }) {
           <IconClipboardCheck className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold tracking-tight">
-            No visual plans
-          </h1>
+          <h1 className="text-lg font-semibold tracking-tight">No plans</h1>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
             Create a visual plan from a goal, pasted plan, or agent run.
           </p>
           <Button className="mt-4" onClick={onCreate}>
             <IconPlus className="h-4 w-4" />
-            New Visual Plan
+            New Plan
           </Button>
         </div>
       </div>

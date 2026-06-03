@@ -29,7 +29,7 @@ import { configureTracking } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
-    app: "contracts",
+    app: "plan",
   }),
 });
 
@@ -91,10 +91,10 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>
-            Search visual plans
+            Search plans
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">

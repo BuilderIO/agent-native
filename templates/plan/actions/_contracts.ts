@@ -88,10 +88,10 @@ export function contractDeepLink(id: string): string {
 
 export function planDeepLink(id: string): string {
   return buildDeepLink({
-    app: "contracts",
+    app: "plan",
     view: "plan",
     to: planPath(id),
-    params: { contractId: id },
+    params: { planId: id, contractId: id },
   });
 }
 

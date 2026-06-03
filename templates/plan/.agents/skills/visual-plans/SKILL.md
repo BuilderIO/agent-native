@@ -86,6 +86,9 @@ Agent-Native Plans state becomes canonical for feedback and proof.
 - Assumptions are shown as reviewable visual callouts, not hidden prose.
 - Proof gates stay compact: what must pass, current evidence, and missing proof.
 - Long prose is collapsed behind the visual plan.
+- Comments, corrections, replacements, and annotations should feel
+  plannotator-style: fast to mark up, structured enough for the agent to
+  consume, and easy to share when the user chooses.
 
 ## Tool Guidance
 

@@ -36,18 +36,18 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Create Visual Plan",
+    title: "Create Plan",
     description:
       "Create an interactive visual plan where a person can review, annotate, and approve before the agent continues.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Visual Plan",
+      title: "Plan",
       description:
-        "Open the Visual Plans review surface for diagrams, wireframes, comments, feedback, and proof gates.",
-      iframeTitle: "Agent-Native Visual Plans",
-      openLabel: "Open Visual Plan",
+        "Open the Agent-Native Plans review surface for diagrams, wireframes, comments, feedback, and proof gates.",
+      iframeTitle: "Agent-Native Plans",
+      openLabel: "Open Plan",
       height: 820,
     }),
   },
@@ -111,7 +111,7 @@ export default defineAction({
       path: contractPath(id),
       url: contractPath(id),
       fallbackInstructions:
-        "Open the Visual Plan link, review the diagrams/options/wireframes, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
+        "Open the Agent-Native Plans link, review the diagrams/options/wireframes, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
     };
   },
   link: ({ result }) => {
@@ -120,7 +120,7 @@ export default defineAction({
     if (!contract?.id) return null;
     return {
       url: contractDeepLink(contract.id),
-      label: "Open Visual Plan",
+      label: "Open Plan",
       view: "plan",
     };
   },
