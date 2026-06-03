@@ -965,6 +965,95 @@ describe("server/auth", () => {
       }
     });
 
+    it("quietly falls back when auto dev account signup loses a duplicate-user race", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const duplicateCreateError = Object.assign(
+        new Error("Failed to create user"),
+        {
+          status: "UNPROCESSABLE_ENTITY",
+          body: {
+            message: "Failed to create user",
+            code: "FAILED_TO_CREATE_USER",
+          },
+        },
+      );
+      let duplicateRaceObserved = false;
+      const signUpEmail = vi.fn(async () => {
+        duplicateRaceObserved = true;
+        throw duplicateCreateError;
+      });
+      const signInEmail = vi.fn();
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail,
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const mockExecute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (/email NOT IN/i.test(sql)) return { rows: [] };
+        if (/email IN/i.test(sql)) {
+          return {
+            rows: duplicateRaceObserved ? [{ exists: 1 }] : [],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/dispatch/overview",
+        headers: { "sec-fetch-dest": "document" },
+      });
+      const socket = { remoteAddress: "127.0.0.1" };
+      event.req.context = { clientAddress: "127.0.0.1" };
+      event.req.ip = "127.0.0.1";
+      event.node.req.socket = socket;
+      event.node.req.connection = socket;
+
+      const result = await guard(event);
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(200);
+      expect(await (result as Response).text()).toContain("QA login");
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
+      expect(signInEmail).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
     it("allows app-state request-source headers in CORS preflight responses", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
