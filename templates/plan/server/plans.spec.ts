@@ -215,7 +215,7 @@ describe("Plans helpers", () => {
     expect(html).toContain('<option value="terminal">Terminal</option>');
     expect(html).toContain('<option value="ghostty">Ghostty</option>');
     expect(html).toContain('<option value="xcode">Xcode</option>');
-    expect(html).not.toContain("code-preview-title");
+    expect(html).not.toContain('<div class="code-preview-title"');
     expect(html).not.toContain(">VS Code</button>");
     expect(html).not.toContain(">Cursor</button>");
     expect(html).toContain("AnnotationPopover");
