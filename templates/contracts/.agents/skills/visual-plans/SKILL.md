@@ -47,6 +47,19 @@ Create or update a visual plan when:
 8. Export an HTML/JSON/Markdown receipt with `export-visual-plan` when the user
    wants a shareable summary.
 
+## Existing Plan Companion
+
+If the user already has a Codex, Claude Code, Markdown, or pasted text plan, use
+the `visualize-plan` skill/action instead of starting from scratch. It creates a
+visual companion from the existing plan, detects possible assumptions and proof
+gates, then lets you add diagrams, wireframes, prototype options, and targeted
+feedback prompts.
+
+Use this when the user says things like "visualize this plan", "make this
+reviewable", "turn the plan into mockups/diagrams", or "build off the existing
+Claude/Codex plan." The original text plan remains source material; structured
+Visual Plans state becomes canonical for feedback and proof.
+
 ## Visual Defaults
 
 - UI work gets wireframes or prototype options before coding.
@@ -59,6 +72,7 @@ Create or update a visual plan when:
 ## Tool Guidance
 
 - `create-visual-plan`: start one visual plan per agent task/run.
+- `visualize-plan`: create a visual companion from an existing text plan.
 - `update-visual-plan`: bulk add/update plan nodes, options, assumptions,
   decisions, tasks, risks, deviations, annotations, and proof gates.
 - `get-visual-plan` and `get-plan-review-queue`: read current plan state.

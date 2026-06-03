@@ -30,6 +30,12 @@
       "action": "create-visual-plan",
       "path": "/plans",
       "description": "Create or open a Visual Plan for a coding-agent task."
+    },
+    {
+      "id": "visualize-plan",
+      "action": "visualize-plan",
+      "path": "/plans",
+      "description": "Create a visual companion from an existing Codex, Claude Code, Markdown, or pasted text plan."
     }
   ],
   "skills": [
@@ -37,6 +43,11 @@
       "path": ".agents/skills/visual-plans",
       "visibility": "both",
       "exportAs": "visual-plans"
+    },
+    {
+      "path": ".agents/skills/visualize-plan",
+      "visibility": "both",
+      "exportAs": "visualize-plan"
     }
   ],
   "hostAdapters": [

@@ -30,7 +30,9 @@ proof gates that a person can review before code changes happen.
 
 ## Skills
 
-Use `.agents/skills/visual-plans/SKILL.md` for Visual Plans behavior.
+Use `.agents/skills/visual-plans/SKILL.md` for Visual Plans behavior. Use
+`.agents/skills/visualize-plan/SKILL.md` when the agent already has a Codex,
+Claude Code, Markdown, or pasted text plan and should create a visual companion.
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
 `frontend-design`, `shadcn-ui`, and `self-modifying-code`.
