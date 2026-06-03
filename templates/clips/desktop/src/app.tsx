@@ -111,6 +111,7 @@ interface MeetingTranscriptionSession {
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
+  paused: boolean;
   audioMode: "mic-system" | "mic-only";
 }
 
@@ -1034,6 +1035,7 @@ export function App() {
           unlisten: [],
           flushTimer: null,
           stopping: false,
+          paused: false,
           audioMode: "mic-system",
         };
         meetingTranscriptionRef.current = session;
@@ -1117,18 +1119,97 @@ export function App() {
           }),
         );
 
+        const silenceDetectorConfig = {
+          silenceThreshold: 0.05,
+          silenceMs: 15 * 60 * 1000,
+          callEndedMs: 2 * 60 * 1000,
+          watchSleep: true,
+          watchCallEnded: true,
+        };
+
+        const startMeetingAudio = async () => {
+          if (session.audioMode === "mic-system") {
+            await invoke("meeting_audio_start", {
+              meetingId: resolvedMeetingId,
+              locale: navigator.language || "en-US",
+              micDeviceId: selectedMicId || null,
+              micDeviceLabel: selectedMicLabel || null,
+            });
+          } else {
+            await invoke("native_speech_start", {
+              locale: navigator.language || "en-US",
+              micDeviceId: selectedMicId || null,
+              micDeviceLabel: selectedMicLabel || null,
+            });
+          }
+        };
+
+        const pauseMeetingAudio = async () => {
+          if (
+            meetingTranscriptionRef.current !== session ||
+            session.stopping ||
+            session.paused
+          ) {
+            return;
+          }
+          session.paused = true;
+          if (session.flushTimer) {
+            window.clearTimeout(session.flushTimer);
+            session.flushTimer = null;
+          }
+          // Stop the silence detector so a pause isn't mistaken for a
+          // silent/ended call and torn down entirely.
+          await invoke("silence_detector_stop").catch(() => {});
+          try {
+            if (session.audioMode === "mic-system") {
+              await invoke("meeting_audio_stop");
+            } else {
+              await invoke("native_speech_stop");
+            }
+          } catch (err) {
+            console.warn("[clips-popover] meeting audio pause failed:", err);
+          }
+          // Persist whatever was captured before the pause so nothing is lost.
+          await flushMeetingTranscript().catch(() => {});
+        };
+
+        const resumeMeetingAudio = async () => {
+          if (
+            meetingTranscriptionRef.current !== session ||
+            session.stopping ||
+            !session.paused
+          ) {
+            return;
+          }
+          session.paused = false;
+          try {
+            await startMeetingAudio();
+          } catch (err) {
+            console.warn("[clips-popover] meeting audio resume failed:", err);
+          }
+          await invoke("silence_detector_start", {
+            config: silenceDetectorConfig,
+          }).catch(() => {});
+        };
+
+        addUnlisten(
+          listen("clips:recorder-pause", () => {
+            pauseMeetingAudio().catch(() => {});
+          }),
+        );
+        addUnlisten(
+          listen("clips:recorder-resume", () => {
+            resumeMeetingAudio().catch(() => {});
+          }),
+        );
+
         await invoke("recording_pill_show", {
           meetingId: resolvedMeetingId,
           mode: "meeting",
         });
 
         try {
-          await invoke("meeting_audio_start", {
-            meetingId: resolvedMeetingId,
-            locale: navigator.language || "en-US",
-            micDeviceId: selectedMicId || null,
-            micDeviceLabel: selectedMicLabel || null,
-          });
+          await startMeetingAudio();
         } catch (err) {
           console.warn(
             "[clips-popover] mic + system meeting audio failed, falling back to mic-only:",
@@ -1143,13 +1224,7 @@ export function App() {
         }
 
         await invoke("silence_detector_start", {
-          config: {
-            silenceThreshold: 0.05,
-            silenceMs: 15 * 60 * 1000,
-            callEndedMs: 2 * 60 * 1000,
-            watchSleep: true,
-            watchCallEnded: true,
-          },
+          config: silenceDetectorConfig,
         }).catch(() => {});
 
         if (payload.joinUrl && payload.reason !== "user") {
