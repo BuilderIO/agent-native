@@ -54,10 +54,14 @@ export function RecordingPill() {
   const [notes, setNotes] = useState("");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   // Bumped on an interval so the relative "saved 2m ago" label stays fresh
   // without a save actually happening.
   const [, setNowTick] = useState(0);
   const notesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest typed notes, mirrored into a ref so the unmount/blur flush can
+  // read the current value without re-subscribing.
+  const pendingNotesRef = useRef<string | null>(null);
   const activeMeetingIdRef = useRef<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
@@ -116,8 +120,10 @@ export function RecordingPill() {
         // Reset notes state for the new session.
         setNotes("");
         setSaving(false);
+        setSaveError(false);
         setSavedAt(null);
         activeMeetingIdRef.current = null;
+        pendingNotesRef.current = null;
         if (notesDebounceRef.current) {
           clearTimeout(notesDebounceRef.current);
           notesDebounceRef.current = null;
@@ -143,7 +149,15 @@ export function RecordingPill() {
     trackListen(
       listen<{ ts: number }>("clips:meeting-saved", (ev) => {
         setSaving(false);
+        setSaveError(false);
+        pendingNotesRef.current = null;
         setSavedAt(ev.payload?.ts ?? Date.now());
+      }),
+    );
+    trackListen(
+      listen("clips:meeting-save-failed", () => {
+        setSaving(false);
+        setSaveError(true);
       }),
     );
     trackListen(
@@ -180,6 +194,9 @@ export function RecordingPill() {
     emit("clips:pill-ready", {}).catch(() => {});
     return () => {
       stopped = true;
+      // Flush any pending note edit before tearing down (e.g. the pill window
+      // closing on stop) so the last keystrokes aren't lost.
+      flushNotesNow();
       unlistens.forEach((u) => {
         try {
           u();
@@ -377,6 +394,9 @@ export function RecordingPill() {
   async function onStopClick() {
     if (stopping) return;
     setStopping(true);
+    // Persist any pending note edit before the stop sequence tears the pill
+    // window down.
+    flushNotesNow();
     emit("clips:pill-stop", { meetingId: ctx.meetingId ?? null }).catch(
       () => {},
     );
@@ -395,6 +415,20 @@ export function RecordingPill() {
       // ignore — best effort
     }
   }
+
+  // Immediately persist any pending (debounced) note edit. Used on blur and on
+  // unmount so notes typed in the last ~800ms before stopping aren't dropped.
+  const flushNotesNow = () => {
+    if (!notesDebounceRef.current) return;
+    clearTimeout(notesDebounceRef.current);
+    notesDebounceRef.current = null;
+    const mid = activeMeetingIdRef.current;
+    if (mid && pendingNotesRef.current !== null)
+      emit("clips:save-meeting-notes", {
+        meetingId: mid,
+        notes: pendingNotesRef.current,
+      }).catch(() => {});
+  };
 
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -541,7 +575,9 @@ export function RecordingPill() {
                     onChange={(e) => {
                       const val = e.target.value;
                       setNotes(val);
+                      pendingNotesRef.current = val;
                       if (!saving) setSaving(true);
+                      if (saveError) setSaveError(false);
                       if (notesDebounceRef.current)
                         clearTimeout(notesDebounceRef.current);
                       notesDebounceRef.current = setTimeout(() => {
@@ -555,6 +591,7 @@ export function RecordingPill() {
                         // via `clips:meeting-saved`.
                       }, 800);
                     }}
+                    onBlur={flushNotesNow}
                   />
                 </div>
               </div>
@@ -583,11 +620,13 @@ export function RecordingPill() {
                 Open in browser
               </button>
               <span className="pill-saved-status">
-                {saving
-                  ? "Saving…"
-                  : savedAt !== null
-                    ? `Auto-saved · ${formatSavedAgo(savedAt, Date.now())}`
-                    : ""}
+                {saveError
+                  ? "Save failed — retrying on next edit"
+                  : saving
+                    ? "Saving…"
+                    : savedAt !== null
+                      ? `Auto-saved · ${formatSavedAgo(savedAt, Date.now())}`
+                      : ""}
               </span>
             </div>
           ) : null}

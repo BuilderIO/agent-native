@@ -4076,7 +4076,9 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 10px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 120ms, color 120ms;
+  transition:
+    background 120ms,
+    color 120ms;
 }
 
 .pill-open-web-btn:hover {

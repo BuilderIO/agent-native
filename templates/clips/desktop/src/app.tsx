@@ -905,16 +905,36 @@ export function App() {
   }, []);
 
   const callClipsAction = useCallback(
-    async <T,>(name: string, body: Record<string, unknown>): Promise<T> => {
+    async <T,>(
+      name: string,
+      body: Record<string, unknown>,
+      opts?: { method?: "GET" | "POST" },
+    ): Promise<T> => {
       const base = serverUrl.replace(/\/+$/, "");
-      const headers = new Headers({ "Content-Type": "application/json" });
+      const method = opts?.method ?? "POST";
+      const headers = new Headers();
       const authToken = loadDesktopAuthToken(serverUrl);
       if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
-      const response = await fetch(`${base}/_agent-native/actions/${name}`, {
-        method: "POST",
+      // GET actions read their args from the query string; POST actions send a
+      // JSON body.
+      let url = `${base}/_agent-native/actions/${name}`;
+      let requestBody: string | undefined;
+      if (method === "GET") {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(body)) {
+          if (value != null) params.set(key, String(value));
+        }
+        const qs = params.toString();
+        if (qs) url += `?${qs}`;
+      } else {
+        headers.set("Content-Type", "application/json");
+        requestBody = JSON.stringify(body);
+      }
+      const response = await fetch(url, {
+        method,
         credentials: "include",
         headers,
-        body: JSON.stringify(body),
+        body: requestBody,
       });
       const text = await response.text().catch(() => "");
       let json: any = null;
@@ -1267,11 +1287,13 @@ export function App() {
           mode: "meeting",
         }).catch(() => {});
 
-        callClipsAction<{ userNotesMd?: string }>("get-meeting", {
-          id: resolvedMeetingId,
-        })
+        callClipsAction<{ meeting?: { userNotesMd?: string } }>(
+          "get-meeting",
+          { id: resolvedMeetingId },
+          { method: "GET" },
+        )
           .then((data) => {
-            const initialNotes = data?.userNotesMd ?? "";
+            const initialNotes = data?.meeting?.userNotesMd ?? "";
             pendingPillInitRef.current = {
               meetingId: resolvedMeetingId,
               initialNotes,
@@ -1384,9 +1406,12 @@ export function App() {
             .then(() => {
               emit("clips:meeting-saved", { ts: Date.now() }).catch(() => {});
             })
-            .catch((err) =>
-              console.warn("[clips-popover] save meeting notes failed:", err),
-            );
+            .catch((err) => {
+              console.warn("[clips-popover] save meeting notes failed:", err);
+              // Clear the pill's "Saving…" state and surface the failure so it
+              // doesn't hang indefinitely on a failed write.
+              emit("clips:meeting-save-failed", {}).catch(() => {});
+            });
         },
       ),
     );
