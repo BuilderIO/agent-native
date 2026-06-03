@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.35.1
+
+### Patch Changes
+
+- 56888a3: Update React Router dependencies to 7.16.0.
+
 ## 0.35.0
 
 ### Minor Changes
