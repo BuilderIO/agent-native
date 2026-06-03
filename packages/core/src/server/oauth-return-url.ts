@@ -94,27 +94,32 @@ export function appendSessionToOAuthReturnUrl(
   raw: string | null | undefined,
   sessionToken: string | undefined,
 ): string {
-  let safe = safeOAuthReturnUrl(raw, { allowDefaultLoopback: true });
-  if (safe === "/" && raw && !/[\x00-\x1f]/.test(raw)) {
+  const pom = () => {
+    let safe = safeOAuthReturnUrl(raw, { allowDefaultLoopback: true });
+    if (safe === "/" && raw && !/[\x00-\x1f]/.test(raw)) {
+      try {
+        const parsed = new URL(raw);
+        if (isBuilderPreviewOrigin(parsed.origin)) {
+          safe = parsed.toString();
+        }
+      } catch {}
+    }
+    if (!sessionToken) return safe;
     try {
-      const parsed = new URL(raw);
-      if (isBuilderPreviewOrigin(parsed.origin)) {
-        safe = parsed.toString();
+      const parsed = new URL(safe);
+      if (
+        !allowedOAuthReturnOrigins(true).has(parsed.origin) &&
+        !isBuilderPreviewOrigin(parsed.origin)
+      ) {
+        return safe;
       }
-    } catch {}
-  }
-  if (!sessionToken) return safe;
-  try {
-    const parsed = new URL(safe);
-    if (
-      !allowedOAuthReturnOrigins(true).has(parsed.origin) &&
-      !isBuilderPreviewOrigin(parsed.origin)
-    ) {
+      parsed.searchParams.set("_session", sessionToken);
+      return parsed.toString();
+    } catch {
       return safe;
     }
-    parsed.searchParams.set("_session", sessionToken);
-    return parsed.toString();
-  } catch {
-    return safe;
-  }
+  };
+  const result = pom();
+  console.log(`Redirect is ${result}`);
+  return result;
 }
