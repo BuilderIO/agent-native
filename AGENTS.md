@@ -24,18 +24,20 @@ read the relevant skill before changing that area.
 
 ## Final Status Block
 
-Every final response must end with exactly:
+Every final response must end with a three-line status block:
 
 ```md
 ---
 
 ⠀
-🟢 Brief status
+🟢 Actual concise status sentence
 ```
 
-Use `🟢` when the requested coding/work unit is finished on the current branch,
-even if routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a
-manual step is still pending. Use `🔴` only when blocked on user input.
+The words after the icon are a short, task-specific status written for this
+response; never use the placeholder text `Brief status` literally. Use `🟢`
+when the requested coding/work unit is finished on the current branch, even if
+routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a manual
+step is still pending. Use `🔴` only when blocked on user input.
 
 ## Architecture Contract
 

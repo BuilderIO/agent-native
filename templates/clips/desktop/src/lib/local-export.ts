@@ -38,6 +38,12 @@ export interface LocalRecordingExportHandle {
   cancel(): Promise<void>;
 }
 
+export interface LocalBlobExportResult {
+  folderPath: string;
+  folderName: string;
+  file: LocalExportedFile;
+}
+
 interface PreparedLocalTarget {
   role: LocalRecordingFileRole;
   stream: MediaStream;
@@ -52,7 +58,7 @@ interface PreparedLocalTarget {
   writeQueue: Promise<void>;
 }
 
-const LOCAL_EXPORT_FOLDER = "Clips";
+export const LOCAL_EXPORT_FOLDER = "Clips";
 
 function pickRecordingMimeType(): string {
   return (
@@ -64,7 +70,7 @@ function pickRecordingMimeType(): string {
   );
 }
 
-function extensionForMimeType(mimeType: string): string {
+export function extensionForMimeType(mimeType: string): string {
   const normalized = mimeType.toLowerCase();
   if (normalized.includes("mp4")) return "mp4";
   if (normalized.includes("quicktime")) return "mov";
@@ -83,6 +89,96 @@ export function createLocalRecordingFolderName(): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const nonce = Math.random().toString(36).slice(2, 8);
   return `clip-${timestamp}-${nonce}`;
+}
+
+export async function exportBlobChunksToLocalRecordingFile({
+  chunks,
+  role = "composed",
+  mimeType,
+  folderName,
+  durationMs = 0,
+  width = null,
+  height = null,
+}: {
+  chunks: Blob[];
+  role?: LocalRecordingFileRole;
+  mimeType: string;
+  folderName?: string;
+  durationMs?: number;
+  width?: number | null;
+  height?: number | null;
+}): Promise<LocalBlobExportResult> {
+  if (chunks.length === 0) {
+    throw new Error("No saved recording chunks are available to export");
+  }
+
+  const resolvedFolderName = folderName ?? createLocalRecordingFolderName();
+  const relativeFolderPath = `${LOCAL_EXPORT_FOLDER}/${resolvedFolderName}`;
+  const normalizedMimeType = mimeType || "video/webm";
+  const fileName = `${roleFileSuffix(role)}.${extensionForMimeType(
+    normalizedMimeType,
+  )}`;
+  const relativePath = `${relativeFolderPath}/${fileName}`;
+
+  await mkdir(relativeFolderPath, {
+    baseDir: BaseDirectory.Video,
+    recursive: true,
+  });
+
+  const folderPath = await join(await videoDir(), relativeFolderPath);
+  const filePath = await join(folderPath, fileName);
+  const file = await create(relativePath, {
+    baseDir: BaseDirectory.Video,
+  });
+
+  let bytes = 0;
+  let closed = false;
+  try {
+    for (const chunk of chunks) {
+      if (!chunk || chunk.size === 0) continue;
+      const data = new Uint8Array(await chunk.arrayBuffer());
+      if (data.byteLength === 0) continue;
+      const written = await file.write(data);
+      if (written !== data.byteLength) {
+        throw new Error(
+          `Short write for ${fileName}: wrote ${written} of ${data.byteLength} bytes`,
+        );
+      }
+      bytes += written;
+    }
+    await file.close();
+    closed = true;
+  } catch (err) {
+    if (!closed) {
+      await file.close().catch(() => {});
+    }
+    await remove(relativePath, {
+      baseDir: BaseDirectory.Video,
+    }).catch(() => {});
+    throw err;
+  }
+
+  if (bytes === 0) {
+    await remove(relativePath, {
+      baseDir: BaseDirectory.Video,
+    }).catch(() => {});
+    throw new Error("Saved recording export was empty");
+  }
+
+  return {
+    folderPath,
+    folderName: resolvedFolderName,
+    file: {
+      role,
+      path: filePath,
+      fileName,
+      mimeType: normalizedMimeType,
+      bytes,
+      durationMs,
+      width,
+      height,
+    },
+  };
 }
 
 function enqueueWrite(target: PreparedLocalTarget, blob: Blob) {
