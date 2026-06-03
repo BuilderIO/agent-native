@@ -825,6 +825,8 @@ async function captureTitleForRecording(params: {
 interface NativeTranscriptCapture {
   stop(): Promise<string>;
   cancel(): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
 }
 
 interface RecordingStartCue {
@@ -863,6 +865,7 @@ async function startNativeTranscriptCapture(mic?: {
   let activeText = "";
   let latestText = "";
   let stopping = false;
+  let paused = false;
   let disposed = false;
   let restartCount = 0;
   let restartTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -912,11 +915,11 @@ async function startNativeTranscriptCapture(mic?: {
 
   const startNativeSpeech = async () => {
     const contextualStrings = await loadVocabulary().catch(() => []);
-    if (disposed || stopping) return;
+    if (disposed || stopping || paused) return;
     await invoke("native_speech_set_vocabulary", {
       strings: contextualStrings,
     }).catch(() => {});
-    if (disposed || stopping) return;
+    if (disposed || stopping || paused) return;
     await invoke("native_speech_start", {
       locale: navigator.language || "en-US",
       micDeviceId: mic?.deviceId || null,
@@ -931,7 +934,7 @@ async function startNativeTranscriptCapture(mic?: {
   // final-transcript promise themselves when this returns false — otherwise
   // the consumer hangs until the 1800ms safety timeout.
   const scheduleRestart = (reason: string): boolean => {
-    if (disposed || stopping) return false;
+    if (disposed || stopping || paused) return false;
     if (restartCount >= maxRestarts) {
       console.warn(
         `[clips-recorder] native transcript restart limit reached after ${reason}; preserving captured text`,
@@ -1037,6 +1040,32 @@ async function startNativeTranscriptCapture(mic?: {
         // ignore
       }
       cleanup();
+    },
+    async pause() {
+      if (disposed || stopping || paused) return;
+      paused = true;
+      // Cancel any pending auto-restart so the recognizer stays down while
+      // paused, then stop native speech to release the mic it holds open.
+      if (restartTimer) {
+        window.clearTimeout(restartTimer);
+        restartTimer = null;
+      }
+      commitActiveText();
+      try {
+        await invoke("native_speech_stop");
+      } catch (err) {
+        console.warn("[clips-recorder] native transcript pause failed:", err);
+      }
+    },
+    async resume() {
+      if (disposed || stopping || !paused) return;
+      paused = false;
+      restartCount = 0;
+      try {
+        await startNativeSpeech();
+      } catch (err) {
+        console.warn("[clips-recorder] native transcript resume failed:", err);
+      }
     },
   };
 }
@@ -1903,6 +1932,7 @@ async function startNativeFullscreenRecording(
     listen("clips:recorder-pause", () => {
       if (pausedAt != null) return;
       const at = Date.now();
+      void nativeTranscriptCapture?.pause().catch(() => {});
       invoke("native_fullscreen_recording_pause")
         .then(() => {
           pausedAt = at;
@@ -1920,6 +1950,7 @@ async function startNativeFullscreenRecording(
             accumulatedPauseMs += Date.now() - pausedAt;
             pausedAt = null;
           }
+          void nativeTranscriptCapture?.resume().catch(() => {});
           emitState();
         })
         .catch((err) => {
@@ -2791,6 +2822,7 @@ async function startNativeRecordingInner(
       if (recorder.state === "recording") {
         try {
           recorder.pause();
+          void nativeTranscriptCapture?.pause().catch(() => {});
           pausedAt = Date.now();
           emitState(true);
         } catch {
@@ -2802,6 +2834,7 @@ async function startNativeRecordingInner(
       if (recorder.state === "paused") {
         try {
           recorder.resume();
+          void nativeTranscriptCapture?.resume().catch(() => {});
           if (pausedAt) accumulatedPauseMs += Date.now() - pausedAt;
           pausedAt = null;
           emitState(false);
