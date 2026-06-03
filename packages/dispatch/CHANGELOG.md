@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.9.2
+
+### Patch Changes
+
+- 2da75f1: Resolve package-internal `@/*` imports to relative paths in published Dispatch
+  dist files so consumer SSR builds do not try to load app-local aliases.
+
 ## 0.9.1
 
 ### Patch Changes
