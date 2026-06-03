@@ -35,6 +35,12 @@ const rootDir = path.resolve(
   "..",
 );
 const registry = "https://registry.npmjs.org";
+const npmPublishAllowlist = new Set([
+  "@agent-native/core",
+  "@agent-native/dispatch",
+  "@agent-native/pinpoint",
+  "@agent-native/scheduling",
+]);
 
 async function readJson<T>(filePath: string): Promise<T> {
   return JSON.parse(await readFile(filePath, "utf8")) as T;
@@ -95,7 +101,8 @@ async function getPublishPackages(): Promise<PublishPackage[]> {
       packageJson.private ||
       !packageJson.name ||
       !packageJson.version ||
-      ignored.has(packageJson.name)
+      ignored.has(packageJson.name) ||
+      !npmPublishAllowlist.has(packageJson.name)
     ) {
       continue;
     }
