@@ -84,6 +84,15 @@ type PlanAnnotationAnchor = {
   tagName?: string;
 };
 
+type PlanDocumentState = {
+  scrollX: number;
+  scrollY: number;
+  scrollWidth: number;
+  scrollHeight: number;
+  clientWidth: number;
+  clientHeight: number;
+};
+
 function shortDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -101,6 +110,7 @@ export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const documentStateRef = useRef<PlanDocumentState | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(true);
@@ -137,6 +147,7 @@ export function PlansPage() {
             type?: string;
             anchor?: PlanAnnotationAnchor;
             href?: string;
+            state?: PlanDocumentState;
           }
         | undefined;
       if (data?.type === "agent-native-plan-annotate" && data.anchor) {
@@ -150,6 +161,9 @@ export function PlansPage() {
         toast.info(
           "Plan links are disabled in review so the document stays put.",
         );
+      }
+      if (data?.type === "agent-native-plan-doc-state" && data.state) {
+        documentStateRef.current = data.state;
       }
     };
     window.addEventListener("message", onMessage);
@@ -170,6 +184,27 @@ export function PlansPage() {
     if (!html) return;
     await navigator.clipboard.writeText(html);
     toast.success("HTML copied to clipboard");
+  };
+
+  const handleAnnotationClick = (
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const doc = documentStateRef.current;
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+    const x = doc
+      ? ((clickX + doc.scrollX) / Math.max(doc.scrollWidth, 1)) * 100
+      : (clickX / Math.max(rect.width, 1)) * 100;
+    const y = doc
+      ? ((clickY + doc.scrollY) / Math.max(doc.scrollHeight, 1)) * 100
+      : (clickY / Math.max(rect.height, 1)) * 100;
+    setPendingAnnotation({
+      x: Number(Math.max(0, Math.min(100, x)).toFixed(3)),
+      y: Number(Math.max(0, Math.min(100, y)).toFixed(3)),
+      sectionTitle: "Visible plan area",
+    });
+    setCommentsOpen(true);
   };
 
   return (
@@ -404,6 +439,14 @@ export function PlansPage() {
                   annotateMode && "ring-1 ring-inset ring-primary/35",
                 )}
               />
+              {annotateMode && (
+                <button
+                  type="button"
+                  aria-label="Pin a comment on this part of the plan"
+                  className="absolute inset-0 z-[5] cursor-crosshair bg-transparent"
+                  onClick={handleAnnotationClick}
+                />
+              )}
             </div>
           )}
         </section>
@@ -893,6 +936,23 @@ function injectAnnotationRuntime(
       const state = ${payload};
       const root = document.documentElement;
       if (state.annotateMode) root.classList.add("an-plan-annotating");
+      function postDocState() {
+        const doc = document.documentElement;
+        window.parent.postMessage({
+          type: "agent-native-plan-doc-state",
+          state: {
+            scrollX: window.scrollX || doc.scrollLeft || 0,
+            scrollY: window.scrollY || doc.scrollTop || 0,
+            scrollWidth: Math.max(doc.scrollWidth, document.body?.scrollWidth || 0),
+            scrollHeight: Math.max(doc.scrollHeight, document.body?.scrollHeight || 0),
+            clientWidth: doc.clientWidth,
+            clientHeight: doc.clientHeight
+          }
+        }, "*");
+      }
+      postDocState();
+      window.addEventListener("scroll", postDocState, { passive: true });
+      window.addEventListener("resize", postDocState);
       function pct(value, total) {
         return Math.max(0, Math.min(100, Number(((value / Math.max(total, 1)) * 100).toFixed(3))));
       }
