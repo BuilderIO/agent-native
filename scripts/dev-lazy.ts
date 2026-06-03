@@ -900,6 +900,8 @@ function proxyHttp(
   console.log(`shomix - proxyHelp - ${app.name}`);
   const cold = !app.process || app.process.killed;
   startApp(app);
+  console.log(`shomix - after startApp - ${app.name}`);
+
 
   if (!app.ready && wantsHtml(req)) {
     ensureReadinessProbe(app);
@@ -912,6 +914,9 @@ function proxyHttp(
     return;
   }
 
+  console.log(`shomix - after app.ready - ${app.name}`);
+
+
   const serveStartingPage = () => {
     res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
     if (req.method === "HEAD") {
@@ -920,6 +925,8 @@ function proxyHttp(
     }
     res.end(renderStartingApp(app));
   };
+
+  console.log(`shomix - after serveStartingPage - ${app.name}`);
 
   const dispatch = () => {
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
