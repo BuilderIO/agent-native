@@ -151,10 +151,20 @@ function formatUploadedFileContext(files: UploadedFile[]): string {
   return lines.join("\n");
 }
 
+function designIntakeQuestionDirectives(designId: string): string[] {
+  return [
+    `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
+    "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
+    "Make the questions feel like Claude Design intake: form factor, aesthetic direction, important features/content, special interactions/polish, and whether to explore variations. Omit or rephrase anything the user's prompt already answered.",
+    "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
+    "Set a specific title like `Quick questions about your todo app` and a short description. After `show-design-questions` succeeds, wait for the user's answers.",
+  ];
+}
+
 function designGenerationDirectives(designId: string): string[] {
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
-    "Do not call show-questions or write design-variants for this UI-started generation unless the user explicitly asks for options or questions.",
+    "If the user asked to explore variations, call `present-design-variants` with 2-5 complete HTML directions and wait for their pick before calling generate-design. Otherwise generate one polished first direction.",
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
   ];
@@ -239,6 +249,9 @@ export default function DesignEditor() {
   promptAnchorRef.current = generateBtnRef.current;
   const [hasPendingGeneration, setHasPendingGeneration] = useState(() =>
     hasFreshPendingGeneration(id),
+  );
+  const [generationChatTabId, setGenerationChatTabId] = useState<string | null>(
+    null,
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
   // When generation stalls we keep the original prompt + files around so the
@@ -328,6 +341,24 @@ export default function DesignEditor() {
     onComplete: handleGenerationComplete,
     onStale: markGenerationStale,
   });
+  const handleQuestionFlowContinue = useCallback(
+    (runTabId: string) => {
+      clearGenerationCompleteTimer();
+      setGenerationIssue(null);
+      setRetryablePrompt(null);
+      setGenerationChatTabId(runTabId);
+      patchPendingGeneration(id, {
+        prompt: "Continue from answered design questions.",
+        files: [],
+        runTabId,
+        attempt: 1,
+        startedAt: Date.now(),
+      });
+      setHasPendingGeneration(true);
+      trackAgentGeneration(runTabId);
+    },
+    [clearGenerationCompleteTimer, id, trackAgentGeneration],
+  );
 
   // Question flow + variant flow — full-canvas overlays driven by the agent.
   const {
@@ -338,7 +369,10 @@ export default function DesignEditor() {
     submitLabel: pendingQuestionsSubmitLabel,
     handleSubmit: handleQuestionsSubmit,
     handleSkip: handleQuestionsSkip,
-  } = useQuestionFlow(id);
+  } = useQuestionFlow(id, {
+    continuationTabId: generationChatTabId,
+    onContinue: handleQuestionFlowContinue,
+  });
   const {
     state: pendingVariants,
     useVariant: handleVariantChoice,
@@ -396,6 +430,7 @@ export default function DesignEditor() {
     }
     setHasPendingGeneration(true);
     if (pending.runTabId) {
+      setGenerationChatTabId(pending.runTabId);
       trackAgentGeneration(pending.runTabId);
     }
   }, [id, markGenerationStale, trackAgentGeneration]);
@@ -594,6 +629,7 @@ export default function DesignEditor() {
     if (pending.runTabId) {
       setGenerationIssue(null);
       setHasPendingGeneration(true);
+      setGenerationChatTabId(pending.runTabId);
       trackAgentGeneration(pending.runTabId);
       return;
     }
@@ -619,7 +655,7 @@ export default function DesignEditor() {
       `User request: "${prompt}"`,
       fileContext,
       "",
-      ...designGenerationDirectives(id),
+      ...designIntakeQuestionDirectives(id),
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -630,6 +666,7 @@ export default function DesignEditor() {
       effort: pending.effort,
       newTab: true,
     });
+    setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
       runTabId,
       attempt: pending.attempt ?? 1,
@@ -1975,7 +2012,7 @@ ${serializedHtml}
                 type="button"
                 variant={tweaksVisible ? "secondary" : "outline"}
                 size="icon"
-                className="absolute bottom-4 right-4 z-30 size-9 cursor-pointer rounded-full bg-background/95 shadow-lg backdrop-blur"
+                className="absolute bottom-4 right-4 z-[70] size-9 cursor-pointer rounded-full bg-background/95 shadow-lg backdrop-blur"
                 onClick={() => setTweaksVisible((visible) => !visible)}
                 aria-label={tweaksVisible ? "Hide tweaks" : "Show tweaks"}
               >
@@ -2015,7 +2052,7 @@ ${serializedHtml}
               visible
             />
           ) : (
-            <div className="absolute bottom-16 right-4 z-30 w-60 rounded-xl border border-border bg-card p-4 shadow-2xl">
+            <div className="absolute bottom-16 right-4 z-[70] w-60 rounded-xl border border-border bg-card p-4 shadow-2xl">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Tweaks

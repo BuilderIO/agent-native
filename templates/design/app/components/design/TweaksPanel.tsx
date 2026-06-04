@@ -76,7 +76,7 @@ export function TweaksPanel({
   return (
     <div
       ref={panelRef}
-      className="fixed z-30 w-60 rounded-xl border border-border bg-card shadow-2xl backdrop-blur-sm"
+      className="fixed z-[70] w-60 rounded-xl border border-border bg-card shadow-2xl backdrop-blur-sm"
       style={{ right: position.x, bottom: position.y }}
     >
       {/* Header — drag handle + collapse toggle */}
