@@ -376,6 +376,12 @@ discipline before and around the plan document:
   mixed implementation planning.
 - Wireframes should be concrete enough to critique: layout regions, controls,
   states, empty/loading/error paths, review affordances, and copy placeholders.
+- Sketch wireframes and diagrams should visibly use the hand-drawn/scribbly
+  renderer. If the result looks like crisp boxes with normal borders, revise the
+  block data or renderer before asking for review.
+- Tabs for UI states, component notes, or interaction notes should include a
+  relevant visual block unless they are intentionally document-only. Do not
+  create large tab controls that reveal only prose.
 - Backend/refactor work gets architecture and data-flow diagrams.
 - Complex tradeoffs get two or three option cards with consequences.
 - Open questions are surfaced as visual callouts, not buried in paragraphs.
@@ -519,11 +525,38 @@ text plan already exists and should become a visual companion.
 - Keep visuals review-focused, not decorative. Do not make a marketing page,
   hero section, brand deck, or abstract mood board unless the user asks.
 
+## Component And Widget Plans
+
+When the work is a component, popover, sidebar widget, toolbar, card, modal, or
+other small surface, do not generate a full app flow. Use compact component
+states instead.
+
+- Prefer square or vertical frames that match the component's real footprint. A
+  sidebar popover should look like a sidebar popover, not a desktop page or
+  phone screen.
+- Use state tabs such as \`Default\`, \`Expanded\`, \`Map\`, \`Loading\`, \`Empty\`,
+  and \`Error\`. Do not add \`Desktop\`, \`Mobile\`, or responsive states unless the
+  component actually changes layout across breakpoints.
+- Draw only connectors for real sequences. Do not connect independent states
+  with fake "Step 1" lines.
+- Ground every frame in the real product hierarchy: visible title, controls,
+  content groups, state labels, actions, empty/error copy, and realistic
+  density. If you have seen a screenshot or component code, reflect it.
+- Keep labels outside collision zones. Text must never overlap wireframes,
+  connectors, toolbar controls, or neighboring notes.
+- Use the app-owned sketch renderer for wireframes and diagrams. The result
+  should look deliberately hand-drawn/scribbly, not like crisp bordered boxes on
+  a grid.
+
 ## State Tabs
 
 When showing multiple UI states, prefer the structured \`tabs\` block. Each tab
 can contain rich text, sketch wireframes, diagrams, code tabs, or bounded custom
 HTML fragments. Raw HTML tab attributes are only for legacy imported artifacts.
+For UI-first plans, tabs named like component notes, interaction notes, screen
+states, or review states should include a relevant visual block unless they are
+intentionally document-only; prose-only tabs are usually a sign the plan is
+under-specified.
 
 Good state tab sets include:
 

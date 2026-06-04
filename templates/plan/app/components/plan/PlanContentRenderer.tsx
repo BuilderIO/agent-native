@@ -1,6 +1,8 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PointerEvent,
   type ReactNode,
@@ -25,6 +27,7 @@ import type {
   PlanContent,
   PlanSketchDiagramBlock,
   PlanSketchWireframeBlock,
+  PlanWireframeRegion,
   PlanVisualQuestion,
 } from "@shared/plan-content";
 
@@ -35,6 +38,16 @@ type PlanContentRendererProps = {
   onContentChange?: (content: PlanContent) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
 };
+
+const DEFAULT_CANVAS_VIEW = {
+  zoom: 0.72,
+  pan: { x: 80, y: 54 },
+};
+const MIN_CANVAS_ZOOM = 0.32;
+const MAX_CANVAS_ZOOM = 2.4;
+const CANVAS_WHEEL_ZOOM_SENSITIVITY = 0.0028;
+
+type CanvasView = typeof DEFAULT_CANVAS_VIEW;
 
 export function PlanContentRenderer({
   content,
@@ -122,8 +135,8 @@ function PlanCanvas({
   canvas: NonNullable<PlanContent["canvas"]>;
   blockLookup: Map<string, PlanBlock>;
 }) {
-  const [zoom, setZoom] = useState(0.72);
-  const [pan, setPan] = useState({ x: 80, y: 54 });
+  const canvasRef = useRef<HTMLElement | null>(null);
+  const [view, setView] = useState<CanvasView>(DEFAULT_CANVAS_VIEW);
   const [drag, setDrag] = useState<{
     pointerId: number;
     startX: number;
@@ -146,11 +159,81 @@ function PlanCanvas({
     );
     return { width: maxX + 360, height: maxY + 260 };
   }, [frames]);
+  const { zoom, pan } = view;
+
+  const zoomBy = useCallback(
+    (factor: number, anchor?: { x: number; y: number }) => {
+      setView((current) => {
+        const nextZoom = clamp(
+          current.zoom * factor,
+          MIN_CANVAS_ZOOM,
+          MAX_CANVAS_ZOOM,
+        );
+        if (Math.abs(nextZoom - current.zoom) < 0.0001) return current;
+
+        const rect = canvasRef.current?.getBoundingClientRect();
+        const anchorPoint =
+          anchor ??
+          (rect ? { x: rect.width / 2, y: rect.height / 2 } : { x: 0, y: 0 });
+        const worldX = (anchorPoint.x - current.pan.x) / current.zoom;
+        const worldY = (anchorPoint.y - current.pan.y) / current.zoom;
+
+        return {
+          zoom: nextZoom,
+          pan: {
+            x: anchorPoint.x - worldX * nextZoom,
+            y: anchorPoint.y - worldY * nextZoom,
+          },
+        };
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const element = canvasRef.current;
+    if (!element) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const deltaScale =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? element.clientHeight
+            : 1;
+      const deltaX = event.deltaX * deltaScale;
+      const deltaY = event.deltaY * deltaScale;
+
+      if (event.ctrlKey || event.metaKey) {
+        const rect = element.getBoundingClientRect();
+        zoomBy(Math.exp(-deltaY * CANVAS_WHEEL_ZOOM_SENSITIVITY), {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        });
+        return;
+      }
+
+      setView((current) => ({
+        ...current,
+        pan: {
+          x: current.pan.x - (deltaX || (event.shiftKey ? deltaY : 0)),
+          y: current.pan.y - (event.shiftKey ? 0 : deltaY),
+        },
+      }));
+    };
+
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [zoomBy]);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-interactive]")) return;
+    event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
       pointerId: event.pointerId,
@@ -163,32 +246,29 @@ function PlanCanvas({
 
   return (
     <section
-      className="plan-canvas relative h-[70vh] min-h-[520px] overflow-hidden border-b border-plan-line"
+      ref={canvasRef}
+      className="plan-canvas relative h-[70vh] min-h-[520px] cursor-grab overflow-hidden border-b border-plan-line active:cursor-grabbing"
       style={{
         backgroundPosition: `${pan.x}px ${pan.y}px`,
         backgroundSize: `${28 * zoom}px ${28 * zoom}px`,
       }}
-      onWheel={(event) => {
-        event.preventDefault();
-        if (event.ctrlKey || event.metaKey) {
-          setZoom((value) => clamp(value - event.deltaY * 0.001, 0.36, 1.8));
-          return;
-        }
-        setPan((value) => ({
-          x: value.x - event.deltaX,
-          y: value.y - event.deltaY,
-        }));
-      }}
       onPointerDown={onPointerDown}
       onPointerMove={(event) => {
         if (!drag || drag.pointerId !== event.pointerId) return;
-        setPan({
-          x: drag.panX + event.clientX - drag.startX,
-          y: drag.panY + event.clientY - drag.startY,
-        });
+        event.preventDefault();
+        setView((current) => ({
+          ...current,
+          pan: {
+            x: drag.panX + event.clientX - drag.startX,
+            y: drag.panY + event.clientY - drag.startY,
+          },
+        }));
       }}
       onPointerUp={(event) => {
-        if (drag?.pointerId === event.pointerId) setDrag(null);
+        if (drag?.pointerId === event.pointerId) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          setDrag(null);
+        }
       }}
       onPointerCancel={() => setDrag(null)}
     >
@@ -236,7 +316,7 @@ function PlanCanvas({
           variant="ghost"
           size="icon"
           className="size-7"
-          onClick={() => setZoom((value) => clamp(value - 0.08, 0.36, 1.8))}
+          onClick={() => zoomBy(1 / 1.18)}
           aria-label="Zoom out"
         >
           <IconMinus className="size-3.5" />
@@ -249,7 +329,7 @@ function PlanCanvas({
           variant="ghost"
           size="icon"
           className="size-7"
-          onClick={() => setZoom((value) => clamp(value + 0.08, 0.36, 1.8))}
+          onClick={() => zoomBy(1.18)}
           aria-label="Zoom in"
         >
           <IconPlus className="size-3.5" />
@@ -260,8 +340,7 @@ function PlanCanvas({
           size="icon"
           className="size-7"
           onClick={() => {
-            setZoom(0.72);
-            setPan({ x: 80, y: 54 });
+            setView(DEFAULT_CANVAS_VIEW);
           }}
           aria-label="Reset canvas"
         >
@@ -1171,7 +1250,7 @@ function SketchWireframe({
   return (
     <div
       className={cn(
-        "plan-sketch relative overflow-hidden border-2 border-plan-sketch-line bg-plan-wireframe text-plan-sketch-line",
+        "plan-sketch relative overflow-hidden bg-plan-wireframe text-plan-sketch-line",
         isPhone ? "mx-auto w-[260px] rounded-[34px]" : "w-full rounded-[16px]",
         compact && "max-w-[620px]",
       )}
@@ -1182,32 +1261,108 @@ function SketchWireframe({
       {isPhone && (
         <div className="absolute left-1/2 top-3 h-1.5 w-10 -translate-x-1/2 rounded-full bg-plan-muted-line" />
       )}
+      <RoughBox id={`wireframe-${data.viewport ?? "desktop"}`} />
       {data.regions.map((region) => (
-        <div
-          key={region.id}
-          className={cn(
-            "absolute rounded-[10px] border border-current",
-            region.kind === "list" && "plan-region-list",
-            region.kind === "button" && "plan-region-button",
-            region.kind === "input" && "plan-region-input",
-            region.emphasis && "border-primary text-primary",
-          )}
-          style={{
-            left: `${region.x}%`,
-            top: `${region.y}%`,
-            width: `${region.width}%`,
-            height: `${region.height}%`,
-          }}
-        >
-          {region.label && (
-            <span className="absolute left-2 top-1 text-[12px] font-medium">
-              {region.label}
-            </span>
-          )}
-        </div>
+        <RoughRegion key={region.id} region={region} />
       ))}
     </div>
   );
+}
+
+function RoughRegion({ region }: { region: PlanWireframeRegion }) {
+  return (
+    <div
+      className={cn(
+        "plan-sketch-region absolute",
+        region.kind === "list" && "plan-region-list",
+        region.kind === "button" && "plan-region-button",
+        region.kind === "input" && "plan-region-input",
+        region.emphasis && "text-primary",
+      )}
+      style={{
+        left: `${region.x}%`,
+        top: `${region.y}%`,
+        width: `${region.width}%`,
+        height: `${region.height}%`,
+      }}
+    >
+      <RoughBox id={region.id} emphasis={region.emphasis} />
+      {region.label && (
+        <span className="plan-sketch-label absolute left-2 top-1 max-w-[calc(100%-1rem)] truncate text-[12px] font-semibold">
+          {region.label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function RoughBox({ id, emphasis }: { id: string; emphasis?: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="plan-rough-svg pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+    >
+      <path
+        d={roughRectPath(id, 0)}
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={emphasis ? 2.2 : 1.55}
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        d={roughRectPath(id, 1)}
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={emphasis ? 1.8 : 1.15}
+        vectorEffect="non-scaling-stroke"
+        opacity="0.72"
+      />
+    </svg>
+  );
+}
+
+function roughRectPath(seed: string, pass: number) {
+  const point = (index: number, x: number, y: number) => {
+    const jitterX = roughNoise(`${seed}:${pass}:${index}:x`) * 2.2 - 1.1;
+    const jitterY = roughNoise(`${seed}:${pass}:${index}:y`) * 2.2 - 1.1;
+    return `${roundPoint(x + jitterX)} ${roundPoint(y + jitterY)}`;
+  };
+  return [
+    `M ${point(0, 3.5, 4)}`,
+    `L ${point(1, 25, 3)}`,
+    `L ${point(2, 51, 4)}`,
+    `L ${point(3, 75, 3)}`,
+    `L ${point(4, 96.5, 4.5)}`,
+    `L ${point(5, 96, 30)}`,
+    `L ${point(6, 97, 63)}`,
+    `L ${point(7, 95.5, 96)}`,
+    `L ${point(8, 73, 97)}`,
+    `L ${point(9, 48, 96)}`,
+    `L ${point(10, 24, 97)}`,
+    `L ${point(11, 4.5, 95.5)}`,
+    `L ${point(12, 3, 67)}`,
+    `L ${point(13, 4, 34)}`,
+    "Z",
+  ].join(" ");
+}
+
+function roughNoise(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function roundPoint(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function SketchDiagram({

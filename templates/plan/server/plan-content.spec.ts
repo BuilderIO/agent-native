@@ -34,6 +34,8 @@ describe("structured plan content", () => {
 
     expect(content.canvas?.frames).toHaveLength(2);
     expect(content.canvas?.frames[0]).not.toHaveProperty("x");
+    expect(content.canvas?.frames[0]?.wireframe?.viewport).toBe("desktop");
+    expect(content.canvas?.frames[1]?.wireframe?.viewport).toBe("phone");
     expect(content.blocks.some((block) => block.type === "tabs")).toBe(true);
     expect(
       content.blocks.some((block) => block.type === "implementation-map"),
@@ -242,6 +244,84 @@ describe("structured plan content", () => {
         "loading",
         "loading-2",
       ]);
+    }
+  });
+
+  it("uses product-specific compact regions for Context X-Ray component plans", () => {
+    const content = createUiPlanContent({
+      title: "Context X-Ray component cleanup",
+      brief:
+        "Plan a compact Context X-Ray popover in the agent sidebar, not a desktop/mobile app flow.",
+      states: [
+        {
+          name: "Default popover",
+          description:
+            "Context X-Ray popover with token meter, list/map toggle, conversation group, and row actions.",
+        },
+        {
+          name: "Expanded segment",
+          description:
+            "Segment detail with user/tool rows and pin/evict controls.",
+        },
+        {
+          name: "Map view",
+          description:
+            "Treemap mode with token distribution, legend, and selected summary.",
+        },
+        {
+          name: "Chat cleanup",
+          description:
+            "Chat messages and composer after removing visible step chrome.",
+        },
+      ],
+      components: [
+        {
+          name: "Token meter",
+          description:
+            "Small usage readout with compact meter, pinned count, and evicted count.",
+        },
+      ],
+    });
+
+    expect(content.canvas?.title).toBe("Component States");
+    expect(content.canvas?.flow).toBeUndefined();
+    expect(content.canvas?.frames[0]?.width).toBe(360);
+    expect(
+      content.canvas?.frames[0]?.wireframe?.regions.map(
+        (region) => region.label,
+      ),
+    ).toContain("Context X-Ray");
+    expect(
+      content.canvas?.frames[0]?.wireframe?.regions.map(
+        (region) => region.label,
+      ),
+    ).toContain("2.0k used");
+    expect(
+      content.canvas?.frames[2]?.wireframe?.regions.map(
+        (region) => region.label,
+      ),
+    ).toContain("Token map");
+    expect(
+      content.canvas?.frames[3]?.wireframe?.regions.map(
+        (region) => region.label,
+      ),
+    ).toContain("Composer");
+    expect(
+      content.canvas?.frames[3]?.wireframe?.regions.map(
+        (region) => region.label,
+      ),
+    ).not.toContain("Step");
+
+    const componentTabs = content.blocks.find(
+      (block) => block.type === "tabs" && block.title === "Interaction Notes",
+    );
+    expect(componentTabs?.type).toBe("tabs");
+    if (componentTabs?.type === "tabs") {
+      expect(
+        componentTabs.data.tabs[0]?.blocks.some(
+          (block) => block.type === "sketch-wireframe",
+        ),
+      ).toBe(true);
     }
   });
 

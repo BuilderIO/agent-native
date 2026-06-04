@@ -107,12 +107,20 @@ states instead.
   density. If you have seen a screenshot or component code, reflect it.
 - Keep labels outside collision zones. Text must never overlap wireframes,
   connectors, toolbar controls, or neighboring notes.
+- Use the app-owned sketch renderer for wireframes and diagrams. The result
+  should look deliberately hand-drawn/scribbly, not like crisp bordered boxes on
+  a grid. If the rendered plan does not read as sketchy, fix the renderer or
+  block data before handing it off.
 
 ## State Tabs
 
 When showing multiple UI states, prefer the structured `tabs` block. Each tab
 can contain rich text, sketch wireframes, diagrams, code tabs, or bounded custom
 HTML fragments. Raw HTML tab attributes are only for legacy imported artifacts.
+For UI-first plans, tabs named like component notes, interaction notes, screen
+states, or review states should include a relevant visual block unless they are
+intentionally document-only; prose-only tabs are usually a sign the plan is
+under-specified.
 
 Good state tab sets include:
 

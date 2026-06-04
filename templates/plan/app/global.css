@@ -196,7 +196,7 @@
 .plan-block h2,
 .plan-callout h2,
 .plan-questions-block h2 {
-  margin: 0;
+  margin: 0 0 1.25rem;
   color: var(--plan-text);
   font-size: clamp(1.8rem, 3vw, 2.8rem);
   line-height: 1.05;
@@ -211,6 +211,7 @@
 }
 
 .plan-block .plan-block h2 {
+  margin-bottom: 0.9rem;
   font-size: clamp(1.25rem, 2vw, 1.9rem);
   line-height: 1.15;
 }
@@ -233,8 +234,17 @@
   padding-left: 1.25rem;
 }
 
-.plan-sketch {
+.plan-rough-svg {
   filter: url("#plan-rough");
+}
+
+.plan-sketch-label {
+  font-family:
+    "Comic Sans MS", "Bradley Hand", "Segoe Print", "Marker Felt", cursive;
+}
+
+.plan-sketch-region {
+  border-radius: 10px;
 }
 
 .plan-region-list::before,

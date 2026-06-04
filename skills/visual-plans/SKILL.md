@@ -145,9 +145,15 @@ discipline before and around the plan document:
 - Wireframes should be concrete enough to critique: show layout regions,
   controls, states, empty/loading/error paths, review affordances, and copy
   placeholders. Avoid vague rectangle-only sketches.
+- Sketch wireframes and diagrams should visibly use the hand-drawn/scribbly
+  renderer. If the result looks like crisp boxes with normal borders, revise the
+  block data or renderer before asking for review.
 - When showing multiple diagrams, wireframes, mockups, or design directions,
   use native `tabs` blocks so the plan stays readable and editable. Raw HTML tab
   attributes are only for legacy imported artifacts.
+- Tabs for UI states, component notes, or interaction notes should include a
+  relevant visual block unless they are intentionally document-only. Do not
+  create large tab controls that reveal only prose.
 - Backend/refactor work gets architecture, sequence, data-flow, or dependency
   diagrams.
 - Complex tradeoffs get two or three option cards with consequences.

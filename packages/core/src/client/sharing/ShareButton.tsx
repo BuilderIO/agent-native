@@ -310,7 +310,7 @@ export function ShareButton(props: ShareButtonProps) {
           )}
           aria-label={iconOnly ? "Share" : undefined}
         >
-          {loaded ? (
+          {loaded || iconOnly ? (
             <TriggerIcon size={16} strokeWidth={1.75} />
           ) : (
             <span

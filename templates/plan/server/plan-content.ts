@@ -9,6 +9,7 @@ import {
   type PlanDiagramEdge,
   type PlanSketchDiagramBlock,
   type PlanSketchWireframeBlock,
+  type PlanWireframeRegion,
   type PlanVisualQuestion,
 } from "../shared/plan-content.js";
 import type { PlanSection } from "../shared/types.js";
@@ -249,6 +250,17 @@ export function createUiPlanContent(input: {
                     editable: true,
                     data: { markdown: component.description },
                   },
+                  {
+                    id: createPlanBlockId(`${component.name}-sketch`),
+                    type: "sketch-wireframe",
+                    title: `${component.name} Sketch`,
+                    data: createWireframeData({
+                      title: component.name,
+                      description: component.description,
+                      viewport: "desktop",
+                      component: true,
+                    }),
+                  },
                 ],
               })),
             },
@@ -353,9 +365,20 @@ function viewportForState(
   componentPlan: boolean,
 ): "desktop" | "tablet" | "phone" {
   if (componentPlan) return "desktop";
-  const text = `${state.name} ${state.description}`.toLowerCase();
-  if (/\b(phone|mobile|narrow)\b/.test(text)) return "phone";
-  if (/\b(tablet)\b/.test(text)) return "tablet";
+  const name = state.name.toLowerCase();
+  const description = state.description.toLowerCase();
+  if (/\b(phone|mobile|narrow)\b/.test(name)) return "phone";
+  if (/\b(tablet)\b/.test(name)) return "tablet";
+  if (/\b(tablet-only|tablet first|tablet-first)\b/.test(description)) {
+    return "tablet";
+  }
+  if (
+    /\b(phone-only|mobile-only|mobile first|mobile-first|narrow screen|single-column mobile)\b/.test(
+      description,
+    )
+  ) {
+    return "phone";
+  }
   return "desktop";
 }
 
@@ -586,30 +609,7 @@ function createWireframeData(input: {
     return {
       viewport,
       caption: input.description,
-      regions: [
-        { id: "shell", kind: "content", x: 8, y: 6, width: 84, height: 88 },
-        {
-          id: "title",
-          kind: "header",
-          label: input.title,
-          x: 14,
-          y: 12,
-          width: 42,
-          height: 9,
-          emphasis: true,
-        },
-        { id: "summary", kind: "content", x: 14, y: 28, width: 72, height: 18 },
-        { id: "controls", kind: "toolbar", x: 14, y: 52, width: 36, height: 8 },
-        {
-          id: "content",
-          kind: "list",
-          x: 14,
-          y: 66,
-          width: 72,
-          height: 20,
-          emphasis: true,
-        },
-      ],
+      regions: createComponentWireframeRegions(input),
     };
   }
   if (viewport === "phone") {
@@ -652,6 +652,231 @@ function createWireframeData(input: {
       },
     ],
   };
+}
+
+function createComponentWireframeRegions(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeRegion[] {
+  const text = `${input.title} ${input.description ?? ""}`.toLowerCase();
+  if (/\b(chat|message|composer|thinking)\b/.test(text)) {
+    return [
+      componentShell(),
+      {
+        id: "messages",
+        kind: "list",
+        label: "Chat messages",
+        x: 14,
+        y: 15,
+        width: 72,
+        height: 42,
+        emphasis: true,
+      },
+      {
+        id: "thinking-status",
+        kind: "toolbar",
+        label: "Thinking status",
+        x: 14,
+        y: 62,
+        width: 40,
+        height: 8,
+      },
+      {
+        id: "composer",
+        kind: "input",
+        label: "Composer",
+        x: 14,
+        y: 76,
+        width: 72,
+        height: 10,
+      },
+    ];
+  }
+
+  const looksLikeContextXRay =
+    /\b(context\s*x-?ray|x-?ray|popover|usage|meter|list\/?map)\b/.test(text);
+
+  if (
+    !looksLikeContextXRay &&
+    /\b(map|treemap|token distribution)\b/.test(text)
+  ) {
+    return [
+      componentShell(),
+      {
+        id: "map-title",
+        kind: "header",
+        label: "Map",
+        x: 14,
+        y: 12,
+        width: 36,
+        height: 9,
+        emphasis: true,
+      },
+      {
+        id: "token-map",
+        kind: "content",
+        label: "Token map",
+        x: 14,
+        y: 28,
+        width: 72,
+        height: 38,
+        emphasis: true,
+      },
+      {
+        id: "legend",
+        kind: "toolbar",
+        label: "Legend",
+        x: 14,
+        y: 72,
+        width: 34,
+        height: 8,
+      },
+      {
+        id: "selected-summary",
+        kind: "content",
+        label: "Selected 2.0k",
+        x: 54,
+        y: 72,
+        width: 32,
+        height: 8,
+      },
+    ];
+  }
+
+  if (/\b(expanded|segment|detail|pin|evict|protected)\b/.test(text)) {
+    return [
+      componentShell(),
+      {
+        id: "segment-title",
+        kind: "header",
+        label: "Conversation",
+        x: 14,
+        y: 12,
+        width: 42,
+        height: 9,
+        emphasis: true,
+      },
+      {
+        id: "segment-usage",
+        kind: "toolbar",
+        label: "2.0k protected",
+        x: 58,
+        y: 12,
+        width: 28,
+        height: 9,
+      },
+      {
+        id: "user-row",
+        kind: "list",
+        label: "User message",
+        x: 14,
+        y: 30,
+        width: 72,
+        height: 14,
+      },
+      {
+        id: "tool-row",
+        kind: "list",
+        label: "Tool result",
+        x: 14,
+        y: 49,
+        width: 72,
+        height: 14,
+      },
+      {
+        id: "pin-evict",
+        kind: "button",
+        label: "Pin / evict",
+        x: 58,
+        y: 72,
+        width: 28,
+        height: 9,
+        emphasis: true,
+      },
+    ];
+  }
+
+  if (looksLikeContextXRay) {
+    return [
+      componentShell(),
+      {
+        id: "xray-title",
+        kind: "header",
+        label: "Context X-Ray",
+        x: 14,
+        y: 12,
+        width: 46,
+        height: 9,
+        emphasis: true,
+      },
+      {
+        id: "usage-meter",
+        kind: "content",
+        label: "2.0k used",
+        x: 14,
+        y: 28,
+        width: 72,
+        height: 20,
+      },
+      {
+        id: "view-toggle",
+        kind: "toolbar",
+        label: "List / Map",
+        x: 14,
+        y: 54,
+        width: 38,
+        height: 8,
+      },
+      {
+        id: "conversation-group",
+        kind: "list",
+        label: "Conversation",
+        x: 14,
+        y: 68,
+        width: 72,
+        height: 18,
+        emphasis: true,
+      },
+      {
+        id: "row-action",
+        kind: "button",
+        label: "Pin",
+        x: 70,
+        y: 76,
+        width: 14,
+        height: 7,
+      },
+    ];
+  }
+
+  return [
+    componentShell(),
+    {
+      id: "title",
+      kind: "header",
+      label: input.title,
+      x: 14,
+      y: 12,
+      width: 42,
+      height: 9,
+      emphasis: true,
+    },
+    { id: "summary", kind: "content", x: 14, y: 28, width: 72, height: 18 },
+    { id: "controls", kind: "toolbar", x: 14, y: 52, width: 36, height: 8 },
+    {
+      id: "content",
+      kind: "list",
+      x: 14,
+      y: 66,
+      width: 72,
+      height: 20,
+      emphasis: true,
+    },
+  ];
+}
+
+function componentShell(): PlanWireframeRegion {
+  return { id: "shell", kind: "content", x: 8, y: 6, width: 84, height: 88 };
 }
 
 function createBasicDiagram(
