@@ -118,9 +118,9 @@ describe("Plans helpers", () => {
     expect(html).not.toContain("canvas-toolbar");
     expect(html).not.toContain("Wireframe canvas");
     expect(html).toContain(
-      "--canvas: #201f1d; --grid-line: rgba(244,244,242,.024)",
+      "--canvas: #1d1c1b; --grid-line: rgba(244,244,242,.024)",
     );
-    expect(html).toContain("--bg: #1d1c1a");
+    expect(html).toContain("--bg: #1f1e1d");
     expect(html).not.toContain('window.dispatchEvent(new Event("resize"))');
     expect(html).toContain(
       'window.dispatchEvent(new Event("agent-native-plan-board-layout-change"))',
@@ -138,7 +138,7 @@ describe("Plans helpers", () => {
     expect(html).not.toContain('class="frame-caption"');
     expect(html).not.toContain("<span>::</span>");
     expect(html).not.toContain("doc-meta");
-    expect(html).toContain("--wire-surface: #20201e");
+    expect(html).toContain("--wire-surface: #202020");
     expect(html).toContain(
       ".wire-window { position: absolute; inset: 0; overflow: hidden; border: 1.5px solid var(--wire-line); border-radius: 5px; background: var(--wire-surface); color: var(--ink); filter: url(#ui-plan-roughen); box-shadow: none;",
     );

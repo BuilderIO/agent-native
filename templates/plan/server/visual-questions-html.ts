@@ -235,7 +235,7 @@ export function buildVisualQuestionsHtml(
   <svg class="roughen-svg" aria-hidden="true">
     <filter id="visual-questions-roughen">
       <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7" result="noise" />
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.2" xChannelSelector="R" yChannelSelector="G" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.4" xChannelSelector="R" yChannelSelector="G" />
     </filter>
   </svg>
   <main class="vq-shell">
@@ -391,8 +391,8 @@ function renderPreview(option: VisualQuestionsOption, index: number): string {
 
 const VISUAL_QUESTIONS_CSS = `
 @font-face { font-family: "Virgil"; src: url("/fonts/Virgil-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
-:root { color-scheme: light dark; --bg: #faf9f7; --paper: #ffffff; --paper-soft: #f3f2ef; --canvas: #f3f2ef; --ink: #181817; --muted: #6f6e68; --line: #dfded9; --line-strong: #c9c8c2; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --sketch: #20201e; --wire-surface: #ffffff; --wire-soft: #f4f4f5; --wire-mark: #d4d4d8; --shadow: none; }
-:root[data-agent-native-theme="dark"] { color-scheme: dark; --bg: #1d1c1a; --paper: #242321; --paper-soft: #2c2b28; --canvas: #201f1d; --ink: #f4f3ef; --muted: #aaa59d; --line: #42403a; --line-strong: #58554e; --accent: #4d86ff; --accent-soft: rgba(77,134,255,.18); --sketch: #f0eee8; --wire-surface: #20201e; --wire-soft: #2b2a27; --wire-mark: #625e57; --shadow: none; }
+:root { color-scheme: light dark; --bg: #faf9f7; --paper: #ffffff; --paper-soft: #f3f2ef; --canvas: #f3f2ef; --ink: #181817; --muted: #6f6e68; --line: #dfded9; --line-strong: #c9c8c2; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --sketch: #20201e; --wire-surface: #ffffff; --wire-soft: #f4f4f5; --wire-mark: #d4d4d8; --wire-line: #20201e; --wire-line-soft: #c9c8c2; --shadow: none; }
+:root[data-agent-native-theme="dark"] { color-scheme: dark; --bg: #1f1e1d; --paper: #242423; --paper-soft: #2b2a2a; --canvas: #1d1c1b; --ink: #f4f3ef; --muted: #aaa8a4; --line: #444341; --line-strong: #5a5955; --accent: #4d86ff; --accent-soft: rgba(77,134,255,.18); --sketch: #f0eee8; --wire-surface: #202020; --wire-soft: #2a2a2a; --wire-mark: #686868; --wire-line: rgba(244,244,242,.78); --wire-line-soft: rgba(244,244,242,.26); --shadow: none; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
 button, input, textarea { font: inherit; }
@@ -428,23 +428,24 @@ h1 { margin: 0; font-size: clamp(34px, 5vw, 62px); line-height: 1.02; letter-spa
 .vq-visual-copy strong { font-size: 18px; }
 .vq-visual-copy span, .vq-bullets { color: var(--muted); }
 .vq-bullets { margin: 10px 0 0; padding-left: 20px; font-size: 15px; }
-.vq-preview { position: relative; display: block; min-height: 190px; overflow: hidden; border: 1.5px solid var(--sketch); border-radius: 8px; background: var(--wire-surface); filter: url(#visual-questions-roughen); }
-.vq-preview-desktop i, .vq-preview-split i { position: absolute; inset: 0 auto 0 0; width: 26%; border-right: 1px solid var(--line-strong); background: var(--wire-soft); }
+.vq-preview { position: relative; display: block; min-height: 190px; overflow: hidden; border: 1.5px solid var(--wire-line); border-radius: 7px; background: var(--wire-surface); filter: url(#visual-questions-roughen); }
+.vq-preview::after, .vq-preview-flow b::after, .vq-preview-diagram b::after { content: ""; position: absolute; inset: -2px; border: 1px solid var(--wire-line-soft); border-radius: inherit; transform: translate(2px, -1px) rotate(.18deg); pointer-events: none; }
+.vq-preview-desktop i, .vq-preview-split i { position: absolute; inset: 0 auto 0 0; width: 26%; border-right: 1px solid var(--wire-line-soft); background: var(--wire-soft); }
 .vq-preview-desktop b, .vq-preview-split b, .vq-preview-mobile b { position: absolute; left: 32%; right: 8%; height: 12px; border-radius: 99px; background: var(--wire-mark); opacity: .72; }
 .vq-preview-desktop b:nth-of-type(1), .vq-preview-split b:nth-of-type(1), .vq-preview-mobile b:nth-of-type(1) { top: 46px; }
 .vq-preview-desktop b:nth-of-type(2), .vq-preview-split b:nth-of-type(2), .vq-preview-mobile b:nth-of-type(2) { top: 82px; right: 22%; }
 .vq-preview-desktop b:nth-of-type(3), .vq-preview-split b:nth-of-type(3), .vq-preview-mobile b:nth-of-type(3) { top: 118px; right: 34%; }
-.vq-preview-desktop strong, .vq-preview-split strong { position: absolute; left: 32%; right: 8%; bottom: 18px; height: 34px; border: 1px solid var(--accent); border-radius: 8px; }
-.vq-preview-split i { inset: 0 0 auto 0; width: auto; height: 38px; border-right: 0; border-bottom: 1px solid var(--line-strong); }
+.vq-preview-desktop strong, .vq-preview-split strong { position: absolute; left: 32%; right: 8%; bottom: 18px; height: 34px; border: 1.4px solid var(--accent); border-radius: 7px; }
+.vq-preview-split i { inset: 0 0 auto 0; width: auto; height: 38px; border-right: 0; border-bottom: 1px solid var(--wire-line-soft); }
 .vq-preview-split b { left: 8%; }
 .vq-preview-mobile { width: min(210px, 100%); margin: 0 auto; border-radius: 28px; min-height: 230px; }
-.vq-preview-mobile i { position: absolute; left: 50%; top: 12px; width: 42px; height: 5px; border-radius: 99px; background: var(--line-strong); transform: translateX(-50%); }
+.vq-preview-mobile i { position: absolute; left: 50%; top: 12px; width: 42px; height: 5px; border-radius: 99px; background: var(--wire-line-soft); transform: translateX(-50%); }
 .vq-preview-mobile b { left: 18%; right: 18%; }
 .vq-preview-mobile em { position: absolute; right: 18px; bottom: 18px; width: 42px; height: 42px; border-radius: 99px; background: var(--accent); }
-.vq-preview-flow { display: flex; min-height: 128px; align-items: center; justify-content: center; gap: 14px; background: transparent; border-style: dashed; }
-.vq-preview-flow b { display: inline-flex; width: 54px; height: 54px; align-items: center; justify-content: center; border-radius: 8px; background: var(--wire-surface); border: 1px solid var(--sketch); color: var(--accent); font: 400 24px/1 Virgil, ui-sans-serif, system-ui; }
-.vq-preview-flow i { width: 54px; border-top: 2px solid var(--accent); }
-.vq-preview-diagram b { position: absolute; width: 118px; height: 56px; border: 1px solid var(--sketch); border-radius: 8px; background: var(--wire-surface); }
+.vq-preview-flow { display: flex; min-height: 128px; align-items: center; justify-content: center; gap: 14px; background: var(--wire-surface); border-style: solid; }
+.vq-preview-flow b { position: relative; display: inline-flex; width: 54px; height: 54px; align-items: center; justify-content: center; border-radius: 7px; background: var(--wire-surface); border: 1.5px solid var(--wire-line); color: var(--accent); font: 400 24px/1 Virgil, ui-sans-serif, system-ui; filter: url(#visual-questions-roughen); }
+.vq-preview-flow i { width: 54px; border-top: 2px solid var(--accent); filter: url(#visual-questions-roughen); }
+.vq-preview-diagram b { position: absolute; width: 118px; height: 56px; border: 1.5px solid var(--wire-line); border-radius: 7px; background: var(--wire-surface); filter: url(#visual-questions-roughen); }
 .vq-preview-diagram b:nth-of-type(1) { left: 32px; top: 32px; }
 .vq-preview-diagram b:nth-of-type(2) { right: 38px; top: 42px; }
 .vq-preview-diagram b:nth-of-type(3) { left: 42%; bottom: 28px; }
