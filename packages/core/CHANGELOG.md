@@ -1,5 +1,20 @@
 # @agent-native/core
 
+## 0.36.0
+
+### Minor Changes
+
+- f424018: Add the Agent-Native Plans `/ui-plan` exported skill and CLI alias for
+  UI-first, high-fidelity visual planning.
+
+### Patch Changes
+
+- f424018: Move the Context X-Ray composer meter into a compact popover trigger.
+- f424018: Show humanized running tool-call activity and hide argument previews from collapsed tool-call headers.
+- f424018: Stop emitting `X-Frame-Options: DENY` from the global security headers middleware, emit iframe-navigation COEP/CORP headers for cross-origin isolated hosts, and allow trusted app host ancestors for extension iframe documents so agent-native apps can run inside iframe hosts.
+- f424018: Reconcile deferred external state updates after local editing becomes inactive so agent changes can appear live without a refresh.
+- f424018: Keep streamed assistant text visible across transient chat continuations so tool cards no longer jump ahead of earlier text.
+
 ## 0.35.3
 
 ### Patch Changes
