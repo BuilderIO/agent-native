@@ -275,6 +275,7 @@ export function PlansPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentStateRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
+  const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(true);
@@ -381,6 +382,24 @@ export function PlansPage() {
     [annotateMode, planTheme, preferredEditor],
   );
 
+  const clearPendingDocumentRestore = useCallback(() => {
+    if (pendingDocumentRestoreTimerRef.current !== null) {
+      window.clearTimeout(pendingDocumentRestoreTimerRef.current);
+      pendingDocumentRestoreTimerRef.current = null;
+    }
+    pendingDocumentRestoreRef.current = null;
+  }, []);
+
+  const expirePendingDocumentRestore = useCallback(() => {
+    if (pendingDocumentRestoreTimerRef.current !== null) {
+      window.clearTimeout(pendingDocumentRestoreTimerRef.current);
+    }
+    pendingDocumentRestoreTimerRef.current = window.setTimeout(() => {
+      pendingDocumentRestoreRef.current = null;
+      pendingDocumentRestoreTimerRef.current = null;
+    }, 5000);
+  }, []);
+
   const handleIframeLoad = useCallback(() => {
     const restoreScroll = pendingDocumentRestoreRef.current;
     iframeRef.current?.contentWindow?.postMessage(
@@ -394,8 +413,10 @@ export function PlansPage() {
       },
       "*",
     );
-    pendingDocumentRestoreRef.current = null;
-  }, [annotateMode, planTheme, preferredEditor]);
+    clearPendingDocumentRestore();
+  }, [annotateMode, clearPendingDocumentRestore, planTheme, preferredEditor]);
+
+  useEffect(() => clearPendingDocumentRestore, [clearPendingDocumentRestore]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => postRuntimeState());
@@ -605,6 +626,7 @@ export function PlansPage() {
       )
         ? pendingAnnotation.sectionId
         : undefined;
+    clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
     try {
       await updatePlan.mutateAsync({
@@ -621,8 +643,9 @@ export function PlansPage() {
         ],
         note: "Human added inline visual plan feedback.",
       });
+      expirePendingDocumentRestore();
     } catch (error) {
-      pendingDocumentRestoreRef.current = null;
+      clearPendingDocumentRestore();
       throw error;
     }
     clearInlineCommentDraft();
