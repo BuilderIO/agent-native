@@ -947,7 +947,7 @@ function CustomHtmlBlock({
             srcDoc={srcDoc}
             sandbox="allow-same-origin"
             referrerPolicy="no-referrer"
-            className="mt-4 h-[280px] w-full rounded-xl border border-plan-line bg-plan-block"
+            className="mt-4 h-[360px] w-full rounded-xl border border-plan-line bg-plan-block"
           />
           {block.data.caption && (
             <p className="mt-3 text-sm text-plan-muted">{block.data.caption}</p>
