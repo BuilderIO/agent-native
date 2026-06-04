@@ -162,7 +162,7 @@ export function createUiPlanContent(input: {
       ...(componentPlan
         ? {
             x: (includeComponentContext ? 820 : 80) + (index % 3) * 420,
-            y: 96 + Math.floor(index / 3) * 430,
+            y: 96 + Math.floor(index / 3) * 520,
             width: 360,
             height: 360,
           }
@@ -367,11 +367,11 @@ function createCanvasNotes(input: {
               id: "canvas-note-focused-states",
               title: "Then focus the component.",
               body: "Compare compact popover states as widget variants, not as a fake desktop/mobile journey.",
-              x: Math.max(80, (input.stateFrames[0].x ?? 80) - 40),
+              x: input.stateFrames[0].x ?? 80,
               y:
                 (input.stateFrames[0].y ?? 96) +
                 (input.stateFrames[0].height ?? 360) +
-                32,
+                28,
               arrowToFrameId: input.stateFrames[0].id,
             },
           ]
