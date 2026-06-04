@@ -422,10 +422,18 @@ function rewriteRedirectLocation(
   app: TemplateApp,
   location: string | undefined,
 ): string | undefined {
-  if (!location || !location.startsWith("/")) return location;
+  // Leave absolute URLs and protocol-relative URLs (//host/path) untouched.
+  if (!location || !location.startsWith("/") || location.startsWith("//"))
+    return location;
   const prefix = `/${app.id}`;
-  if (location === prefix || location.startsWith(`${prefix}/`)) return location;
-  return location === "/" ? prefix : `${prefix}${location}`;
+  // Strip query/hash before checking the prefix so "/clips?preview=1" and
+  // "/clips#section" are correctly identified as already-prefixed.
+  const suffixStart = location.search(/[?#]/);
+  const pathname = suffixStart === -1 ? location : location.slice(0, suffixStart);
+  const suffix = suffixStart === -1 ? "" : location.slice(suffixStart);
+  if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return location;
+  // Avoid double-slash when the pathname is exactly "/" (e.g. "/?foo=1").
+  return pathname === "/" ? `${prefix}${suffix}` : `${prefix}${location}`;
 }
 
 function firstHeaderValue(
