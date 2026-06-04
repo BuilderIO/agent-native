@@ -1395,6 +1395,7 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
         region.kind === "toolbar" && "plan-region-toolbar",
         region.kind === "content" && "plan-region-content",
         isButton && "plan-region-button",
+        isButton && region.emphasis && "plan-region-button-emphasis",
         region.kind === "input" && "plan-region-input",
         region.emphasis && !isButton && "text-primary",
       )}
