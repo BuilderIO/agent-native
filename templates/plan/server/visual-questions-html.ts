@@ -244,10 +244,6 @@ export function buildVisualQuestionsHtml(
       <h1>${escapeHtml(title)}</h1>
     </header>
 
-    <section class="vq-board" data-plan-section-id="visual-questions-preview" data-plan-visual data-label="Visual question previews">
-      ${renderMiniCanvas()}
-    </section>
-
     <section class="vq-form" data-plan-section-id="visual-questions-form">
       ${questions.map(renderQuestion).join("\n")}
     </section>
@@ -393,18 +389,6 @@ function renderPreview(option: VisualQuestionsOption, index: number): string {
   </span>`;
 }
 
-function renderMiniCanvas(): string {
-  return `<div class="vq-canvas-preview" aria-hidden="true">
-    <div class="vq-mini-frame is-desktop">
-      <i></i><span></span><span></span><span></span>
-    </div>
-    <div class="vq-mini-frame is-phone">
-      <i></i><span></span><span></span>
-    </div>
-    <div class="vq-mini-note">questions -> visual plan</div>
-  </div>`;
-}
-
 const VISUAL_QUESTIONS_CSS = `
 @font-face { font-family: "Virgil"; src: url("/fonts/Virgil-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 :root { color-scheme: light dark; --bg: #faf9f7; --paper: #ffffff; --paper-soft: #f3f2ef; --canvas: #f3f2ef; --ink: #181817; --muted: #6f6e68; --line: #dfded9; --line-strong: #c9c8c2; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --sketch: #20201e; --wire-surface: #ffffff; --wire-soft: #f4f4f5; --wire-mark: #d4d4d8; --shadow: none; }
@@ -417,20 +401,7 @@ button, input, textarea { font: inherit; }
 .vq-cover { max-width: 760px; }
 .vq-kicker, .vq-eyebrow { margin: 0 0 12px; color: var(--muted); font-size: 12px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
 h1 { margin: 0; font-size: clamp(34px, 5vw, 62px); line-height: 1.02; letter-spacing: -.032em; }
-.vq-board { margin-top: 40px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 18px 0 32px; }
-.vq-canvas-preview { min-height: 300px; position: relative; overflow: hidden; border-radius: 8px; background-color: var(--canvas); background-image: linear-gradient(color-mix(in srgb, var(--line) 48%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--line) 48%, transparent) 1px, transparent 1px); background-size: 24px 24px; }
-.vq-mini-frame { position: absolute; border: 1.5px solid var(--sketch); border-radius: 10px; background: var(--wire-surface); filter: url(#visual-questions-roughen); }
-.vq-mini-frame i { position: absolute; left: 12px; right: 12px; top: 12px; height: 12px; border-bottom: 1px solid var(--line-strong); }
-.vq-mini-frame span { display: block; height: 10px; border-radius: 99px; background: var(--wire-mark); opacity: .72; }
-.vq-mini-frame.is-desktop { left: 56px; top: 48px; width: min(44vw, 360px); height: 182px; }
-.vq-mini-frame.is-desktop span { margin: 50px 24px 0 122px; }
-.vq-mini-frame.is-desktop span + span { width: 54%; margin-top: 16px; }
-.vq-mini-frame.is-desktop span + span + span { width: 38%; margin-top: 16px; }
-.vq-mini-frame.is-phone { right: 78px; top: 42px; width: 132px; height: 206px; border-radius: 24px; }
-.vq-mini-frame.is-phone span { margin: 62px 22px 0; }
-.vq-mini-frame.is-phone span + span { width: 58%; margin-top: 18px; }
-.vq-mini-note { position: absolute; right: 244px; bottom: 34px; color: var(--sketch); font-family: Virgil, ui-sans-serif, system-ui; font-size: 23px; transform: rotate(-2deg); }
-.vq-form { display: grid; gap: 54px; margin-top: 68px; }
+.vq-form { display: grid; gap: 54px; margin-top: 54px; }
 .vq-question { display: grid; gap: 20px; }
 .vq-question-heading { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 16px; align-items: start; }
 .vq-question-heading > span { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 99px; background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 800; }
@@ -491,12 +462,7 @@ h1 { margin: 0; font-size: clamp(34px, 5vw, 62px); line-height: 1.02; letter-spa
 .vq-primary { border-color: var(--accent); background: var(--accent); color: white; }
 @media (max-width: 760px) {
   .vq-shell { width: min(100vw - 28px, 1040px); padding-top: 44px; }
-  .vq-board-grid, .vq-summary, .vq-visual-panel { grid-template-columns: 1fr; }
-  .vq-canvas-preview { min-height: 240px; }
-  .vq-mini-frame.is-desktop { left: 22px; top: 40px; width: 58%; height: 148px; }
-  .vq-mini-frame.is-desktop span { margin-left: 92px; }
-  .vq-mini-frame.is-phone { right: 24px; top: 36px; width: 98px; height: 164px; }
-  .vq-mini-note { right: 132px; bottom: 22px; font-size: 18px; }
+  .vq-summary, .vq-visual-panel { grid-template-columns: 1fr; }
   .vq-chip-cloud, .vq-visual-tabs, .vq-textarea { margin-left: 0; padding-left: 0; width: 100%; }
   .vq-question-heading { grid-template-columns: 1fr; }
   .vq-action-bar { align-items: stretch; flex-wrap: wrap; }

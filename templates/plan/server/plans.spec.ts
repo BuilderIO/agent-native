@@ -208,6 +208,8 @@ describe("Plans helpers", () => {
     expect(html).toContain("function parentOrigin()");
     expect(html).not.toContain('}, "*");');
     expect(html).not.toContain("Answer with visuals first.");
+    expect(html).not.toContain("Visual question previews");
+    expect(html).not.toContain("questions -> visual plan");
     expect(html).toContain("create or refine a UI-first visual plan");
     expect(html).not.toContain("/Users/steve/project</p>");
   });
