@@ -867,7 +867,6 @@ function createWireframeData(input: {
           y: 20,
           width: 17,
           height: 8,
-          emphasis: true,
         },
         {
           id: "phone-filter-active",
@@ -984,7 +983,6 @@ function createWireframeData(input: {
         y: 45,
         width: 9,
         height: 7,
-        emphasis: true,
       },
       {
         id: "filter-active",
