@@ -13,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 
 import { LiveTranscript } from "./live-transcript";
+import { PillLogo } from "./pill-logo";
 
 type PillMode = "meeting" | "clip";
 
@@ -122,8 +123,13 @@ export function RecordingPill() {
         setSaving(false);
         setSaveError(false);
         setSavedAt(null);
-        activeMeetingIdRef.current = null;
         pendingNotesRef.current = null;
+        // Only clear the meeting id when leaving meeting mode. In meeting mode
+        // clips:meeting-notes-init is the authoritative setter — resetting here
+        // would race with that event and could wipe a freshly-set id.
+        if (ev.payload?.mode !== "meeting") {
+          activeMeetingIdRef.current = null;
+        }
         if (notesDebounceRef.current) {
           clearTimeout(notesDebounceRef.current);
           notesDebounceRef.current = null;
@@ -139,7 +145,17 @@ export function RecordingPill() {
         "clips:meeting-notes-init",
         (ev) => {
           activeMeetingIdRef.current = ev.payload.meetingId;
-          setNotes(ev.payload.initialNotes ?? "");
+          if (pendingNotesRef.current !== null) {
+            // User typed before the async fetch resolved — keep their edits and
+            // save them now that we have the meeting id. Don't overwrite with
+            // server data.
+            emit("clips:save-meeting-notes", {
+              meetingId: ev.payload.meetingId,
+              notes: pendingNotesRef.current,
+            }).catch(() => {});
+          } else {
+            setNotes(ev.payload.initialNotes ?? "");
+          }
         },
       ),
     );
@@ -448,16 +464,14 @@ export function RecordingPill() {
 
   return (
     <div className="pill-outer">
-      <div className="pill-inner" onMouseDown={handlePillMouseDown}>
+      <div
+        className={`pill-inner${expanded ? "" : " pill-inner-compact"}`}
+        onMouseDown={handlePillMouseDown}
+      >
         <div
           className={`pill-header${detached ? " pill-header-detached" : ""}`}
         >
-          <span
-            className={`pill-dot ${paused ? "pill-dot-paused" : "pill-dot-active"}`}
-          />
-          <span className="pill-timer">
-            {mm}:{ss}
-          </span>
+          <PillLogo className="pill-logo" />
           {hasSystemAudio ? (
             <div
               className="pill-wave-dual"
@@ -482,48 +496,55 @@ export function RecordingPill() {
               aria-hidden
             />
           )}
-          <button
-            type="button"
-            onClick={onPauseClick}
-            data-no-drag
-            className="pill-pause-btn"
-            aria-label={paused ? "Resume" : "Pause"}
-            title={paused ? "Resume" : "Pause"}
-          >
-            {paused ? (
-              <IconPlayerPlayFilled size={14} />
-            ) : (
-              <IconPlayerPauseFilled size={14} />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={onStopClick}
-            disabled={stopping}
-            data-no-drag
-            className="pill-stop-btn"
-            aria-label={stopping ? "Stopping" : stopLabel}
-            title={stopping ? "Stopping..." : stopLabel}
-          >
-            {stopping ? (
-              <IconLoader2 className="pill-spinner" size={14} />
-            ) : (
-              <IconPlayerStopFilled size={14} />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={toggleExpanded}
-            data-no-drag
-            className="pill-expand-btn"
-            aria-label={expanded ? "Collapse" : "Expand"}
-          >
+          <div className="pill-controls">
+            <span className="pill-timer">
+              {mm}:{ss}
+            </span>
             {expanded ? (
-              <IconChevronUp size={16} />
-            ) : (
-              <IconChevronDown size={16} />
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={onPauseClick}
+                data-no-drag
+                className="pill-pause-btn"
+                aria-label={paused ? "Resume" : "Pause"}
+                title={paused ? "Resume" : "Pause"}
+              >
+                {paused ? (
+                  <IconPlayerPlayFilled size={14} />
+                ) : (
+                  <IconPlayerPauseFilled size={14} />
+                )}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onStopClick}
+              disabled={stopping}
+              data-no-drag
+              className="pill-stop-btn"
+              aria-label={stopping ? "Stopping" : stopLabel}
+              title={stopping ? "Stopping..." : stopLabel}
+            >
+              {stopping ? (
+                <IconLoader2 className="pill-spinner" size={14} />
+              ) : (
+                <IconPlayerStopFilled size={14} />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={toggleExpanded}
+              data-no-drag
+              className="pill-expand-btn"
+              aria-label={expanded ? "Collapse" : "Expand"}
+            >
+              {expanded ? (
+                <IconChevronUp size={16} />
+              ) : (
+                <IconChevronDown size={16} />
+              )}
+            </button>
+          </div>
         </div>
 
         {detached ? (

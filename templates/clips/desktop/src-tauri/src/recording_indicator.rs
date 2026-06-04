@@ -49,7 +49,7 @@ static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
 
 /// Granola-fidelity collapsed dimensions (logical px). The expanded form
 /// stretches to fit the live-transcript area.
-const PILL_W_LOGICAL: u32 = 280;
+const PILL_W_LOGICAL: u32 = 220;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
 /// Meeting mode expands wider so the live transcript and the notes editor sit
 /// side by side without either column feeling cramped.
@@ -378,6 +378,7 @@ pub async fn recording_pill_show(
         .shadow(false)
         .visible(false)
         .focused(false)
+        .accept_first_mouse(true)
         .build()
         .map_err(|e| {
             eprintln!("[clips-tray] recording-pill build failed: {}", e);

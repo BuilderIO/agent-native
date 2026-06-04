@@ -3703,8 +3703,8 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   height: 100%;
   width: 100%;
-  align-items: stretch;
-  justify-content: stretch;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .pill-inner {
@@ -3716,11 +3716,38 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 16px;
   background: rgba(24, 24, 27, 0.95);
   color: white;
-  box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* Collapsed (not expanded). Shrinks to dot + waveform; controls revealed via
+   CSS :hover which works at the WebKit level even when the app is unfocused. */
+.pill-inner-compact {
+  width: fit-content;
+  height: fit-content;
+  align-self: center;
+}
+
+.pill-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: max-width 160ms ease, opacity 120ms ease;
+}
+
+/* Reveal on hover (CSS :hover, not React events — works unfocused). */
+.pill-inner:hover .pill-controls,
+/* Always visible when expanded. */
+.pill-inner:not(.pill-inner-compact) .pill-controls {
+  max-width: 160px;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .pill-header {
@@ -3729,7 +3756,13 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   gap: 8px;
   height: 44px;
-  padding: 0 12px;
+  padding: 0 4px 0 12px;
+}
+
+.pill-inner-compact .pill-header {
+  gap: 6px;
+  height: 36px;
+  padding: 0 4px 0 8px;
 }
 
 .pill-header-detached {
@@ -3737,31 +3770,14 @@ body[data-clips-route="recording-pill"] #root {
   padding: 0 8px;
 }
 
-.pill-dot {
-  display: inline-block;
-  height: 8px;
-  width: 8px;
-  border-radius: 50%;
+.pill-logo {
+  height: 14px;
+  width: auto;
   flex-shrink: 0;
 }
 
-.pill-dot-active {
-  background: #ef4444;
-  animation: pill-dot-pulse 1.5s ease-in-out infinite;
-}
-
-.pill-dot-paused {
-  background: #a1a1aa;
-}
-
-@keyframes pill-dot-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+.pill-inner-compact .pill-logo {
+  height: 12px;
 }
 
 .pill-timer {
@@ -3795,7 +3811,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pill-stop-btn {
-  margin-left: 4px;
+  margin-left: 0;
   display: inline-flex;
   height: 28px;
   width: 28px;
@@ -4167,7 +4183,6 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pill-pause-btn {
-  margin-left: auto;
   display: inline-flex;
   height: 28px;
   width: 28px;
