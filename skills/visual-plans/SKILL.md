@@ -32,9 +32,9 @@ Claude Code, Markdown, or pasted plan into a visual companion.
   mockups when UI is involved, tradeoffs, open questions, and clear feedback
   prompts.
 - `/ui-plan`: create a UI-first high-fidelity HTML plan before implementation.
-  Put full-width screen mockups and state tabs first, include comment/drawing
-  prompts and agent handoff notes, then place file/symbol implementation
-  details lower in the document.
+  Use an optional top pan/zoom wireframe or diagram canvas when visuals clarify
+  the flow, then continue as a refined Notion-like document with rich tabs,
+  comments/drawing prompts, code tabs, and agent handoff notes.
 - `/visualize-plan`: import an existing Codex, Claude Code, Markdown, or pasted
   text plan and turn it into a visual companion. Preserve the plan's intent,
   then add diagrams, wireframes, option cards, and annotation prompts.

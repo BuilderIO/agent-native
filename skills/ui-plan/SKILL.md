@@ -1,8 +1,9 @@
 ---
 name: ui-plan
 description: >-
-  Use Agent-Native Plans for UI-first, high-fidelity visual plans with screen
-  mockups, full-width state tabs, comments, drawing, and agent handoff.
+  Use Agent-Native Plans for UI-first planning with an optional top pan/zoom
+  wireframe canvas, a refined Notion-like document, rich tabs, diagrams,
+  comments, drawing, and agent handoff.
 metadata:
   visibility: exported
 ---
@@ -23,14 +24,14 @@ text plan already exists and should become an HTML companion.
 
 1. Call `create-ui-plan` with a UI-specific title, brief, source, repo path,
    and a complete bespoke `html` document whenever possible.
-2. Make the first substantial section the UI mockup surface, not the file map.
-   The user should see screens, states, controls, layout, and copy before they
-   see implementation prose.
-3. Use full-width, high-fidelity state tabs for the primary screen or flow:
-   default, loading, empty, error, selected/active, permission, and responsive
-   variants as relevant.
-4. Add comment prompts, drawing-friendly regions, and agent handoff notes near
-   the mockups so reviewers can mark what should change.
+2. When the plan has meaningful UI flows, screens, or diagrams, make the top
+   of the document a bounded pan/zoom sketch canvas with the key artboards,
+   connectors, margin notes, and commentable visual anchors.
+3. Continue below the canvas as a restrained, Notion-like interactive document:
+   clear prose, horizontal state tabs, inline wireframes, sketchy diagrams,
+   tables, vertical code tabs, and concise implementation notes.
+4. Skip the top canvas when wireframes or diagrams would not clarify the work;
+   in that case, keep the plan as a clean rich document.
 5. Put files, symbols, data/actions, migrations, risks, and validation lower in
    the document after the visual review area.
 6. Call `get-plan-feedback` before implementation, after review, after a long
@@ -69,22 +70,21 @@ Good state tab sets include:
 - `Desktop`, `Tablet`, `Mobile`
 - `Owner`, `Reviewer`, `Signed out`
 
-## UI Flow Board Mode
+## UI Flow Document
 
-Generated `/ui-plan` documents default to a Figma-style board with sketchy UI
-flow wireframes, multiple screens visible together, connectors, annotations,
-margin notes, and code/implementation widgets on the canvas. Pass
-`figmaBoardMode: false` only when the user explicitly wants the older
-full-width state-tab document. You may pass `sketchiness` from `0` to `100`;
-omit it for the default hand-drawn strength.
+Generated `/ui-plan` documents use one default shape: an optional Figma-style
+pan/zoom visual preface followed by a refined Notion-like document. There is no
+mode boolean. Provide `states` and `components` when the top canvas will help
+the reviewer understand the flow; omit them when the plan should be
+document-only. You may pass `sketchiness` from `0` to `100`; omit it for the
+default hand-drawn strength.
 
-Board mode should still include the same information as a normal `/ui-plan`:
+The document below the canvas should still include the same planning substance:
 screen states, component notes, implementation map, review prompts, comments,
 drawing-friendly space, and agent handoff. Treat it like a designer handed over
-a Figma file: the reviewer should understand the UI flow from a bird's-eye view,
-with notes and annotations explaining how the screens work together. Mark
-important artboards as visual review targets through the generated HTML so
-comments can anchor to frames.
+a Figma file plus a crisp product spec: the reviewer should understand the UI
+flow from a bird's-eye view, then keep scrolling into a clean interactive
+document with notes explaining how the screens work together.
 
 ## Comments, Drawing, And Handoff
 
@@ -100,7 +100,8 @@ comments can anchor to frames.
 
 ## Implementation Details Lower Down
 
-After the visual review surface, include a concise implementation section:
+After the visual canvas and document review blocks, include a concise
+implementation section:
 
 - file paths and symbols/components to touch;
 - data/actions/hooks/routes needed for the UI;

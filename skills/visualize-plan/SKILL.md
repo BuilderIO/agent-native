@@ -24,5 +24,6 @@ Ask the user to comment in the plan, then call `get-plan-feedback` before
 implementation.
 
 If the source is UI-heavy and the user wants a fresh plan instead of a companion,
-use `/ui-plan` so full-width state mockups, comments/drawing affordances, and
-agent handoff come before file implementation details.
+use `/ui-plan` so an optional top pan/zoom wireframe canvas, rich document
+blocks, comments/drawing affordances, and agent handoff come before file
+implementation details.

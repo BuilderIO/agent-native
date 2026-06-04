@@ -18,10 +18,7 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import {
-  FIGMA_BOARD_UI_PLAN_DEFAULT,
-  buildUiPlanHtml,
-} from "../server/ui-plan-html.js";
+import { buildUiPlanHtml } from "../server/ui-plan-html.js";
 
 const uiPlanStateSchema = z.object({
   name: z.string().min(1).describe("State or screen name"),
@@ -41,7 +38,7 @@ const uiPlanComponentSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs high-fidelity mockups, screen/state tabs, drawing/comment feedback, and implementation details below the visual review.",
+    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined Notion-like document with tabs, diagrams, code tabs, comments, and agent handoff.",
   schema: z
     .object({
       title: z.string().optional().describe("Short UI plan title"),
@@ -58,7 +55,7 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Optional full bespoke HTML document. If omitted, Plans generates a UI-first HTML document with full-width state mockups.",
+          "Optional full bespoke HTML document. If omitted, Plans generates a UI-first hybrid document with an optional top visual canvas.",
         ),
       markdown: z
         .string()
@@ -69,21 +66,14 @@ export default defineAction({
         .optional()
         .default([])
         .describe(
-          "Screens or states to show as full-width mockup tabs, such as Default, Empty, Loading, Error, Mobile, or Agent handoff.",
+          "Screens or states to show in the optional top pan/zoom canvas and in document tabs, such as Default, Empty, Loading, Error, Mobile, or Agent handoff. Omit when visual states would not help.",
         ),
       components: z
         .array(uiPlanComponentSchema)
         .optional()
         .default([])
         .describe(
-          "Focused UI parts to show as two-column component-detail tabs.",
-        ),
-      figmaBoardMode: z
-        .boolean()
-        .optional()
-        .default(FIGMA_BOARD_UI_PLAN_DEFAULT)
-        .describe(
-          "Generate a Figma-style pan/zoom board with sketchy UI flow artboards. Defaults on; pass false for the older standard UI plan document.",
+          "Focused UI parts to show in rich component tabs and optional canvas notes.",
         ),
       sketchiness: z
         .number()
@@ -91,7 +81,7 @@ export default defineAction({
         .max(100)
         .optional()
         .describe(
-          "Sketchiness for figmaBoardMode, from 0 for crisp to 100 for very hand-drawn.",
+          "Sketchiness for generated wireframes and diagrams, from 0 for crisp to 100 for very hand-drawn.",
         ),
       implementationNotes: z
         .string()
@@ -150,7 +140,6 @@ export default defineAction({
         repoPath: args.repoPath,
         states: args.states,
         components: args.components,
-        figmaBoardMode: args.figmaBoardMode,
         sketchiness: args.sketchiness,
         implementationNotes: args.implementationNotes,
       });
@@ -167,8 +156,8 @@ export default defineAction({
             },
             {
               type: "mockup" as const,
-              title: "Full-width UI states",
-              body: "The generated HTML opens with tabbed full-width mockups for the important UI states.",
+              title: "UI flow and rich document",
+              body: "The generated HTML uses a top pan/zoom visual canvas when states or diagrams are useful, then continues as a refined interactive document.",
               order: 1,
               createdBy: "agent" as const,
             },
@@ -247,7 +236,7 @@ export default defineAction({
       payload: {
         states: args.states.map((state) => state.name),
         components: args.components.map((component) => component.name),
-        figmaBoardMode: args.figmaBoardMode,
+        topCanvas: args.states.length > 0 || args.components.length > 0,
       },
       createdBy: "agent",
     });
@@ -259,9 +248,8 @@ export default defineAction({
       html: buildPlanHtml(bundle),
       path: planPath(id),
       url: planPath(id),
-      fallbackInstructions: args.figmaBoardMode
-        ? "Open the Agent-Native UI plan, review the sketchy artboards on the pan/zoom board, use tweaks if useful, add comments or drawings directly on frames, then I will call get-plan-feedback before implementing."
-        : "Open the Agent-Native UI plan, review the full-width mockup states first, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing.",
+      fallbackInstructions:
+        "Open the Agent-Native UI plan, review the top pan/zoom wireframe canvas when present, continue through the Notion-like document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing.",
     };
   },
   link: ({ result }) => {

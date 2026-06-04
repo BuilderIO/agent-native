@@ -40,10 +40,10 @@ Command behavior:
 - `/visual-plan` creates a new rich HTML plan with docs-level detail, diagrams,
   detailed wireframes/mockups when UI is involved, tradeoffs, open questions,
   file/symbol implementation details, code previews, and feedback prompts.
-- `/ui-plan` creates a UI-first high-fidelity HTML plan. It defaults to
-  `figmaBoardMode: true`: sketchy UI flow wireframes on a pan/zoom board, with
-  notes, annotations, and code/implementation widgets on the canvas. Pass
-  `figmaBoardMode: false` for the older state-tab document style.
+- `/ui-plan` creates a UI-first HTML plan with an optional top pan/zoom
+  wireframe or diagram canvas, then a refined Notion-like document with rich
+  tabs, tables, sketchy diagrams, code tabs, comments, and handoff notes. When
+  visual states are not useful, it stays document-only.
 - `/visualize-plan` imports an existing text plan, preserves its intent, and
   adds visual structure so the user can annotate and react before implementation.
 

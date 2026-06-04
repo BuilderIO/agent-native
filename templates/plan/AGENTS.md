@@ -33,11 +33,10 @@ and comments that a person can review before code changes happen.
 ## Skills
 
 Use `.agents/skills/visual-plans/SKILL.md` for Agent-Native Plans behavior. Use
-`.agents/skills/ui-plan/SKILL.md` for UI-first visual plans where sketchy UI
-flow wireframes on a pan/zoom board, comments/drawing space, margin notes, code
-widgets, and agent handoff come before file implementation details.
-`create-ui-plan` defaults to that board style; pass `figmaBoardMode: false`
-only when the older full-width state-tab document is needed. Use
+`.agents/skills/ui-plan/SKILL.md` for UI-first visual plans where an optional
+top pan/zoom wireframe or diagram canvas comes before a refined Notion-like
+document with rich tabs, tables, sketchy diagrams, code tabs, comments/drawing
+space, and agent handoff. Use
 `.agents/skills/visualize-plan/SKILL.md` when the agent already has a Codex,
 Claude Code, Markdown, or pasted text plan and should create a visual companion.
 The exported install flow is simple:

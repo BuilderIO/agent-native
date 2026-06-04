@@ -35,7 +35,7 @@
       "id": "ui-plan",
       "action": "create-ui-plan",
       "path": "/plans",
-      "description": "Create a UI-first, high-fidelity Agent-Native plan with full-width screen/state mockups before implementation details."
+      "description": "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below."
     },
     {
       "id": "visualize-plan",

@@ -36,8 +36,9 @@ should still read like a plan, not a marketing page.
    review surface.
 
 If there is no existing plan text and the work is UI-heavy, use `/ui-plan`
-instead so full-width state mockups, comments/drawing affordances, and agent
-handoff come before file implementation details.
+instead so an optional top pan/zoom wireframe canvas, rich document blocks,
+comments/drawing affordances, and agent handoff come before file implementation
+details.
 
 ## Visual Defaults
 

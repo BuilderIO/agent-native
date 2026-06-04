@@ -49,7 +49,6 @@ export type CreatePlanInput = {
 export type CreateUiPlanInput = CreatePlanInput & {
   states?: Array<{ name: string; description: string }>;
   components?: Array<{ name: string; description: string }>;
-  figmaBoardMode?: boolean;
   sketchiness?: number;
   implementationNotes?: string;
 };

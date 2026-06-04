@@ -8,7 +8,6 @@ type UiPlanComponent = {
   description: string;
 };
 
-export const FIGMA_BOARD_UI_PLAN_DEFAULT = false;
 const DEFAULT_BOARD_SKETCHINESS = 38;
 
 export type BuildUiPlanHtmlInput = {
@@ -19,7 +18,6 @@ export type BuildUiPlanHtmlInput = {
   states?: UiPlanState[];
   components?: UiPlanComponent[];
   implementationNotes?: string;
-  figmaBoardMode?: boolean;
   sketchiness?: number;
 };
 
@@ -75,197 +73,30 @@ const DEFAULT_COMPONENTS: UiPlanComponent[] = [
 ];
 
 export function buildUiPlanHtml(input: BuildUiPlanHtmlInput): string {
-  if (input.figmaBoardMode ?? FIGMA_BOARD_UI_PLAN_DEFAULT) {
-    return buildFigmaBoardUiPlanHtml(input);
-  }
-
   const title = escapeHtml(input.title || "UI Plan");
   const brief = escapeHtml(
     input.brief || "Review the UI direction before code.",
   );
   const source = escapeHtml(input.source || "agent");
   const repoPath = input.repoPath ? escapeHtml(input.repoPath) : "";
-  const states = normalizeStates(input.states);
-  const components = normalizeComponents(input.components);
+  const states = cleanStates(input.states);
+  const components = cleanComponents(input.components);
+  const hasTopCanvas = states.length > 0 || components.length > 0;
   const implementationNotes = escapeHtml(
     input.implementationNotes ||
-      "Add file-level implementation details after the UI direction is approved. Keep snippets short and show only the shape the agent expects to modify.",
+      "Keep code detail close to the design decisions: files, state ownership, actions, accessibility checks, and the smallest snippets needed to make the implementation shape obvious.",
   );
+  const sketchiness = clampSketchiness(input.sketchiness);
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-plan-theme="notion-document" style="--board-zoom:.68; --sketch:${(sketchiness / 100).toFixed(2)}; --accent:#2f6fed; --accent-soft:rgba(47,111,237,.1);">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${title}</title>
   <style>${UI_PLAN_CSS}</style>
 </head>
-<body>
-  <main class="ui-plan">
-    <section class="intro">
-      <p class="kicker">UI plan for review</p>
-      <h1>${title}</h1>
-      <p class="lede">${brief}</p>
-      <ul class="plain-bullets">
-        <li>UI mockups first, plan prose second.</li>
-        <li>Full-width states are available as tabs.</li>
-        <li>Comments, drawings, and decisions are structured for the agent.</li>
-        <li>Implementation details stay available below the visual review.</li>
-      </ul>
-      <p class="source-note">Source: ${source}${repoPath ? ` / ${repoPath}` : ""}</p>
-    </section>
-
-    <section class="plan-section mockup-section" data-plan-section-id="ui-full-width-mockups">
-      <div class="section-heading">
-        <div>
-          <p class="kicker">Full-width mockups</p>
-          <h2>Start with the UI states the user needs to react to.</h2>
-        </div>
-        <p>These mockups are intentionally close to product fidelity: soft Agent-Native surfaces, real controls, tabbed states, and enough detail for critique.</p>
-      </div>
-
-      <div class="visual-tabs fullscreen-tabs" data-plan-tabs>
-        <div class="tab-list" role="tablist" aria-label="UI plan states">
-          ${states
-            .map(
-              (state, index) =>
-                `<button type="button" class="tab-button${index === 0 ? " is-active" : ""}" data-tab-target="${tabId(state.name, index)}">${escapeHtml(state.name)}</button>`,
-            )
-            .join("")}
-        </div>
-        ${states
-          .map((state, index) =>
-            renderStatePanel(state, index, tabId(state.name, index)),
-          )
-          .join("")}
-      </div>
-    </section>
-
-    <section class="plan-section" data-plan-section-id="ui-state-checklist">
-      <div class="section-heading">
-        <div>
-          <p class="kicker">State checklist</p>
-          <h2>Cover the paths that usually get missed in text plans.</h2>
-        </div>
-        <p>Agents should generate concrete state views for each UI path instead of relying on abstract bullets.</p>
-      </div>
-      <div class="state-grid">
-        ${states
-          .map(
-            (state) => `<article class="state-card">
-              <span></span>
-              <h3>${escapeHtml(state.name)}</h3>
-              <p>${escapeHtml(state.description)}</p>
-            </article>`,
-          )
-          .join("")}
-      </div>
-    </section>
-
-    <section class="plan-section" data-plan-section-id="ui-component-details">
-      <div class="section-heading">
-        <div>
-          <p class="kicker">Interaction details</p>
-          <h2>Small pieces use focused two-column mockups.</h2>
-        </div>
-        <p>For component-level feedback, keep a detailed mockup on the left and concise intent, constraints, and implementation notes on the right.</p>
-      </div>
-      <div class="visual-tabs component-tabs" data-plan-tabs>
-        <div class="tab-list" role="tablist" aria-label="UI component details">
-          ${components
-            .map(
-              (component, index) =>
-                `<button type="button" class="tab-button${index === 0 ? " is-active" : ""}" data-tab-target="${tabId(component.name, index)}">${escapeHtml(component.name)}</button>`,
-            )
-            .join("")}
-        </div>
-        ${components
-          .map((component, index) =>
-            renderComponentPanel(
-              component,
-              index,
-              tabId(component.name, index),
-            ),
-          )
-          .join("")}
-      </div>
-    </section>
-
-    <section class="plan-section" data-plan-section-id="ui-implementation-map">
-      <div class="section-heading">
-        <div>
-          <p class="kicker">Implementation map</p>
-          <h2>Code detail stays present, but below the UI decision.</h2>
-        </div>
-        <p>${implementationNotes}</p>
-      </div>
-      <div class="file-map-preview" data-plan-tabs>
-        <div class="file-list" role="tablist" aria-label="Implementation files">
-          <button class="file-tab is-active" type="button" data-tab-target="ui-file-plans-page"><strong>PlansPage.tsx</strong><span>UI shell, annotation runtime, toolbar states</span></button>
-          <button class="file-tab" type="button" data-tab-target="ui-file-create-action"><strong>create-ui-plan.ts</strong><span>Agent action and MCP surface</span></button>
-          <button class="file-tab" type="button" data-tab-target="ui-file-skill"><strong>ui-plan/SKILL.md</strong><span>Slash command behavior and generation rules</span></button>
-        </div>
-        <div class="file-panels">
-          <article class="file-detail tab-panel is-active" data-tab-panel="ui-file-plans-page">
-            <h3>PlansPage.tsx</h3>
-            <p>Owns the immersive reader, annotation runtime, floating toolbar state, tab-aware comment anchors, and agent-sidebar handoff.</p>
-            <pre><code><span class="syntax-keyword">type</span> UiPlanAnchor = {
-  stateId: <span class="syntax-string">"review"</span> | <span class="syntax-string">"comment"</span> | <span class="syntax-string">"draw"</span>;
-  nearbyText?: string;
-  nodePath?: string;
-  point?: { x: number; y: number };
-};</code></pre>
-          </article>
-          <article class="file-detail tab-panel" data-tab-panel="ui-file-create-action">
-            <h3>create-ui-plan.ts</h3>
-            <p>Accepts a UI brief, target surface, states, component details, and implementation notes, then creates a reviewable HTML plan bundle.</p>
-            <pre><code><span class="syntax-keyword">return</span> createPlan({
-  title,
-  sections: [<span class="syntax-string">"mockups"</span>, <span class="syntax-string">"states"</span>, <span class="syntax-string">"implementation"</span>],
-  html: buildUiPlanHtml(input),
-});</code></pre>
-          </article>
-          <article class="file-detail tab-panel" data-tab-panel="ui-file-skill">
-            <h3>ui-plan/SKILL.md</h3>
-            <p>Teaches Claude Code, Codex, and other MCP hosts to make UI-first plans: more mockups, fewer paragraphs, and comments before code.</p>
-            <pre><code>/ui-plan
-- lead with full-width UI states
-- include component-level variants
-- keep implementation details below the design decision</code></pre>
-          </article>
-        </div>
-      </div>
-    </section>
-  </main>
-</body>
-</html>`;
-}
-
-function buildFigmaBoardUiPlanHtml(input: BuildUiPlanHtmlInput): string {
-  const title = escapeHtml(input.title || "UI Plan");
-  const brief = escapeHtml(
-    input.brief || "Review the UI direction before code.",
-  );
-  const source = escapeHtml(input.source || "agent");
-  const repoPath = input.repoPath ? escapeHtml(input.repoPath) : "";
-  const states = normalizeStates(input.states);
-  const components = normalizeComponents(input.components);
-  const implementationNotes = escapeHtml(
-    input.implementationNotes ||
-      "Keep implementation detail under the board so the first pass stays visual. Use the file cards to capture what changes after the user approves the direction.",
-  );
-  const sketchiness = clampSketchiness(input.sketchiness);
-  const board = buildBoardLayout(states, components);
-
-  return `<!doctype html>
-<html lang="en" data-board-density="regular" style="--board-zoom:.72; --sketch:${(sketchiness / 100).toFixed(2)}; --accent:#3f6fd9; --accent-soft:rgba(63,111,217,.13);">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${title}</title>
-  <style>${FIGMA_BOARD_UI_PLAN_CSS}</style>
-</head>
-<body data-ui-plan-mode="figma-board">
+<body data-ui-plan-mode="hybrid-document"${hasTopCanvas ? ' data-has-top-canvas="true"' : ""}>
   <svg class="rough-defs" aria-hidden="true" focusable="false">
     <filter id="ui-plan-roughen">
       <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="8" result="noise" />
@@ -273,82 +104,311 @@ function buildFigmaBoardUiPlanHtml(input: BuildUiPlanHtmlInput): string {
     </filter>
   </svg>
 
-  <header class="board-topbar">
-    <div class="board-file">
-      <span class="file-dot"></span>
-      <strong>${title}</strong>
-      <span>${source}${repoPath ? ` / ${repoPath}` : ""}</span>
-    </div>
-    <div class="board-controls" aria-label="Board controls">
-      <button type="button" data-zoom-out aria-label="Zoom out">-</button>
-      <button type="button" data-zoom-reset><span data-zoom-label>72%</span></button>
-      <button type="button" data-zoom-in aria-label="Zoom in">+</button>
-    </div>
-  </header>
+  ${hasTopCanvas ? renderTopVisualCanvas({ title, brief, source, repoPath, states, components, sketchiness }) : ""}
 
-  <main class="figma-board" data-plan-section-id="figma-style-board" aria-label="${title} Figma-style UI plan board">
-    <div class="board-world" data-board-world style="width:calc(${board.width}px * var(--board-zoom));height:calc(${board.height}px * var(--board-zoom));">
+  <main class="notion-plan">
+    <header class="doc-cover" data-plan-section-id="ui-plan-brief">
+      <p class="doc-kicker">UI plan</p>
+      <h1>${title}</h1>
+      <p class="doc-lede">${brief}</p>
+      <div class="doc-meta">
+        <span>${source}</span>
+        ${repoPath ? `<span>${repoPath}</span>` : ""}
+        <span>${hasTopCanvas ? "Wireframes + document" : "Document only"}</span>
+      </div>
+    </header>
+
+    <section class="doc-block" data-plan-section-id="ui-plan-focus">
+      <h2>What Matters Most</h2>
+      <p>The plan should be read like an interactive product spec: scan the flow first, then use the rich document blocks below to inspect states, edge cases, implementation seams, and feedback prompts.</p>
+      ${
+        states.length > 0
+          ? `<ol class="doc-list">${states
+              .slice(0, 5)
+              .map(
+                (state) =>
+                  `<li><strong>${escapeHtml(state.name)}</strong><span>${escapeHtml(state.description)}</span></li>`,
+              )
+              .join("")}</ol>`
+          : `<p class="doc-note">No dedicated top wireframes were supplied, so this plan stays in document mode and keeps the review surface lightweight.</p>`
+      }
+    </section>
+
+    ${states.length > 0 ? renderDocumentStateTabs(states) : ""}
+    ${states.length > 1 ? renderDocumentFlowDiagram(states) : ""}
+    ${components.length > 0 ? renderDocumentComponentTabs(components) : ""}
+    ${renderDocumentImplementationFrame(implementationNotes)}
+    ${renderDocumentReviewBlock(states, components)}
+  </main>
+
+  <script>${UI_PLAN_JS}</script>
+</body>
+</html>`;
+}
+
+function renderTopVisualCanvas(input: {
+  title: string;
+  brief: string;
+  source: string;
+  repoPath: string;
+  states: UiPlanState[];
+  components: UiPlanComponent[];
+  sketchiness: number;
+}) {
+  const board = buildTopCanvasLayout(input.states, input.components);
+  return `<section class="top-canvas-section" data-plan-section-id="ui-flow-canvas" data-plan-visual data-label="UI flow canvas">
+    <div class="canvas-toolbar">
+      <div>
+        <p class="doc-kicker">Wireframe canvas</p>
+        <strong>${input.title}</strong>
+      </div>
+      <div class="canvas-controls" aria-label="Canvas controls">
+        <button type="button" data-zoom-out aria-label="Zoom out">-</button>
+        <button type="button" data-zoom-reset><span data-zoom-label>68%</span></button>
+        <button type="button" data-zoom-in aria-label="Zoom in">+</button>
+      </div>
+    </div>
+    <div class="canvas-viewport" data-board-viewport aria-label="${input.title} pan and zoom wireframe canvas">
       <div class="board-canvas" data-board-canvas style="width:${board.width}px;height:${board.height}px;">
-        <section class="board-note intro-note" style="${frameStyle(80, 82, 520, 260)}" data-plan-visual data-label="Plan brief">
-          <p class="eyebrow">UI plan board</p>
-          <h1>${title}</h1>
-          <p>${brief}</p>
+        <section class="board-note intro-note" style="${frameStyle(72, 72, 510, 246)}" data-plan-visual data-label="Plan brief">
+          <p class="eyebrow">Flow brief</p>
+          <h2>${input.title}</h2>
+          <p>${input.brief}</p>
           <div class="note-meta">
-            <span>${source}</span>
-            ${repoPath ? `<span>${repoPath}</span>` : ""}
+            <span>${input.source}</span>
+            ${input.repoPath ? `<span>${input.repoPath}</span>` : ""}
           </div>
         </section>
 
-        <div class="board-group-label" style="${frameStyle(80, 346, 520, 42)}">A - UI flow wireframes</div>
-        ${renderBoardFlowConnectors(states)}
-        ${states.map((state, index) => renderBoardStateFrame(state, index)).join("")}
+        ${
+          input.states.length > 0
+            ? `<div class="board-group-label" style="${frameStyle(72, 350, 520, 42)}">A - UI flow wireframes</div>
+              ${renderBoardFlowConnectors(input.states)}
+              ${input.states.map((state, index) => renderBoardStateFrame(state, index)).join("")}`
+            : ""
+        }
 
-        <div class="board-group-label" style="${frameStyle(80, board.componentY - 58, 430, 42)}">B - Interaction notes</div>
-        ${components.map((component, index) => renderBoardComponentFrame(component, index, board)).join("")}
+        ${
+          input.components.length > 0
+            ? `<div class="board-group-label" style="${frameStyle(72, board.componentY - 58, 430, 42)}">B - Interaction notes</div>
+              ${input.components.map((component, index) => renderBoardComponentFrame(component, index, board)).join("")}`
+            : ""
+        }
 
-        <div class="board-group-label" style="${frameStyle(80, board.implementationY - 58, 460, 42)}">C - Build handoff</div>
-        ${renderBoardImplementationFrame(implementationNotes, board)}
-        ${renderBoardHandoffFrame(board)}
+        ${renderTopCanvasHelperNotes(board, input.sketchiness)}
       </div>
     </div>
-  </main>
+  </section>`;
+}
 
-  <aside class="tweaks-panel" aria-label="Board tweaks">
-    <div class="tweaks-head">
-      <strong>Tweaks</strong>
-      <button type="button" data-close-tweaks aria-label="Hide tweaks">x</button>
-    </div>
-    <div class="tweak-group">
-      <p>Layout</p>
-      <div class="segmented">
-        <button type="button" data-density-option="compact">compact</button>
-        <button type="button" class="is-active" data-density-option="regular">regular</button>
-        <button type="button" data-density-option="roomy">roomy</button>
-      </div>
-    </div>
-    <div class="tweak-group">
-      <p>Sketch</p>
-      <label class="range-row">
-        <span>Sketchiness</span>
-        <span data-sketch-label>${sketchiness}%</span>
-      </label>
-      <input type="range" min="0" max="100" value="${sketchiness}" data-sketchiness />
-    </div>
-    <div class="tweak-group">
-      <p>Accent</p>
-      <div class="swatches">
-        <button type="button" class="is-active" data-accent="#3f6fd9" style="--swatch:#3f6fd9" aria-label="Blue accent"></button>
-        <button type="button" data-accent="#cf5432" style="--swatch:#cf5432" aria-label="Red accent"></button>
-        <button type="button" data-accent="#4d9f68" style="--swatch:#4d9f68" aria-label="Green accent"></button>
-        <button type="button" data-accent="#8359d8" style="--swatch:#8359d8" aria-label="Purple accent"></button>
-        <button type="button" data-accent="#5f5b54" style="--swatch:#5f5b54" aria-label="Graphite accent"></button>
-      </div>
-    </div>
+function buildTopCanvasLayout(
+  states: UiPlanState[],
+  components: UiPlanComponent[],
+) {
+  const secondaryCount = Math.max(0, states.length - 1);
+  const stateRows = Math.max(1, Math.ceil(secondaryCount / 4));
+  const componentRows =
+    components.length > 0 ? Math.ceil(components.length / 4) : 0;
+  const componentY = states.length > 0 ? 1040 + (stateRows - 1) * 610 : 390;
+  return {
+    width: 2500,
+    height: componentY + Math.max(1, componentRows) * 330 + 230,
+    componentY,
+    implementationY: componentY + Math.max(1, componentRows) * 330 + 92,
+  };
+}
+
+function renderTopCanvasHelperNotes(
+  board: ReturnType<typeof buildTopCanvasLayout>,
+  sketchiness: number,
+) {
+  return `<aside class="canvas-helper-note" style="${frameStyle(1780, 86, 390, 220)}">
+    <strong>Read this like a Figma handoff.</strong>
+    <ul>
+      <li>Pan and zoom to compare frames.</li>
+      <li>Use comments on any labeled artboard.</li>
+      <li>Scroll below for the document spec.</li>
+    </ul>
+    <span>Sketchiness ${sketchiness}%</span>
   </aside>
+  <aside class="canvas-helper-note muted" style="${frameStyle(1720, board.height - 320, 420, 210)}">
+    <strong>Document continues below</strong>
+    <p>The canvas is only the visual preface. State tabs, diagrams, code tabs, and implementation notes live in the refined document section.</p>
+  </aside>`;
+}
 
-  <script>${FIGMA_BOARD_UI_PLAN_JS}</script>
-</body>
-</html>`;
+function renderDocumentStateTabs(states: UiPlanState[]) {
+  return `<section class="doc-block" data-plan-section-id="ui-state-tabs">
+    <h2>Screen States</h2>
+    <p>Use these tabs to review each state without turning the plan into a long wall of repeated mockups.</p>
+    <div class="visual-tabs doc-state-tabs" data-plan-tabs>
+      <div class="tab-list" role="tablist" aria-label="UI state tabs">
+        ${states
+          .map((state, index) => {
+            const id = docTabId("state", state.name, index);
+            return `<button type="button" class="tab-button${index === 0 ? " is-active" : ""}" data-tab-target="${id}">${escapeHtml(state.name)}</button>`;
+          })
+          .join("")}
+      </div>
+      ${states
+        .map((state, index) => {
+          const id = docTabId("state", state.name, index);
+          return `<article class="tab-panel${index === 0 ? " is-active" : ""}" data-tab-panel="${id}">
+            <div class="state-spec">
+              ${renderInlineWireframe(state, index)}
+              <div class="state-notes">
+                <p class="doc-kicker">State</p>
+                <h3>${escapeHtml(state.name)}</h3>
+                <p>${escapeHtml(state.description)}</p>
+                <details open>
+                  <summary>Review checklist</summary>
+                  <ul>
+                    <li>Primary action and empty/error copy are visible.</li>
+                    <li>Comment anchors can attach to the important UI region.</li>
+                    <li>Mobile behavior is either shown or explicitly called out.</li>
+                  </ul>
+                </details>
+              </div>
+            </div>
+          </article>`;
+        })
+        .join("")}
+    </div>
+  </section>`;
+}
+
+function renderInlineWireframe(state: UiPlanState, index: number) {
+  const isMobile = state.name.toLowerCase().includes("mobile");
+  return `<div class="inline-wireframe ${isMobile ? "is-mobile" : ""}" data-plan-visual data-label="${escapeHtml(state.name)} inline wireframe">
+    <div class="wireframe-top"><span></span><span></span><span></span><strong>${escapeHtml(state.name)}</strong></div>
+    <div class="wireframe-body">
+      <aside><i class="active"></i><i></i><i></i><i></i></aside>
+      <main>
+        <b></b>
+        <p></p>
+        <p class="short"></p>
+        <div class="wireframe-grid">
+          ${[0, 1, 2, 3].map((item) => `<span class="${(item + index) % 3 === 0 ? "accent" : ""}"></span>`).join("")}
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
+function renderDocumentFlowDiagram(states: UiPlanState[]) {
+  return `<section class="doc-block" data-plan-section-id="ui-flow-diagram">
+    <h2>Flow Diagram</h2>
+    <p>A lightweight sketch diagram keeps the sequence visible after the top canvas has scrolled away.</p>
+    <div class="sketch-flow-diagram" data-plan-visual data-label="UI flow diagram">
+      ${states
+        .slice(0, 5)
+        .map(
+          (state, index) => `<div class="diagram-step">
+            <div class="diagram-node"><span>${index + 1}</span><strong>${escapeHtml(state.name)}</strong></div>
+            ${index < Math.min(states.length, 5) - 1 ? '<div class="diagram-arrow">-></div>' : ""}
+          </div>`,
+        )
+        .join("")}
+    </div>
+  </section>`;
+}
+
+function renderDocumentComponentTabs(components: UiPlanComponent[]) {
+  return `<section class="doc-block" data-plan-section-id="ui-component-tabs">
+    <h2>Interaction Details</h2>
+    <p>Component notes stay close to a small sketch and focused constraints instead of becoming separate mini specs.</p>
+    <div class="visual-tabs doc-component-tabs" data-plan-tabs>
+      <div class="tab-list" role="tablist" aria-label="Component detail tabs">
+        ${components
+          .map((component, index) => {
+            const id = docTabId("component", component.name, index);
+            return `<button type="button" class="tab-button${index === 0 ? " is-active" : ""}" data-tab-target="${id}">${escapeHtml(component.name)}</button>`;
+          })
+          .join("")}
+      </div>
+      ${components
+        .map((component, index) => {
+          const id = docTabId("component", component.name, index);
+          return `<article class="tab-panel${index === 0 ? " is-active" : ""}" data-tab-panel="${id}">
+            <div class="component-spec">
+              <div class="component-copy">
+                <p class="doc-kicker">Component</p>
+                <h3>${escapeHtml(component.name)}</h3>
+                <p>${escapeHtml(component.description)}</p>
+              </div>
+              <div class="component-mini-spec" data-plan-visual data-label="${escapeHtml(component.name)} component sketch">
+                <span></span><span></span><button type="button">Action</button><i></i><i></i>
+              </div>
+            </div>
+          </article>`;
+        })
+        .join("")}
+    </div>
+  </section>`;
+}
+
+function renderDocumentImplementationFrame(implementationNotes: string) {
+  return `<section class="doc-block" data-plan-section-id="ui-implementation-map">
+    <h2>Implementation Map</h2>
+    <p>${implementationNotes}</p>
+    <div class="file-map-preview" data-plan-tabs>
+      <div class="file-list" role="tablist" aria-label="Implementation tabs">
+        <button class="file-tab is-active" type="button" data-tab-target="ui-file-plan-page"><strong>PlansPage.tsx</strong><span>Reader chrome, runtime, comments</span></button>
+        <button class="file-tab" type="button" data-tab-target="ui-file-create-action"><strong>create-ui-plan.ts</strong><span>Action contract and payload</span></button>
+        <button class="file-tab" type="button" data-tab-target="ui-file-skill"><strong>ui-plan/SKILL.md</strong><span>Generation rules for agents</span></button>
+      </div>
+      <div class="file-panels">
+        <article class="file-detail tab-panel is-active" data-tab-panel="ui-file-plan-page">
+          <h3>Document review surface</h3>
+          <p>Keep the reader quiet: comment/drawing tools float outside the document, while rich tabs and diagrams stay inside the HTML plan.</p>
+          <pre><code><span class="syntax-keyword">const</span> planShape = {
+  topCanvas: <span class="syntax-string">"when states or components exist"</span>,
+  document: <span class="syntax-string">"notion-like rich spec"</span>,
+};</code></pre>
+        </article>
+        <article class="file-detail tab-panel" data-tab-panel="ui-file-create-action">
+          <h3>Create UI plan action</h3>
+          <p>The action no longer needs a board boolean. Visual data creates the top canvas automatically; otherwise the generated plan remains document-only.</p>
+          <pre><code><span class="syntax-keyword">buildUiPlanHtml</span>({
+  title,
+  brief,
+  states,
+  components,
+  sketchiness,
+});</code></pre>
+        </article>
+        <article class="file-detail tab-panel" data-tab-panel="ui-file-skill">
+          <h3>/ui-plan skill</h3>
+          <p>Agents should generate UI flow states when a visual review is useful, then use the document blocks for decisions, diagrams, tables, risks, and code handoff.</p>
+          <pre><code>/ui-plan
+- top canvas for key flows
+- notion-style document below
+- skip canvas when visuals add no value</code></pre>
+        </article>
+      </div>
+    </div>
+  </section>`;
+}
+
+function renderDocumentReviewBlock(
+  states: UiPlanState[],
+  components: UiPlanComponent[],
+) {
+  return `<section class="doc-block" data-plan-section-id="ui-review-prompts">
+    <h2>Review Prompts</h2>
+    <table class="doc-table">
+      <thead><tr><th>Area</th><th>Ask</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><td>Flow</td><td>Does the sequence make sense at a bird's-eye view?</td><td>${states.length || "No"} state${states.length === 1 ? "" : "s"}</td></tr>
+        <tr><td>Interaction</td><td>Are the important controls close to the thing they affect?</td><td>${components.length || "No"} component note${components.length === 1 ? "" : "s"}</td></tr>
+        <tr><td>Handoff</td><td>Can the agent read comments and implement without guessing?</td><td>Anchors, code tabs, and checklist</td></tr>
+      </tbody>
+    </table>
+  </section>`;
+}
+
+function docTabId(prefix: string, label: string, index: number) {
+  return `${prefix}-${tabId(label, index)}`;
 }
 
 function clampSketchiness(value: number | undefined) {
@@ -356,23 +416,6 @@ function clampSketchiness(value: number | undefined) {
     return DEFAULT_BOARD_SKETCHINESS;
   }
   return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function buildBoardLayout(
-  states: UiPlanState[],
-  components: UiPlanComponent[],
-) {
-  const secondaryCount = Math.max(0, states.length - 1);
-  const stateRows = Math.max(1, Math.ceil(secondaryCount / 4));
-  const componentRows = Math.max(1, Math.ceil(components.length / 4));
-  const componentY = 1040 + (stateRows - 1) * 610;
-  const implementationY = componentY + componentRows * 330 + 92;
-  return {
-    width: 2680,
-    height: implementationY + 520,
-    componentY,
-    implementationY,
-  };
 }
 
 function frameStyle(x: number, y: number, width: number, height: number) {
@@ -519,7 +562,7 @@ function renderPhoneCheck(item: number) {
 function renderBoardComponentFrame(
   component: UiPlanComponent,
   index: number,
-  board: ReturnType<typeof buildBoardLayout>,
+  board: { componentY: number },
 ) {
   const x = 80 + (index % 4) * 410;
   const y = board.componentY + Math.floor(index / 4) * 330;
@@ -533,57 +576,34 @@ function renderBoardComponentFrame(
   </article>`;
 }
 
-function renderBoardImplementationFrame(
-  implementationNotes: string,
-  board: ReturnType<typeof buildBoardLayout>,
-) {
-  return `<article class="board-frame implementation-frame" style="${frameStyle(80, board.implementationY, 1240, 360)}" data-plan-visual data-label="Implementation map">
-    <div class="frame-label"><span>::</span><strong>Implementation map</strong></div>
-    <div class="implementation-grid">
-      <div class="implementation-copy">
-        <p>${implementationNotes}</p>
-      </div>
-      <div class="file-cards">
-        <div class="file-card"><strong>PlansPage.tsx</strong><span>Reader chrome, annotations, board runtime</span></div>
-        <div class="file-card"><strong>create-ui-plan.ts</strong><span>Boolean mode, action args, event payload</span></div>
-        <div class="file-card"><strong>ui-plan-html.ts</strong><span>Sketch artboards, pan/zoom, tweaks</span></div>
-        <div class="file-card"><strong>ui-plan/SKILL.md</strong><span>When to request board mode</span></div>
-      </div>
-    </div>
-  </article>`;
-}
-
-function renderBoardHandoffFrame(board: ReturnType<typeof buildBoardLayout>) {
-  return `<article class="board-card handoff-card" style="${frameStyle(1390, board.implementationY, 620, 360)}" data-plan-visual data-label="Reviewer handoff">
-    <p class="eyebrow">Agent handoff</p>
-    <h3>Review on the board first.</h3>
-    <ul>
-      <li>Compare the artboards side by side.</li>
-      <li>Use comments or drawing marks on specific frames.</li>
-      <li>Send the open feedback back to the agent before editing code.</li>
-    </ul>
-    <div class="handoff-actions"><button type="button">Comment</button><button type="button">Send to agent</button></div>
-  </article>`;
-}
-
 function normalizeStates(states: UiPlanState[] | undefined) {
-  const cleaned = (states || [])
-    .map((state) => ({
-      name: state.name?.trim(),
-      description: state.description?.trim(),
-    }))
-    .filter(hasNameAndDescription);
+  const cleaned = cleanStates(states);
   return cleaned.length > 0 ? cleaned.slice(0, 8) : DEFAULT_STATES;
 }
 
 function normalizeComponents(components: UiPlanComponent[] | undefined) {
-  const cleaned = (components || [])
+  const cleaned = cleanComponents(components);
+  return cleaned.length > 0 ? cleaned.slice(0, 8) : DEFAULT_COMPONENTS;
+}
+
+function cleanStates(states: UiPlanState[] | undefined) {
+  return (states || [])
+    .map((state) => ({
+      name: state.name?.trim(),
+      description: state.description?.trim(),
+    }))
+    .filter(hasNameAndDescription)
+    .slice(0, 8);
+}
+
+function cleanComponents(components: UiPlanComponent[] | undefined) {
+  return (components || [])
     .map((component) => ({
       name: component.name?.trim(),
       description: component.description?.trim(),
     }))
-    .filter(hasNameAndDescription);
-  return cleaned.length > 0 ? cleaned.slice(0, 8) : DEFAULT_COMPONENTS;
+    .filter(hasNameAndDescription)
+    .slice(0, 8);
 }
 
 function hasNameAndDescription(
@@ -600,135 +620,6 @@ function tabId(label: string, index: number) {
   return `ui-${slug || "state"}-${index}`;
 }
 
-function renderStatePanel(state: UiPlanState, index: number, id: string) {
-  const active = index === 0 ? " is-active" : "";
-  const lowerName = state.name.toLowerCase();
-  const mode = lowerName.includes("comment")
-    ? "comment"
-    : lowerName.includes("draw")
-      ? "draw"
-      : lowerName.includes("agent") || lowerName.includes("handoff")
-        ? "agent"
-        : lowerName.includes("mobile")
-          ? "mobile"
-          : "review";
-  return `<div class="tab-panel${active}" data-tab-panel="${id}">
-    ${mode === "mobile" ? renderMobileMockup(state) : renderDesktopMockup(state, mode)}
-  </div>`;
-}
-
-function renderDesktopMockup(
-  state: UiPlanState,
-  mode: "review" | "comment" | "draw" | "agent",
-) {
-  const rightPanel =
-    mode === "agent"
-      ? `<aside class="agent-panel">
-          <div class="panel-head"><strong>Plans agent</strong><span>ready</span></div>
-          <div class="chat-bubble"><strong>Feedback payload</strong><p>Read comments, update the UI plan, then patch implementation only after review.</p></div>
-          <div class="chat-bubble muted"><strong>Host fallback</strong><p>Copy instructions for Claude Code or Codex when inline handoff is unavailable.</p></div>
-          <div class="composer">Ask the agent to update this UI plan...</div>
-        </aside>`
-      : `<aside class="review-panel">
-          <div class="panel-head"><strong>Review queue</strong><span>3</span></div>
-          <div class="comment-summary"><span>Open</span><p>Make this mockup feel closer to the production surface.</p></div>
-          <div class="comment-summary"><span>Question</span><p>Should the primary action stay Comment until feedback exists?</p></div>
-        </aside>`;
-
-  const drawing =
-    mode === "draw"
-      ? `<div class="draw-toolbar"><i></i><i class="active"></i><i></i><i></i></div><div class="draw-mark"></div>`
-      : "";
-  const comment =
-    mode === "comment"
-      ? `<div class="selection">selected UI copy</div><div class="comment-pop"><textarea placeholder="Add a comment..." readonly tabindex="-1"></textarea><button type="button" disabled>Save</button></div>`
-      : "";
-  const pin =
-    mode === "review" ? `<button class="pin" type="button">1</button>` : "";
-
-  return `<div class="mock-stage" aria-label="${escapeHtml(state.name)} UI mockup">
-    <div class="stage-topbar">
-      <div class="brand-lockup"><span class="app-mark"></span><strong>Agent-Native Plans</strong><em>${escapeHtml(state.name)}</em></div>
-      <div class="floating-toolbar">
-        <button type="button">Comment</button>
-        <button type="button" class="primary">${mode === "review" ? "Comment" : "Send to agent"}</button>
-        <button type="button">...</button>
-      </div>
-    </div>
-    <div class="stage-grid${mode === "agent" ? " has-agent" : ""}">
-      <aside class="left-rail"><span class="active"></span><span></span><span></span><span></span></aside>
-      <article class="plan-document">
-        <div class="document-bar"><span>UI plan document</span><span>${escapeHtml(state.name)}</span></div>
-        <div class="document-body">
-          <div class="headline"></div>
-          <div class="copy-line wide"></div>
-          <div class="copy-line"></div>
-          <div class="copy-line short"></div>
-          <div class="mockup-row">
-            <div class="surface-card active"><span></span><b></b><i></i><i></i></div>
-            <div class="surface-card"><span></span><b></b><i></i><i></i></div>
-          </div>
-          <p class="state-caption">${escapeHtml(state.description)}</p>
-        </div>
-        ${pin}${comment}${drawing}
-      </article>
-      ${rightPanel}
-    </div>
-  </div>`;
-}
-
-function renderMobileMockup(state: UiPlanState) {
-  return `<div class="mobile-stage" aria-label="${escapeHtml(state.name)} mobile UI mockup">
-    <div class="phone">
-      <div class="phone-screen">
-        <div class="phone-top"><strong>Plan</strong><span>Comment</span></div>
-        <div class="phone-body"><div class="phone-title"></div><div class="copy-line wide"></div><div class="copy-line"></div><div class="mobile-card"></div></div>
-      </div>
-    </div>
-    <div class="phone">
-      <div class="phone-screen">
-        <div class="phone-top"><strong>Select</strong><span>1</span></div>
-        <div class="phone-body"><p>${escapeHtml(state.description)}</p><span class="selection mobile">anchored comment</span></div>
-        <div class="bottom-sheet"><textarea placeholder="Add a comment..." readonly tabindex="-1"></textarea><button type="button" disabled>Save</button></div>
-      </div>
-    </div>
-    <div class="phone">
-      <div class="phone-screen">
-        <div class="phone-top"><strong>Send</strong><span>...</span></div>
-        <div class="phone-body"><div class="comment-summary"><p>2 comments ready</p></div><div class="comment-summary"><p>Send to inline agent</p></div><div class="comment-summary"><p>Copy for host agent</p></div></div>
-        <div class="bottom-sheet"><button type="button" disabled>Send to agent</button></div>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderComponentPanel(
-  component: UiPlanComponent,
-  index: number,
-  id: string,
-) {
-  const active = index === 0 ? " is-active" : "";
-  return `<div class="tab-panel${active}" data-tab-panel="${id}">
-    <div class="component-detail">
-      <div class="component-mock">
-        <div class="mini-window">
-          <div class="mini-toolbar"><span></span><span></span><button>${escapeHtml(component.name)}</button></div>
-          <div class="mini-body"><div class="headline small"></div><div class="copy-line wide"></div><div class="copy-line"></div><div class="surface-card active"><span></span><b></b><i></i></div></div>
-        </div>
-      </div>
-      <div class="component-copy">
-        <h3>${escapeHtml(component.name)}</h3>
-        <p>${escapeHtml(component.description)}</p>
-        <ul>
-          <li>Show the default, active, empty, and error states when relevant.</li>
-          <li>Keep controls close to the thing being reviewed.</li>
-          <li>Store the reviewer feedback as structured comments for the agent.</li>
-        </ul>
-      </div>
-    </div>
-  </div>`;
-}
-
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -738,96 +629,198 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, "&#39;");
 }
 
-const FIGMA_BOARD_UI_PLAN_CSS = `
-:root { color-scheme: light; --board-bg: #f4f5f1; --grid-major: rgba(50,50,45,.07); --grid-minor: rgba(50,50,45,.035); --ink: #34302b; --muted: #837d73; --paper: #fffefd; --paper-alt: #fbfaf5; --line: #3d3831; --soft-line: rgba(61,56,49,.2); --shadow: 0 20px 48px rgba(43,40,34,.12); --wire-font: "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive; --ui-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --density-scale: 1; }
+const UI_PLAN_JS = `
+(() => {
+  function activateTab(tabset, target, focus) {
+    const buttons = Array.from(tabset.querySelectorAll("[data-tab-target]"));
+    const panels = Array.from(tabset.querySelectorAll("[data-tab-panel]"));
+    for (const button of buttons) {
+      const active = button.getAttribute("data-tab-target") === target;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+      button.setAttribute("tabindex", active ? "0" : "-1");
+      if (active && focus) button.focus();
+    }
+    for (const panel of panels) {
+      panel.classList.toggle("is-active", panel.getAttribute("data-tab-panel") === target);
+    }
+    window.dispatchEvent(new Event("resize"));
+  }
+
+  for (const tabset of document.querySelectorAll("[data-plan-tabs]")) {
+    const buttons = Array.from(tabset.querySelectorAll("[data-tab-target]"));
+    if (buttons.length === 0) continue;
+    for (const button of buttons) {
+      button.addEventListener("click", () => activateTab(tabset, button.getAttribute("data-tab-target") || "", true));
+    }
+    activateTab(tabset, buttons.find((button) => button.classList.contains("is-active"))?.getAttribute("data-tab-target") || buttons[0].getAttribute("data-tab-target") || "", false);
+  }
+
+  const root = document.documentElement;
+  const viewport = document.querySelector("[data-board-viewport]");
+  const canvas = document.querySelector("[data-board-canvas]");
+  const zoomLabel = document.querySelector("[data-zoom-label]");
+  const roughMap = document.querySelector("[data-rough-map]");
+  if (!viewport || !canvas) return;
+
+  let zoom = 0.68;
+  let panX = 34;
+  let panY = 28;
+  let panStart = null;
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function applyCanvasTransform() {
+    canvas.style.transform = "translate(" + panX + "px," + panY + "px) scale(" + zoom + ")";
+    root.style.setProperty("--board-zoom", zoom.toFixed(3));
+    if (zoomLabel) zoomLabel.textContent = Math.round(zoom * 100) + "%";
+    if (roughMap) roughMap.setAttribute("scale", String(Math.round((Number.parseFloat(root.style.getPropertyValue("--sketch")) || 0.38) * 100 / 12)));
+    window.dispatchEvent(new Event("resize"));
+  }
+
+  function setZoom(nextZoom, clientX, clientY) {
+    const rect = viewport.getBoundingClientRect();
+    const x = typeof clientX === "number" ? clientX - rect.left : rect.width / 2;
+    const y = typeof clientY === "number" ? clientY - rect.top : rect.height / 2;
+    const beforeX = (x - panX) / zoom;
+    const beforeY = (y - panY) / zoom;
+    zoom = clamp(nextZoom, 0.36, 1.35);
+    panX = x - beforeX * zoom;
+    panY = y - beforeY * zoom;
+    applyCanvasTransform();
+  }
+
+  document.querySelector("[data-zoom-out]")?.addEventListener("click", () => setZoom(zoom - 0.08));
+  document.querySelector("[data-zoom-in]")?.addEventListener("click", () => setZoom(zoom + 0.08));
+  document.querySelector("[data-zoom-reset]")?.addEventListener("click", () => {
+    zoom = 0.68;
+    panX = 34;
+    panY = 28;
+    applyCanvasTransform();
+  });
+
+  viewport.addEventListener("wheel", (event) => {
+    if (!(event.metaKey || event.ctrlKey || event.altKey)) return;
+    event.preventDefault();
+    setZoom(zoom + (event.deltaY > 0 ? -0.06 : 0.06), event.clientX, event.clientY);
+  }, { passive: false });
+
+  viewport.addEventListener("pointerdown", (event) => {
+    if (root.classList.contains("an-plan-annotating")) return;
+    if (event.button !== 0) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest(".canvas-toolbar,.board-frame,.board-card,.board-note,.canvas-helper-note,button,input,textarea,a,details,summary")) return;
+    panStart = { x: event.clientX, y: event.clientY, panX, panY };
+    viewport.classList.add("is-panning");
+    event.preventDefault();
+  });
+
+  document.addEventListener("pointermove", (event) => {
+    if (!panStart) return;
+    panX = panStart.panX + event.clientX - panStart.x;
+    panY = panStart.panY + event.clientY - panStart.y;
+    applyCanvasTransform();
+  });
+
+  for (const eventName of ["pointerup", "pointercancel"]) {
+    document.addEventListener(eventName, () => {
+      panStart = null;
+      viewport.classList.remove("is-panning");
+    });
+  }
+
+  applyCanvasTransform();
+})();
+`;
+
+const UI_PLAN_CSS = `
+:root { color-scheme: light; --bg: #fbfaf7; --paper: #fffefa; --paper-soft: #f5f3ee; --ink: #23201d; --soft: #4b4640; --muted: #817970; --line: rgba(36,31,26,.13); --line-strong: rgba(36,31,26,.24); --canvas: #e9edf1; --sketch-line: #cfd5dc; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --warning: #fff4bf; --wire-font: "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive; --doc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace; --shadow-soft: 0 18px 56px rgba(38,32,24,.1); --density-scale: 1; }
 * { box-sizing: border-box; }
-html { min-width: 100%; min-height: 100%; background: var(--board-bg); scroll-behavior: auto; }
-body { min-width: 100%; min-height: 100%; margin: 0; color: var(--ink); background-color: var(--board-bg); background-image: linear-gradient(var(--grid-minor) 1px, transparent 1px), linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px), linear-gradient(var(--grid-major) 1px, transparent 1px), linear-gradient(90deg, var(--grid-major) 1px, transparent 1px); background-size: 48px 48px, 48px 48px, 240px 240px, 240px 240px; font-family: var(--ui-font); line-height: 1.45; cursor: grab; }
-body.is-panning { cursor: grabbing; user-select: none; }
-button, input { font: inherit; }
+html { background: var(--bg); scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--doc-font); line-height: 1.62; }
+button, input, textarea { font: inherit; }
 .rough-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
-.board-topbar { position: fixed; z-index: 20; left: 0; right: 0; top: 0; display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid rgba(38,35,30,.13); background: rgba(252,251,247,.88); padding: 0 18px; box-shadow: 0 10px 32px rgba(45,41,34,.08); backdrop-filter: blur(16px); cursor: default; }
-.board-file { display: flex; min-width: 0; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
-.board-file strong { max-width: 42vw; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
-.board-file span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-dot { width: 20px; height: 20px; flex: 0 0 auto; border: 1.5px solid var(--accent); border-radius: 6px; background: var(--accent-soft); }
-.board-controls { display: inline-flex; align-items: center; gap: 2px; border: 1px solid rgba(38,35,30,.13); border-radius: 8px; background: #fff; padding: 3px; }
-.board-controls button { min-width: 34px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); padding: 0 10px; font-weight: 750; cursor: pointer; }
-.board-controls button:hover { background: rgba(52,48,43,.08); }
-.figma-board { position: relative; min-width: 100%; padding-top: 66px; }
-.board-world { position: relative; transform-origin: 0 0; }
-.board-canvas { position: absolute; left: 0; top: 0; transform: scale(var(--board-zoom)); transform-origin: 0 0; }
-.board-note, .board-frame, .board-card, .board-group-label, .flow-connector { position: absolute; }
-.board-note, .board-frame, .board-card { color: var(--ink); cursor: default; }
-.board-note, .board-frame, .board-card, .board-group-label { z-index: 2; }
-.flow-connector { z-index: 1; pointer-events: none; }
-.flow-connector svg { position: absolute; inset: 0; overflow: visible; }
-.flow-connector path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 8 8; opacity: .62; filter: url(#ui-plan-roughen); }
-.flow-connector path::after { content: ""; }
-.flow-connector span { position: absolute; display: inline-flex; min-height: 26px; align-items: center; border: 1px solid var(--accent); border-radius: 999px; background: #fff; color: var(--accent); padding: 0 9px; font: 400 12px/1 var(--wire-font); box-shadow: 0 8px 18px rgba(40,36,30,.1); }
-.intro-note { display: flex; flex-direction: column; justify-content: space-between; border: 1.6px solid var(--line); border-radius: 7px; background: rgba(255,254,252,.88); padding: 22px 24px; box-shadow: var(--shadow); }
-.intro-note::after, .board-frame::after, .board-card::after { content: ""; position: absolute; inset: calc(var(--sketch) * -3px); border: calc(1px + var(--sketch) * 1.4px) solid rgba(61,56,49,.36); border-radius: inherit; opacity: calc(var(--sketch) * .72); transform: translate(calc(var(--sketch) * 2px), calc(var(--sketch) * -1px)) rotate(calc(var(--sketch) * .28deg)); pointer-events: none; }
-.eyebrow { margin: 0 0 10px; color: var(--muted); font: 750 11px/1.2 var(--ui-font); text-transform: uppercase; letter-spacing: 0; }
+.top-canvas-section { position: relative; min-height: min(720px, 78vh); border-bottom: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
+.top-canvas-section::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(44,48,54,.055) 1px, transparent 1px), linear-gradient(90deg, rgba(44,48,54,.055) 1px, transparent 1px); background-size: 44px 44px; pointer-events: none; }
+.canvas-toolbar { position: sticky; z-index: 10; top: 0; display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(35,32,29,.1); background: rgba(251,250,247,.84); padding: 10px 22px; backdrop-filter: blur(14px); }
+.canvas-toolbar > div:first-child { min-width: 0; }
+.canvas-toolbar strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.canvas-controls { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.72); padding: 3px; }
+.canvas-controls button { min-width: 34px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); padding: 0 10px; font-weight: 760; cursor: pointer; }
+.canvas-controls button:hover { background: rgba(35,32,29,.07); }
+.canvas-viewport { position: absolute; inset: 58px 0 0; overflow: hidden; cursor: grab; touch-action: none; }
+.canvas-viewport.is-panning { cursor: grabbing; user-select: none; }
+.board-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.board-note, .board-frame, .board-card, .board-group-label, .flow-connector, .canvas-helper-note { position: absolute; }
+.board-note, .board-frame, .board-card, .canvas-helper-note { z-index: 2; color: var(--ink); cursor: default; }
+.board-group-label { z-index: 2; display: flex; align-items: center; color: var(--ink); font: 400 28px/1 var(--wire-font); }
+.board-group-label::before { content: ""; width: 18px; height: 18px; margin-right: 10px; border: 1.5px dashed var(--accent); border-radius: 5px; background: var(--accent-soft); }
+.intro-note, .board-frame, .board-card, .canvas-helper-note { border: 1.7px solid rgba(43,39,34,.62); border-radius: 8px; background: rgba(255,254,250,.92); box-shadow: var(--shadow-soft); }
+.intro-note { display: flex; flex-direction: column; justify-content: space-between; padding: 22px 24px; }
+.intro-note::after, .board-frame::after, .board-card::after { content: ""; position: absolute; inset: calc(var(--sketch) * -3px); border: calc(1px + var(--sketch) * 1.35px) solid rgba(48,43,37,.25); border-radius: inherit; opacity: calc(var(--sketch) * .7); transform: translate(calc(var(--sketch) * 2px), calc(var(--sketch) * -1px)) rotate(calc(var(--sketch) * .26deg)); pointer-events: none; }
+.eyebrow { margin: 0 0 10px; color: var(--muted); font: 750 11px/1.2 var(--doc-font); text-transform: uppercase; letter-spacing: 0; }
 h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: 12px; font: 400 34px/1.08 var(--wire-font); letter-spacing: 0; }
-h2 { margin-bottom: 4px; font: 400 25px/1.1 var(--wire-font); letter-spacing: 0; }
-h3 { margin-bottom: 10px; font: 400 25px/1.12 var(--wire-font); letter-spacing: 0; }
+.intro-note h2 { margin: 0 0 12px; font: 400 34px/1.08 var(--wire-font); letter-spacing: 0; }
 .intro-note p, .board-card p, .frame-caption { color: var(--muted); font-size: 15px; }
 .note-meta { display: flex; flex-wrap: wrap; gap: 7px; }
-.note-meta span { max-width: 100%; overflow: hidden; border: 1px solid rgba(61,56,49,.18); border-radius: 999px; background: #f2efe7; padding: 5px 9px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.board-group-label { display: flex; align-items: center; color: var(--ink); font: 400 26px/1 var(--wire-font); }
-.board-group-label::before { content: ""; display: inline-block; width: 18px; height: 18px; margin-right: 10px; border: 1.5px dashed var(--accent); border-radius: 5px; background: var(--accent-soft); }
-.board-frame { border: 1.6px solid rgba(61,56,49,.76); border-radius: 7px; background: var(--paper); box-shadow: var(--shadow); }
-.frame-label { position: absolute; left: 0; right: 0; top: -32px; display: flex; align-items: center; gap: 9px; color: var(--muted); font: 650 15px/1.1 var(--ui-font); }
+.note-meta span { max-width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 999px; background: var(--paper-soft); padding: 5px 9px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.flow-connector { z-index: 1; pointer-events: none; }
+.flow-connector svg { position: absolute; inset: 0; overflow: visible; }
+.flow-connector path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 8 8; opacity: .66; filter: url(#ui-plan-roughen); }
+.flow-connector span { position: absolute; display: inline-flex; min-height: 26px; align-items: center; border: 1px solid var(--accent); border-radius: 999px; background: #fff; color: var(--accent); padding: 0 9px; font: 400 12px/1 var(--wire-font); box-shadow: 0 8px 18px rgba(40,36,30,.1); }
+.frame-label { position: absolute; left: 0; right: 0; top: -32px; display: flex; align-items: center; gap: 9px; color: var(--muted); font: 650 15px/1.1 var(--doc-font); }
 .frame-label span { color: rgba(61,56,49,.48); font-weight: 900; letter-spacing: 0; }
 .frame-label strong { color: var(--ink); font: 400 20px/1 var(--wire-font); }
-.wire-window { position: absolute; inset: 14px 14px 76px; overflow: hidden; border: 1.5px solid var(--line); border-radius: 5px; background: #fff; filter: url(#ui-plan-roughen); }
-.window-bar { display: flex; height: 28px; align-items: center; gap: 6px; border-bottom: 1.4px solid var(--line); padding: 0 9px; }
-.window-bar span { width: 7px; height: 7px; border: 1.2px solid var(--line); border-radius: 999px; }
+.wire-window { position: absolute; inset: 14px 14px 76px; overflow: hidden; border: 1.5px solid rgba(43,39,34,.8); border-radius: 5px; background: #fff; filter: url(#ui-plan-roughen); }
+.window-bar { display: flex; height: 28px; align-items: center; gap: 6px; border-bottom: 1.4px solid rgba(43,39,34,.8); padding: 0 9px; }
+.window-bar span { width: 7px; height: 7px; border: 1.2px solid rgba(43,39,34,.8); border-radius: 999px; }
 .window-bar i { margin-left: 7px; color: var(--muted); font: 400 11px/1 var(--wire-font); font-style: normal; }
 .desktop-shell { display: grid; height: calc(100% - 28px); grid-template-columns: 154px 1fr; }
-.sketch-sidebar { display: flex; flex-direction: column; gap: 13px; border-right: 1.4px solid var(--line); padding: 18px 15px; }
+.sketch-sidebar { display: flex; flex-direction: column; gap: 13px; border-right: 1.4px solid rgba(43,39,34,.8); padding: 18px 15px; }
 .sketch-sidebar b { margin-bottom: 4px; font: 400 15px/1 var(--wire-font); }
 .sketch-sidebar i { display: block; height: calc(27px * var(--density-scale)); border: 1.3px solid rgba(61,56,49,.42); border-radius: 5px; background: #f7f5ed; }
 .sketch-sidebar i.is-active { background: var(--accent-soft); border-color: var(--accent); }
 .sketch-main { min-width: 0; padding: 22px 24px; }
 .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.screen-head h2 { margin-bottom: 4px; font: 400 25px/1.1 var(--wire-font); letter-spacing: 0; }
 .screen-head p { max-width: 420px; margin: 0; color: var(--muted); font: 400 14px/1.35 var(--wire-font); }
-.screen-head button, .handoff-actions button { min-height: 34px; border: 1.5px solid var(--accent); border-radius: 5px; background: var(--accent); color: #fff; padding: 0 14px; font: 750 13px/1 var(--ui-font); cursor: default; }
+.screen-head button, .handoff-actions button { min-height: 34px; border: 1.5px solid var(--accent); border-radius: 5px; background: var(--accent); color: #fff; padding: 0 14px; font: 750 13px/1 var(--doc-font); cursor: default; }
 .pill-row { display: flex; flex-wrap: wrap; gap: 9px; margin: 20px 0 18px; }
-.pill { display: inline-flex; min-height: 26px; align-items: center; border: 1.3px solid var(--line); border-radius: 999px; background: #fff; padding: 0 11px; font: 400 13px/1 var(--wire-font); }
+.pill { display: inline-flex; min-height: 26px; align-items: center; border: 1.3px solid rgba(43,39,34,.8); border-radius: 999px; background: #fff; padding: 0 11px; font: 400 13px/1 var(--wire-font); }
 .pill.is-active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .task-list { display: grid; gap: calc(12px * var(--density-scale)); }
 .task-row { display: grid; min-height: calc(52px * var(--density-scale)); grid-template-columns: 22px 1fr 58px; align-items: center; gap: 12px; border-top: 1.2px solid rgba(61,56,49,.18); }
-.check { display: inline-block; width: 15px; height: 15px; border: 1.5px solid var(--line); border-radius: 4px; background: #fff; }
+.check { display: inline-block; width: 15px; height: 15px; border: 1.5px solid rgba(43,39,34,.8); border-radius: 4px; background: #fff; }
 .check.checked { background: var(--accent); box-shadow: inset 0 0 0 3px #fff; }
 .task-row b, .task-row i, .phone-task b, .phone-task i, .phone-check i, .notes-lines i, .task-title, .input-line, .textarea-line { display: block; border-radius: 999px; background: #d8d1c3; }
 .task-row b { width: 54%; height: 10px; margin-bottom: 8px; }
 .task-row i { width: 34%; height: 8px; }
-.task-row em { justify-self: end; border: 1.2px solid var(--line); border-radius: 999px; padding: 3px 7px; color: var(--muted); font: 400 11px/1 var(--wire-font); font-style: normal; }
+.task-row em { justify-self: end; border: 1.2px solid rgba(43,39,34,.8); border-radius: 999px; padding: 3px 7px; color: var(--muted); font: 400 11px/1 var(--wire-font); font-style: normal; }
 .task-row em.hot { border-color: #cf5432; color: #cf5432; }
 .frame-caption { position: absolute; left: 16px; right: 16px; bottom: 14px; margin: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font: 400 14px/1.25 var(--wire-font); }
-.annotation-note { position: absolute; right: -22px; top: 58px; width: 144px; min-height: 62px; border: 1.3px solid rgba(61,56,49,.46); border-radius: 6px; background: #fff5bc; padding: 10px; color: #6b5f3f; font: 400 13px/1.2 var(--wire-font); transform: rotate(calc(var(--sketch) * -1.8deg)); box-shadow: 0 12px 24px rgba(43,40,34,.1); }
+.annotation-note { position: absolute; right: -22px; top: 58px; width: 144px; min-height: 62px; border: 1.3px solid rgba(61,56,49,.46); border-radius: 6px; background: var(--warning); padding: 10px; color: #6b5f3f; font: 400 13px/1.2 var(--wire-font); transform: rotate(calc(var(--sketch) * -1.8deg)); box-shadow: 0 12px 24px rgba(43,40,34,.1); }
 .phone-frame .annotation-note { right: -38px; width: 132px; }
 .phone-frame { padding: 13px; background: #fffdfa; }
-.phone-shell { position: absolute; inset: 13px 13px 56px; overflow: hidden; border: 1.5px solid var(--line); border-radius: 25px; background: #fff; filter: url(#ui-plan-roughen); }
-.phone-status { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 13px; color: var(--muted); font: 650 10px/1 var(--ui-font); }
+.phone-shell { position: absolute; inset: 13px 13px 56px; overflow: hidden; border: 1.5px solid rgba(43,39,34,.8); border-radius: 25px; background: #fff; filter: url(#ui-plan-roughen); }
+.phone-status { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 13px; color: var(--muted); font: 650 10px/1 var(--doc-font); }
 .phone-status span { flex: 1; }
 .phone-status i { width: 12px; height: 4px; border-radius: 99px; background: #8c867e; }
-.phone-header { display: grid; height: 40px; grid-template-columns: 54px 1fr 54px; align-items: center; border-bottom: 1.3px solid var(--line); padding: 0 9px; text-align: center; }
+.phone-header { display: grid; height: 40px; grid-template-columns: 54px 1fr 54px; align-items: center; border-bottom: 1.3px solid rgba(43,39,34,.8); padding: 0 9px; text-align: center; }
 .phone-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 14px/1 var(--wire-font); }
-.phone-header button { border: 0; background: transparent; color: var(--accent); padding: 0; font: 750 11px/1 var(--ui-font); }
+.phone-header button { border: 0; background: transparent; color: var(--accent); padding: 0; font: 750 11px/1 var(--doc-font); }
 .phone-list, .phone-form, .phone-detail { padding: 17px 14px; }
 .phone-list .pill-row { margin-top: 0; gap: 7px; }
 .phone-task { display: grid; min-height: calc(48px * var(--density-scale)); grid-template-columns: 18px 1fr 38px; align-items: center; gap: 8px; border-bottom: 1px solid rgba(61,56,49,.16); }
 .phone-task b { width: 68%; height: 8px; margin-bottom: 7px; }
 .phone-task i { width: 43%; height: 7px; }
 .phone-task em { color: var(--muted); font: 400 10px/1 var(--wire-font); font-style: normal; }
-.phone-form label { display: block; margin: 13px 0 5px; color: var(--muted); font: 750 9px/1 var(--ui-font); text-transform: uppercase; letter-spacing: 0; }
-.input-line { height: 32px; border: 1.2px solid var(--line); background: transparent; }
-.textarea-line { height: 72px; border: 1.2px solid var(--line); border-radius: 5px; background: transparent; }
+.phone-form label { display: block; margin: 13px 0 5px; color: var(--muted); font: 750 9px/1 var(--doc-font); text-transform: uppercase; letter-spacing: 0; }
+.input-line { height: 32px; border: 1.2px solid rgba(43,39,34,.8); background: transparent; }
+.textarea-line { height: 72px; border: 1.2px solid rgba(43,39,34,.8); border-radius: 5px; background: transparent; }
 .chip-grid { display: flex; flex-wrap: wrap; gap: 7px; }
-.chip-grid span { border: 1.2px solid var(--line); border-radius: 999px; padding: 5px 8px; font: 400 11px/1 var(--wire-font); }
+.chip-grid span { border: 1.2px solid rgba(43,39,34,.8); border-radius: 999px; padding: 5px 8px; font: 400 11px/1 var(--wire-font); }
 .chip-grid span.is-active { border-color: var(--accent); color: var(--accent); }
 .task-title { width: 84%; height: 21px; margin-bottom: 18px; }
 .priority-row { display: flex; gap: 8px; margin-bottom: 26px; }
@@ -839,302 +832,111 @@ h3 { margin-bottom: 10px; font: 400 25px/1.12 var(--wire-font); letter-spacing: 
 .check-list { display: grid; gap: 15px; }
 .phone-check { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: center; }
 .phone-check i { height: 8px; }
-.board-card { border: 1.6px solid var(--line); border-radius: 7px; background: #fff9df; padding: 19px 20px; box-shadow: var(--shadow); }
+.board-card { background: #fff9df; padding: 19px 20px; }
 .component-card:nth-of-type(2n) { background: #e8f2e8; }
 .component-card:nth-of-type(3n) { background: #e9edf9; }
+.component-card h3 { margin: 0 0 10px; font: 400 25px/1.12 var(--wire-font); letter-spacing: 0; }
 .component-card p { font: 400 15px/1.35 var(--wire-font); }
 .component-mini { position: absolute; left: 20px; right: 20px; bottom: 18px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 9px; align-items: center; }
 .component-mini span { height: 26px; border: 1.3px solid rgba(61,56,49,.46); border-radius: 5px; background: rgba(255,255,255,.5); }
 .component-mini button { min-height: 28px; border: 1.3px solid var(--accent); border-radius: 5px; background: var(--accent-soft); color: var(--accent); padding: 0 10px; font-weight: 750; }
-.implementation-frame { padding: 24px; }
-.implementation-grid { display: grid; height: 100%; grid-template-columns: .7fr 1.3fr; gap: 22px; }
-.implementation-copy { display: flex; align-items: center; border-right: 1px solid rgba(61,56,49,.16); padding-right: 22px; }
-.implementation-copy p { margin: 0; color: var(--muted); font: 400 19px/1.35 var(--wire-font); }
-.file-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-content: center; }
-.file-card { min-height: 110px; border: 1.3px solid rgba(61,56,49,.42); border-radius: 6px; background: var(--paper-alt); padding: 14px; }
-.file-card strong { display: block; margin-bottom: 8px; font: 750 13px/1.2 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-.file-card span { color: var(--muted); font-size: 13px; }
-.handoff-card { background: #eef4fb; }
-.handoff-card ul { display: grid; gap: 9px; margin: 16px 0 22px; padding-left: 18px; color: var(--muted); font: 400 16px/1.3 var(--wire-font); }
-.handoff-actions { display: flex; gap: 9px; }
-.handoff-actions button:first-child { background: #fff; color: var(--accent); }
-.tweaks-panel { position: fixed; z-index: 21; right: 18px; bottom: 18px; width: min(344px, calc(100vw - 36px)); border: 1px solid rgba(38,35,30,.14); border-radius: 8px; background: rgba(255,254,252,.94); padding: 16px; box-shadow: 0 22px 58px rgba(40,36,30,.18); backdrop-filter: blur(18px); cursor: default; }
-.tweaks-panel[hidden] { display: none; }
-.tweaks-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.tweaks-head strong { font-size: 16px; }
-.tweaks-head button { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
-.tweaks-head button:hover { background: rgba(52,48,43,.08); color: var(--ink); }
-.tweak-group { display: grid; gap: 9px; padding: 11px 0; border-top: 1px solid rgba(61,56,49,.13); }
-.tweak-group p { margin: 0; color: var(--muted); font-size: 11px; font-weight: 760; text-transform: uppercase; letter-spacing: 0; }
-.segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; border-radius: 8px; background: #eeeae1; padding: 3px; }
-.segmented button { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; }
-.segmented button.is-active { background: #fff; box-shadow: 0 1px 4px rgba(45,40,34,.12); }
-.range-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; }
-input[type="range"] { width: 100%; accent-color: var(--accent); }
-.swatches { display: flex; gap: 9px; }
-.swatches button { width: 46px; height: 46px; border: 1px solid rgba(61,56,49,.18); border-radius: 8px; background: var(--swatch); box-shadow: inset 0 0 0 0 #fff; cursor: pointer; }
-.swatches button.is-active { box-shadow: inset 0 0 0 3px #fff, 0 0 0 2px var(--accent); }
-:root[data-board-density="compact"] { --density-scale: .78; }
-:root[data-board-density="roomy"] { --density-scale: 1.18; }
-:root[data-board-density="compact"] .frame-caption { -webkit-line-clamp: 1; }
-:root[data-board-density="roomy"] .task-list { gap: 17px; }
-:root[data-board-density="roomy"] .phone-task { min-height: 58px; }
-@media (max-width: 760px) {
-  .board-topbar { align-items: flex-start; flex-direction: column; padding: 10px 12px; }
-  .board-controls { align-self: flex-end; }
-  .tweaks-panel { left: 12px; right: 12px; bottom: 12px; width: auto; }
-}
-`;
-
-const FIGMA_BOARD_UI_PLAN_JS = `
-(() => {
-  const root = document.documentElement;
-  const world = document.querySelector("[data-board-world]");
-  const canvas = document.querySelector("[data-board-canvas]");
-  const zoomLabel = document.querySelector("[data-zoom-label]");
-  const sketchInput = document.querySelector("[data-sketchiness]");
-  const sketchLabel = document.querySelector("[data-sketch-label]");
-  const roughMap = document.querySelector("[data-rough-map]");
-  let zoom = 0.72;
-  const minZoom = 0.42;
-  const maxZoom = 1.35;
-  const boardWidth = canvas ? canvas.offsetWidth : 2680;
-  const boardHeight = canvas ? canvas.offsetHeight : 1800;
-
-  function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-  }
-
-  function syncRuntimeMarkers() {
-    window.dispatchEvent(new Event("resize"));
-  }
-
-  function setZoom(nextZoom, clientX, clientY) {
-    const x = typeof clientX === "number" ? clientX : window.innerWidth / 2;
-    const y = typeof clientY === "number" ? clientY : window.innerHeight / 2;
-    const beforeX = (window.scrollX + x) / zoom;
-    const beforeY = (window.scrollY + y) / zoom;
-    zoom = clamp(nextZoom, minZoom, maxZoom);
-    root.style.setProperty("--board-zoom", zoom.toFixed(3));
-    if (world) {
-      world.style.width = boardWidth * zoom + "px";
-      world.style.height = boardHeight * zoom + "px";
-    }
-    if (zoomLabel) zoomLabel.textContent = Math.round(zoom * 100) + "%";
-    window.scrollTo({
-      left: Math.max(0, beforeX * zoom - x),
-      top: Math.max(0, beforeY * zoom - y),
-      behavior: "instant"
-    });
-    requestAnimationFrame(syncRuntimeMarkers);
-  }
-
-  function setSketchiness(value) {
-    const next = clamp(Number(value) || 0, 0, 100);
-    root.style.setProperty("--sketch", (next / 100).toFixed(2));
-    if (roughMap) roughMap.setAttribute("scale", String(Math.round(next / 12)));
-    if (sketchLabel) sketchLabel.textContent = Math.round(next) + "%";
-  }
-
-  function setAccent(value) {
-    const accent = value || "#3f6fd9";
-    root.style.setProperty("--accent", accent);
-    root.style.setProperty("--accent-soft", hexToRgba(accent, 0.13));
-  }
-
-  function hexToRgba(hex, alpha) {
-    const raw = String(hex || "").replace("#", "");
-    if (raw.length !== 6) return "rgba(63,111,217," + alpha + ")";
-    const r = parseInt(raw.slice(0, 2), 16);
-    const g = parseInt(raw.slice(2, 4), 16);
-    const b = parseInt(raw.slice(4, 6), 16);
-    return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
-  }
-
-  document.querySelector("[data-zoom-out]")?.addEventListener("click", () => setZoom(zoom - 0.08));
-  document.querySelector("[data-zoom-in]")?.addEventListener("click", () => setZoom(zoom + 0.08));
-  document.querySelector("[data-zoom-reset]")?.addEventListener("click", () => setZoom(0.72));
-  sketchInput?.addEventListener("input", (event) => setSketchiness(event.target.value));
-
-  for (const button of document.querySelectorAll("[data-density-option]")) {
-    button.addEventListener("click", () => {
-      root.dataset.boardDensity = button.getAttribute("data-density-option") || "regular";
-      for (const candidate of document.querySelectorAll("[data-density-option]")) {
-        candidate.classList.toggle("is-active", candidate === button);
-      }
-      requestAnimationFrame(syncRuntimeMarkers);
-    });
-  }
-
-  for (const button of document.querySelectorAll("[data-accent]")) {
-    button.addEventListener("click", () => {
-      setAccent(button.getAttribute("data-accent") || "");
-      for (const candidate of document.querySelectorAll("[data-accent]")) {
-        candidate.classList.toggle("is-active", candidate === button);
-      }
-    });
-  }
-
-  document.querySelector("[data-close-tweaks]")?.addEventListener("click", () => {
-    document.querySelector(".tweaks-panel")?.setAttribute("hidden", "true");
-  });
-
-  window.addEventListener("wheel", (event) => {
-    if (!(event.metaKey || event.ctrlKey || event.altKey)) return;
-    event.preventDefault();
-    const direction = event.deltaY > 0 ? -1 : 1;
-    setZoom(zoom + direction * 0.06, event.clientX, event.clientY);
-  }, { passive: false });
-
-  let panStart = null;
-  document.addEventListener("pointerdown", (event) => {
-    if (root.classList.contains("an-plan-annotating")) return;
-    if (event.button !== 0) return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest(".board-topbar,.tweaks-panel,.board-frame,.board-card,.board-note,button,input,textarea,a")) return;
-    panStart = {
-      x: event.clientX,
-      y: event.clientY,
-      scrollX: window.scrollX,
-      scrollY: window.scrollY
-    };
-    document.body.classList.add("is-panning");
-    event.preventDefault();
-  });
-
-  document.addEventListener("pointermove", (event) => {
-    if (!panStart) return;
-    window.scrollTo({
-      left: panStart.scrollX + panStart.x - event.clientX,
-      top: panStart.scrollY + panStart.y - event.clientY,
-      behavior: "instant"
-    });
-  });
-
-  document.addEventListener("pointerup", () => {
-    panStart = null;
-    document.body.classList.remove("is-panning");
-  });
-
-  document.addEventListener("pointercancel", () => {
-    panStart = null;
-    document.body.classList.remove("is-panning");
-  });
-
-  setZoom(zoom, 0, 0);
-  setSketchiness(sketchInput ? sketchInput.value : 38);
-  requestAnimationFrame(() => window.scrollTo({ left: 0, top: 0, behavior: "instant" }));
-})();
-`;
-
-const UI_PLAN_CSS = `
-:root { color-scheme: dark; --bg: #050506; --paper: #0b0c0f; --paper-2: #111217; --paper-3: #171920; --line: rgba(255,255,255,.11); --line-strong: rgba(255,255,255,.18); --text: #f4f5f6; --soft: #d3d5db; --muted: #9b9da7; --accent: #00aeef; --accent-soft: rgba(0,174,239,.14); --accent-line: rgba(0,174,239,.45); --shadow: 0 28px 90px rgba(0,0,0,.38); }
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
-.ui-plan { width: min(1500px, calc(100vw - 40px)); margin: 0 auto; padding: 76px 0 96px; }
-.intro { max-width: 980px; }
-.kicker { margin: 0 0 14px; color: var(--accent); text-transform: uppercase; letter-spacing: .18em; font: 800 12px/1.2 inherit; }
-h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: 22px; font-size: clamp(42px, 5vw, 78px); line-height: .98; letter-spacing: -.045em; }
-h2 { margin-bottom: 0; font-size: clamp(30px, 3vw, 48px); line-height: 1.06; letter-spacing: -.036em; }
-h3 { font-size: 20px; line-height: 1.2; letter-spacing: -.018em; }
-.lede { max-width: 900px; margin-bottom: 26px; color: var(--soft); font-size: clamp(20px, 2.1vw, 29px); line-height: 1.38; letter-spacing: -.024em; }
-.plain-bullets { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--muted); }
-.plain-bullets li::marker { color: var(--accent); }
-.source-note { margin: 22px 0 0; color: var(--muted); font-size: 13px; }
-.plan-section { margin-top: 80px; padding-top: 30px; border-top: 1px solid var(--line); scroll-margin-top: 80px; }
-.section-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; margin-bottom: 24px; }
-.section-heading > p { max-width: 620px; margin: 0; color: var(--muted); font-size: 17px; }
-.visual-tabs { display: grid; gap: 18px; }
-.tab-list { display: flex; width: fit-content; max-width: 100%; gap: 6px; margin: 0 auto; padding: 6px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.035); overflow-x: auto; }
-.component-tabs .tab-list { margin: 0; }
-.tab-button { min-height: 36px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--muted); padding: 0 14px; font: 700 13px/34px inherit; white-space: nowrap; cursor: pointer; }
-.tab-button:hover { color: var(--text); background: rgba(255,255,255,.06); }
-.tab-button.is-active { color: #071013; background: #f2f4f5; border-color: rgba(255,255,255,.46); }
+.canvas-helper-note { padding: 18px 20px; background: rgba(255,254,250,.88); font-family: var(--wire-font); }
+.canvas-helper-note strong { display: block; margin-bottom: 10px; font-size: 21px; font-weight: 400; }
+.canvas-helper-note ul { display: grid; gap: 5px; margin: 0 0 12px; padding-left: 19px; }
+.canvas-helper-note p { margin: 0; color: var(--muted); }
+.canvas-helper-note span { color: var(--accent); font-size: 13px; }
+.canvas-helper-note.muted { background: #f5f1e7; color: var(--soft); }
+.notion-plan { width: min(910px, calc(100vw - 44px)); margin: 0 auto; padding: 88px 0 118px; }
+.doc-cover { padding-bottom: 34px; border-bottom: 1px solid var(--line); }
+.doc-kicker { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 760; letter-spacing: 0; text-transform: uppercase; }
+.doc-cover h1 { margin: 0 0 20px; font-size: clamp(42px, 6vw, 72px); line-height: .98; letter-spacing: -.035em; }
+.doc-lede { max-width: 780px; margin: 0; color: var(--soft); font-size: clamp(19px, 2.4vw, 25px); line-height: 1.48; letter-spacing: -.012em; }
+.doc-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+.doc-meta span { display: inline-flex; max-width: 100%; min-height: 26px; align-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 999px; background: var(--paper-soft); color: var(--muted); padding: 0 10px; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.doc-block { padding: 34px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 20px; }
+.doc-block h2 { margin: 0 0 12px; font-size: clamp(25px, 3vw, 34px); line-height: 1.14; letter-spacing: -.024em; }
+.doc-block h3 { margin: 0 0 10px; font-size: 22px; line-height: 1.2; letter-spacing: -.014em; }
+.doc-block > p, .state-notes p, .component-copy p, .file-detail p, .doc-note { color: var(--soft); }
+.doc-note { border-left: 3px solid var(--line-strong); margin: 18px 0 0; padding-left: 14px; }
+.doc-list { display: grid; gap: 12px; margin: 22px 0 0; padding: 0; list-style: none; counter-reset: doc-list; }
+.doc-list li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; counter-increment: doc-list; }
+.doc-list li::before { content: counter(doc-list); display: grid; width: 25px; height: 25px; place-items: center; border-radius: 6px; background: var(--paper-soft); color: var(--muted); font-size: 12px; font-weight: 760; }
+.doc-list strong { display: block; margin-bottom: 2px; }
+.doc-list strong, .doc-list span { grid-column: 2; }
+.doc-list span { display: block; color: var(--soft); }
+.visual-tabs { display: grid; gap: 18px; margin-top: 20px; }
+.tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tab-button { min-height: 38px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 0 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.tab-button:hover { color: var(--ink); background: rgba(35,32,29,.045); }
+.tab-button.is-active { border-color: var(--ink); color: var(--ink); }
 .tab-panel { display: none; }
 .tab-panel.is-active { display: block; }
-.mock-stage { min-height: 760px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 34px; background: #08090b; box-shadow: var(--shadow); padding: 22px; }
-.stage-topbar { height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 18px; padding: 0 12px 0 18px; border: 1px solid var(--line); border-radius: 22px; background: rgba(255,255,255,.035); }
-.brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand-lockup strong { font-size: 14px; }
-.brand-lockup em { color: var(--muted); font-size: 12px; font-style: normal; }
-.app-mark { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 10px; background: linear-gradient(135deg, #eef3f6 0 48%, var(--accent) 49% 100%); }
-.floating-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--line); border-radius: 18px; background: rgba(10,11,13,.92); box-shadow: 0 18px 60px rgba(0,0,0,.3); }
-.floating-toolbar button, .comment-pop button, .bottom-sheet button { min-height: 38px; border: 0; border-radius: 13px; background: transparent; color: var(--soft); padding: 0 13px; font-weight: 800; cursor: pointer; }
-.floating-toolbar .primary, .comment-pop button, .bottom-sheet button { background: #f2f4f5; color: #101114; }
-.stage-grid { display: grid; grid-template-columns: 70px minmax(0, 1fr) 320px; gap: 18px; min-height: 640px; }
-.stage-grid.has-agent { grid-template-columns: 70px minmax(0, 1fr) 420px; }
-.left-rail, .review-panel, .agent-panel { border: 1px solid var(--line); border-radius: 28px; background: rgba(255,255,255,.028); }
-.left-rail { display: grid; align-content: start; gap: 10px; padding: 13px; }
-.left-rail span { width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.045); }
-.left-rail span.active { background: #f0f2f4; box-shadow: inset 0 0 0 13px #f0f2f4, inset 0 0 0 15px var(--accent); }
-.plan-document { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 30px; background: #070809; }
-.document-bar { height: 54px; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
-.document-body { width: min(960px, calc(100% - 72px)); margin: 44px auto 58px; }
-.headline { width: min(760px, 100%); height: 112px; margin-bottom: 28px; border-radius: 22px; background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.72)); }
-.headline.small { height: 52px; width: 72%; }
-.copy-line { height: 12px; width: 68%; margin-bottom: 13px; border-radius: 999px; background: rgba(255,255,255,.13); }
-.copy-line.wide { width: 92%; }
-.copy-line.short { width: 42%; }
-.mockup-row { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; margin-top: 34px; }
-.surface-card { min-height: 250px; padding: 18px; border: 1px solid var(--line); border-radius: 26px; background: rgba(255,255,255,.04); }
-.surface-card.active { border-color: var(--accent-line); background: var(--accent-soft); }
-.surface-card span, .surface-card b, .surface-card i { display: block; border-radius: 999px; background: rgba(255,255,255,.18); }
-.surface-card span { width: 46%; height: 28px; margin-bottom: 20px; }
-.surface-card b { width: 84%; height: 12px; margin-bottom: 12px; }
-.surface-card i { width: 64%; height: 12px; margin-bottom: 12px; }
-.state-caption { max-width: 720px; margin: 24px 0 0; color: var(--muted); font-size: 15px; }
-.pin { position: absolute; left: 57%; top: 39%; width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--accent); color: #031318; font-weight: 900; box-shadow: 0 10px 26px rgba(0,174,239,.38), 0 0 0 3px rgba(255,255,255,.14); }
-.review-panel, .agent-panel { padding: 18px; display: flex; flex-direction: column; gap: 13px; }
-.panel-head { display: flex; justify-content: space-between; align-items: center; color: var(--soft); text-transform: uppercase; letter-spacing: .1em; font-size: 12px; }
-.comment-summary, .chat-bubble { border: 1px solid var(--line); border-radius: 22px; background: rgba(255,255,255,.045); padding: 14px; }
-.comment-summary span { display: inline-flex; min-height: 24px; align-items: center; border-radius: 999px; background: #f2f4f5; color: #101114; padding: 0 9px; font-size: 12px; font-weight: 800; }
-.comment-summary p, .chat-bubble p { margin: 8px 0 0; color: var(--soft); font-size: 14px; }
-.chat-bubble.muted { color: var(--muted); }
-.composer { margin-top: auto; border: 1px solid var(--line-strong); border-radius: 24px; background: rgba(255,255,255,.04); padding: 14px; color: var(--muted); }
-.selection { position: absolute; left: 31%; top: 31%; border-radius: 8px; background: var(--accent); color: #071013; padding: 1px 8px 3px; font-weight: 800; }
-.comment-pop { position: absolute; left: 42%; top: 39%; width: 360px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 24px; background: rgba(17,18,22,.98); box-shadow: var(--shadow); }
-.comment-pop textarea, .bottom-sheet textarea { width: 100%; min-height: 96px; resize: none; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.04); color: var(--text); padding: 12px; }
-.comment-pop button { float: right; margin-top: 10px; }
-.comment-pop textarea[readonly], .bottom-sheet textarea[readonly], .comment-pop button:disabled, .bottom-sheet button:disabled { pointer-events: none; opacity: .72; cursor: default; }
-.draw-toolbar { position: absolute; z-index: 4; left: 50%; top: 82px; transform: translateX(-50%); display: flex; gap: 8px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 20px; background: rgba(18,19,23,.96); box-shadow: var(--shadow); }
-.draw-toolbar i { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.08); }
-.draw-toolbar i.active { border-color: var(--accent); background: var(--accent); }
-.draw-mark { position: absolute; inset: 104px 58px 86px 110px; border: 2px solid var(--accent); border-radius: 28px; background: rgba(0,174,239,.06); box-shadow: 0 0 0 999px rgba(0,0,0,.18); }
-.mobile-stage { display: grid; grid-template-columns: repeat(3, minmax(230px, 1fr)); gap: 22px; min-height: 700px; align-items: center; padding: 28px; border: 1px solid var(--line-strong); border-radius: 34px; background: #08090b; box-shadow: var(--shadow); }
-.phone { height: 630px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 42px; background: #08090a; padding: 12px; box-shadow: var(--shadow); }
-.phone-screen { position: relative; height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 32px; background: #050506; }
-.phone-top { height: 56px; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--line); }
-.phone-body { padding: 28px 18px; }
-.phone-title { height: 78px; margin-bottom: 22px; border-radius: 18px; background: rgba(255,255,255,.82); }
-.mobile-card { height: 190px; margin-top: 28px; border: 1px solid var(--accent-line); border-radius: 22px; background: var(--accent-soft); }
-.selection.mobile { position: static; display: inline-block; margin-top: 10px; }
-.bottom-sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; padding: 16px; border: 1px solid var(--line-strong); border-radius: 28px; background: rgba(18,19,23,.98); }
-.state-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.state-card { min-height: 190px; padding: 18px; border: 1px solid var(--line); border-radius: 24px; background: rgba(255,255,255,.035); }
-.state-card span { display: block; width: 16px; height: 16px; margin-bottom: 22px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 7px var(--accent-soft); }
-.state-card p, .component-copy p, .component-copy li { color: var(--muted); }
-.component-detail { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(300px, .88fr); gap: 20px; }
-.component-mock, .component-copy { min-height: 380px; border: 1px solid var(--line); border-radius: 30px; background: rgba(255,255,255,.03); padding: 26px; }
-.mini-window { overflow: hidden; height: 100%; border: 1px solid var(--line); border-radius: 26px; background: #08090a; }
-.mini-toolbar { height: 58px; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); }
-.mini-toolbar span { width: 38px; height: 38px; border-radius: 14px; background: rgba(255,255,255,.08); }
-.mini-toolbar button { min-height: 38px; border: 0; border-radius: 14px; background: #f2f4f5; color: #101114; padding: 0 14px; font-weight: 800; }
-.mini-body { padding: 28px; }
-.file-map-preview { display: grid; grid-template-columns: minmax(250px, .38fr) minmax(0, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.state-spec { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(280px, .92fr); gap: 28px; align-items: start; }
+.inline-wireframe { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--paper); box-shadow: 0 8px 28px rgba(42,36,28,.06); filter: url(#ui-plan-roughen); }
+.inline-wireframe.is-mobile { max-width: 380px; border-radius: 28px; }
+.wireframe-top { display: flex; height: 34px; align-items: center; gap: 6px; border-bottom: 1px solid var(--line-strong); padding: 0 10px; }
+.wireframe-top span { width: 8px; height: 8px; border: 1px solid var(--line-strong); border-radius: 999px; }
+.wireframe-top strong { margin-left: 8px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font: 400 13px/1 var(--wire-font); }
+.wireframe-body { display: grid; min-height: 330px; grid-template-columns: 92px 1fr; }
+.inline-wireframe.is-mobile .wireframe-body { grid-template-columns: 1fr; }
+.wireframe-body aside { display: grid; align-content: start; gap: 10px; border-right: 1px solid var(--line-strong); padding: 16px; }
+.inline-wireframe.is-mobile aside { display: none; }
+.wireframe-body aside i { height: 22px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper-soft); }
+.wireframe-body aside i.active { border-color: var(--accent); background: var(--accent-soft); }
+.wireframe-body main { padding: 24px; }
+.wireframe-body main b, .wireframe-body main p, .wireframe-grid span { display: block; border-radius: 999px; background: #d8d2c7; }
+.wireframe-body main b { width: 58%; height: 28px; margin-bottom: 20px; }
+.wireframe-body main p { width: 84%; height: 10px; margin-bottom: 11px; }
+.wireframe-body main p.short { width: 46%; }
+.wireframe-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
+.wireframe-grid span { height: 86px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper-soft); }
+.wireframe-grid span.accent { border-color: var(--accent); background: var(--accent-soft); }
+.state-notes { display: grid; gap: 14px; }
+details { border-top: 1px solid var(--line); padding-top: 12px; }
+summary { color: var(--ink); font-weight: 720; cursor: pointer; }
+details ul { margin: 12px 0 0; padding-left: 18px; color: var(--soft); }
+.sketch-flow-diagram { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-soft); padding: 22px; font-family: var(--wire-font); filter: url(#ui-plan-roughen); }
+.diagram-step { display: flex; align-items: center; gap: 14px; }
+.diagram-node { min-width: 148px; border: 1.5px solid rgba(43,39,34,.72); border-radius: 8px; background: var(--paper); padding: 12px 14px; }
+.diagram-node span { display: inline-grid; width: 22px; height: 22px; place-items: center; margin-right: 8px; border-radius: 999px; background: var(--accent); color: #fff; font-family: var(--doc-font); font-size: 12px; font-weight: 800; }
+.diagram-node strong { font-weight: 400; }
+.diagram-arrow { color: var(--accent); font-size: 28px; }
+.component-spec { display: grid; grid-template-columns: minmax(0, .9fr) minmax(260px, 1.1fr); gap: 28px; align-items: center; }
+.component-mini-spec { display: grid; grid-template-columns: 1fr 1fr auto; gap: 11px; align-items: center; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--paper); padding: 20px; min-height: 180px; filter: url(#ui-plan-roughen); }
+.component-mini-spec span, .component-mini-spec i { min-height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-soft); }
+.component-mini-spec button { min-height: 34px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; padding: 0 14px; font-weight: 760; }
+.component-mini-spec i { grid-column: span 3; min-height: 52px; }
+.file-map-preview { display: grid; grid-template-columns: minmax(220px, .36fr) minmax(0, 1fr); margin-top: 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .file-list { border-right: 1px solid var(--line); }
-.file-tab { width: 100%; display: grid; gap: 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--muted); padding: 16px; text-align: left; }
-.file-tab:hover { color: var(--text); background: rgba(255,255,255,.035); cursor: pointer; }
-.file-tab.is-active { color: var(--text); background: var(--paper-2); box-shadow: inset 3px 0 0 var(--accent); }
-.file-tab strong { font: 750 15px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-.file-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-tab { display: grid; width: 100%; gap: 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--muted); padding: 16px 14px; text-align: left; cursor: pointer; }
+.file-tab:hover { background: rgba(35,32,29,.045); color: var(--ink); }
+.file-tab.is-active { color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
+.file-tab strong { font: 760 13px/1.25 var(--mono-font); }
+.file-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .file-panels { min-width: 0; }
-.file-detail { min-width: 0; padding: 26px; }
-.file-detail p { color: var(--soft); }
-pre { margin: 18px 0 0; overflow: auto; border: 1px solid var(--line); border-radius: 22px; background: #070809; padding: 20px 22px; color: #dfe2e7; font: 13px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-.syntax-keyword { color: #68c8ff; }
-.syntax-string { color: #96e39f; }
-@media (max-width: 1080px) { .state-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stage-grid, .stage-grid.has-agent { grid-template-columns: 58px minmax(0, 1fr); } .review-panel, .agent-panel { display: none; } .component-detail, .mockup-row, .file-map-preview { grid-template-columns: 1fr; } .mobile-stage { grid-template-columns: 1fr; } .phone { width: min(360px, 100%); margin: 0 auto; } }
-@media (max-width: 720px) { .ui-plan { width: min(100vw - 24px, 1500px); padding-top: 48px; } .section-heading { display: block; } .state-grid { grid-template-columns: 1fr; } .mock-stage { min-height: auto; padding: 12px; } .document-body { width: calc(100% - 28px); margin: 28px auto; } .floating-toolbar { max-width: 100%; overflow-x: auto; } }
+.file-detail { min-width: 0; padding: 22px 24px; }
+pre { margin: 18px 0 0; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #f6f5f1; padding: 18px 20px; color: #2d2925; font: 13px/1.65 var(--mono-font); }
+.syntax-keyword { color: #0b67d2; }
+.syntax-string { color: #2f7d45; }
+.doc-table { width: 100%; margin-top: 16px; border-collapse: collapse; font-size: 14px; }
+.doc-table th, .doc-table td { border-bottom: 1px solid var(--line); padding: 12px 10px; text-align: left; vertical-align: top; }
+.doc-table th { color: var(--muted); font-size: 12px; font-weight: 760; text-transform: uppercase; letter-spacing: 0; }
+.doc-table td { color: var(--soft); }
+.doc-table td:first-child { color: var(--ink); font-weight: 720; }
+@media (max-width: 900px) {
+  .top-canvas-section { min-height: 620px; }
+  .notion-plan { width: min(100vw - 28px, 910px); padding-top: 58px; }
+  .state-spec, .component-spec, .file-map-preview { grid-template-columns: 1fr; }
+  .file-list { border-right: 0; }
+  .doc-cover h1 { font-size: clamp(38px, 10vw, 56px); }
+}
+@media (max-width: 620px) {
+  .canvas-toolbar { align-items: flex-start; flex-direction: column; }
+  .canvas-viewport { top: 98px; }
+  .wireframe-body { grid-template-columns: 1fr; }
+  .wireframe-body aside { display: none; }
+  .sketch-flow-diagram { align-items: stretch; flex-direction: column; }
+  .diagram-step { align-items: stretch; flex-direction: column; }
+  .diagram-arrow { transform: rotate(90deg); width: fit-content; margin-left: 24px; }
+}
 `;
