@@ -52,8 +52,35 @@ describe("AgentConversationMessageView", () => {
     });
 
     expect(container.textContent).toMatch(
-      /Before tool\.\s*list_files\s*finished\s*After tool\./,
+      /Before tool\.\s*list files\s*finished\s*After tool\./,
     );
+  });
+
+  it("humanizes running tool names", () => {
+    act(() => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-1",
+                type: "tool",
+                tool: {
+                  id: "tool-1",
+                  name: "generate-design",
+                  state: "running",
+                },
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.textContent).not.toContain("generate-design");
   });
 
   it("opens markdown links in a new external window", () => {

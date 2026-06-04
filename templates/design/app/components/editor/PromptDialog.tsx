@@ -9,10 +9,28 @@ import {
   PromptComposer,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
-import { IconPhoto, IconX } from "@tabler/icons-react";
+import {
+  IconPalette,
+  IconPhoto,
+  IconPlus,
+  IconUpload,
+  IconX,
+} from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export interface UploadedFile {
   path: string;
@@ -98,6 +116,18 @@ interface PromptPopoverProps {
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  designSystems?: PromptDesignSystemOption[];
+  designSystemsLoading?: boolean;
+  selectedDesignSystemId?: string | null;
+  onDesignSystemChange?: (id: string | null) => void;
+  onCreateDesignSystem?: () => void;
+}
+
+export interface PromptDesignSystemOption {
+  id: string;
+  title: string;
+  description?: string | null;
+  isDefault?: boolean;
 }
 
 export default function PromptPopover({
@@ -111,9 +141,15 @@ export default function PromptPopover({
   loading = false,
   anchorRef,
   centered = false,
+  designSystems = [],
+  designSystemsLoading = false,
+  selectedDesignSystemId,
+  onDesignSystemChange,
+  onCreateDesignSystem,
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
+  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +157,7 @@ export default function PromptPopover({
     if (open) return;
     setAssetsPickerOpen(false);
     setPickedAssets([]);
+    setSelectedUploadFiles([]);
   }, [open]);
 
   // Position the popover after render so we can measure its actual size
@@ -220,16 +257,17 @@ export default function PromptPopover({
       options: PromptComposerSubmitOptions,
     ) => {
       try {
-        const uploaded = await uploadFiles(files);
+        const uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
         onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
         setPickedAssets([]);
+        setSelectedUploadFiles([]);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to upload file",
         );
       }
     },
-    [onSubmit, pickedAssets, uploadFiles],
+    [onSubmit, pickedAssets, selectedUploadFiles, uploadFiles],
   );
 
   const handleAssetsPickerReady = useCallback(
@@ -281,6 +319,12 @@ export default function PromptPopover({
     );
   }, []);
 
+  const removeSelectedUploadFile = useCallback((index: number) => {
+    setSelectedUploadFiles((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index),
+    );
+  }, []);
+
   if (!open) return null;
 
   const popover = (
@@ -309,38 +353,106 @@ export default function PromptPopover({
             disabled={loading || uploading}
             placeholder={placeholder}
             onSubmit={handleSubmit}
+            attachButton={
+              <PromptAttachmentMenu
+                disabled={loading || uploading}
+                onUploadFiles={(files) =>
+                  setSelectedUploadFiles((current) => [...current, ...files])
+                }
+                onPickAsset={() => setAssetsPickerOpen(true)}
+              />
+            }
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-border px-2 py-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={loading || uploading}
-            onClick={() => setAssetsPickerOpen(true)}
-          >
-            <IconPhoto className="h-4 w-4" />
-            Assets
-          </Button>
-          {pickedAssets.map((asset) => (
-            <span
-              key={asset.path}
-              className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-            >
-              <span className="truncate">{asset.originalName}</span>
-              <button
+        {(onDesignSystemChange || onCreateDesignSystem) && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <IconPalette className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {designSystems.length > 0 ? (
+                <Select
+                  value={selectedDesignSystemId ?? "none"}
+                  onValueChange={(value) =>
+                    onDesignSystemChange?.(value === "none" ? null : value)
+                  }
+                  disabled={designSystemsLoading}
+                >
+                  <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
+                    <SelectValue placeholder="Design system" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-xs">
+                      No design system
+                    </SelectItem>
+                    {designSystems.map((system) => (
+                      <SelectItem
+                        key={system.id}
+                        value={system.id}
+                        className="text-xs"
+                      >
+                        {system.title}
+                        {system.isDefault ? " (default)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                  No design system
+                </span>
+              )}
+            </div>
+            {onCreateDesignSystem && (
+              <Button
                 type="button"
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                aria-label={`Remove ${asset.originalName}`}
-                onClick={() => removePickedAsset(asset.path)}
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0"
+                onClick={onCreateDesignSystem}
               >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
-            </span>
-          ))}
-        </div>
+                <IconPlus className="h-3.5 w-3.5" />
+                New
+              </Button>
+            )}
+          </div>
+        )}
+
+        {(selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
+            {selectedUploadFiles.map((file, index) => (
+              <span
+                key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
+                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+              >
+                <span className="truncate">{file.name}</span>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => removeSelectedUploadFile(index)}
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+            {pickedAssets.map((asset) => (
+              <span
+                key={asset.path}
+                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+              >
+                <span className="truncate">{asset.originalName}</span>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                  aria-label={`Remove ${asset.originalName}`}
+                  onClick={() => removePickedAsset(asset.path)}
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         {onSkip && (
           <div className="flex justify-end border-t border-border px-3.5 py-2">
@@ -379,4 +491,83 @@ export default function PromptPopover({
   );
 
   return createPortal(popover, document.body);
+}
+
+function PromptAttachmentMenu({
+  disabled,
+  onUploadFiles,
+  onPickAsset,
+}: {
+  disabled?: boolean;
+  onUploadFiles: (files: File[]) => void;
+  onPickAsset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          onUploadFiles(Array.from(event.target.files ?? []));
+          event.target.value = "";
+          setOpen(false);
+        }}
+      />
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+          aria-label="Add"
+        >
+          <IconPlus className="h-4 w-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        data-agent-native-composer-popover
+        className="w-52 p-1"
+      >
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
+          onClick={() => inputRef.current?.click()}
+        >
+          <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
+          <span>
+            <span className="block font-medium text-foreground">
+              Upload file
+            </span>
+            <span className="block text-[10px] text-muted-foreground">
+              Images, PDFs, text/code
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
+          onClick={() => {
+            setOpen(false);
+            onPickAsset();
+          }}
+        >
+          <IconPhoto className="h-3.5 w-3.5 text-muted-foreground" />
+          <span>
+            <span className="block font-medium text-foreground">
+              Pick asset
+            </span>
+            <span className="block text-[10px] text-muted-foreground">
+              Browse or generate images
+            </span>
+          </span>
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
 }

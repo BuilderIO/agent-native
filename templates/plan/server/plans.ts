@@ -310,7 +310,10 @@ function inferSectionType(title: string, body: string) {
   ) {
     return "implementation" as const;
   }
-  if (/\b(wireframe|mockup|screen|ui|layout|prototype)\b/.test(text)) {
+  if (/\b(mockup|screen|ui|layout)\b/.test(text)) {
+    return "mockup" as const;
+  }
+  if (/\b(wireframe|prototype)\b/.test(text)) {
     return "wireframe" as const;
   }
   if (/\b(flow|architecture|diagram|state|data)\b/.test(text)) {
@@ -377,7 +380,7 @@ function renderSectionHtml(section: PlanSection, repoPath?: string | null) {
     custom ||
     (section.type === "implementation"
       ? renderImplementationMapHtml(section.body, repoPath)
-      : section.type === "wireframe"
+      : section.type === "wireframe" || section.type === "mockup"
         ? renderWireframeHtml(section.title)
         : section.type === "diagram"
           ? renderFlowHtml(section.title)

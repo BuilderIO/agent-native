@@ -734,7 +734,7 @@ Usage:
                                 fallback.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
-  agent-native skills add assets|design-exploration
+  agent-native skills add assets|design-exploration|plans|visual-plan|ui-plan|visualize-plan
                                 Install app skill instructions and MCP in one step
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.

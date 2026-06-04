@@ -17,11 +17,20 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const [navigation, showQuestions, designVariants] = await Promise.all([
+    const [navigation, designVariants] = await Promise.all([
       readAppState("navigation"),
-      readAppState("show-questions"),
       readAppState("design-variants"),
     ]);
+    const designId =
+      navigation &&
+      typeof navigation === "object" &&
+      typeof (navigation as { designId?: unknown }).designId === "string"
+        ? (navigation as { designId: string }).designId
+        : undefined;
+    const showQuestions =
+      (designId
+        ? await readAppState(`show-questions:${designId}`)
+        : undefined) ?? (await readAppState("show-questions"));
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;

@@ -18,15 +18,23 @@ export function useReconciledState<T>(
   const eq = equals ?? Object.is;
   const [local, setLocal] = useState<T>(externalValue);
   const prevExternalRef = useRef<T>(externalValue);
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  const skippedExternalRef = useRef(false);
 
   useEffect(() => {
-    if (eq(prevExternalRef.current, externalValue)) return;
-    prevExternalRef.current = externalValue;
+    const externalChanged = !eq(prevExternalRef.current, externalValue);
+    if (externalChanged) {
+      prevExternalRef.current = externalValue;
+    }
     // Adopt the new authoritative value unless the user is mid-edit.
-    if (!activeRef.current) setLocal(externalValue);
-  }, [externalValue]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (active) {
+      if (externalChanged) skippedExternalRef.current = true;
+      return;
+    }
+    if (externalChanged || skippedExternalRef.current) {
+      skippedExternalRef.current = false;
+      setLocal(externalValue);
+    }
+  }, [externalValue, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return [local, setLocal, { external: externalValue }];
 }

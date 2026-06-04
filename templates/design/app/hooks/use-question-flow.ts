@@ -1,13 +1,34 @@
-import { useGuidedQuestionFlow } from "@agent-native/core/client";
+import { useCallback } from "react";
+import {
+  formatGuidedAnswersForAgent,
+  sendToAgentChat,
+  useGuidedQuestionFlow,
+  type GuidedQuestionAnswers,
+} from "@agent-native/core/client";
+
+interface UseQuestionFlowOptions {
+  continuationTabId?: string | null;
+  onContinue?: (tabId: string) => void;
+}
+
+function designQuestionsStateKey(designId: string | undefined): string {
+  return designId ? `show-questions:${designId}` : "show-questions";
+}
 
 /**
- * Polls `application-state/show-questions`. When the agent writes structured
- * questions, the editor surfaces a full-canvas overlay (Claude Design-style:
- * questions appear before generation begins). On submit, answers are formatted
- * and posted back to the agent chat; on skip, the agent is told to proceed.
+ * Polls design-scoped question state. When the agent writes structured
+ * questions, the editor surfaces a full-canvas overlay for only this design.
+ * On submit, answers are formatted and posted back to the agent chat; on skip,
+ * the agent is told to proceed.
  */
-export function useQuestionFlow(designId: string | undefined) {
-  return useGuidedQuestionFlow({
+export function useQuestionFlow(
+  designId: string | undefined,
+  { continuationTabId, onContinue }: UseQuestionFlowOptions = {},
+) {
+  const stateKey = designQuestionsStateKey(designId);
+  const flow = useGuidedQuestionFlow({
+    stateKey,
+    queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",
     skipMessage: "Skip the questions — decide for me.",
     buildSubmitContext: ({ formattedAnswers }) =>
@@ -19,14 +40,67 @@ export function useQuestionFlow(designId: string | undefined) {
         formattedAnswers,
         "",
         designId
-          ? "Now generate three variations of the design. Use the variants tool: write to application-state/design-variants with three candidate { id, label, content } entries; the user will pick one. Do NOT call generate-design directly until the user picks a variant."
-          : "Now generate three variations of the design.",
+          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 complete HTML directions and wait for their pick; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
+          : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
       ]
         .filter(Boolean)
         .join("\n"),
     buildSkipContext: () =>
       designId
-        ? `The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults and generate three variations.`
-        : "The user skipped the pre-generation questions. Proceed with reasonable defaults and generate three variations.",
+        ? `The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.`
+        : "The user skipped the pre-generation questions. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.",
   });
+
+  const sendContinuation = useCallback(
+    (message: string, context?: string) => {
+      const tabId = sendToAgentChat({
+        message,
+        context,
+        submit: true,
+        ...(continuationTabId
+          ? { tabId: continuationTabId, newTab: true }
+          : {}),
+      });
+      onContinue?.(tabId);
+      flow.clear();
+    },
+    [continuationTabId, flow, onContinue],
+  );
+
+  const handleSubmit = useCallback(
+    (answers: GuidedQuestionAnswers) => {
+      const formattedAnswers = formatGuidedAnswersForAgent(answers);
+      const context = [
+        "The user answered the pre-generation questions.",
+        designId ? `Design ID: ${designId}` : "",
+        "",
+        "Answers:",
+        formattedAnswers,
+        "",
+        designId
+          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 complete HTML directions and wait for their pick; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
+          : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      sendContinuation("Here are my answers — go ahead.", context);
+    },
+    [designId, sendContinuation],
+  );
+
+  const handleSkip = useCallback(() => {
+    sendContinuation(
+      "Skip the questions — decide for me.",
+      designId
+        ? `The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.`
+        : "The user skipped the pre-generation questions. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.",
+    );
+  }, [designId, sendContinuation]);
+
+  return {
+    ...flow,
+    handleSubmit,
+    handleSkip,
+  };
 }

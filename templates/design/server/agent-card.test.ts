@@ -12,6 +12,7 @@ const projectRoot = path.resolve(
 
 const REQUIRED_DESIGN_ACTIONS = [
   "create-design",
+  "show-design-questions",
   "generate-design",
   "get-design",
   "list-designs",

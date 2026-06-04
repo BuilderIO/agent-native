@@ -251,6 +251,49 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
+
+  it("keeps a chat mounted when scoped navigation has no saved open tabs", async () => {
+    let tabs: Array<{ id: string }> = [];
+    const renderHeader = (props: { tabs: Array<{ id: string }> }) => {
+      tabs = props.tabs;
+      return null;
+    };
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="scope-reset-test"
+          renderHeader={renderHeader}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(tabs.map((tab) => tab.id)).toEqual(["thread-1"]);
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="scope-reset-test"
+          scope={{ type: "design", id: "design-1", label: "QA Smoke" }}
+          renderHeader={renderHeader}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(tabs.map((tab) => tab.id)).toEqual(["thread-1"]);
+    expect(
+      container.querySelectorAll("[data-testid='assistant-chat']"),
+    ).toHaveLength(1);
+  });
 });
 
 describe("MultiTabAssistantChat agent-team tabs", () => {

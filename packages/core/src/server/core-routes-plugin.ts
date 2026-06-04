@@ -585,8 +585,8 @@ export function createCoreRoutesPlugin(
 
       // Security response headers — emitted on every framework response.
       // Mounted before route handlers so 4xx/5xx error pages also carry the
-      // headers. Routes that need to relax a specific header (e.g. the tools
-      // /render route allowing same-origin framing) override via setResponseHeader.
+      // headers. Routes that need to tighten a specific header override via
+      // setResponseHeader.
       const { createSecurityHeadersMiddleware } =
         await import("./security-headers.js");
       getH3App(nitroApp).use(createSecurityHeadersMiddleware());

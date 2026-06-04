@@ -238,6 +238,45 @@ export function useChatThreads(
     [],
   );
 
+  // Add a client-generated thread to the local list optimistically.
+  //
+  // Critically, this does NOT `POST /threads` to the server — that path was
+  // creating an empty row in `chat_threads` (message_count=0, no
+  // agent_runs) on every page mount and every "+" click. The server
+  // already creates the row idempotently the moment the user actually
+  // sends their first message (`persistSubmittedUserMessage` →
+  // `createThread`), so the client doesn't need to pre-create it. This
+  // makes the threads table reflect real conversations only.
+  const addOptimisticThread = useCallback(
+    (
+      id: string,
+      threadScope: ChatThreadScope | null,
+      // When reviving a tab the user left open in a prior session, pass the
+      // persisted last-seen time so the 12h stale-tab cleanup can still age
+      // it out. Omit for genuinely new tabs (defaults to now).
+      seedAt?: number,
+    ) => {
+      const stamp =
+        typeof seedAt === "number" && Number.isFinite(seedAt)
+          ? seedAt
+          : Date.now();
+      const optimistic: ChatThreadSummary = {
+        id,
+        title: "",
+        preview: "",
+        messageCount: 0,
+        createdAt: stamp,
+        updatedAt: stamp,
+        scope: threadScope,
+      };
+      optimisticThreadScopesRef.current.set(id, threadScope);
+      setThreads((prev) =>
+        prev.some((t) => t.id === id) ? prev : [optimistic, ...prev],
+      );
+    },
+    [],
+  );
+
   // Seed the active thread synchronously so the chat shell can paint
   // immediately. This may restore the saved id or create a local-only fresh id,
   // depending on options. Creating a local id is safe: no row is POSTed here,
@@ -276,11 +315,18 @@ export function useChatThreads(
         }
       }
       persistedKeyRef.current = activeThreadKey;
+      let nextActiveThreadId: string | null = null;
       try {
-        setActiveThreadId(localStorage.getItem(activeThreadKey));
+        nextActiveThreadId = localStorage.getItem(activeThreadKey);
       } catch {
-        setActiveThreadId(null);
+        nextActiveThreadId = null;
       }
+      if (!nextActiveThreadId && autoCreate) {
+        nextActiveThreadId = createLocalThreadId();
+        newlyCreatedRef.current.add(nextActiveThreadId);
+        addOptimisticThread(nextActiveThreadId, scopeRef.current ?? null);
+      }
+      setActiveThreadId(nextActiveThreadId);
       return;
     }
     try {
@@ -302,6 +348,8 @@ export function useChatThreads(
     activeThreadId,
     activeThreadKey,
     activeThreadSeenKey,
+    addOptimisticThread,
+    autoCreate,
     readKnownThreadScope,
     storageKey,
     threads,
@@ -367,45 +415,6 @@ export function useChatThreads(
       return undefined;
     }
   }, [apiUrl]);
-
-  // Add a client-generated thread to the local list optimistically.
-  //
-  // Critically, this does NOT `POST /threads` to the server — that path was
-  // creating an empty row in `chat_threads` (message_count=0, no
-  // agent_runs) on every page mount and every "+" click. The server
-  // already creates the row idempotently the moment the user actually
-  // sends their first message (`persistSubmittedUserMessage` →
-  // `createThread`), so the client doesn't need to pre-create it. This
-  // makes the threads table reflect real conversations only.
-  const addOptimisticThread = useCallback(
-    (
-      id: string,
-      threadScope: ChatThreadScope | null,
-      // When reviving a tab the user left open in a prior session, pass the
-      // persisted last-seen time so the 12h stale-tab cleanup can still age
-      // it out. Omit for genuinely new tabs (defaults to now).
-      seedAt?: number,
-    ) => {
-      const stamp =
-        typeof seedAt === "number" && Number.isFinite(seedAt)
-          ? seedAt
-          : Date.now();
-      const optimistic: ChatThreadSummary = {
-        id,
-        title: "",
-        preview: "",
-        messageCount: 0,
-        createdAt: stamp,
-        updatedAt: stamp,
-        scope: threadScope,
-      };
-      optimisticThreadScopesRef.current.set(id, threadScope);
-      setThreads((prev) =>
-        prev.some((t) => t.id === id) ? prev : [optimistic, ...prev],
-      );
-    },
-    [],
-  );
 
   // Initial load: load threads from server, then reconcile against the
   // saved active thread.

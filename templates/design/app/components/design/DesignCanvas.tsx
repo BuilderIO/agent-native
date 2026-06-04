@@ -344,6 +344,10 @@ interface DesignCanvasProps {
   designId?: string;
   /** Human-readable label for the design (used in agent prompt). */
   designTitle?: string;
+  /** Stable id for comment pins, usually scoped to the active screen. */
+  commentContextId?: string;
+  /** Human-readable label for comment-pin prompts. */
+  commentContextLabel?: string;
   /**
    * Called when a link inside the prototype points to another screen (a
    * relative href or `data-screen`). Lets the editor switch the active screen
@@ -368,6 +372,8 @@ export function DesignCanvas({
   onExitPinMode,
   designId,
   designTitle,
+  commentContextId,
+  commentContextLabel,
   onPrototypeNavigate,
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -645,8 +651,10 @@ export function DesignCanvas({
         active={!!pinMode}
         onClose={() => onExitPinMode?.()}
         canvasSelector=".design-canvas-iframe-wrapper"
-        contextId={designId || "design"}
-        contextLabel={designTitle || designId || "design"}
+        contextId={commentContextId || designId || "design"}
+        contextLabel={
+          commentContextLabel || designTitle || commentContextId || designId
+        }
       />
     </div>
   );

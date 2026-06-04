@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
 import { nanoid } from "nanoid";
 import {
-  IconCheckbox,
   IconChecks,
   IconPlus,
   IconPalette,
@@ -39,6 +38,7 @@ import {
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -73,11 +73,13 @@ export default function Index() {
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const [newDesignSystemId, setNewDesignSystemId] = useState<
+    string | null | undefined
+  >(undefined);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -95,6 +97,11 @@ export default function Index() {
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
+  const {
+    designSystems,
+    defaultSystem,
+    isLoading: designSystemsLoading,
+  } = useDesignSystems();
 
   const designs = designsData?.designs ?? [];
 
@@ -106,26 +113,46 @@ export default function Index() {
       )
     : designs;
   const selectedDesignCount = selectedDesignIds.size;
+  const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
     filtered.length > 0 &&
     filtered.every((design) => selectedDesignIds.has(design.id));
 
-  const openNewDesign = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    anchorElRef.current = e.currentTarget;
-    setShowNewPrompt(true);
+  const resolveDefaultDesignSystemId = useCallback(
+    () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
+    [defaultSystem?.id, designSystems],
+  );
+
+  const openNewDesign = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      anchorElRef.current = e.currentTarget;
+      setNewDesignSystemId(
+        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
+      );
+      setShowNewPrompt(true);
+    },
+    [designSystemsLoading, resolveDefaultDesignSystemId],
+  );
+
+  const handleNewPromptOpenChange = useCallback((open: boolean) => {
+    setShowNewPrompt(open);
+    if (!open) setNewDesignSystemId(undefined);
   }, []);
 
-  const toggleSelectionMode = useCallback(() => {
-    if (isSelectionMode) {
-      setSelectedDesignIds(new Set());
-    }
-    setIsSelectionMode((current) => !current);
-  }, [isSelectionMode]);
-
-  const exitSelectionMode = useCallback(() => {
-    setIsSelectionMode(false);
-    setSelectedDesignIds(new Set());
-  }, []);
+  useEffect(() => {
+    if (
+      !showNewPrompt ||
+      newDesignSystemId !== undefined ||
+      designSystemsLoading
+    )
+      return;
+    setNewDesignSystemId(resolveDefaultDesignSystemId());
+  }, [
+    designSystemsLoading,
+    newDesignSystemId,
+    resolveDefaultDesignSystemId,
+    showNewPrompt,
+  ]);
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -162,10 +189,14 @@ export default function Index() {
   }, []);
 
   const createDesign = useCallback(
-    (title: string): { id: string; title: string } => {
+    (
+      title: string,
+      designSystemId?: string | null,
+    ): { id: string; title: string } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
       const finalTitle = title.trim() || "Untitled Design";
+      const linkedDesignSystemId = designSystemId ?? null;
 
       // Optimistic update
       queryClient.setQueryData(
@@ -175,7 +206,7 @@ export default function Index() {
             id,
             title: finalTitle,
             projectType,
-            designSystemId: null,
+            designSystemId: linkedDesignSystemId,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -192,6 +223,9 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
+          ...(linkedDesignSystemId
+            ? { designSystemId: linkedDesignSystemId }
+            : {}),
         } as any)
         .catch(() => {
           clearPendingGeneration(id);
@@ -204,12 +238,6 @@ export default function Index() {
     [queryClient, createMutation],
   );
 
-  const handleSkipPrompt = useCallback(() => {
-    const { id } = createDesign("Untitled Design");
-    setShowNewPrompt(false);
-    navigate(`/design/${id}`);
-  }, [createDesign, navigate]);
-
   const handleSubmitPrompt = useCallback(
     (
       prompt: string,
@@ -220,15 +248,25 @@ export default function Index() {
       // word-boundary truncated. The full prompt still drives generation;
       // the title is just a label, so longer is worse.
       const derivedTitle = derivePromptTitle(prompt);
+      const designSystemId =
+        newDesignSystemId === undefined
+          ? resolveDefaultDesignSystemId()
+          : newDesignSystemId;
 
-      const { id, title } = createDesign(derivedTitle);
+      const { id, title } = createDesign(derivedTitle, designSystemId);
 
-      writePendingGeneration(id, { prompt, files, title, ...options });
+      writePendingGeneration(id, {
+        prompt,
+        files,
+        title,
+        designSystemId,
+        ...options,
+      });
 
       setShowNewPrompt(false);
       navigate(`/design/${id}`);
     },
-    [createDesign, navigate],
+    [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
   );
 
   const handleDelete = useCallback(() => {
@@ -275,7 +313,7 @@ export default function Index() {
     );
 
     setBulkDeleteOpen(false);
-    exitSelectionMode();
+    setSelectedDesignIds(new Set());
 
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
       .then(() => undefined)
@@ -284,7 +322,7 @@ export default function Index() {
           queryKey: ["action", "list-designs"],
         });
       });
-  }, [selectedDesignIds, queryClient, exitSelectionMode, deleteMutation]);
+  }, [selectedDesignIds, queryClient, deleteMutation]);
 
   const handleDuplicate = useCallback(
     (id: string) => {
@@ -370,17 +408,6 @@ export default function Index() {
           />
         </div>
       ) : null}
-      {designs.length > 0 ? (
-        <Button
-          variant={isSelectionMode ? "secondary" : "ghost"}
-          size="sm"
-          onClick={toggleSelectionMode}
-          className="cursor-pointer"
-        >
-          <IconCheckbox className="w-3.5 h-3.5" />
-          {isSelectionMode ? "Done" : "Select"}
-        </Button>
-      ) : null}
       <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
         <IconPlus className="w-3.5 h-3.5" />
         New Design
@@ -400,8 +427,8 @@ export default function Index() {
           />
         ) : (
           <>
-            {isSelectionMode ? (
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+            {isSelectingDesigns ? (
+              <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
                 <div className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">
                     {selectedDesignCount}
@@ -415,6 +442,11 @@ export default function Index() {
                         variant="ghost"
                         size="icon"
                         onClick={toggleVisibleSelection}
+                        aria-label={
+                          allVisibleSelected
+                            ? "Clear visible selection"
+                            : "Select visible designs"
+                        }
                         className="h-8 w-8 cursor-pointer"
                       >
                         <IconChecks className="w-4 h-4" />
@@ -432,6 +464,7 @@ export default function Index() {
                         variant="ghost"
                         size="icon"
                         onClick={clearSelection}
+                        aria-label="Clear selection"
                         className="h-8 w-8 cursor-pointer"
                       >
                         <IconX className="w-4 h-4" />
@@ -443,7 +476,6 @@ export default function Index() {
                     variant="destructive"
                     size="sm"
                     onClick={() => setBulkDeleteOpen(true)}
-                    disabled={selectedDesignCount === 0}
                     className="cursor-pointer"
                   >
                     <IconTrash className="w-3.5 h-3.5" />
@@ -504,76 +536,69 @@ export default function Index() {
                         : "border-border"
                     }`}
                   >
-                    {isSelectionMode ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => toggleDesignSelection(design.id)}
-                          className="block w-full text-left cursor-pointer"
-                        >
-                          {cardContent}
-                        </button>
-                        <div className="absolute top-2 left-2 z-10">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() =>
-                                  toggleDesignSelection(design.id)
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                                aria-label={`Select ${design.title}`}
-                                className="h-5 w-5 border-white/60 bg-black/60 text-white data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>{`Select ${design.title}`}</TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <Link to={`/design/${design.id}`} className="block">
-                          {cardContent}
-                        </Link>
-                        {/* Three-dot menu */}
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
-                              >
-                                <IconDots className="w-3.5 h-3.5 text-foreground/70" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => startRename(design)}
-                                className="cursor-pointer"
-                              >
-                                <IconPencil className="w-3.5 h-3.5 mr-2" />
-                                Rename
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleDuplicate(design.id)}
-                                className="cursor-pointer"
-                              >
-                                <IconCopy className="w-3.5 h-3.5 mr-2" />
-                                Duplicate
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => setDeleteId(design.id)}
-                                className="text-red-400 focus:text-red-400 cursor-pointer"
-                              >
-                                <IconTrash className="w-3.5 h-3.5 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </>
-                    )}
+                    <Link to={`/design/${design.id}`} className="block">
+                      {cardContent}
+                    </Link>
+                    <div
+                      className={`absolute left-2 top-2 z-10 transition-opacity ${
+                        isSelected || isSelectingDesigns
+                          ? "pointer-events-auto opacity-100"
+                          : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                      }`}
+                    >
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() =>
+                              toggleDesignSelection(design.id)
+                            }
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label={`Select ${design.title}`}
+                            className="h-5 w-5 border-white/70 bg-black/65 text-white shadow-sm data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>{`Select ${design.title}`}</TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {/* Three-dot menu */}
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Actions for ${design.title}`}
+                            className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                          >
+                            <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => startRename(design)}
+                            className="cursor-pointer"
+                          >
+                            <IconPencil className="w-3.5 h-3.5 mr-2" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDuplicate(design.id)}
+                            className="cursor-pointer"
+                          >
+                            <IconCopy className="w-3.5 h-3.5 mr-2" />
+                            Duplicate
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setDeleteId(design.id)}
+                            className="text-red-400 focus:text-red-400 cursor-pointer"
+                          >
+                            <IconTrash className="w-3.5 h-3.5 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 );
               })}
@@ -584,13 +609,19 @@ export default function Index() {
 
       <PromptPopover
         open={showNewPrompt}
-        onOpenChange={setShowNewPrompt}
+        onOpenChange={handleNewPromptOpenChange}
         title="New design"
         placeholder="Describe what you want to build..."
-        onSkip={handleSkipPrompt}
-        skipLabel="Skip prompt"
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
+        designSystems={designSystems}
+        designSystemsLoading={designSystemsLoading}
+        selectedDesignSystemId={newDesignSystemId ?? null}
+        onDesignSystemChange={setNewDesignSystemId}
+        onCreateDesignSystem={() => {
+          handleNewPromptOpenChange(false);
+          navigate("/design-systems/setup");
+        }}
       />
 
       {/* Delete Confirmation */}

@@ -7,13 +7,18 @@ const targetName = process.argv[2];
 const repoRoot = process.cwd();
 
 const retiredTargets = new Set([
+  "calls",
+  "code",
   "contracts",
   "images",
   "issues",
   "meeting-notes",
+  "migration",
   "recruiting",
   "scheduling",
+  "visual-plans",
   "voice",
+  "workbench",
 ]);
 
 const globalPaths = [

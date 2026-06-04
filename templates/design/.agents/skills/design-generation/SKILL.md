@@ -78,12 +78,13 @@ application state. External MCP hosts should surface the `create-design`
 returned "Open design" link, then use `present-design-variants` to open the
 visual picker.
 
-Then, for any non-trivial first prompt, write `application-state/show-questions` BEFORE generating. The editor renders a full-canvas overlay; answers come back as a chat message. Skip the questions only when the prompt is unambiguous ("re-skin this with my brand colors") or the user said "decide for me".
+Then, for any non-trivial first prompt, call `show-design-questions` BEFORE generating. The editor renders a full-canvas overlay; answers come back as a chat message. Skip the questions only when the prompt is unambiguous ("re-skin this with my brand colors") or the user said "decide for me".
 
 ```bash
-# Write structured questions to the application_state table.
-# (Use whatever app-state writer your shell has; design-generation typically
-#  uses the framework's `db-exec` to upsert into application_state.)
+pnpm action show-design-questions \
+  --designId "<id>" \
+  --title "Quick questions about your todo app" \
+  --questions '[{"id":"form_factor","type":"text-options","question":"What form factor?","options":[{"label":"Desktop web app","value":"desktop"},{"label":"Mobile app","value":"mobile"},{"label":"Both / responsive","value":"responsive"},{"label":"Decide for me","value":"decide"}],"allowOther":true}]'
 ```
 
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)

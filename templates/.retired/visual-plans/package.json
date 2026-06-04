@@ -1,0 +1,8 @@
+{
+  "name": "visual-plans",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsx ../../../scripts/build-retired-netlify-site.ts visual-plans"
+  }
+}

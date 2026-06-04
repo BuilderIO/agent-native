@@ -67,6 +67,7 @@ import {
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import {
   useCreatePlan,
+  useCreateUiPlan,
   usePlan,
   usePlans,
   useUpdatePlan,
@@ -290,6 +291,7 @@ export function PlansPage() {
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
   const createPlan = useCreatePlan();
+  const createUiPlan = useCreateUiPlan();
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
   const { resolvedTheme, setTheme } = useTheme();
@@ -513,7 +515,7 @@ export function PlansPage() {
     toast.success("Feedback instructions copied");
   };
 
-  const submitInlineComment = (message: string) => {
+  const submitInlineComment = async (message: string) => {
     if (!bundle || !pendingAnnotation) return;
     const sectionId =
       pendingAnnotation.sectionId &&
@@ -522,27 +524,22 @@ export function PlansPage() {
       )
         ? pendingAnnotation.sectionId
         : undefined;
-    updatePlan.mutate(
-      {
-        planId: bundle.plan.id,
-        comments: [
-          {
-            kind: "annotation",
-            message,
-            sectionId,
-            anchor: JSON.stringify(pendingAnnotation),
-            createdBy: "human",
-          },
-        ],
-        note: "Human added inline visual plan feedback.",
-      },
-      {
-        onSuccess: () => {
-          closeInlineComment();
-          toast.success("Comment added");
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      comments: [
+        {
+          kind: "annotation",
+          status: "open",
+          message,
+          sectionId,
+          anchor: JSON.stringify(pendingAnnotation),
+          createdBy: "human",
         },
-      },
-    );
+      ],
+      note: "Human added inline visual plan feedback.",
+    });
+    closeInlineComment();
+    toast.success("Comment added");
   };
 
   const updateAnnotationComment = (
@@ -929,7 +926,6 @@ export function PlansPage() {
                   </div>
                   <InlineCommentPopover
                     position={inlineCommentPosition}
-                    isPending={updatePlan.isPending}
                     onCancel={closeInlineComment}
                     onSubmit={submitInlineComment}
                   />
@@ -963,6 +959,7 @@ export function PlansPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         createPlan={createPlan}
+        createUiPlan={createUiPlan}
         visualizePlan={visualizePlan}
         onCreated={(id) => navigate(`/plans/${id}`)}
       />
@@ -1079,12 +1076,14 @@ function CreatePlanDialog({
   open,
   onOpenChange,
   createPlan,
+  createUiPlan,
   visualizePlan,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   createPlan: ReturnType<typeof useCreatePlan>;
+  createUiPlan: ReturnType<typeof useCreateUiPlan>;
   visualizePlan: ReturnType<typeof useVisualizePlan>;
   onCreated: (id: string) => void;
 }) {
@@ -1094,8 +1093,10 @@ function CreatePlanDialog({
   );
   const [source, setSource] = useState<PlanSource>("codex");
   const [planText, setPlanText] = useState("");
+  const [planKind, setPlanKind] = useState<"ui" | "visual">("ui");
 
-  const isPending = createPlan.isPending || visualizePlan.isPending;
+  const isPending =
+    createPlan.isPending || createUiPlan.isPending || visualizePlan.isPending;
   const submit = () => {
     const onSuccess = (result: PlanBundle & { planId?: string }) => {
       onOpenChange(false);
@@ -1108,6 +1109,57 @@ function CreatePlanDialog({
           brief,
           source,
           planText,
+        },
+        { onSuccess },
+      );
+      return;
+    }
+    if (planKind === "ui") {
+      createUiPlan.mutate(
+        {
+          title,
+          brief,
+          source,
+          states: [
+            {
+              name: "Review",
+              description:
+                "The user sees the key wireframe flow first and can keep scrolling into the refined document details.",
+            },
+            {
+              name: "Comment",
+              description:
+                "Selected text, clicked UI, and drawn marks become anchored feedback the agent can read.",
+            },
+            {
+              name: "Agent handoff",
+              description:
+                "Once comments exist, the primary action sends feedback to the inline Plans agent or copies it for the host agent.",
+            },
+            {
+              name: "Mobile",
+              description:
+                "The plan still supports quick commenting and handoff on narrow screens.",
+            },
+          ],
+          components: [
+            {
+              name: "Floating toolbar",
+              description:
+                "Keep review controls compact: comment, send to agent, share, and overflow.",
+            },
+            {
+              name: "Comment popover",
+              description:
+                "Use a Figma-like inline comment box with a single field and nearby context.",
+            },
+            {
+              name: "Implementation map",
+              description:
+                "Show files, intent, short snippets, and editor-open controls after UI review.",
+            },
+          ],
+          sketchiness: 38,
         },
         { onSuccess },
       );
@@ -1186,6 +1238,29 @@ function CreatePlanDialog({
               </SelectContent>
             </Select>
           </div>
+          {!planText.trim() && (
+            <div className="grid gap-2">
+              <Label>Plan type</Label>
+              <Select
+                value={planKind}
+                onValueChange={(value) =>
+                  setPlanKind(value === "visual" ? "visual" : "ui")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ui">
+                    UI-first plan - high-fidelity mockups and states
+                  </SelectItem>
+                  <SelectItem value="visual">
+                    General visual plan - diagrams, steps, and file map
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="plan-text">Existing plan text</Label>
             <Textarea
@@ -1206,7 +1281,11 @@ function CreatePlanDialog({
             Cancel
           </Button>
           <Button type="button" onClick={submit} disabled={isPending}>
-            {planText.trim() ? "Visualize Plan" : "Create Plan"}
+            {planText.trim()
+              ? "Visualize Plan"
+              : planKind === "ui"
+                ? "Create UI Plan"
+                : "Create Plan"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1216,27 +1295,45 @@ function CreatePlanDialog({
 
 function InlineCommentPopover({
   position,
-  isPending,
   onCancel,
   onSubmit,
 }: {
   position: InlineCommentPosition;
-  isPending: boolean;
   onCancel: () => void;
-  onSubmit: (message: string) => void;
+  onSubmit: (message: string) => Promise<void>;
 }) {
   const [message, setMessage] = useState("");
-  const canSubmit = message.trim().length > 0 && !isPending;
-  const submit = () => {
+  const [submitError, setSubmitError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const canSubmit = message.trim().length > 0 && !isSubmitting;
+  const submit = async () => {
     if (!canSubmit) return;
-    onSubmit(message.trim());
+    setSubmitError(false);
+    setIsSubmitting(true);
+    try {
+      await onSubmit(message.trim());
+    } catch {
+      if (mountedRef.current) {
+        setSubmitError(true);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsSubmitting(false);
+      }
+    }
   };
   return (
     <div
       className="absolute z-30 rounded-xl border border-border/80 bg-background/96 p-2 shadow-2xl backdrop-blur-xl"
       style={{ left: position.left, top: position.top, width: position.width }}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-center gap-2">
         <Textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
@@ -1250,31 +1347,36 @@ function InlineCommentPopover({
               onCancel();
             }
           }}
-          rows={2}
+          rows={1}
           autoFocus
           placeholder="Add a comment..."
-          className="min-h-11 resize-none border-border/80 bg-background text-sm shadow-none focus-visible:ring-1"
+          className="h-11 [min-height:2.75rem] resize-none border-border/80 bg-background py-2.5 text-sm leading-5 shadow-none focus-visible:ring-1"
         />
         <Button
           type="button"
           size="sm"
-          className="h-11 shrink-0 px-3"
+          className="h-11 w-[60px] shrink-0 px-0"
           onClick={submit}
           disabled={!canSubmit}
         >
-          Save
+          {isSubmitting ? "Saving" : "Save"}
         </Button>
         <Button
           type="button"
           size="icon"
           variant="ghost"
-          className="size-11 shrink-0"
+          className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
           onClick={onCancel}
           aria-label="Cancel comment"
         >
-          <IconX className="size-4" />
+          <IconX className="size-3.5" />
         </Button>
       </div>
+      {submitError && (
+        <p className="mt-2 px-1 text-xs text-destructive">
+          Couldn't save. Try again.
+        </p>
+      )}
     </div>
   );
 }

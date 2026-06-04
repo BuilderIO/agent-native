@@ -33,13 +33,18 @@ and comments that a person can review before code changes happen.
 ## Skills
 
 Use `.agents/skills/visual-plans/SKILL.md` for Agent-Native Plans behavior. Use
+`.agents/skills/ui-plan/SKILL.md` for UI-first visual plans where an optional
+top pan/zoom wireframe or diagram canvas comes before a refined Notion-like
+document with rich tabs, tables, sketchy diagrams, code tabs, comments/drawing
+space, and agent handoff. Use
 `.agents/skills/visualize-plan/SKILL.md` when the agent already has a Codex,
 Claude Code, Markdown, or pasted text plan and should create a visual companion.
-The exported install flow is simple: `agent-native skills add plans` installs
-the `/visual-plan` and `/visualize-plan` skills plus the MCP connector. In
-Claude Code, Codex, and other supported hosts, users can then type
-`/visual-plan` for a fresh interactive plan or `/visualize-plan` to enrich an
-existing text plan.
+The exported install flow is simple:
+`agent-native skills add plans` installs the `/visual-plan`, `/ui-plan`, and
+`/visualize-plan` skills plus the MCP connector. In Claude Code, Codex, and
+other supported hosts, users can then type `/visual-plan` for a fresh general
+plan, `/ui-plan` for a UI-first plan, or `/visualize-plan` to enrich an existing
+text plan.
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
 `frontend-design`, `shadcn-ui`, and `self-modifying-code`.

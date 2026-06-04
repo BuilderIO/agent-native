@@ -1,10 +1,19 @@
-export const EXTENSION_IFRAME_CSP =
-  "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self';";
+const EXTENSION_IFRAME_CSP_BASE =
+  "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
 
-export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP.replace(
-  /\s*frame-ancestors 'self';?$/,
-  "",
-);
+export const EXTENSION_FRAME_ANCESTORS = [
+  "'self'",
+  "https://agent-native.com",
+  "https://*.agent-native.com",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+  "https://*.claudemcpcontent.com",
+  "https://*.web-sandbox.oaiusercontent.com",
+].join(" ");
+
+export const EXTENSION_IFRAME_CSP = `${EXTENSION_IFRAME_CSP_BASE} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
+
+export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
 
 /**
  * SECURITY — EXTENSION CONTENT IS UNTRUSTED.

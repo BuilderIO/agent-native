@@ -2020,10 +2020,10 @@ export function TiptapComposer({
         )}
         {actionButton ?? (
           <>
+            {extraActionButton}
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
-            {extraActionButton}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
