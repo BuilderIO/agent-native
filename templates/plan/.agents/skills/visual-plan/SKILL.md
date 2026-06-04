@@ -1,5 +1,5 @@
 ---
-name: visual-plans
+name: visual-plan
 description: >-
   Use Agent-Native Plans when coding-agent work needs an interactive HTML plan
   document with diagrams, wireframes, mockups, prototypes, annotations, and
@@ -133,7 +133,7 @@ discipline before and around the plan document:
 - UI work gets wireframes, state mockups, or prototype sketches.
 - When UI direction is the center of the work, prefer the `ui-plan` skill so the
   mockups, states, comments/drawing space, and agent handoff come before file
-  implementation detail. Keep `visual-plans` general for architecture, backend,
+  implementation detail. Keep `visual-plan` general for architecture, backend,
   refactors, and mixed implementation planning.
 - Wireframes should be concrete enough to critique: show layout regions,
   controls, states, empty/loading/error paths, review affordances, and copy

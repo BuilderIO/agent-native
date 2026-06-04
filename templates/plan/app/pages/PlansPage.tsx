@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import {
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconAlertTriangle,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
@@ -20,6 +21,7 @@ import {
   IconSun,
   IconX,
   IconSend,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -836,10 +838,7 @@ export function PlansPage() {
               <ScrollArea className="min-h-0 flex-1">
                 <div className="space-y-2 p-3">
                   {plansQuery.isLoading ? (
-                    <>
-                      <Skeleton className="h-24 rounded-lg" />
-                      <Skeleton className="h-24 rounded-lg" />
-                    </>
+                    <PlanListSkeleton />
                   ) : plans.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
                       Create a plan to see the visual plan surface.
@@ -890,10 +889,21 @@ export function PlansPage() {
               isLoading={plansQuery.isLoading}
               onCreate={() => setCreateOpen(true)}
             />
+          ) : !bundle && planQuery.isError ? (
+            <PlanLoadError
+              planId={params.id}
+              error={planQuery.error}
+              onRetry={() => void planQuery.refetch()}
+              onCreate={() => setCreateOpen(true)}
+            />
           ) : !bundle && planQuery.isLoading ? (
             <PlanSkeleton />
           ) : !bundle ? (
-            <EmptyPlan onCreate={() => setCreateOpen(true)} />
+            <PlanLoadError
+              planId={params.id}
+              onRetry={() => void planQuery.refetch()}
+              onCreate={() => setCreateOpen(true)}
+            />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
               <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
@@ -1224,10 +1234,132 @@ export function PlansPage() {
 
 function PlanSkeleton() {
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
-      <Skeleton className="h-12 w-1/2" />
-      <Skeleton className="h-24 w-full rounded-xl" />
-      <Skeleton className="min-h-[560px] flex-1 rounded-xl" />
+    <div className="flex h-full min-h-0 flex-col bg-background p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5">
+        <div className="flex items-start justify-between gap-4 border-b border-border/60 pb-4">
+          <div className="min-w-0 flex-1 space-y-3">
+            <Skeleton className="h-3 w-24 rounded-full bg-muted/50" />
+            <Skeleton className="h-7 w-full max-w-[520px] rounded-md bg-muted/60" />
+            <Skeleton className="h-4 w-full max-w-[680px] rounded-full bg-muted/45" />
+          </div>
+          <div className="hidden items-center gap-2 sm:flex">
+            <Skeleton className="size-8 rounded-md bg-muted/45" />
+            <Skeleton className="size-8 rounded-md bg-muted/45" />
+            <Skeleton className="size-8 rounded-md bg-muted/45" />
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <Skeleton className="h-5 w-40 rounded-md bg-muted/50" />
+              <Skeleton className="h-8 w-24 rounded-md bg-muted/45" />
+            </div>
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-11/12 rounded-full bg-muted/55" />
+              <Skeleton className="h-4 w-9/12 rounded-full bg-muted/45" />
+              <Skeleton className="h-4 w-10/12 rounded-full bg-muted/45" />
+            </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <Skeleton className="h-32 rounded-lg bg-muted/35" />
+              <Skeleton className="h-32 rounded-lg bg-muted/35" />
+              <Skeleton className="h-32 rounded-lg bg-muted/35" />
+            </div>
+            <div className="mt-6 space-y-2">
+              <Skeleton className="h-4 w-full rounded-full bg-muted/40" />
+              <Skeleton className="h-4 w-10/12 rounded-full bg-muted/40" />
+              <Skeleton className="h-4 w-8/12 rounded-full bg-muted/35" />
+            </div>
+          </div>
+
+          <div className="hidden rounded-xl border border-border/60 bg-muted/15 p-3 lg:block">
+            <Skeleton className="mb-4 h-4 w-24 rounded-full bg-muted/45" />
+            <div className="space-y-2">
+              <Skeleton className="h-9 rounded-md bg-muted/35" />
+              <Skeleton className="h-9 rounded-md bg-muted/35" />
+              <Skeleton className="h-9 rounded-md bg-muted/30" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanListSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[0, 1, 2].map((item) => (
+        <div
+          key={item}
+          className="rounded-lg border border-border/60 bg-background/35 p-3"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-3/4 rounded-full bg-muted/50" />
+              <Skeleton className="h-3 w-full rounded-full bg-muted/35" />
+              <Skeleton className="h-3 w-2/3 rounded-full bg-muted/30" />
+            </div>
+            <Skeleton className="size-5 shrink-0 rounded-full bg-muted/35" />
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Skeleton className="h-3 w-12 rounded-full bg-muted/30" />
+            <Skeleton className="h-3 w-16 rounded-full bg-muted/30" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlanLoadError({
+  planId,
+  error,
+  onRetry,
+  onCreate,
+}: {
+  planId?: string;
+  error?: unknown;
+  onRetry: () => void;
+  onCreate: () => void;
+}) {
+  const message =
+    error instanceof Error && error.message
+      ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
+      : "This plan could not be loaded from the current session.";
+
+  return (
+    <div className="flex h-full items-center justify-center bg-background p-8">
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 text-left shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
+            <IconAlertTriangle className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight">
+              Plan did not load
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {message}
+            </p>
+            {planId && (
+              <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+                {planId}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button type="button" onClick={onRetry}>
+            <IconRefresh className="size-4" />
+            Retry
+          </Button>
+          <Button type="button" variant="outline" onClick={onCreate}>
+            <IconPlus className="size-4" />
+            New Plan
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
