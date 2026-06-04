@@ -37,14 +37,16 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
 2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
-**Update `LEARNINGS.md` when you learn something important.**
+**Update `LEARNINGS.md` when you learn something important.** Built-in app
+chat agents use the `resources` tool with the `action` argument. External CLI
+agents can use the equivalent `pnpm action resource-*` commands.
 
-| Action            | Args                                                        | Purpose                 |
-| ----------------- | ----------------------------------------------------------- | ----------------------- |
-| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
-| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
-| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
-| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
+| Built-in agent tool call                                                | CLI equivalent                                                                         | Purpose                 |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------- |
+| `resources` with `action: "read"`, `path`, optional `scope`             | `pnpm action resource-read --path <path> [--scope personal\|shared]`                   | Read a resource         |
+| `resources` with `action: "write"`, `path`, `content`, optional `scope` | `pnpm action resource-write --path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
+| `resources` with `action: "list"`, optional `prefix`/`scope`            | `pnpm action resource-list [--prefix <path>] [--scope personal\|shared\|all]`          | List resources          |
+| `resources` with `action: "delete"`, `path`, optional `scope`           | `pnpm action resource-delete --path <path> [--scope personal\|shared]`                 | Delete a resource       |
 
 ## Application State
 

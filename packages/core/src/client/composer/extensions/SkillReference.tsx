@@ -5,7 +5,7 @@ import { IconStack2 } from "@tabler/icons-react";
 const SkillReferenceComponent = ({ node }: { node: any }) => {
   const displayName =
     (node.attrs.name || node.attrs.path || "")
-      .replace(/^(\.agents\/)?skills\//, "")
+      .replace(/^(\.agents?\/)?skills\//, "")
       .replace(/\/SKILL\.md$/i, "")
       .replace(/\.md$/i, "")
       .split("/")

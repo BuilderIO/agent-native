@@ -273,7 +273,7 @@ Follow the create-skill pattern to build this. Before writing:
 
 1. **Determine the skill name** — derive a hyphen-case name from the description (e.g. "code review" → "code-review")
 2. **Determine the skill type** — Pattern (architectural rule), Workflow (step-by-step), or Generator (scaffolding)
-3. **Write the skill** as a ${scope} resource at path "skills/<name>/SKILL.md" using resource-write
+3. **Write the skill** as a ${scope} resource at path "skills/<name>/SKILL.md" using the \`resources\` tool with \`action: "write"\`
 
 The skill file MUST have YAML frontmatter with name and description (under 40 words), then markdown with:
 - Clear rule/purpose statement
@@ -402,7 +402,7 @@ The job will run automatically on the schedule. Make the instructions specific �
       newTab: true,
       context: `The user wants a reusable custom sub-agent profile for the workspace. Their description: "${trimmed}"
 
-Create it as a ${scope} resource under "agents/<name>.md" using resource-write.
+Create it as a ${scope} resource under "agents/<name>.md" using the \`resources\` tool with \`action: "write"\`.
 
 Requirements:
 1. Derive a hyphen-case file name from the intent
