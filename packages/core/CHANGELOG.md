@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.37.1
+
+### Patch Changes
+
+- 1810b32: Fix skill discovery and resource read guidance for agent-native agents.
+
 ## 0.37.0
 
 ### Minor Changes
