@@ -429,7 +429,8 @@ function rewriteRedirectLocation(
   // Strip query/hash before checking the prefix so "/clips?preview=1" and
   // "/clips#section" are correctly identified as already-prefixed.
   const suffixStart = location.search(/[?#]/);
-  const pathname = suffixStart === -1 ? location : location.slice(0, suffixStart);
+  const pathname =
+    suffixStart === -1 ? location : location.slice(0, suffixStart);
   const suffix = suffixStart === -1 ? "" : location.slice(suffixStart);
   if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return location;
   // Avoid double-slash when the pathname is exactly "/" (e.g. "/?foo=1").
