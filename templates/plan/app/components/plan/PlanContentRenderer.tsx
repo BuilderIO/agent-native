@@ -47,7 +47,8 @@ const DEFAULT_CANVAS_VIEW = {
 };
 const MIN_CANVAS_ZOOM = 0.32;
 const MAX_CANVAS_ZOOM = 2.4;
-const CANVAS_WHEEL_ZOOM_STEP = 0.06;
+const CANVAS_WHEEL_ZOOM_SENSITIVITY = 0.0045;
+const CANVAS_MAX_WHEEL_ZOOM_STEP = 0.04;
 
 type CanvasView = typeof DEFAULT_CANVAS_VIEW;
 
@@ -209,13 +210,15 @@ function PlanCanvas({
 
       if (event.ctrlKey || event.metaKey || event.altKey) {
         const rect = element.getBoundingClientRect();
-        zoomByStep(
-          deltaY > 0 ? -CANVAS_WHEEL_ZOOM_STEP : CANVAS_WHEEL_ZOOM_STEP,
-          {
-            x: event.clientX - rect.left,
-            y: event.clientY - rect.top,
-          },
-        );
+        const zoomStep =
+          Math.min(
+            CANVAS_MAX_WHEEL_ZOOM_STEP,
+            Math.abs(deltaY) * CANVAS_WHEEL_ZOOM_SENSITIVITY,
+          ) * (deltaY > 0 ? -1 : 1);
+        zoomByStep(zoomStep, {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        });
         return;
       }
 

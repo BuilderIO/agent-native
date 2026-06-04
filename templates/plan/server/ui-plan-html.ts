@@ -712,7 +712,8 @@ const UI_PLAN_JS = `
     if (root.classList.contains("an-plan-annotating")) return;
     event.preventDefault();
     if (event.metaKey || event.ctrlKey || event.altKey) {
-      setZoom(zoom + (event.deltaY > 0 ? -0.06 : 0.06), event.clientX, event.clientY);
+      const zoomStep = Math.min(0.04, Math.abs(event.deltaY) * 0.0045) * (event.deltaY > 0 ? -1 : 1);
+      setZoom(zoom + zoomStep, event.clientX, event.clientY);
       return;
     }
     const horizontal = event.shiftKey && Math.abs(event.deltaX) < Math.abs(event.deltaY)
