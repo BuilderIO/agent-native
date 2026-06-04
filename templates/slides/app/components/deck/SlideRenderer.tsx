@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import type { Slide } from "@/context/DeckContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MermaidRenderer } from "./MermaidRenderer";
@@ -593,6 +594,7 @@ export function SlideInner({
   const content = typeof slide.content === "string" ? slide.content : "";
   const isRawHtml =
     content.includes('class="fmd-slide"') ||
+    content.trimStart().startsWith("<") ||
     ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
   if (!isRawHtml && slide.layout === "two-column") {
@@ -614,7 +616,10 @@ export function SlideInner({
           className="slide-content text-white/90"
           onOverflowChange={onOverflowChange}
         >
-          <ReactMarkdown components={markdownComponents}>
+          <ReactMarkdown
+            components={markdownComponents}
+            rehypePlugins={[rehypeRaw]}
+          >
             {left.trim()}
           </ReactMarkdown>
         </AutoFitContent>
@@ -624,7 +629,10 @@ export function SlideInner({
           fitKey={right}
           className="slide-content text-white/90"
         >
-          <ReactMarkdown components={markdownComponents}>
+          <ReactMarkdown
+            components={markdownComponents}
+            rehypePlugins={[rehypeRaw]}
+          >
             {right.trim()}
           </ReactMarkdown>
         </AutoFitContent>
@@ -671,7 +679,12 @@ export function SlideInner({
         className="slide-content text-white/90 w-full"
         onOverflowChange={onOverflowChange}
       >
-        <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
+        <ReactMarkdown
+          components={markdownComponents}
+          rehypePlugins={[rehypeRaw]}
+        >
+          {content}
+        </ReactMarkdown>
       </AutoFitContent>
     </div>
   );
