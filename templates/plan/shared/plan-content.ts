@@ -311,10 +311,11 @@ const baseBlockSchema = z.object({
   editable: z.boolean().optional(),
 });
 
+const unsafeCustomHtmlPattern =
+  /(?:<!doctype|<\/?(?:html|head|body|script|iframe|object|embed|link|meta|base|form)[\s>/]|<\/style\s*>|\b(?:javascript|data:text\/html)\s*:|\bsrcdoc\s*=|\bon[a-z][\w:-]*\s*=)/i;
+
 const noFullHtmlDocument = (value: string) =>
-  !/(<!doctype|<html[\s>]|<head[\s>]|<body[\s>]|<script[\s>]|<\/style|javascript:|on[a-z]+\s*=)/i.test(
-    value,
-  );
+  !unsafeCustomHtmlPattern.test(value);
 
 const wireframeRegionSchema: z.ZodType<PlanWireframeRegion> = z.object({
   id: idSchema,
@@ -867,6 +868,7 @@ export function applyPlanContentPatches(
     }
   }
 
+  syncCanvasWireframes(next);
   return planContentSchema.parse(next);
 }
 
@@ -956,6 +958,28 @@ function removeBlock(
       return { ...block, data: { tabs } };
     });
   return { blocks: filtered, changed };
+}
+
+function syncCanvasWireframes(content: PlanContent) {
+  if (!content.canvas) return;
+  const blocks = new Map<string, PlanBlock>();
+  const visit = (block: PlanBlock) => {
+    blocks.set(block.id, block);
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        for (const child of tab.blocks) visit(child);
+      }
+    }
+  };
+  for (const block of content.blocks) visit(block);
+
+  for (const frame of content.canvas.frames) {
+    if (!frame.blockId) continue;
+    const block = blocks.get(frame.blockId);
+    if (block?.type === "sketch-wireframe") {
+      frame.wireframe = cloneJson(block.data);
+    }
+  }
 }
 
 export function createPlanBlockId(prefix: string): string {

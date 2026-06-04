@@ -200,7 +200,7 @@ export function useExportPlan(planId?: string) {
     markdown: string;
     html: string;
     json: PlanBundle;
-    path?: string;
-    url?: string;
+    path: string;
+    url: string;
   }>("export-visual-plan", { planId: planId ?? "" }, { enabled: false });
 }

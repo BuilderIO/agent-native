@@ -508,20 +508,36 @@ function PlanBlockView({
     return (
       <section className="plan-block" data-block-id={block.id}>
         {block.title && <h2>{block.title}</h2>}
-        <p className="text-xl text-plan-muted">{block.data.question}</p>
-        <div className="mt-5 flex flex-wrap gap-2">
+        <p className="mt-3 max-w-3xl text-lg leading-8 text-plan-muted">
+          {block.data.question}
+        </p>
+        <div className="mt-6 grid gap-3 md:grid-cols-2">
           {block.data.options.map((option) => (
-            <span
+            <article
               key={option.id}
               className={cn(
-                "rounded-full border border-plan-line px-4 py-2 text-sm font-medium",
+                "rounded-xl border border-plan-line bg-plan-block p-4",
                 option.selected
-                  ? "bg-primary text-primary-foreground"
-                  : "text-plan-muted",
+                  ? "shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  : "opacity-85",
               )}
             >
-              {option.label}
-            </span>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-lg font-semibold tracking-tight text-plan-text">
+                  {option.label}
+                </h3>
+                {(option.selected || option.recommended) && (
+                  <span className="rounded-full border border-plan-line px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-plan-muted">
+                    {option.selected ? "Selected" : "Recommended"}
+                  </span>
+                )}
+              </div>
+              {option.detail && (
+                <p className="mt-3 text-sm leading-6 text-plan-muted">
+                  {option.detail}
+                </p>
+              )}
+            </article>
           ))}
         </div>
       </section>
@@ -698,14 +714,33 @@ function CodeTabsBlock({
               {active.caption && (
                 <p className="mt-2 text-plan-muted">{active.caption}</p>
               )}
-              <pre className="mt-5 max-h-[520px] overflow-auto rounded-xl border border-plan-line bg-plan-code p-5 text-sm leading-7 text-plan-code-text">
-                <code>{active.code}</code>
-              </pre>
+              <CodeBlock code={active.code} language={active.language} />
             </>
           )}
         </div>
       </div>
     </section>
+  );
+}
+
+function CodeBlock({
+  code,
+  language,
+  className,
+}: {
+  code: string;
+  language?: string;
+  className?: string;
+}) {
+  return (
+    <pre
+      className={cn(
+        "max-h-[520px] overflow-auto rounded-xl border border-plan-line bg-plan-code p-5 text-sm leading-7 text-plan-code-text",
+        className ?? "mt-5",
+      )}
+    >
+      <code>{highlightCode(code, language)}</code>
+    </pre>
   );
 }
 
@@ -754,9 +789,11 @@ function ImplementationMapBlock({
                 {active.note}
               </p>
               {active.snippet && (
-                <pre className="mt-6 max-h-[520px] overflow-auto rounded-xl border border-plan-line bg-plan-code p-5 text-sm leading-7 text-plan-code-text">
-                  <code>{active.snippet}</code>
-                </pre>
+                <CodeBlock
+                  code={active.snippet}
+                  language={active.language}
+                  className="mt-6"
+                />
               )}
             </>
           )}
@@ -845,7 +882,7 @@ function CustomHtmlBlock({
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState(block.data.html);
   const [css, setCss] = useState(block.data.css ?? "");
-  const srcDoc = `<!doctype html><html><head><style>body{margin:0;font-family:Inter,system-ui,sans-serif;color:CanvasText;background:Canvas;}*{box-sizing:border-box}${block.data.css ?? ""}</style></head><body>${block.data.html}</body></html>`;
+  const srcDoc = `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}${block.data.css ?? ""}</style></head><body>${block.data.html}</body></html>`;
   return (
     <section className="plan-block group" data-block-id={block.id}>
       <div className="flex items-start justify-between gap-4">
@@ -908,8 +945,9 @@ function CustomHtmlBlock({
           <iframe
             title={block.title || "Custom HTML block"}
             srcDoc={srcDoc}
-            sandbox=""
-            className="mt-4 min-h-[320px] w-full rounded-xl border border-plan-line bg-plan-block"
+            sandbox="allow-same-origin"
+            referrerPolicy="no-referrer"
+            className="mt-4 h-[280px] w-full rounded-xl border border-plan-line bg-plan-block"
           />
           {block.data.caption && (
             <p className="mt-3 text-sm text-plan-muted">{block.data.caption}</p>
@@ -1178,71 +1216,151 @@ function SketchDiagram({
   data: PlanSketchDiagramBlock["data"];
   compact?: boolean;
 }) {
-  const nodes = data.nodes.map((node, index) => ({
-    ...node,
-    x: node.x ?? 12 + index * (76 / Math.max(data.nodes.length - 1, 1)),
-    y: node.y ?? 50,
-  }));
+  const nodes = orderDiagramNodes(data.nodes, data.edges);
   return (
-    <div className="plan-sketch relative overflow-hidden rounded-[16px] border border-plan-line bg-plan-wireframe p-4">
-      <svg
-        viewBox="0 0 100 100"
-        className={cn("w-full", compact ? "h-44" : "h-[340px]")}
-        role="img"
+    <div className="plan-sketch rounded-[16px] border border-plan-line bg-plan-wireframe p-5">
+      <div
+        className={cn(
+          "flex gap-3 overflow-x-auto pb-2",
+          compact ? "items-center" : "items-stretch",
+        )}
       >
-        {data.edges.map((edge, index) => {
-          const from = nodes.find((node) => node.id === edge.from);
-          const to = nodes.find((node) => node.id === edge.to);
-          if (!from || !to) return null;
+        {nodes.map((node, index) => {
+          const next = nodes[index + 1];
+          const edge = next
+            ? data.edges.find(
+                (candidate) =>
+                  candidate.from === node.id && candidate.to === next.id,
+              )
+            : undefined;
           return (
-            <g key={`${edge.from}-${edge.to}-${index}`}>
-              <line
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                className="stroke-primary"
-                strokeDasharray="4 3"
-                strokeLinecap="round"
-                strokeWidth="1.4"
-              />
-              {edge.label && (
-                <text
-                  x={(from.x + to.x) / 2}
-                  y={(from.y + to.y) / 2 - 4}
-                  className="fill-primary text-[3px] font-semibold"
-                  textAnchor="middle"
-                >
-                  {edge.label}
-                </text>
+            <div key={node.id} className="flex min-w-max items-center gap-3">
+              <article
+                className={cn(
+                  "w-[180px] rounded-xl border-2 border-plan-sketch-line bg-plan-document p-3 text-plan-text",
+                  compact && "w-[150px]",
+                )}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-plan-muted">
+                  {index + 1}
+                </p>
+                <h3 className="mt-2 text-base font-semibold leading-tight">
+                  {node.label}
+                </h3>
+                {node.detail && !compact && (
+                  <p className="mt-2 text-xs leading-5 text-plan-muted">
+                    {node.detail}
+                  </p>
+                )}
+              </article>
+              {next && (
+                <div className="grid min-w-[72px] justify-items-center gap-1 text-primary">
+                  {edge?.label && (
+                    <span className="max-w-[96px] truncate rounded-full border border-primary/35 px-2 py-0.5 text-[11px] font-semibold">
+                      {edge.label}
+                    </span>
+                  )}
+                  <span className="h-0.5 w-full rounded-full border-t-2 border-dashed border-primary" />
+                </div>
               )}
-            </g>
+            </div>
           );
         })}
-        {nodes.map((node) => (
-          <g key={node.id}>
-            <rect
-              x={node.x - 8}
-              y={node.y - 7}
-              width="16"
-              height="14"
-              rx="2.4"
-              className="fill-plan-wireframe stroke-plan-sketch-line"
-              strokeWidth="1.1"
-            />
-            <text
-              x={node.x}
-              y={node.y + 1}
-              textAnchor="middle"
-              className="fill-plan-sketch-line text-[3.2px] font-semibold"
-            >
-              {node.label}
-            </text>
-          </g>
-        ))}
-      </svg>
+      </div>
+      {data.notes && data.notes.length > 0 && !compact && (
+        <div className="mt-4 grid gap-2 border-t border-plan-line pt-4 text-sm text-plan-muted md:grid-cols-2">
+          {data.notes.map((note) => (
+            <p key={note.id}>{note.text}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function orderDiagramNodes(
+  nodes: PlanSketchDiagramBlock["data"]["nodes"],
+  edges: PlanSketchDiagramBlock["data"]["edges"],
+) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const targets = new Set(edges.map((edge) => edge.to));
+  const first = nodes.find((node) => !targets.has(node.id)) ?? nodes[0];
+  if (!first) return nodes;
+
+  const ordered = [first];
+  const seen = new Set([first.id]);
+  let current = first;
+  while (current) {
+    const nextEdge = edges.find(
+      (edge) => edge.from === current.id && !seen.has(edge.to),
+    );
+    const next = nextEdge ? nodeById.get(nextEdge.to) : undefined;
+    if (!next) break;
+    ordered.push(next);
+    seen.add(next.id);
+    current = next;
+  }
+
+  for (const node of nodes) {
+    if (!seen.has(node.id)) ordered.push(node);
+  }
+  return ordered;
+}
+
+function highlightCode(code: string, language?: string): ReactNode[] {
+  const languageKey = (language || "").toLowerCase();
+  const tokens =
+    languageKey.includes("tsx") ||
+    languageKey.includes("ts") ||
+    languageKey.includes("jsx") ||
+    languageKey.includes("js")
+      ? tokenizeCode(code)
+      : tokenizeCode(code);
+  return tokens.map((token, index) =>
+    token.className ? (
+      <span key={index} className={token.className}>
+        {token.text}
+      </span>
+    ) : (
+      token.text
+    ),
+  );
+}
+
+function tokenizeCode(code: string) {
+  const tokens: Array<{ text: string; className?: string }> = [];
+  const pattern =
+    /(\/\/.*|\/\*[\s\S]*?\*\/|`(?:\\.|[^`])*`|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|<\/?[A-Za-z][^>\s/]*(?:\s+[^>]*)?>|\b(?:async|await|break|case|catch|class|const|continue|default|else|export|extends|false|finally|for|from|function|if|import|interface|let|new|null|return|switch|true|type|undefined|var|while)\b|\b\d+(?:\.\d+)?\b)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(code))) {
+    if (match.index > lastIndex) {
+      tokens.push({ text: code.slice(lastIndex, match.index) });
+    }
+    const text = match[0];
+    tokens.push({ text, className: codeTokenClass(text) });
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < code.length) {
+    tokens.push({ text: code.slice(lastIndex) });
+  }
+  return tokens;
+}
+
+function codeTokenClass(token: string) {
+  if (token.startsWith("//") || token.startsWith("/*")) {
+    return "text-zinc-500 dark:text-zinc-500";
+  }
+  if (token.startsWith('"') || token.startsWith("'") || token.startsWith("`")) {
+    return "text-emerald-700 dark:text-emerald-300";
+  }
+  if (token.startsWith("<")) {
+    return "text-sky-700 dark:text-sky-300";
+  }
+  if (/^\d/.test(token)) {
+    return "text-amber-700 dark:text-amber-300";
+  }
+  return "text-blue-700 dark:text-blue-300";
 }
 
 function updateBlocks(

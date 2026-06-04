@@ -36,6 +36,7 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
   ShareButton,
+  appPath,
   sendToAgentChat,
   setAgentChatContextItem,
   type AgentSidebarStateChangeDetail,
@@ -403,16 +404,15 @@ export function PlansPage() {
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
+    const path = appPath(`/plans/${selectedId ?? bundle.plan.id}`);
     const url =
-      typeof window === "undefined" || !selectedId
-        ? `/plans/${selectedId ?? bundle.plan.id}`
-        : `${window.location.origin}/plans/${selectedId}`;
+      typeof window === "undefined" ? path : `${window.location.origin}${path}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
   }, [bundle, documentHtml, selectedId]);
 
   const planShareUrl = useMemo(() => {
     if (!selectedId || typeof window === "undefined") return undefined;
-    return `${window.location.origin}/plans/${selectedId}`;
+    return `${window.location.origin}${appPath(`/plans/${selectedId}`)}`;
   }, [selectedId]);
 
   useEffect(() => {

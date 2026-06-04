@@ -158,6 +158,37 @@ describe("structured plan content", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects custom HTML event handlers and dangerous URL attributes", () => {
+    const eventHandlerResult = planContentSchema.safeParse({
+      version: 1,
+      blocks: [
+        {
+          id: "bad-handler",
+          type: "custom-html",
+          data: {
+            html: '<img src="x" onerror="alert(1)">',
+          },
+        },
+      ],
+    });
+
+    const srcDocResult = planContentSchema.safeParse({
+      version: 1,
+      blocks: [
+        {
+          id: "bad-srcdoc",
+          type: "custom-html",
+          data: {
+            html: '<iframe srcdoc="<script>alert(1)</script>"></iframe>',
+          },
+        },
+      ],
+    });
+
+    expect(eventHandlerResult.success).toBe(false);
+    expect(srcDocResult.success).toBe(false);
+  });
+
   it("exports custom HTML blocks as inert source", () => {
     const content = planContentSchema.parse({
       version: 1,
@@ -185,6 +216,33 @@ describe("structured plan content", () => {
     expect(html).toContain("sandboxed iframe");
     expect(html).toContain("&lt;button");
     expect(html).not.toContain('<button class="cta">Open</button>');
+  });
+
+  it("deduplicates generated state, tab, and frame IDs", () => {
+    const content = createUiPlanContent({
+      title: "Checkout flow",
+      brief: "Compare repeated loading states.",
+      states: [
+        { name: "Loading", description: "Initial loading." },
+        { name: "Loading", description: "Payment loading." },
+      ],
+      components: [],
+    });
+    const stateTabs = content.blocks.find(
+      (block) => block.type === "tabs" && block.title === "Screen States",
+    );
+
+    expect(content.canvas?.frames.map((frame) => frame.id)).toEqual([
+      "frame-loading",
+      "frame-loading-2",
+    ]);
+    expect(stateTabs?.type).toBe("tabs");
+    if (stateTabs?.type === "tabs") {
+      expect(stateTabs.data.tabs.map((tab) => tab.id)).toEqual([
+        "loading",
+        "loading-2",
+      ]);
+    }
   });
 
   it("applies targeted content patches without replacing the whole plan", () => {
@@ -265,6 +323,10 @@ describe("structured plan content", () => {
       expect(nextWireframe.data.regions[0]?.width).toBe(88);
     }
     expect(patched.canvas?.frames[0]?.title).toBe("Updated frame");
+    expect(patched.canvas?.frames[0]?.wireframe?.regions[0]?.label).toBe(
+      "Updated",
+    );
+    expect(patched.canvas?.frames[0]?.wireframe?.regions[0]?.width).toBe(88);
     expect(patched.blocks.some((block) => block.id === "new-note")).toBe(true);
   });
 });

@@ -194,10 +194,23 @@ discipline before and around the plan document:
   implementation maps make the work reviewable.
 - Use `custom-html` only for bounded fragments inside a block. Never include
   `html`, `head`, `body`, or `script` tags in custom fragments.
+- Do not use `custom-html` as a placeholder, demo, or proof of flexibility. It
+  must contain a complete useful fragment that fits the surrounding document.
+- `sketch-diagram` blocks must be legible: labels cannot overlap nodes,
+  connectors, or each other; omit the diagram when it does not clarify a real
+  architecture, sequence, dependency, or state relationship.
+- `decision` blocks are static records unless the UI supports changing them.
+  Do not style them like inactive buttons, tabs, or selectable chips.
+- `implementation-map` and `code-tabs` blocks should include concrete file
+  paths, language metadata, and concise snippets so rendered code can be
+  highlighted.
 - Match Agent-Native's restrained theme unless the user asks otherwise.
 - Keep the first viewport legible and plan-like: title, brief, concise scope,
   and a useful diagram/checklist/table when it helps.
 - Use tabs or small interactions only when they make review faster.
+- Before handing off a visual plan, open it in the browser and fix overlap,
+  excessive whitespace, clipped custom fragments, misleading inactive controls,
+  poor contrast, and unreadable diagrams.
 - Do not paste huge artifacts into chat. Store the plan in Plans and surface the
   MCP app or link.
 - Hosted default: connect

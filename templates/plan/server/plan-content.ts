@@ -126,20 +126,41 @@ export function createUiPlanContent(input: {
   implementationNotes?: string | null;
 }): PlanContent {
   const states = input.states;
+  const stateIds = uniqueIds(
+    states.map((state, index) => slug(state.name) || `state-${index + 1}`),
+  );
+  const stateBlockIds = stateIds.map((id) => ({
+    notes: createPlanBlockId(`${id}-notes`),
+    wireframe: createPlanBlockId(`${id}-wireframe`),
+  }));
+  const componentPlan = isComponentPlan(input);
   const frames: PlanCanvasFrame[] = states.slice(0, 6).map((state, index) => ({
-    id: `frame-${slug(state.name) || index}`,
+    id: `frame-${stateIds[index] ?? index + 1}`,
     title: state.name,
+    blockId: stateBlockIds[index]?.wireframe,
     wireframe: createWireframeData({
       title: state.name,
       description: state.description,
-      viewport: index === 0 ? "desktop" : "phone",
+      viewport: viewportForState(state, componentPlan),
+      component: componentPlan,
     }),
+    ...(componentPlan
+      ? {
+          x: 80 + (index % 3) * 420,
+          y: 96 + Math.floor(index / 3) * 430,
+          width: 360,
+          height: 360,
+        }
+      : {}),
   }));
-  const flow: PlanDiagramEdge[] = frames.slice(0, -1).map((frame, index) => ({
-    from: frame.id,
-    to: frames[index + 1]?.id ?? frame.id,
-    label: `Step ${index + 1}`,
-  }));
+  const stateFlow = shouldUseStateFlow(input, componentPlan);
+  const flow: PlanDiagramEdge[] = stateFlow
+    ? frames.slice(0, -1).map((frame, index) => ({
+        from: frame.id,
+        to: frames[index + 1]?.id ?? frame.id,
+        label: `Step ${index + 1}`,
+      }))
+    : [];
   const blocks: PlanBlock[] = [
     {
       id: createPlanBlockId("summary"),
@@ -155,50 +176,59 @@ export function createUiPlanContent(input: {
           {
             id: createPlanBlockId("screen-states"),
             type: "tabs",
-            title: "Screen States",
+            title: componentPlan ? "Component States" : "Screen States",
             data: {
-              tabs: states.map((state) => ({
-                id: slug(state.name) || createPlanBlockId("state"),
+              tabs: states.map((state, index) => ({
+                id: stateIds[index] ?? createPlanBlockId("state"),
                 label: state.name,
                 blocks: [
                   {
-                    id: createPlanBlockId(`${state.name}-notes`),
+                    id:
+                      stateBlockIds[index]?.notes ??
+                      createPlanBlockId(`${state.name}-notes`),
                     type: "rich-text",
                     title: state.name,
                     editable: true,
                     data: { markdown: state.description },
                   },
                   {
-                    id: createPlanBlockId(`${state.name}-wireframe`),
+                    id:
+                      stateBlockIds[index]?.wireframe ??
+                      createPlanBlockId(`${state.name}-wireframe`),
                     type: "sketch-wireframe",
                     title: `${state.name} Wireframe`,
                     data: createWireframeData({
                       title: state.name,
                       description: state.description,
-                      viewport: "desktop",
+                      viewport: viewportForState(state, componentPlan),
+                      component: componentPlan,
                     }),
                   },
                 ],
               })),
             },
           },
-          {
-            id: createPlanBlockId("flow-diagram"),
-            type: "sketch-diagram",
-            title: "Flow Diagram",
-            data: {
-              nodes: states.slice(0, 6).map((state, index) => ({
-                id: slug(state.name) || `state-${index + 1}`,
-                label: state.name,
-                detail: state.description,
-              })),
-              edges: states.slice(0, -1).map((state, index) => ({
-                from: slug(state.name) || `state-${index + 1}`,
-                to: slug(states[index + 1]?.name ?? "") || `state-${index + 2}`,
-                label: `Step ${index + 1}`,
-              })),
-            },
-          },
+          ...(stateFlow
+            ? ([
+                {
+                  id: createPlanBlockId("flow-diagram"),
+                  type: "sketch-diagram",
+                  title: "Flow Diagram",
+                  data: {
+                    nodes: states.slice(0, 6).map((state, index) => ({
+                      id: stateIds[index] ?? `state-${index + 1}`,
+                      label: state.name,
+                      detail: state.description,
+                    })),
+                    edges: states.slice(0, -1).map((state, index) => ({
+                      from: stateIds[index] ?? `state-${index + 1}`,
+                      to: stateIds[index + 1] ?? `state-${index + 2}`,
+                      label: `Step ${index + 1}`,
+                    })),
+                  },
+                },
+              ] satisfies PlanBlock[])
+            : []),
         ] satisfies PlanBlock[])
       : []),
     ...(input.components.length > 0
@@ -252,22 +282,89 @@ export function createUiPlanContent(input: {
     ...(frames.length > 0
       ? {
           canvas: {
-            title: "UI Flow",
+            title: componentPlan ? "Component States" : "UI Flow",
             frames,
-            flow,
-            notes: [
-              {
-                id: "canvas-note-review",
-                title: "Read this like a design handoff.",
-                body: "Pan and zoom to compare states, then scroll for the document spec.",
-                x: 80,
-                y: 30,
-              },
-            ],
+            ...(flow.length > 0 ? { flow } : {}),
+            ...(componentPlan
+              ? {}
+              : {
+                  notes: [
+                    {
+                      id: "canvas-note-review",
+                      title: "Read this like a design handoff.",
+                      body: "Pan and zoom to compare states, then scroll for the document spec.",
+                      x: 80,
+                      y: 30,
+                    },
+                  ],
+                }),
           },
         }
       : {}),
     blocks,
+  });
+}
+
+function isComponentPlan(input: {
+  title: string;
+  brief: string;
+  states: Array<{ name: string; description: string }>;
+  components: Array<{ name: string; description: string }>;
+}) {
+  const text = [
+    input.title,
+    input.brief,
+    ...input.states.flatMap((state) => [state.name, state.description]),
+    ...input.components.flatMap((component) => [
+      component.name,
+      component.description,
+    ]),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return /\b(component|widget|popover|sidebar|side\s*panel|panel|dialog|modal|dropdown|toolbar|inspector|menu|card)\b/.test(
+    text,
+  );
+}
+
+function shouldUseStateFlow(
+  input: {
+    title: string;
+    brief: string;
+    states: Array<{ name: string; description: string }>;
+  },
+  componentPlan: boolean,
+) {
+  if (componentPlan || input.states.length < 2) return false;
+  const text = [
+    input.title,
+    input.brief,
+    ...input.states.map((state) => state.name),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return /\b(flow|journey|sequence|wizard|checkout|onboard|handoff|step|next|submit|confirm|complete|path)\b/.test(
+    text,
+  );
+}
+
+function viewportForState(
+  state: { name: string; description: string },
+  componentPlan: boolean,
+): "desktop" | "tablet" | "phone" {
+  if (componentPlan) return "desktop";
+  const text = `${state.name} ${state.description}`.toLowerCase();
+  if (/\b(phone|mobile|narrow)\b/.test(text)) return "phone";
+  if (/\b(tablet)\b/.test(text)) return "tablet";
+  return "desktop";
+}
+
+function uniqueIds(values: string[]): string[] {
+  const counts = new Map<string, number>();
+  return values.map((value) => {
+    const count = counts.get(value) ?? 0;
+    counts.set(value, count + 1);
+    return count === 0 ? value : `${value}-${count + 1}`;
   });
 }
 
@@ -482,8 +579,39 @@ function createWireframeData(input: {
   title: string;
   description?: string;
   viewport?: "desktop" | "tablet" | "phone";
+  component?: boolean;
 }): PlanSketchWireframeBlock["data"] {
   const viewport = input.viewport ?? "desktop";
+  if (input.component) {
+    return {
+      viewport,
+      caption: input.description,
+      regions: [
+        { id: "shell", kind: "content", x: 8, y: 6, width: 84, height: 88 },
+        {
+          id: "title",
+          kind: "header",
+          label: input.title,
+          x: 14,
+          y: 12,
+          width: 42,
+          height: 9,
+          emphasis: true,
+        },
+        { id: "summary", kind: "content", x: 14, y: 28, width: 72, height: 18 },
+        { id: "controls", kind: "toolbar", x: 14, y: 52, width: 36, height: 8 },
+        {
+          id: "content",
+          kind: "list",
+          x: 14,
+          y: 66,
+          width: 72,
+          height: 20,
+          emphasis: true,
+        },
+      ],
+    };
+  }
   if (viewport === "phone") {
     return {
       viewport,

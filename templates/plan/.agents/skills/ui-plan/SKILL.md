@@ -88,6 +88,26 @@ companion.
 - Keep visuals review-focused, not decorative. Do not make a marketing page,
   hero section, brand deck, or abstract mood board unless the user asks.
 
+## Component And Widget Plans
+
+When the work is a component, popover, sidebar widget, toolbar, card, modal, or
+other small surface, do not generate a full app flow. Use compact component
+states instead.
+
+- Prefer square or vertical frames that match the component's real footprint.
+  A sidebar popover should look like a sidebar popover, not a desktop page or
+  phone screen.
+- Use state tabs such as `Default`, `Expanded`, `Map`, `Loading`, `Empty`, and
+  `Error`. Do not add `Desktop`, `Mobile`, or responsive states unless the
+  component actually changes layout across breakpoints.
+- Draw only connectors for real sequences. Do not connect independent states
+  with fake "Step 1" lines.
+- Ground every frame in the real product hierarchy: visible title, controls,
+  content groups, state labels, actions, empty/error copy, and realistic
+  density. If you have seen a screenshot or component code, reflect it.
+- Keep labels outside collision zones. Text must never overlap wireframes,
+  connectors, toolbar controls, or neighboring notes.
+
 ## State Tabs
 
 When showing multiple UI states, prefer the structured `tabs` block. Each tab
@@ -116,6 +136,24 @@ drawing-friendly space, and agent handoff. Treat it like a designer handed over
 a Figma file plus a crisp product spec: the reviewer should understand the UI
 flow from a bird's-eye view, then keep scrolling into a clean interactive
 document with notes explaining how the screens work together.
+
+## Blocks That Must Not Mislead
+
+- `decision` blocks are static decision records. Do not make them look like
+  clickable choices unless the renderer truly supports changing the selected
+  option.
+- `sketch-diagram` blocks must be readable at a glance: no overlapping node
+  labels, no tiny text in oversized empty boxes, and no diagram when a checklist
+  or state tabs would communicate better.
+- `custom-html` is an escape hatch for bounded fragments only. It must contain
+  a complete, useful visual or interaction; never use it as a placeholder,
+  empty demo, density ladder, or proof that custom HTML is possible.
+- Implementation maps need concrete files and concise snippets. Include
+  language metadata so code can be syntax-highlighted; avoid giant prose-only
+  file lists.
+- Review the rendered plan in the browser before handing it off. Fix overlap,
+  excessive whitespace, nonfunctional-looking controls, bad contrast, and
+  clipped custom fragments before asking for approval.
 
 ## Comments, Drawing, And Handoff
 

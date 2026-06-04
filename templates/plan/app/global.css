@@ -188,8 +188,8 @@
 .plan-document-flow > .plan-block,
 .plan-document-flow > .plan-callout,
 .plan-document-flow > .plan-questions-block {
-  margin-top: 4.5rem;
-  padding-top: 3rem;
+  margin-top: 3.5rem;
+  padding-top: 2.25rem;
   border-top: 1px solid var(--plan-line);
 }
 
@@ -198,10 +198,21 @@
 .plan-questions-block h2 {
   margin: 0;
   color: var(--plan-text);
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  line-height: 1;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  line-height: 1.05;
   letter-spacing: -0.025em;
   font-weight: 650;
+}
+
+.plan-block .plan-block {
+  margin-top: 1.75rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.plan-block .plan-block h2 {
+  font-size: clamp(1.25rem, 2vw, 1.9rem);
+  line-height: 1.15;
 }
 
 .plan-copy {
