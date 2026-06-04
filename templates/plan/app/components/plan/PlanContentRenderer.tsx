@@ -43,7 +43,7 @@ type PlanContentRendererProps = {
 };
 
 const DEFAULT_CANVAS_VIEW = {
-  zoom: 0.72,
+  zoom: 0.68,
   pan: { x: 80, y: 54 },
 };
 const MIN_CANVAS_ZOOM = 0.32;
@@ -1377,7 +1377,11 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
       className={cn(
         "plan-sketch-region absolute",
         region.label && "plan-region-has-label",
+        region.kind === "header" && "plan-region-header",
+        region.kind === "nav" && "plan-region-nav",
         region.kind === "list" && "plan-region-list",
+        region.kind === "toolbar" && "plan-region-toolbar",
+        region.kind === "content" && "plan-region-content",
         isButton && "plan-region-button",
         region.kind === "input" && "plan-region-input",
         region.emphasis && !isButton && "text-primary",
@@ -1396,14 +1400,47 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
             "plan-sketch-label absolute z-10 max-w-[calc(100%-1rem)] truncate text-[13px] font-semibold leading-none",
             isButton
               ? "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-2"
-              : "left-2.5 top-[-0.45rem] px-1.5 py-0.5",
+              : "left-2.5 top-2 px-1.5 py-0.5",
           )}
         >
           {region.label}
         </span>
       )}
+      {!region.label && <RegionScaffold kind={region.kind} />}
     </div>
   );
+}
+
+function RegionScaffold({ kind }: { kind: PlanWireframeRegion["kind"] }) {
+  if (kind === "nav") {
+    return (
+      <span className="plan-region-scaffold plan-region-scaffold-nav">
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
+  if (kind === "toolbar") {
+    return (
+      <span className="plan-region-scaffold plan-region-scaffold-toolbar">
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
+  if (kind === "content" || kind === "header") {
+    return (
+      <span className="plan-region-scaffold plan-region-scaffold-lines">
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
+  return null;
 }
 
 function RoughBox({ id, emphasis }: { id: string; emphasis?: boolean }) {

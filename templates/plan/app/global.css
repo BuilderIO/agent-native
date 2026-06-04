@@ -292,6 +292,71 @@
   top: 58%;
 }
 
+.plan-region-scaffold {
+  position: absolute;
+  inset: 14% 10%;
+  pointer-events: none;
+}
+
+.plan-region-scaffold i {
+  display: block;
+  border-radius: 999px;
+  background: var(--plan-muted-line);
+}
+
+.plan-region-scaffold-lines {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.plan-region-scaffold-lines i {
+  height: 7px;
+}
+
+.plan-region-scaffold-lines i:nth-child(1) {
+  width: 82%;
+}
+
+.plan-region-scaffold-lines i:nth-child(2) {
+  width: 58%;
+}
+
+.plan-region-scaffold-lines i:nth-child(3) {
+  width: 36%;
+}
+
+.plan-region-scaffold-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7%;
+}
+
+.plan-region-scaffold-toolbar i {
+  height: 54%;
+  flex: 1 1 0;
+  border: 1px solid currentColor;
+  background: transparent;
+  opacity: 0.7;
+}
+
+.plan-region-scaffold-nav {
+  display: grid;
+  align-content: start;
+  gap: 9%;
+  padding-top: 18%;
+}
+
+.plan-region-scaffold-nav i {
+  height: 10px;
+  opacity: 0.62;
+}
+
+.plan-region-scaffold-nav i:first-child {
+  background: hsl(var(--ring) / 0.2);
+  outline: 1px solid hsl(var(--ring) / 0.75);
+}
+
 .plan-region-button {
   color: white;
   background: hsl(var(--ring));

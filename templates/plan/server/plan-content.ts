@@ -367,10 +367,13 @@ function createCanvasNotes(input: {
               id: "canvas-note-focused-states",
               title: "Then focus the component.",
               body: "Compare compact popover states as widget variants, not as a fake desktop/mobile journey.",
-              x: input.stateFrames[0].x ?? 820,
+              x:
+                (input.contextFrame.x ?? 80) +
+                (input.contextFrame.width ?? 660) -
+                250,
               y:
-                (input.stateFrames[0].y ?? 96) +
-                (input.stateFrames[0].height ?? 360) +
+                (input.contextFrame.y ?? 96) +
+                (input.contextFrame.height ?? 420) +
                 48,
               arrowToFrameId: input.stateFrames[0].id,
             },
