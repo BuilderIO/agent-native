@@ -83,7 +83,7 @@ export default defineAction({
         .optional()
         .default(FIGMA_BOARD_UI_PLAN_DEFAULT)
         .describe(
-          "Experimental opt-in: generate a Figma-style pan/zoom board with sketchy artboards instead of the standard UI plan document.",
+          "Generate a Figma-style pan/zoom board with sketchy UI flow artboards. Defaults on; pass false for the older standard UI plan document.",
         ),
       sketchiness: z
         .number()

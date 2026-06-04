@@ -1095,7 +1095,7 @@ function CreatePlanDialog({
   const [source, setSource] = useState<PlanSource>("codex");
   const [planText, setPlanText] = useState("");
   const [planKind, setPlanKind] = useState<"ui" | "visual">("ui");
-  const [figmaBoardMode, setFigmaBoardMode] = useState(false);
+  const [figmaBoardMode, setFigmaBoardMode] = useState(true);
 
   const isPending =
     createPlan.isPending || createUiPlan.isPending || visualizePlan.isPending;

@@ -85,6 +85,7 @@ describe("Plans helpers", () => {
       brief: "Start with high-fidelity UI states before implementation notes.",
       source: "codex",
       repoPath: "/Users/steve/project",
+      figmaBoardMode: false,
       states: [
         {
           name: "Default",
@@ -122,13 +123,12 @@ describe("Plans helpers", () => {
     expect(html).toContain("/Users/steve/project");
   });
 
-  it("can build an opt-in sketchy board UI plan", () => {
+  it("builds a sketchy board UI plan by default", () => {
     const html = buildUiPlanHtml({
       title: "/ui-plan board review",
       brief: "Compare several app screens on one canvas.",
       source: "codex",
       repoPath: "/Users/steve/project",
-      figmaBoardMode: true,
       sketchiness: 64,
       states: [
         {
@@ -153,7 +153,8 @@ describe("Plans helpers", () => {
     expect(html).toContain("data-board-canvas");
     expect(html).toContain("tweaks-panel");
     expect(html).toContain("data-sketchiness");
-    expect(html).toContain("A - Screen directions");
+    expect(html).toContain("A - UI flow wireframes");
+    expect(html).toContain("flow-connector");
     expect(html).toContain("Desktop - Today");
     expect(html).toContain("Mobile - List");
     expect(html).toContain("data-plan-visual");

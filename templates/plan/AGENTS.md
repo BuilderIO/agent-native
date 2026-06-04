@@ -33,11 +33,14 @@ and comments that a person can review before code changes happen.
 ## Skills
 
 Use `.agents/skills/visual-plans/SKILL.md` for Agent-Native Plans behavior. Use
-`.agents/skills/ui-plan/SKILL.md` for UI-first high-fidelity visual plans where
-screen mockups, state tabs, comments/drawing space, and agent handoff come
-before file implementation details. Use `.agents/skills/visualize-plan/SKILL.md`
-when the agent already has a Codex, Claude Code, Markdown, or pasted text plan
-and should create a visual companion. The exported install flow is simple:
+`.agents/skills/ui-plan/SKILL.md` for UI-first visual plans where sketchy UI
+flow wireframes on a pan/zoom board, comments/drawing space, margin notes, code
+widgets, and agent handoff come before file implementation details.
+`create-ui-plan` defaults to that board style; pass `figmaBoardMode: false`
+only when the older full-width state-tab document is needed. Use
+`.agents/skills/visualize-plan/SKILL.md` when the agent already has a Codex,
+Claude Code, Markdown, or pasted text plan and should create a visual companion.
+The exported install flow is simple:
 `agent-native skills add plans` installs the `/visual-plan`, `/ui-plan`, and
 `/visualize-plan` skills plus the MCP connector. In Claude Code, Codex, and
 other supported hosts, users can then type `/visual-plan` for a fresh general

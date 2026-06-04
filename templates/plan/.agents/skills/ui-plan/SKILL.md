@@ -69,6 +69,23 @@ Good state tab sets include:
 - `Desktop`, `Tablet`, `Mobile`
 - `Owner`, `Reviewer`, `Signed out`
 
+## UI Flow Board Mode
+
+Generated `/ui-plan` documents default to a Figma-style board with sketchy UI
+flow wireframes, multiple screens visible together, connectors, annotations,
+margin notes, and code/implementation widgets on the canvas. Pass
+`figmaBoardMode: false` only when the user explicitly wants the older
+full-width state-tab document. You may pass `sketchiness` from `0` to `100`;
+omit it for the default hand-drawn strength.
+
+Board mode should still include the same information as a normal `/ui-plan`:
+screen states, component notes, implementation map, review prompts, comments,
+drawing-friendly space, and agent handoff. Treat it like a designer handed over
+a Figma file: the reviewer should understand the UI flow from a bird's-eye view,
+with notes and annotations explaining how the screens work together. Mark
+important artboards as visual review targets through the generated HTML so
+comments can anchor to frames.
+
 ## Comments, Drawing, And Handoff
 
 - Add visible annotation prompts beside the mockups: "Comment on layout",

@@ -299,7 +299,8 @@ function buildFigmaBoardUiPlanHtml(input: BuildUiPlanHtmlInput): string {
           </div>
         </section>
 
-        <div class="board-group-label" style="${frameStyle(80, 346, 420, 42)}">A - Screen directions</div>
+        <div class="board-group-label" style="${frameStyle(80, 346, 520, 42)}">A - UI flow wireframes</div>
+        ${renderBoardFlowConnectors(states)}
         ${states.map((state, index) => renderBoardStateFrame(state, index)).join("")}
 
         <div class="board-group-label" style="${frameStyle(80, board.componentY - 58, 430, 42)}">B - Interaction notes</div>
@@ -404,8 +405,40 @@ function renderBoardStateFrame(state: UiPlanState, index: number) {
   return `<article id="${id}" class="board-frame ${isDesktop ? "desktop-frame" : "phone-frame"}" style="${frameStyle(layout.x, layout.y, layout.width, layout.height)}" data-plan-visual data-label="${label}" aria-label="${label} artboard">
     <div class="frame-label"><span>::</span><strong>${label}</strong></div>
     ${inner}
+    <div class="annotation-note">Flow ${index + 1}: ${label}</div>
     <p class="frame-caption">${description}</p>
   </article>`;
+}
+
+function renderBoardFlowConnectors(states: UiPlanState[]) {
+  if (states.length < 2) return "";
+  return states
+    .slice(1)
+    .map((_, index) => {
+      const from = stateFrameLayout(index);
+      const to = stateFrameLayout(index + 1);
+      const startX = from.x + from.width;
+      const startY = from.y + from.height / 2;
+      const endX = to.x;
+      const endY = to.y + to.height / 2;
+      const left = Math.min(startX, endX) - 26;
+      const top = Math.min(startY, endY) - 42;
+      const width = Math.abs(endX - startX) + 52;
+      const height = Math.abs(endY - startY) + 84;
+      const localStartX = startX - left;
+      const localStartY = startY - top;
+      const localEndX = endX - left;
+      const localEndY = endY - top;
+      const c1x = localStartX + Math.max(80, width * 0.28);
+      const c2x = localEndX - Math.max(80, width * 0.28);
+      return `<div class="flow-connector" style="${frameStyle(left, top, width, height)}" aria-hidden="true">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+          <path d="M ${localStartX} ${localStartY} C ${c1x} ${localStartY}, ${c2x} ${localEndY}, ${localEndX} ${localEndY}" />
+        </svg>
+        <span style="left:${Math.max(20, width / 2 - 34)}px;top:${Math.max(12, height / 2 - 13)}px;">Step ${index + 1}</span>
+      </div>`;
+    })
+    .join("");
 }
 
 function renderBoardDesktopScreen(state: UiPlanState, index: number) {
@@ -724,8 +757,14 @@ button, input { font: inherit; }
 .figma-board { position: relative; min-width: 100%; padding-top: 66px; }
 .board-world { position: relative; transform-origin: 0 0; }
 .board-canvas { position: absolute; left: 0; top: 0; transform: scale(var(--board-zoom)); transform-origin: 0 0; }
-.board-note, .board-frame, .board-card, .board-group-label { position: absolute; }
+.board-note, .board-frame, .board-card, .board-group-label, .flow-connector { position: absolute; }
 .board-note, .board-frame, .board-card { color: var(--ink); cursor: default; }
+.board-note, .board-frame, .board-card, .board-group-label { z-index: 2; }
+.flow-connector { z-index: 1; pointer-events: none; }
+.flow-connector svg { position: absolute; inset: 0; overflow: visible; }
+.flow-connector path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 8 8; opacity: .62; filter: url(#ui-plan-roughen); }
+.flow-connector path::after { content: ""; }
+.flow-connector span { position: absolute; display: inline-flex; min-height: 26px; align-items: center; border: 1px solid var(--accent); border-radius: 999px; background: #fff; color: var(--accent); padding: 0 9px; font: 400 12px/1 var(--wire-font); box-shadow: 0 8px 18px rgba(40,36,30,.1); }
 .intro-note { display: flex; flex-direction: column; justify-content: space-between; border: 1.6px solid var(--line); border-radius: 7px; background: rgba(255,254,252,.88); padding: 22px 24px; box-shadow: var(--shadow); }
 .intro-note::after, .board-frame::after, .board-card::after { content: ""; position: absolute; inset: calc(var(--sketch) * -3px); border: calc(1px + var(--sketch) * 1.4px) solid rgba(61,56,49,.36); border-radius: inherit; opacity: calc(var(--sketch) * .72); transform: translate(calc(var(--sketch) * 2px), calc(var(--sketch) * -1px)) rotate(calc(var(--sketch) * .28deg)); pointer-events: none; }
 .eyebrow { margin: 0 0 10px; color: var(--muted); font: 750 11px/1.2 var(--ui-font); text-transform: uppercase; letter-spacing: 0; }
@@ -768,6 +807,8 @@ h3 { margin-bottom: 10px; font: 400 25px/1.12 var(--wire-font); letter-spacing: 
 .task-row em { justify-self: end; border: 1.2px solid var(--line); border-radius: 999px; padding: 3px 7px; color: var(--muted); font: 400 11px/1 var(--wire-font); font-style: normal; }
 .task-row em.hot { border-color: #cf5432; color: #cf5432; }
 .frame-caption { position: absolute; left: 16px; right: 16px; bottom: 14px; margin: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font: 400 14px/1.25 var(--wire-font); }
+.annotation-note { position: absolute; right: -22px; top: 58px; width: 144px; min-height: 62px; border: 1.3px solid rgba(61,56,49,.46); border-radius: 6px; background: #fff5bc; padding: 10px; color: #6b5f3f; font: 400 13px/1.2 var(--wire-font); transform: rotate(calc(var(--sketch) * -1.8deg)); box-shadow: 0 12px 24px rgba(43,40,34,.1); }
+.phone-frame .annotation-note { right: -38px; width: 132px; }
 .phone-frame { padding: 13px; background: #fffdfa; }
 .phone-shell { position: absolute; inset: 13px 13px 56px; overflow: hidden; border: 1.5px solid var(--line); border-radius: 25px; background: #fff; filter: url(#ui-plan-roughen); }
 .phone-status { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 13px; color: var(--muted); font: 650 10px/1 var(--ui-font); }
