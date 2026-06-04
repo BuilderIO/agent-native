@@ -187,8 +187,22 @@ describe("structured plan content", () => {
       ],
     });
 
+    const styleTagResult = planContentSchema.safeParse({
+      version: 1,
+      blocks: [
+        {
+          id: "bad-style",
+          type: "custom-html",
+          data: {
+            html: "<style>body { display: none; }</style>",
+          },
+        },
+      ],
+    });
+
     expect(eventHandlerResult.success).toBe(false);
     expect(srcDocResult.success).toBe(false);
+    expect(styleTagResult.success).toBe(false);
   });
 
   it("exports custom HTML blocks as inert source", () => {
@@ -220,7 +234,7 @@ describe("structured plan content", () => {
     expect(html).not.toContain('<button class="cta">Open</button>');
   });
 
-  it("deduplicates generated state, tab, and frame IDs", () => {
+  it("deduplicates generated state, component tab, and frame IDs", () => {
     const content = createUiPlanContent({
       title: "Checkout flow",
       brief: "Compare repeated loading states.",
@@ -228,10 +242,16 @@ describe("structured plan content", () => {
         { name: "Loading", description: "Initial loading." },
         { name: "Loading", description: "Payment loading." },
       ],
-      components: [],
+      components: [
+        { name: "Filter", description: "Primary filter." },
+        { name: "Filter", description: "Secondary filter." },
+      ],
     });
     const stateTabs = content.blocks.find(
       (block) => block.type === "tabs" && block.title === "Screen States",
+    );
+    const componentTabs = content.blocks.find(
+      (block) => block.type === "tabs" && block.title === "Interaction Notes",
     );
 
     expect(content.canvas?.frames.map((frame) => frame.id)).toEqual([
@@ -243,6 +263,13 @@ describe("structured plan content", () => {
       expect(stateTabs.data.tabs.map((tab) => tab.id)).toEqual([
         "loading",
         "loading-2",
+      ]);
+    }
+    expect(componentTabs?.type).toBe("tabs");
+    if (componentTabs?.type === "tabs") {
+      expect(componentTabs.data.tabs.map((tab) => tab.id)).toEqual([
+        "filter",
+        "filter-2",
       ]);
     }
   });
@@ -408,5 +435,43 @@ describe("structured plan content", () => {
     );
     expect(patched.canvas?.frames[0]?.wireframe?.regions[0]?.width).toBe(88);
     expect(patched.blocks.some((block) => block.id === "new-note")).toBe(true);
+  });
+
+  it("clears linked canvas wireframes when source blocks stop being wireframes", () => {
+    const content = createUiPlanContent({
+      title: "Patchable plan",
+      brief: "Keep canvas snapshots current.",
+      states: [{ name: "Default", description: "Original copy." }],
+      components: [],
+    });
+    const wireframe = content.blocks
+      .flatMap((block) =>
+        block.type === "tabs"
+          ? block.data.tabs.flatMap((tab) => tab.blocks)
+          : [],
+      )
+      .find((block) => block.type === "sketch-wireframe");
+
+    expect(wireframe?.type).toBe("sketch-wireframe");
+    if (wireframe?.type !== "sketch-wireframe") return;
+
+    const replaced = applyPlanContentPatches(content, [
+      {
+        op: "replace-block",
+        blockId: wireframe.id,
+        block: {
+          id: wireframe.id,
+          type: "rich-text",
+          title: "Wireframe notes",
+          data: { markdown: "This frame is no longer visual." },
+        },
+      },
+    ]);
+    expect(replaced.canvas?.frames[0]?.wireframe).toBeUndefined();
+
+    const removed = applyPlanContentPatches(content, [
+      { op: "remove-block", blockId: wireframe.id },
+    ]);
+    expect(removed.canvas?.frames[0]?.wireframe).toBeUndefined();
   });
 });

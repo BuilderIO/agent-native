@@ -134,6 +134,11 @@ export function createUiPlanContent(input: {
     notes: createPlanBlockId(`${id}-notes`),
     wireframe: createPlanBlockId(`${id}-wireframe`),
   }));
+  const componentIds = uniqueIds(
+    input.components.map(
+      (component, index) => slug(component.name) || `component-${index + 1}`,
+    ),
+  );
   const componentPlan = isComponentPlan(input);
   const frames: PlanCanvasFrame[] = states.slice(0, 6).map((state, index) => ({
     id: `frame-${stateIds[index] ?? index + 1}`,
@@ -239,8 +244,8 @@ export function createUiPlanContent(input: {
             type: "tabs",
             title: "Interaction Notes",
             data: {
-              tabs: input.components.map((component) => ({
-                id: slug(component.name) || createPlanBlockId("component"),
+              tabs: input.components.map((component, index) => ({
+                id: componentIds[index] ?? `component-${index + 1}`,
                 label: component.name,
                 blocks: [
                   {

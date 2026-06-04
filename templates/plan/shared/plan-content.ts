@@ -312,7 +312,7 @@ const baseBlockSchema = z.object({
 });
 
 const unsafeCustomHtmlPattern =
-  /(?:<!doctype|<\/?(?:html|head|body|script|iframe|object|embed|link|meta|base|form)[\s>/]|<\/style\s*>|\b(?:javascript|data:text\/html)\s*:|\bsrcdoc\s*=|\bon[a-z][\w:-]*\s*=)/i;
+  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form)[\s>/]|\b(?:javascript|data:text\/html)\s*:|\bsrcdoc\s*=|\bon[a-z][\w:-]*\s*=)/i;
 
 const noFullHtmlDocument = (value: string) =>
   !unsafeCustomHtmlPattern.test(value);
@@ -496,7 +496,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         .object({
           html: z.string().max(100_000).refine(noFullHtmlDocument, {
             message:
-              "Custom HTML blocks must be bounded fragments without html/head/body/script tags.",
+              "Custom HTML blocks must be bounded fragments without html/head/body/script/style tags.",
           }),
           css: z
             .string()
@@ -670,7 +670,7 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
         .max(100_000)
         .refine(noFullHtmlDocument, {
           message:
-            "Custom HTML blocks must be bounded fragments without html/head/body/script tags.",
+            "Custom HTML blocks must be bounded fragments without html/head/body/script/style tags.",
         })
         .optional(),
       css: z
@@ -978,6 +978,8 @@ function syncCanvasWireframes(content: PlanContent) {
     const block = blocks.get(frame.blockId);
     if (block?.type === "sketch-wireframe") {
       frame.wireframe = cloneJson(block.data);
+    } else {
+      delete frame.wireframe;
     }
   }
 }
