@@ -468,10 +468,12 @@ function PlanBlockView({
   block,
   onChange,
   onVisualQuestionsSubmit,
+  compactVisuals,
 }: {
   block: PlanBlock;
   onChange?: (block: PlanBlock) => void;
   onVisualQuestionsSubmit?: (summary: string) => void;
+  compactVisuals?: boolean;
 }) {
   if (block.type === "rich-text") {
     return <RichTextBlock block={block} onChange={onChange} />;
@@ -569,7 +571,7 @@ function PlanBlockView({
     return (
       <section className="plan-block" data-block-id={block.id}>
         {block.title && <h2>{block.title}</h2>}
-        <SketchWireframe data={block.data} />
+        <SketchWireframe data={block.data} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
         )}
@@ -895,6 +897,9 @@ function TabsBlock({
   const [activeId, setActiveId] = useState(block.data.tabs[0]?.id ?? "");
   const active =
     block.data.tabs.find((tab) => tab.id === activeId) ?? block.data.tabs[0];
+  const compactTabVisuals = /interaction|component|note/i.test(
+    block.title ?? "",
+  );
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <h2>{block.title}</h2>}
@@ -925,6 +930,7 @@ function TabsBlock({
               key={child.id}
               block={child}
               onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+              compactVisuals={compactTabVisuals}
               onChange={(nextChild) => {
                 onChange?.({
                   ...block,
@@ -1252,10 +1258,10 @@ function SketchWireframe({
       className={cn(
         "plan-sketch relative overflow-hidden bg-plan-wireframe text-plan-sketch-line",
         isPhone ? "mx-auto w-[260px] rounded-[34px]" : "w-full rounded-[16px]",
-        compact && "max-w-[620px]",
+        compact && "max-w-[380px]",
       )}
       style={{
-        height: canvasSize ?? (isPhone ? 460 : compact ? 260 : 360),
+        height: canvasSize ?? (isPhone ? 460 : compact ? 300 : 360),
       }}
     >
       {isPhone && (
