@@ -59,17 +59,20 @@ describe("show-design-questions", () => {
       "design_123",
       "editor",
     );
-    expect(mocks.writeAppState).toHaveBeenCalledWith("show-questions", {
-      designId: "design_123",
-      title: "Quick questions about your todo app",
-      description:
-        "Pick what matters. Use Other for specifics, or let the agent decide.",
-      skipLabel: "Decide for me",
-      submitLabel: "Continue",
-      questions: expect.arrayContaining([
-        expect.objectContaining({ id: "form_factor" }),
-      ]),
-    });
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "show-questions:design_123",
+      {
+        designId: "design_123",
+        title: "Quick questions about your todo app",
+        description:
+          "Pick what matters. Use Other for specifics, or let the agent decide.",
+        skipLabel: "Decide for me",
+        submitLabel: "Continue",
+        questions: expect.arrayContaining([
+          expect.objectContaining({ id: "form_factor" }),
+        ]),
+      },
+    );
     expect(result).toMatchObject({
       designId: "design_123",
       count: 2,

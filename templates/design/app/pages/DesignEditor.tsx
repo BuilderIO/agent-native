@@ -372,11 +372,17 @@ export default function DesignEditor() {
       setGenerationIssue(null);
       setRetryablePrompt(null);
       setGenerationChatTabId(runTabId);
+      const pending = readPendingGeneration(id, { allowUntimestamped: true });
       patchPendingGeneration(id, {
-        prompt: "Continue from answered design questions.",
-        files: [],
+        prompt: pending?.prompt ?? "Continue from answered design questions.",
+        files: pending?.files ?? [],
+        title: pending?.title,
+        designSystemId: pending?.designSystemId,
+        model: pending?.model,
+        engine: pending?.engine,
+        effort: pending?.effort,
         runTabId,
-        attempt: 1,
+        attempt: pending?.attempt ?? 1,
         startedAt: Date.now(),
       });
       setHasPendingGeneration(true);

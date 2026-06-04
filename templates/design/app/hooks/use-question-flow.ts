@@ -11,17 +11,24 @@ interface UseQuestionFlowOptions {
   onContinue?: (tabId: string) => void;
 }
 
+function designQuestionsStateKey(designId: string | undefined): string {
+  return designId ? `show-questions:${designId}` : "show-questions";
+}
+
 /**
- * Polls `application-state/show-questions`. When the agent writes structured
- * questions, the editor surfaces a full-canvas overlay (Claude Design-style:
- * questions appear before generation begins). On submit, answers are formatted
- * and posted back to the agent chat; on skip, the agent is told to proceed.
+ * Polls design-scoped question state. When the agent writes structured
+ * questions, the editor surfaces a full-canvas overlay for only this design.
+ * On submit, answers are formatted and posted back to the agent chat; on skip,
+ * the agent is told to proceed.
  */
 export function useQuestionFlow(
   designId: string | undefined,
   { continuationTabId, onContinue }: UseQuestionFlowOptions = {},
 ) {
+  const stateKey = designQuestionsStateKey(designId);
   const flow = useGuidedQuestionFlow({
+    stateKey,
+    queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",
     skipMessage: "Skip the questions — decide for me.",
     buildSubmitContext: ({ formattedAnswers }) =>

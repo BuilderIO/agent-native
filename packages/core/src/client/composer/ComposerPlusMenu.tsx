@@ -940,14 +940,14 @@ function AssetsPickerModal({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const sourceUrl = useMemo(() => assetPickerUrl(), []);
   const iframeUrl = useMemo(() => withEmbeddedParams(sourceUrl), [sourceUrl]);
-  const targetOrigin = useMemo(() => assetPickerOrigin(sourceUrl), [sourceUrl]);
+  const targetOrigin = useMemo(() => assetPickerOrigin(iframeUrl), [iframeUrl]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !targetOrigin) return;
 
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
-      if (targetOrigin && event.origin !== targetOrigin) return;
+      if (event.origin !== targetOrigin) return;
       if (!isEmbedEnvelope(event.data)) return;
 
       if (event.data.type === "ready") {
@@ -956,7 +956,7 @@ function AssetsPickerModal({
             name: "configure",
             payload: { mediaType: "image", count: 3 },
           }),
-          targetOrigin ?? "*",
+          targetOrigin,
         );
         return;
       }
@@ -1028,15 +1028,21 @@ function AssetsPickerModal({
             <IconX className="h-4 w-4" />
           </button>
         </div>
-        <iframe
-          ref={iframeRef}
-          src={iframeUrl}
-          title="Assets image picker"
-          className="min-h-0 flex-1 border-0 bg-background"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
-          allow="clipboard-read; clipboard-write; microphone; fullscreen"
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
+        {targetOrigin ? (
+          <iframe
+            ref={iframeRef}
+            src={iframeUrl}
+            title="Assets image picker"
+            className="min-h-0 flex-1 border-0 bg-background"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+            allow="clipboard-read; clipboard-write; microphone; fullscreen"
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        ) : (
+          <div className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
+            The configured image picker URL is not valid.
+          </div>
+        )}
       </div>
     </div>,
     document.body,

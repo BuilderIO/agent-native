@@ -307,7 +307,7 @@ function renderDesktopMockup(
       : "";
   const comment =
     mode === "comment"
-      ? `<div class="selection">selected UI copy</div><div class="comment-pop"><textarea placeholder="Add a comment..."></textarea><button>Save</button></div>`
+      ? `<div class="selection">selected UI copy</div><div class="comment-pop"><textarea placeholder="Add a comment..." readonly tabindex="-1"></textarea><button type="button" disabled>Save</button></div>`
       : "";
   const pin =
     mode === "review" ? `<button class="pin" type="button">1</button>` : "";
@@ -355,14 +355,14 @@ function renderMobileMockup(state: UiPlanState) {
       <div class="phone-screen">
         <div class="phone-top"><strong>Select</strong><span>1</span></div>
         <div class="phone-body"><p>${escapeHtml(state.description)}</p><span class="selection mobile">anchored comment</span></div>
-        <div class="bottom-sheet"><textarea placeholder="Add a comment..."></textarea><button>Save</button></div>
+        <div class="bottom-sheet"><textarea placeholder="Add a comment..." readonly tabindex="-1"></textarea><button type="button" disabled>Save</button></div>
       </div>
     </div>
     <div class="phone">
       <div class="phone-screen">
         <div class="phone-top"><strong>Send</strong><span>...</span></div>
         <div class="phone-body"><div class="comment-summary"><p>2 comments ready</p></div><div class="comment-summary"><p>Send to inline agent</p></div><div class="comment-summary"><p>Copy for host agent</p></div></div>
-        <div class="bottom-sheet"><button>Send to agent</button></div>
+        <div class="bottom-sheet"><button type="button" disabled>Send to agent</button></div>
       </div>
     </div>
   </div>`;
@@ -474,6 +474,7 @@ h3 { font-size: 20px; line-height: 1.2; letter-spacing: -.018em; }
 .comment-pop { position: absolute; left: 42%; top: 39%; width: 360px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 24px; background: rgba(17,18,22,.98); box-shadow: var(--shadow); }
 .comment-pop textarea, .bottom-sheet textarea { width: 100%; min-height: 96px; resize: none; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.04); color: var(--text); padding: 12px; }
 .comment-pop button { float: right; margin-top: 10px; }
+.comment-pop textarea[readonly], .bottom-sheet textarea[readonly], .comment-pop button:disabled, .bottom-sheet button:disabled { pointer-events: none; opacity: .72; cursor: default; }
 .draw-toolbar { position: absolute; z-index: 4; left: 50%; top: 82px; transform: translateX(-50%); display: flex; gap: 8px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 20px; background: rgba(18,19,23,.96); box-shadow: var(--shadow); }
 .draw-toolbar i { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.08); }
 .draw-toolbar i.active { border-color: var(--accent); background: var(--accent); }

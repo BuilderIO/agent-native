@@ -126,10 +126,12 @@ export default function Index() {
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
-      setNewDesignSystemId(resolveDefaultDesignSystemId());
+      setNewDesignSystemId(
+        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
+      );
       setShowNewPrompt(true);
     },
-    [resolveDefaultDesignSystemId],
+    [designSystemsLoading, resolveDefaultDesignSystemId],
   );
 
   const handleNewPromptOpenChange = useCallback((open: boolean) => {
@@ -138,9 +140,19 @@ export default function Index() {
   }, []);
 
   useEffect(() => {
-    if (!showNewPrompt || newDesignSystemId !== undefined) return;
+    if (
+      !showNewPrompt ||
+      newDesignSystemId !== undefined ||
+      designSystemsLoading
+    )
+      return;
     setNewDesignSystemId(resolveDefaultDesignSystemId());
-  }, [newDesignSystemId, resolveDefaultDesignSystemId, showNewPrompt]);
+  }, [
+    designSystemsLoading,
+    newDesignSystemId,
+    resolveDefaultDesignSystemId,
+    showNewPrompt,
+  ]);
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {

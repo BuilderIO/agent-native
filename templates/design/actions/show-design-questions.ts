@@ -13,6 +13,10 @@ function designDeepLink(designId: string): string {
   });
 }
 
+function designQuestionsStateKey(designId: string): string {
+  return `show-questions:${designId}`;
+}
+
 const questionOptionSchema = z.object({
   label: z.string().min(1),
   value: z.string().min(1),
@@ -91,7 +95,7 @@ export default defineAction({
   }) => {
     await assertAccess("design", designId, "editor");
 
-    await writeAppState("show-questions", {
+    await writeAppState(designQuestionsStateKey(designId), {
       designId,
       title: title ?? "Quick questions before I design",
       description:
