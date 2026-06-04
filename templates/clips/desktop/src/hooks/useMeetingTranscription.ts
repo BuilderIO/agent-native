@@ -83,7 +83,10 @@ export function useMeetingTranscription({
       source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
       overwriteReady: true,
     });
-    emit("clips:meeting-saved", { ts: Date.now() }).catch(() => {});
+    emit("clips:meeting-saved", {
+      meetingId: session.meetingId,
+      ts: Date.now(),
+    }).catch(() => {});
   }, [callClipsAction]);
 
   // -------------------------------------------------------------------------
@@ -386,6 +389,11 @@ export function useMeetingTranscription({
           { method: "GET" },
         )
           .then((data) => {
+            // Guard: if the session changed while the fetch was in-flight
+            // (user switched meetings), don't overwrite the new meeting's
+            // pending context with stale data.
+            if (pendingPillInitRef.current?.meetingId !== resolvedMeetingId)
+              return;
             const initialNotes = data?.meeting?.userNotesMd ?? "";
             pendingPillInitRef.current = {
               meetingId: resolvedMeetingId,
@@ -505,7 +513,10 @@ export function useMeetingTranscription({
             { signal },
           )
             .then(() => {
-              emit("clips:meeting-saved", { ts: Date.now() }).catch(() => {});
+              emit("clips:meeting-saved", {
+                meetingId: ev.payload.meetingId,
+                ts: Date.now(),
+              }).catch(() => {});
             })
             .catch((err) => {
               if ((err as Error)?.name === "AbortError") return;

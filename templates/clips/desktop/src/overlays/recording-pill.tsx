@@ -167,7 +167,8 @@ export function RecordingPill() {
     // transcript or the notes are persisted. Drives the single "Auto-saved"
     // indicator below the notes editor.
     trackListen(
-      listen<{ ts: number }>("clips:meeting-saved", (ev) => {
+      listen<{ meetingId: string; ts: number }>("clips:meeting-saved", (ev) => {
+        if (ev.payload?.meetingId !== activeMeetingIdRef.current) return;
         setSaving(false);
         setSaveError(false);
         pendingNotesRef.current = null;
