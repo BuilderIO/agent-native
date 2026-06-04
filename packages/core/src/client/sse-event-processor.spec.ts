@@ -557,7 +557,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           activityTrail: [
             {
-              label: "Running create-document",
+              label: "Running create document",
               tool: "create-document",
             },
           ],
@@ -568,7 +568,7 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:activity",
         detail: {
-          label: "Running create-document",
+          label: "Running create document",
           tool: "create-document",
           tabId: "tab-tool-start",
         },

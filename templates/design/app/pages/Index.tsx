@@ -38,6 +38,7 @@ import {
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -76,6 +77,9 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const [newDesignSystemId, setNewDesignSystemId] = useState<
+    string | null | undefined
+  >(undefined);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -93,6 +97,11 @@ export default function Index() {
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
+  const {
+    designSystems,
+    defaultSystem,
+    isLoading: designSystemsLoading,
+  } = useDesignSystems();
 
   const designs = designsData?.designs ?? [];
 
@@ -109,10 +118,29 @@ export default function Index() {
     filtered.length > 0 &&
     filtered.every((design) => selectedDesignIds.has(design.id));
 
-  const openNewDesign = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    anchorElRef.current = e.currentTarget;
-    setShowNewPrompt(true);
+  const resolveDefaultDesignSystemId = useCallback(
+    () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
+    [defaultSystem?.id, designSystems],
+  );
+
+  const openNewDesign = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      anchorElRef.current = e.currentTarget;
+      setNewDesignSystemId(resolveDefaultDesignSystemId());
+      setShowNewPrompt(true);
+    },
+    [resolveDefaultDesignSystemId],
+  );
+
+  const handleNewPromptOpenChange = useCallback((open: boolean) => {
+    setShowNewPrompt(open);
+    if (!open) setNewDesignSystemId(undefined);
   }, []);
+
+  useEffect(() => {
+    if (!showNewPrompt || newDesignSystemId !== undefined) return;
+    setNewDesignSystemId(resolveDefaultDesignSystemId());
+  }, [newDesignSystemId, resolveDefaultDesignSystemId, showNewPrompt]);
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -149,10 +177,14 @@ export default function Index() {
   }, []);
 
   const createDesign = useCallback(
-    (title: string): { id: string; title: string } => {
+    (
+      title: string,
+      designSystemId?: string | null,
+    ): { id: string; title: string } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
       const finalTitle = title.trim() || "Untitled Design";
+      const linkedDesignSystemId = designSystemId ?? null;
 
       // Optimistic update
       queryClient.setQueryData(
@@ -162,7 +194,7 @@ export default function Index() {
             id,
             title: finalTitle,
             projectType,
-            designSystemId: null,
+            designSystemId: linkedDesignSystemId,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -179,6 +211,9 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
+          ...(linkedDesignSystemId
+            ? { designSystemId: linkedDesignSystemId }
+            : {}),
         } as any)
         .catch(() => {
           clearPendingGeneration(id);
@@ -191,12 +226,6 @@ export default function Index() {
     [queryClient, createMutation],
   );
 
-  const handleSkipPrompt = useCallback(() => {
-    const { id } = createDesign("Untitled Design");
-    setShowNewPrompt(false);
-    navigate(`/design/${id}`);
-  }, [createDesign, navigate]);
-
   const handleSubmitPrompt = useCallback(
     (
       prompt: string,
@@ -207,15 +236,25 @@ export default function Index() {
       // word-boundary truncated. The full prompt still drives generation;
       // the title is just a label, so longer is worse.
       const derivedTitle = derivePromptTitle(prompt);
+      const designSystemId =
+        newDesignSystemId === undefined
+          ? resolveDefaultDesignSystemId()
+          : newDesignSystemId;
 
-      const { id, title } = createDesign(derivedTitle);
+      const { id, title } = createDesign(derivedTitle, designSystemId);
 
-      writePendingGeneration(id, { prompt, files, title, ...options });
+      writePendingGeneration(id, {
+        prompt,
+        files,
+        title,
+        designSystemId,
+        ...options,
+      });
 
       setShowNewPrompt(false);
       navigate(`/design/${id}`);
     },
-    [createDesign, navigate],
+    [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
   );
 
   const handleDelete = useCallback(() => {
@@ -558,13 +597,19 @@ export default function Index() {
 
       <PromptPopover
         open={showNewPrompt}
-        onOpenChange={setShowNewPrompt}
+        onOpenChange={handleNewPromptOpenChange}
         title="New design"
         placeholder="Describe what you want to build..."
-        onSkip={handleSkipPrompt}
-        skipLabel="Skip prompt"
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
+        designSystems={designSystems}
+        designSystemsLoading={designSystemsLoading}
+        selectedDesignSystemId={newDesignSystemId ?? null}
+        onDesignSystemChange={setNewDesignSystemId}
+        onCreateDesignSystem={() => {
+          handleNewPromptOpenChange(false);
+          navigate("/design-systems/setup");
+        }}
       />
 
       {/* Delete Confirmation */}

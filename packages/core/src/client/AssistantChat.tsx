@@ -79,6 +79,7 @@ import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
+import { humanizeToolName, runningToolLabel } from "./tool-display.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
@@ -259,7 +260,7 @@ function getFileDataURL(file: File | Blob): Promise<string> {
 // images on the client before we ever serialize them.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
-const SHOW_AGENT_ACTIVITY_STEPS = false;
+const SHOW_AGENT_ACTIVITY_STEPS = true;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -1485,17 +1486,6 @@ function stringifyToolValue(value: unknown, pretty = false): string {
   }
 }
 
-function toolArgsPreview(args: Record<string, unknown>): string {
-  return Object.entries(args)
-    .map(([key, value]) => {
-      const singleLine = stringifyToolValue(value).replace(/\s+/g, " ").trim();
-      const preview =
-        singleLine.length > 96 ? `${singleLine.slice(0, 96)}...` : singleLine;
-      return `${key}=${preview}`;
-    })
-    .join(", ");
-}
-
 function looksLikeSql(text: string): boolean {
   return /^\s*(select|with|insert|update|delete|merge|create|alter|drop|explain|declare|begin)\b/i.test(
     text,
@@ -1890,7 +1880,6 @@ function ToolCallDisplay({
     }
   }
 
-  const argsStr = isAgentCall ? "" : toolArgsPreview(args);
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
   const resultPayload = toolResultPayload(result);
 
@@ -1900,7 +1889,7 @@ function ToolCallDisplay({
       : isAgentError
         ? `Error asking ${agentName}`
         : `Asked ${agentName}`
-    : toolName;
+    : humanizeToolName(toolName);
 
   const canExpand = isAgentCall
     ? hasStreamText
@@ -1933,7 +1922,6 @@ function ToolCallDisplay({
         </span>
         <span className="truncate min-w-0">
           <span className="font-medium">{displayName}</span>
-          {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
         {canExpand && (
           <IconChevronDown
@@ -4773,15 +4761,16 @@ const AssistantChatInner = forwardRef<
       ) {
         const label = detail.label.trim();
         const tool = detail.tool?.trim() || undefined;
-        setActivityLabel(label);
+        const displayLabel = tool ? runningToolLabel(tool) : label;
+        setActivityLabel(displayLabel);
         setActivitySteps((prev) => {
           const last = prev[prev.length - 1];
-          if (last?.label === label && last.tool === tool) return prev;
+          if (last?.label === displayLabel && last.tool === tool) return prev;
           return [
             ...prev,
             {
               id: `${Date.now()}-${++activityStepIdCounter.current}`,
-              label,
+              label: displayLabel,
               ...(tool ? { tool } : {}),
             },
           ].slice(-6);

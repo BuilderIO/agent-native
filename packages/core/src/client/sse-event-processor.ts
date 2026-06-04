@@ -1,6 +1,7 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
+import { runningToolLabel } from "./tool-display.js";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -299,7 +300,7 @@ export function processEvent(
       window.dispatchEvent(
         new CustomEvent("agent-chat:activity", {
           detail: {
-            label: `Running ${tool}`,
+            label: runningToolLabel(tool),
             tool,
             tabId,
           },
@@ -648,7 +649,7 @@ export async function* readSSEStream(
         } else if (ev.type === "tool_start") {
           const tool = ev.tool ?? "unknown";
           appendActivityTrail(activityTrail, {
-            label: `Running ${tool}`,
+            label: runningToolLabel(tool),
             tool,
           });
         }

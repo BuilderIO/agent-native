@@ -10,6 +10,7 @@ export interface PendingGeneration {
   files?: UploadedFile[];
   title?: string;
   source?: string;
+  designSystemId?: string | null;
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
