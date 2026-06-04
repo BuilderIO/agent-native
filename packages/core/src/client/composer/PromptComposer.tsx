@@ -110,6 +110,8 @@ export interface PromptComposerProps {
   modeControl?: ReactNode;
   /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
+  /** Custom attachment button to render instead of the default "+" affordance. */
+  attachButton?: ReactNode;
   /** Custom action button to render instead of the default send button. */
   actionButton?: ReactNode;
   /** Extra button rendered alongside the default send button. */
@@ -477,6 +479,7 @@ function PromptComposerInner({
   initialTextKey,
   modeControl,
   toolbarSlot,
+  attachButton,
   actionButton,
   extraActionButton,
   layoutVariant,
@@ -584,6 +587,7 @@ function PromptComposerInner({
         plusMenuMode={
           plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
         }
+        attachButton={attachButton}
         modeControl={modeControl}
         toolbarSlot={toolbarSlot}
         actionButton={actionButton}

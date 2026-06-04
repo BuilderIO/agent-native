@@ -30,6 +30,9 @@ patterns live in `.agents/skills/`.
   explicit user instructions in the current turn still win.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
+- For non-trivial new design prompts, ask before generating: create/open the
+  design shell, call `show-design-questions`, stop while the main canvas shows
+  the questions, then continue from the user's answers.
 - For multi-variant work, write candidates incrementally so the UI can preview
   progress. External MCP hosts should use `present-design-variants` so the same
   picker opens inline instead of writing `application_state` directly.
@@ -42,7 +45,8 @@ patterns live in `.agents/skills/`.
 - `navigation` tells you the current view, design id, file id, and related UI
   state.
 - `navigate` moves the UI and is auto-deleted after the client consumes it.
-- `show-questions` opens focused pre-generation questions when needed.
+- `show-design-questions` opens focused pre-generation questions in the main
+  design canvas (`show-questions` application state).
 - `design-variants` contains in-progress candidates for the variant picker.
 
 ## App-Backed Skill Distribution

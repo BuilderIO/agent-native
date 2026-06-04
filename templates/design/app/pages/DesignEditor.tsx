@@ -1127,6 +1127,7 @@ export default function DesignEditor() {
           effort: promptState.effort,
         },
       );
+      setGenerationChatTabId(runTabId);
       patchPendingGeneration(id, {
         prompt: promptState.prompt,
         files: promptState.files,
@@ -2083,12 +2084,14 @@ ${serializedHtml}
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
           const runTabId = agentSubmit(
-            `Generate the initial design files for the "${design.title}" project.`,
+            `Prepare design questions for "${design.title}".`,
             [
-              `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
-              ...designGenerationDirectives(id),
+              `The user has design "${id}" (title: "${design.title}") open and wants to start a design.`,
+              ...designIntakeQuestionDirectives(id),
             ].join("\n"),
+            { newTab: true },
           );
+          setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {
             prompt: `Create an initial design for ${design.title}.`,
             files: [],
@@ -2111,15 +2114,16 @@ ${serializedHtml}
             `User request: "${prompt}"`,
             fileContext,
             "",
-            ...designGenerationDirectives(id),
+            ...designIntakeQuestionDirectives(id),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
           const runTabId = agentSubmit(
-            `Generate design for "${design.title}": ${prompt}`,
+            `Prepare design questions for "${design.title}": ${prompt}`,
             context,
-            options,
+            { ...options, newTab: true },
           );
+          setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {
             prompt,
             files,
