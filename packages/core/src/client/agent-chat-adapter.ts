@@ -598,25 +598,6 @@ function combineContinuationHistory(fragments: string[]): string {
   ).trim();
 }
 
-function visibleTransientContinuationContent(
-  content: ContentPart[],
-): ContentPart[] {
-  // NOTE: this intentionally keeps ONLY completed tool calls, dropping
-  // already-streamed text, on a transient continuation. Preserving the text
-  // here is desirable (it's the live "paragraphs disappear" flicker) BUT it
-  // breaks visibleContentForContinuation's part-count prefix slicing: the
-  // resumed run's text concatenates into the preserved trailing text part, so
-  // the "new chunk" reads as empty and the empty-continuation cap gives up
-  // prematurely on text-heavy multi-continuation turns. The durable fix
-  // (server-side foldAssistantTurn) already preserves the text in thread_data,
-  // so no data is lost — only the live render flickers. Fixing the flicker
-  // safely requires reworking the prefix/new-chunk detection to diff by text
-  // length rather than part count; see the agent-run reliability follow-up.
-  return content.filter(
-    (part) => part.type === "tool-call" && part.result !== undefined,
-  );
-}
-
 function hasContinuationProgress(content: ContentPart[]): boolean {
   return content.some((part) =>
     part.type === "text"
@@ -655,6 +636,73 @@ function snapshotContent(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
     part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
   );
+}
+
+function stableJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function toolContinuationKey(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+): string {
+  return [
+    part.toolCallId,
+    part.toolName,
+    part.argsText,
+    stableJson(part.args),
+    part.result === undefined ? "pending" : "done",
+    part.result ?? "",
+    part.activity === true ? "activity" : "tool",
+    part.mcpApp ? "mcp-app" : "",
+  ].join("\u0000");
+}
+
+function contentAfterContinuationPrefix(
+  content: ContentPart[],
+  prefix: ContentPart[],
+): ContentPart[] {
+  if (prefix.length === 0) return content;
+
+  const delta: ContentPart[] = [];
+  let contentIndex = 0;
+
+  for (const prefixPart of prefix) {
+    const currentPart = content[contentIndex];
+    if (!currentPart) return content.slice(contentIndex);
+
+    if (prefixPart.type === "text" && currentPart.type === "text") {
+      if (currentPart.text === prefixPart.text) {
+        contentIndex += 1;
+        continue;
+      }
+
+      if (currentPart.text.startsWith(prefixPart.text)) {
+        const appendedText = currentPart.text.slice(prefixPart.text.length);
+        if (appendedText) delta.push({ type: "text", text: appendedText });
+        contentIndex += 1;
+        continue;
+      }
+
+      return content.slice(contentIndex);
+    }
+
+    if (
+      prefixPart.type === "tool-call" &&
+      currentPart.type === "tool-call" &&
+      toolContinuationKey(currentPart) === toolContinuationKey(prefixPart)
+    ) {
+      contentIndex += 1;
+      continue;
+    }
+
+    return content.slice(contentIndex);
+  }
+
+  return [...delta, ...content.slice(contentIndex)];
 }
 
 function autoContinueMessage(signal: AgentAutoContinueSignal): string {
@@ -1350,15 +1398,10 @@ export function createAgentChatAdapter(options?: {
         };
 
         const visibleContentForContinuation = (): ContentPart[] => {
-          if (
-            visibleContinuationPrefix.length > 0 &&
-            visibleContinuationPrefix.every(
-              (part, index) => content[index] === part,
-            )
-          ) {
-            return content.slice(visibleContinuationPrefix.length);
-          }
-          return content;
+          return contentAfterContinuationPrefix(
+            content,
+            visibleContinuationPrefix,
+          );
         };
 
         const prepareAutoContinuation = (
@@ -1485,10 +1528,11 @@ export function createAgentChatAdapter(options?: {
             return { ok: true, resetVisibleContent: false };
           }
 
-          const preservedContent = visibleTransientContinuationContent(content);
-          content.splice(0, content.length, ...preservedContent);
-          visibleContinuationPrefix = preservedContent;
-          return { ok: true, resetVisibleContent: true };
+          // Keep everything visible during transient recovery. The continuation
+          // prefix diff tracks what the next request has already seen, so
+          // preserving text no longer causes duplicate continuation history.
+          visibleContinuationPrefix = snapshotContent(content);
+          return { ok: true, resetVisibleContent: false };
         };
 
         while (true) {

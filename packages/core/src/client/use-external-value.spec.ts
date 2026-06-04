@@ -8,6 +8,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -128,6 +129,30 @@ describe("useReconciledState", () => {
     expect(captured.local).toBe("agent edit 2");
   });
 
+  it("adopts a held external value when active turns false", () => {
+    const { captured, Harness } = makeHarness();
+    act(() => {
+      root.render(
+        React.createElement(Harness, { external: "a", active: true }),
+      );
+    });
+    act(() => captured.setLocal("user typing"));
+
+    act(() => {
+      root.render(
+        React.createElement(Harness, { external: "agent edit", active: true }),
+      );
+    });
+    expect(captured.local).toBe("user typing");
+
+    act(() => {
+      root.render(
+        React.createElement(Harness, { external: "agent edit", active: false }),
+      );
+    });
+    expect(captured.local).toBe("agent edit");
+  });
+
   it("setLocal updates local state", () => {
     const { captured, Harness } = makeHarness();
     act(() => {
@@ -154,7 +179,7 @@ describe("useReconciledState", () => {
       root.render(React.createElement(Harness2, { external: "Hello" }));
     });
     act(() => captured.setLocal("edited"));
-    // Case-only change is "equal" under the custom comparator → not adopted.
+    // Case-only change is "equal" under the custom comparator -> not adopted.
     act(() => {
       root.render(React.createElement(Harness2, { external: "HELLO" }));
     });

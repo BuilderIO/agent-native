@@ -26,6 +26,11 @@ patterns live in `.agents/skills/`.
   `get-design-snapshot`, then use `edit-design` (search/replace). Reserve
   `generate-design` for new files or large structural rewrites; never resend
   files you aren't changing.
+- When the user asks to add tweak controls, preserve existing useful tweaks,
+  add or update the requested `tweaks` definitions, and make sure each control
+  is backed by a CSS custom property the rendered file actually uses. If source
+  edits are needed, use `get-design-snapshot` first and persist the complete
+  updated tweak definition list through `generate-design`.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
 - Persist useful work early: create/update the design and files as soon as a

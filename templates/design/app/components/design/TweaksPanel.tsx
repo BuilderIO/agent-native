@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
-import { IconX, IconGripHorizontal } from "@tabler/icons-react";
+import { IconX, IconGripHorizontal, IconPlus } from "@tabler/icons-react";
+import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ interface TweaksPanelProps {
   values: Record<string, string | number | boolean>;
   onChange: (id: string, value: string | number | boolean) => void;
   onClose: () => void;
+  onRequestTweaks?: (anchor: HTMLElement) => void;
   visible: boolean;
 }
 
@@ -23,6 +25,7 @@ export function TweaksPanel({
   values,
   onChange,
   onClose,
+  onRequestTweaks,
   visible,
 }: TweaksPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
@@ -95,31 +98,74 @@ export function TweaksPanel({
             Tweaks
           </button>
         </div>
-        <button
-          type="button"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          className="cursor-pointer text-muted-foreground/70 hover:text-muted-foreground"
-          aria-label="Close tweaks"
-        >
-          <IconX className="h-3 w-3" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          {onRequestTweaks && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRequestTweaks(e.currentTarget);
+                  }}
+                  className="size-6 cursor-pointer text-muted-foreground/70 hover:text-foreground"
+                  aria-label="Add tweaks"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Add tweaks</TooltipContent>
+            </Tooltip>
+          )}
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-muted-foreground"
+            aria-label="Close tweaks"
+          >
+            <IconX className="h-3 w-3" />
+          </button>
+        </div>
       </div>
 
       {/* Body */}
       {!collapsed && (
         <div className="space-y-3.5 px-3 pb-3.5">
-          {tweaks.map((tweak) => (
-            <TweakControl
-              key={tweak.id}
-              tweak={tweak}
-              value={values[tweak.id] ?? tweak.defaultValue}
-              onChange={(v) => onChange(tweak.id, v)}
-            />
-          ))}
+          {tweaks.length > 0 ? (
+            tweaks.map((tweak) => (
+              <TweakControl
+                key={tweak.id}
+                tweak={tweak}
+                value={values[tweak.id] ?? tweak.defaultValue}
+                onChange={(v) => onChange(tweak.id, v)}
+              />
+            ))
+          ) : (
+            <div className="space-y-2 rounded-lg border border-dashed border-border/80 bg-muted/20 p-3">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                No tweak controls yet.
+              </p>
+              {onRequestTweaks && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-full cursor-pointer text-xs"
+                  onClick={(e) => onRequestTweaks(e.currentTarget)}
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                  Add tweak controls
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

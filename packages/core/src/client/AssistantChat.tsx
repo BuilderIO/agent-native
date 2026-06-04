@@ -1256,9 +1256,9 @@ function useSmoothStreamingText(
       !targetText.startsWith(visibleTextRef.current);
 
     if (
-      keyChanged ||
       visibleNoLongerMatchesTarget ||
-      visibleCountRef.current > targetGraphemes.length
+      visibleCountRef.current > targetGraphemes.length ||
+      (keyChanged && visibleTextRef.current.length === 0)
     ) {
       commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
       lastCommitAtRef.current = 0;
