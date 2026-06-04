@@ -6,6 +6,11 @@ import {
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  createUiPlanContent,
+  normalizePlanContent,
+  serializePlanContent,
+} from "../server/plan-content.js";
+import {
   buildPlanHtml,
   commentInputSchema,
   loadPlanBundle,
@@ -18,7 +23,7 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import { buildUiPlanHtml } from "../server/ui-plan-html.js";
+import { planContentSchema } from "../shared/plan-content.js";
 
 const uiPlanStateSchema = z.object({
   name: z.string().min(1).describe("State or screen name"),
@@ -55,7 +60,12 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Optional full bespoke HTML document. If omitted, Plans generates a UI-first hybrid document with an optional top visual canvas.",
+          "Legacy standalone HTML document. Prefer content blocks for new UI plans.",
+        ),
+      content: planContentSchema
+        .optional()
+        .describe(
+          "Structured editable UI plan content. Prefer this for top canvas wireframes, sketch diagrams, rich text, code tabs, implementation maps, and bounded custom HTML fragments.",
         ),
       markdown: z
         .string()
@@ -108,7 +118,7 @@ export default defineAction({
     isConsequential: true,
     title: "Create UI Plan",
     description:
-      "Create a UI-first HTML plan with full-width mockups, states, annotations, and agent feedback handoff.",
+      "Create a UI-first visual plan with full-width mockups, states, annotations, and agent feedback handoff.",
   },
   mcpApp: {
     compactCatalog: true,
@@ -131,18 +141,6 @@ export default defineAction({
     const now = nowIso();
     const brief = args.brief || args.goal || "";
     const title = args.title || "Untitled UI plan";
-    const html =
-      args.html ??
-      buildUiPlanHtml({
-        title,
-        brief,
-        source: args.source,
-        repoPath: args.repoPath,
-        states: args.states,
-        components: args.components,
-        sketchiness: args.sketchiness,
-        implementationNotes: args.implementationNotes,
-      });
     const sections =
       args.sections.length > 0
         ? args.sections
@@ -171,6 +169,19 @@ export default defineAction({
               createdBy: "agent" as const,
             },
           ];
+    const content = args.content
+      ? normalizePlanContent(args.content)
+      : args.html
+        ? null
+        : createUiPlanContent({
+            title,
+            brief,
+            source: args.source,
+            repoPath: args.repoPath,
+            states: args.states,
+            components: args.components,
+            implementationNotes: args.implementationNotes,
+          });
 
     await getDb()
       .insert(schema.plans)
@@ -182,8 +193,9 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "ui plan review",
-        html,
+        html: args.html ?? null,
         markdown: args.markdown ?? null,
+        content: content ? serializePlanContent(content) : null,
         createdAt: now,
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,
@@ -249,7 +261,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native UI plan, review the top pan/zoom wireframe canvas when present, continue through the Notion-like document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
+        "Open the Agent-Native UI plan, review the top pan/zoom sketch canvas when present, continue through the editable document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

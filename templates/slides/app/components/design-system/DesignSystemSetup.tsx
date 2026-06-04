@@ -4,6 +4,7 @@ import {
   IconPalette,
   IconLoader2,
   IconBrandGithub,
+  IconBrandFigma,
   IconFolder,
   IconX,
   IconFileDescription,
@@ -12,9 +13,11 @@ import {
 } from "@tabler/icons-react";
 import {
   useActionQuery,
+  useActionMutation,
   sendToAgentChat,
   openAgentSidebar,
   agentNativePath,
+  appApiPath,
 } from "@agent-native/core/client";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -29,6 +32,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  MAX_FIG_UPLOAD_BYTES,
+  formatFileSize,
+  readFigImportResponse,
+  type FigImportResult,
+} from "./fig-import-response";
 
 interface DesignSystemSetupProps {
   open: boolean;
@@ -92,10 +101,17 @@ export function DesignSystemSetup({
   const [brandNotes, setBrandNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [figParsing, setFigParsing] = useState(false);
+  const [figResult, setFigResult] = useState<FigImportResult | null>(null);
+  const [figError, setFigError] = useState<string | null>(null);
+  const [figTitle, setFigTitle] = useState("");
+  const [figCreating, setFigCreating] = useState(false);
 
   const codeInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const figInputRef = useRef<HTMLInputElement>(null);
+  const createSystemMutation = useActionMutation("create-design-system");
 
   const { data: existingDs } = useActionQuery<{
     title?: string;
@@ -140,6 +156,11 @@ export function DesignSystemSetup({
       setBrandNotes("");
       setCustomInstructions("");
       setSelectedSystemId("");
+      setFigParsing(false);
+      setFigResult(null);
+      setFigError(null);
+      setFigTitle("");
+      setFigCreating(false);
     }
   }, [open]);
 
@@ -216,6 +237,74 @@ export function DesignSystemSetup({
     },
     [],
   );
+
+  const handleFigImport = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".fig")) {
+        setFigError(
+          "Please choose a .fig file (in Figma: File > Save local copy).",
+        );
+        return;
+      }
+      if (file.size > MAX_FIG_UPLOAD_BYTES) {
+        setFigError(
+          `File too large (max ${formatFileSize(MAX_FIG_UPLOAD_BYTES)}).`,
+        );
+        return;
+      }
+
+      setFigError(null);
+      setFigResult(null);
+      setFigParsing(true);
+      try {
+        const body = new FormData();
+        body.append("file", file);
+        const res = await fetch(appApiPath("/api/import-figma-system"), {
+          method: "POST",
+          body,
+        });
+        const parsed = await readFigImportResponse(res);
+        setFigResult(parsed);
+        setFigTitle(parsed.suggestedTitle || "Imported brand");
+      } catch (err) {
+        setFigError(
+          err instanceof Error
+            ? err.message
+            : "Could not parse that Figma file.",
+        );
+      } finally {
+        setFigParsing(false);
+      }
+    },
+    [],
+  );
+
+  const handleCreateFromFig = useCallback(async () => {
+    if (!figResult) return;
+    const title =
+      figTitle.trim() || figResult.suggestedTitle || "Imported brand";
+    setFigCreating(true);
+    try {
+      await createSystemMutation.mutateAsync({
+        title,
+        data: JSON.stringify(figResult.data),
+        customInstructions: figResult.customInstructions || "",
+      } as any);
+      toast({ title: "Design system created from Figma" });
+      onComplete();
+    } catch (err) {
+      setFigCreating(false);
+      toast({
+        title: "Could not create the design system",
+        description:
+          err instanceof Error ? err.message : "Something went wrong",
+        variant: "destructive",
+      });
+    }
+  }, [figResult, figTitle, createSystemMutation, onComplete]);
 
   const handleEditSave = async () => {
     if (!editingId) return;
@@ -403,6 +492,64 @@ export function DesignSystemSetup({
 
             {!editingId && (
               <>
+                {/* Figma .fig */}
+                <div className="space-y-2">
+                  <Label className="text-foreground/80 flex items-center gap-1.5">
+                    <IconBrandFigma className="w-3.5 h-3.5" />
+                    Figma file
+                  </Label>
+                  {!figResult ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => figInputRef.current?.click()}
+                        disabled={figParsing}
+                        className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
+                      >
+                        {figParsing ? (
+                          <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                            <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+                            Parsing Figma file...
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Upload a .fig local copy to create a slide design
+                            system
+                          </span>
+                        )}
+                      </button>
+                      <input
+                        ref={figInputRef}
+                        type="file"
+                        accept=".fig"
+                        onChange={handleFigImport}
+                        className="hidden"
+                      />
+                      {figError && (
+                        <div
+                          role="alert"
+                          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                        >
+                          {figError}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <FigImportPreview
+                      result={figResult}
+                      title={figTitle}
+                      onTitleChange={setFigTitle}
+                      creating={figCreating}
+                      onCreate={handleCreateFromFig}
+                      onReset={() => {
+                        setFigResult(null);
+                        setFigError(null);
+                        setFigTitle("");
+                      }}
+                    />
+                  )}
+                </div>
+
                 {/* Website URL */}
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
@@ -719,6 +866,143 @@ function TagList({
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+function FigImportPreview({
+  result,
+  title,
+  onTitleChange,
+  creating,
+  onCreate,
+  onReset,
+}: {
+  result: FigImportResult;
+  title: string;
+  onTitleChange: (value: string) => void;
+  creating: boolean;
+  onCreate: () => void;
+  onReset: () => void;
+}) {
+  const colors = result.data.colors;
+  const colorEntries = (
+    [
+      ["Accent", "accent"],
+      ["Primary", "primary"],
+      ["Secondary", "secondary"],
+      ["Background", "background"],
+      ["Text", "text"],
+    ] as const
+  ).filter(([, key]) => colors[key]);
+  const typography = result.data.typography;
+  const gradients = result.preview.gradients ?? [];
+
+  return (
+    <div className="space-y-4 rounded-lg border border-border bg-accent/40 p-4">
+      <div className="flex items-start gap-3">
+        {result.preview.thumbnailDataUrl ? (
+          <img
+            src={result.preview.thumbnailDataUrl}
+            alt="Figma file thumbnail"
+            className="h-16 w-24 shrink-0 rounded-md border border-border object-cover"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Label className="text-xs text-muted-foreground">
+            Design system name
+          </Label>
+          <Input
+            value={title}
+            onChange={(event) => onTitleChange(event.target.value)}
+            className="bg-card border-border text-foreground"
+            placeholder="Brand name"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            {result.preview.nodeCount.toLocaleString()} nodes,{" "}
+            {gradients.length} gradient{gradients.length === 1 ? "" : "s"},{" "}
+            {result.preview.imageCount} image
+            {result.preview.imageCount === 1 ? "" : "s"}
+          </p>
+        </div>
+      </div>
+
+      {colorEntries.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {colorEntries.map(([label, key]) => (
+            <div key={key} className="flex items-center gap-2">
+              <div
+                className="h-7 w-7 rounded-md border border-border"
+                style={{ backgroundColor: colors[key] }}
+              />
+              <div className="text-xs">
+                <div className="text-foreground/80">{label}</div>
+                <div className="font-mono text-[10px] text-muted-foreground">
+                  {colors[key]}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {gradients.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {gradients.slice(0, 4).map((gradient, index) => (
+            <div
+              key={index}
+              className="h-8 w-24 rounded-md border border-border"
+              style={{ backgroundImage: gradient }}
+              title={gradient}
+            />
+          ))}
+        </div>
+      )}
+
+      {(typography.headingFont || typography.bodyFont) && (
+        <div className="text-xs text-foreground/80">
+          {typography.headingFont && (
+            <span>
+              <span className="text-muted-foreground">Headings:</span>{" "}
+              {typography.headingFont}
+              {typography.headingWeight ? ` ${typography.headingWeight}` : ""}
+            </span>
+          )}
+          {typography.bodyFont && (
+            <span className="ml-3">
+              <span className="text-muted-foreground">Body:</span>{" "}
+              {typography.bodyFont}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <Button
+          size="sm"
+          onClick={onCreate}
+          disabled={creating || !title.trim()}
+          className="cursor-pointer"
+        >
+          {creating ? (
+            <>
+              <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+              Creating...
+            </>
+          ) : (
+            "Create design system"
+          )}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onReset}
+          disabled={creating}
+          className="cursor-pointer"
+        >
+          Choose another file
+        </Button>
+      </div>
     </div>
   );
 }

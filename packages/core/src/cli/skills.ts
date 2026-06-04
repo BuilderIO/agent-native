@@ -208,20 +208,21 @@ iteration, or a human-in-the-loop choice among design directions.
 const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
 description: >-
-  Use Agent-Native Plans when coding-agent work needs an interactive HTML plan
-  document with diagrams, wireframes, mockups, prototypes, annotations, and
-  comments.
+  Use Agent-Native Plans when coding-agent work needs an interactive structured
+  plan document with diagrams, wireframes, mockups, prototypes, annotations,
+  and comments.
 metadata:
   visibility: exported
 ---
 
 # Agent-Native Plans
 
-Agent-Native Plans is HTML plan mode for coding agents. Generate the kind of
-plan you would normally write in Markdown, but as a scannable HTML plan
-document with visual blocks mixed in: diagrams, wireframes, mockups, prototype
-options, tradeoff cards, file/symbol implementation maps, code previews, and
-annotation prompts. It is a plan document, not a marketing page.
+Agent-Native Plans is structured visual planning mode for coding agents.
+Generate the kind of plan you would normally write in Markdown, but as a
+scannable plan document with editable blocks mixed in: diagrams, wireframes,
+mockups, prototype options, tradeoff cards, file/symbol implementation maps,
+code previews, bounded custom HTML fragments, and annotation prompts. It is a
+plan document, not a marketing page.
 
 The goal is impatient review. The user should be able to react to visuals first
 and read prose only where it helps.
@@ -240,7 +241,7 @@ supported and falls back to a browser link everywhere else.
 
 ## Slash Commands
 
-- \`/visual-plan\`: create a fresh rich HTML plan before implementation. Include
+- \`/visual-plan\`: create a fresh rich visual plan before implementation. Include
   a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
   mockups when UI is involved, an implementation map with files/symbols/snippets,
   tradeoffs, open questions, and clear feedback prompts.
@@ -248,7 +249,7 @@ supported and falls back to a browser link everywhere else.
   Use it for chip questions, freeform answers, mockup choice tabs, sketch
   diagrams, and a generated answer summary that can feed \`/visual-plan\`,
   \`/ui-plan\`, \`/visualize-plan\`, or an existing plan update.
-- \`/ui-plan\`: create a UI-first high-fidelity HTML plan before implementation.
+- \`/ui-plan\`: create a UI-first high-fidelity visual plan before implementation.
   Use an optional top pan/zoom wireframe or diagram canvas when visuals clarify
   the flow, then continue as a refined Notion-like document with rich tabs,
   comments/drawing prompts, code tabs, and agent handoff notes.
@@ -306,7 +307,7 @@ discipline before and around the plan document:
   risky, architectural, UI-heavy, has multiple valid approaches, or the code is
   unfamiliar. Skip it for trivial, unambiguous work — typos, one-line fixes, a
   single well-specified function, anything whose diff you could describe in one
-  sentence — and just make the change. A polished HTML plan is the most
+  sentence — and just make the change. A polished visual plan is the most
   expensive plan form; only invest when a wrong direction is costly. Never pad a
   plan with filler or ship a single-step plan.
 - **Research before you draft.** Read the real files, actions, schema, and
@@ -341,19 +342,26 @@ discipline before and around the plan document:
 
 ## Core Workflow
 
-1. Call \`create-visual-plan\` with the title, brief, source, repo path, and plan
-   sections before implementation.
-2. Put the best possible plan document in \`html\` when you can. It should feel
-   like a bespoke HTML version of a strong Markdown implementation plan, not a
-   dashboard or landing page.
+1. Call \`create-visual-plan\` with the title, brief, source, repo path, and
+   either structured \`content\` blocks or readable \`sections\` before
+   implementation.
+2. Prefer structured \`content\` for every new plan. Use \`rich-text\`,
+   \`sketch-diagram\`, \`sketch-wireframe\`, \`tabs\`, \`code-tabs\`,
+   \`implementation-map\`, \`decision\`, \`checklist\`, \`table\`,
+   \`visual-questions\`, and bounded \`custom-html\` blocks. Do not send a full
+   standalone HTML document unless importing a legacy artifact.
 3. Surface the returned Plans link or inline MCP App. In CLI hosts, ask the user
    to review the plan visually.
 4. Prefer diagrams, wireframes, UI mockups, option cards, implementation maps,
    and small interactive prototypes over paragraphs.
 5. Call \`get-plan-feedback\` before editing, after review, after any long pause,
    and before the final response.
-6. Incorporate comments/corrections with \`update-visual-plan\`; update the HTML
-   document when feedback changes the direction.
+6. Incorporate comments/corrections with \`update-visual-plan\`. Prefer
+   \`contentPatches\` for targeted changes: \`update-rich-text\`,
+   \`replace-block\`, \`update-wireframe-region\`,
+   \`replace-wireframe-regions\`, \`update-canvas-frame\`, \`append-block\`,
+   \`remove-block\`, or \`update-custom-html\`. Use full \`content\` only for
+   broad restructuring.
 7. Export an HTML/JSON/Markdown receipt with \`export-visual-plan\` when the
    user wants a shareable summary.
 
@@ -390,25 +398,33 @@ discipline before and around the plan document:
 
 ## Tool Guidance
 
-- \`create-visual-plan\`: start one HTML plan per agent task/run.
+- \`create-visual-plan\`: start one structured visual plan per agent task/run.
 - \`create-ui-plan\`: start a UI-first plan with high-fidelity screen/state tabs.
 - \`create-visual-questions\`: ask a visual intake questionnaire before creating
   or updating a plan.
 - \`visualize-plan\`: create a visual companion from an existing text plan.
-- \`update-visual-plan\`: revise the plan document, sections, status, or comments.
-- \`get-visual-plan\`: read the current plan document and annotations.
+- \`update-visual-plan\`: revise content blocks, sections, status, or comments.
+  Prefer targeted \`contentPatches\` over regenerating the whole plan.
+  \`contentPatches\` are part of the public MCP action schema, so Claude Code,
+  Codex, and other MCP hosts can make surgical edits without regenerating a
+  whole artifact.
+- \`get-visual-plan\`: read the current structured plan, exported HTML, and annotations.
 - \`get-plan-feedback\`: read unconsumed human feedback. Use it frequently.
 - \`export-visual-plan\`: export HTML, Markdown fallback, and structured JSON.
 
-## HTML Guidance
+## Structured Content Guidance
 
-- Prefer semantic HTML with scoped CSS inside the document.
-- Match Agent-Native's dark, restrained theme unless the user asks otherwise.
+- Prefer structured content blocks over raw HTML. Rich text blocks should carry
+  implementation-plan substance, while diagrams, wireframes, code tabs, and
+  implementation maps make the work reviewable.
+- Use \`custom-html\` only for bounded fragments inside a block. Never include
+  \`html\`, \`head\`, \`body\`, or \`script\` tags in custom fragments.
+- Match Agent-Native's restrained theme unless the user asks otherwise.
 - Keep the first viewport legible and plan-like: title, brief, concise scope,
   and a useful diagram/checklist/table when it helps.
-- Use tabs, accordions, or small interactions only when they make review faster.
-- Do not paste huge HTML into chat. Store it in Plans and surface the MCP app or
-  link.
+- Use tabs or small interactions only when they make review faster.
+- Do not paste huge artifacts into chat. Store the plan in Plans and surface the
+  MCP app or link.
 
 ## Guardrails
 
@@ -440,7 +456,7 @@ react to.
 
 \`/visual-plan\` remains the general rich planning command for architecture,
 backend, refactors, migrations, and mixed work. Use \`/visualize-plan\` when a
-text plan already exists and should become an HTML companion.
+text plan already exists and should become a visual companion.
 
 ## Plan Discipline
 
@@ -468,7 +484,9 @@ text plan already exists and should become an HTML companion.
 ## UI-First Workflow
 
 1. Call \`create-ui-plan\` with a UI-specific title, brief, source, repo path,
-   and a complete bespoke \`html\` document whenever possible.
+   and structured \`content\` when you need custom blocks. Otherwise provide
+   \`states\`, \`components\`, and \`implementationNotes\` so Plans can generate
+   the native editable canvas and document.
 2. When the plan has meaningful UI flows, screens, or diagrams, make the top
    of the document a bounded pan/zoom sketch canvas with the key artboards,
    connectors, margin notes, and commentable visual anchors.
@@ -481,7 +499,9 @@ text plan already exists and should become an HTML companion.
    the document after the visual review area.
 6. Call \`get-plan-feedback\` before implementation, after review, after a long
    pause, and before the final response. Apply changes with
-   \`update-visual-plan\`.
+   \`update-visual-plan\`. Prefer targeted \`contentPatches\` for small changes
+   to one state tab, wireframe region, canvas frame, code tab, or document
+   block.
 
 ## Mockup Quality Bar
 
@@ -501,12 +521,9 @@ text plan already exists and should become an HTML companion.
 
 ## State Tabs
 
-When showing multiple UI states, use the Plans tab attributes so the iframe
-runtime wires up the interaction:
-
-- Put \`data-plan-tabs\` on the tab group.
-- Put \`data-tab-target\` on each tab button.
-- Put matching \`data-tab-panel\` values on panels.
+When showing multiple UI states, prefer the structured \`tabs\` block. Each tab
+can contain rich text, sketch wireframes, diagrams, code tabs, or bounded custom
+HTML fragments. Raw HTML tab attributes are only for legacy imported artifacts.
 
 Good state tab sets include:
 
@@ -521,8 +538,8 @@ Generated \`/ui-plan\` documents use one default shape: an optional Figma-style
 pan/zoom visual preface followed by a refined Notion-like document. There is no
 mode boolean. Provide \`states\` and \`components\` when the top canvas will help
 the reviewer understand the flow; omit them when the plan should be
-document-only. You may pass \`sketchiness\` from \`0\` to \`100\`; omit it for the
-default hand-drawn strength.
+document-only. Use structured blocks for custom states, diagrams, and code
+detail instead of full standalone HTML.
 
 The document below the canvas should still include the same planning substance:
 screen states, component notes, implementation map, review prompts, comments,
@@ -561,9 +578,10 @@ starts editing.
 
 ## Tool Guidance
 
-- \`create-ui-plan\`: create the UI-first HTML plan.
-- \`update-visual-plan\`: revise mockups, state tabs, comments, or handoff notes.
-- \`get-visual-plan\`: inspect the current plan and annotations.
+- \`create-ui-plan\`: create the UI-first structured visual plan.
+- \`update-visual-plan\`: revise content blocks, mockups, comments, or handoff notes.
+  Prefer targeted \`contentPatches\` over regenerating the whole UI plan.
+- \`get-visual-plan\`: inspect the current structured plan, exported HTML, and annotations.
 - \`get-plan-feedback\`: read unconsumed reviewer comments before coding.
 - \`export-visual-plan\`: export a review receipt when needed.
 
@@ -583,8 +601,8 @@ metadata:
 
 Use \`/visual-questions\` when the next best step is not a plan yet, but a
 reviewable visual intake: single-choice chips, multi-select chips, freeform
-notes, mockup option tabs, sketch diagrams, and a generated answer summary that
-feeds the next planning prompt.
+notes, sketchy mockup choices, sketch diagrams, and a generated answer summary
+that feeds the next planning prompt.
 
 \`/visual-questions\` is the manual override for the automatic preflight that
 \`/visual-plan\` may run. Use it when the user explicitly asks for intake first
@@ -617,7 +635,8 @@ the plan.
    - call \`create-ui-plan\` for UI flow plans;
    - call \`create-visual-plan\` for general visual plans;
    - call \`visualize-plan\` when the user already has a text plan;
-   - call \`update-visual-plan\` when the active plan should absorb answers.
+   - call \`update-visual-plan\` with targeted \`contentPatches\` when the active
+     plan should absorb answers.
 5. If the user leaves comments on the visual questionnaire, call
    \`get-plan-feedback\` before using the answers.
 
@@ -628,7 +647,7 @@ Supported \`questions\` entries:
 - \`single\`: chip group where one option wins.
 - \`multi\`: chip group where multiple options can be selected.
 - \`freeform\`: textarea for constraints, inspirations, or things to avoid.
-- \`visual\`: tabbed visual options with cards and sketch previews. Use this
+- \`visual\`: visual options with sketch previews. Use this
   for layout direction, flow depth, mobile/desktop choices, or diagram choices.
 
 Each option can include \`label\`, \`value\`, \`description\`, \`recommended\`,
@@ -642,6 +661,8 @@ Each option can include \`label\`, \`value\`, \`description\`, \`recommended\`,
 - Prefer visible, answerable options over abstract prose.
 - Use visual tabs when users need to compare layout/flow shapes.
 - Keep the output calm and document-like, not a landing page.
+- Use native visual-question content. Do not provide a full standalone HTML form
+  unless importing a legacy artifact.
 - The generated answer summary is not the final plan; it is the intake prompt
   for the next agent step.
 
@@ -659,7 +680,7 @@ const VISUALIZE_PLAN_SKILL_MD = `---
 name: visualize-plan
 description: >-
   Convert an existing Codex, Claude Code, Markdown, or pasted plan into a
-  Agent-Native Plans HTML companion with diagrams, wireframes, annotations, and
+  Agent-Native Plans visual companion with diagrams, wireframes, annotations, and
   feedback.
 metadata:
   visibility: exported
@@ -669,8 +690,8 @@ metadata:
 
 Use this as the visual companion for an existing text plan. The native Codex or
 Claude Code plan can stay exactly where it is; Agent-Native Plans turns it into
-an interactive HTML review surface with diagrams, wireframes, prototype options,
-annotations, questions, and feedback.
+a structured visual review surface with diagrams, wireframes, prototype options,
+annotations, questions, feedback, and an HTML export.
 
 This is for impatient review. Default to things the user can scan and react to.
 It should still read like a plan, not a marketing page.
@@ -728,6 +749,9 @@ should start with high-fidelity state mockups.
    - two or three option cards when there are real tradeoffs;
    - small prototype sketches for interactions, states, or animation choices;
    - reviewable assumptions and open questions;
+   Prefer targeted \`contentPatches\` for small edits to one imported block,
+   wireframe region, diagram, or implementation map instead of replacing the
+   whole plan content.
 5. Ask the user to react in the visual plan. Then call \`get-plan-feedback\`
    before implementing, after review, and before final response.
 6. Treat the imported text as source material. Structured Plans state is
@@ -871,7 +895,7 @@ const BUILT_IN_APP_SKILLS = {
       id: "visual-plans",
       displayName: "Agent-Native Plans",
       description:
-        "Generate and review coding-agent plans as interactive HTML with diagrams, wireframes, prototypes, annotations, and feedback.",
+        "Generate and review coding-agent plans as structured visual documents with diagrams, wireframes, prototypes, annotations, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",

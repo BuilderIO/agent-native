@@ -27,6 +27,17 @@ function tmpDir(): string {
   return root;
 }
 
+function workspaceRoot(): string {
+  let current = process.cwd();
+  while (current !== path.dirname(current)) {
+    if (fs.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  throw new Error("Could not locate workspace root.");
+}
+
 describe("agent-native skills", () => {
   it("defaults to the one-command Assets install path", () => {
     expect(parseSkillsArgs(["add", "assets"])).toMatchObject({
@@ -121,6 +132,7 @@ describe("agent-native skills", () => {
     fs.mkdirSync(codexHome, { recursive: true });
     const previousCodexHome = process.env.CODEX_HOME;
     const commands: { cmd: string; args: string[] }[] = [];
+    let materializedVisualPlan = "";
 
     process.env.CODEX_HOME = codexHome;
     try {
@@ -137,6 +149,15 @@ describe("agent-native skills", () => {
           baseDir: root,
           runCommand: async (cmd, args) => {
             commands.push({ cmd, args });
+            if (cmd === "npx" && args.includes("skills@latest")) {
+              const source = args[3];
+              if (source) {
+                materializedVisualPlan = fs.readFileSync(
+                  path.join(source, "skills", "visual-plan", "SKILL.md"),
+                  "utf-8",
+                );
+              }
+            }
             return 0;
           },
         },
@@ -165,6 +186,9 @@ describe("agent-native skills", () => {
       expect(
         fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
       ).toContain('url = "https://plan.agent-native.com/_agent-native/mcp"');
+      expect(materializedVisualPlan).toContain("structured `content`");
+      expect(materializedVisualPlan).toContain("contentPatches");
+      expect(materializedVisualPlan).not.toContain("data-plan-tabs");
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
@@ -292,6 +316,36 @@ describe("agent-native skills", () => {
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
     );
+  });
+
+  it("keeps exported Plans skill copies aligned with template skills", () => {
+    const root = workspaceRoot();
+    const pairs = [
+      ["visual-plan", "visual-plans"],
+      ["visual-questions", "visual-questions"],
+      ["ui-plan", "ui-plan"],
+      ["visualize-plan", "visualize-plan"],
+    ];
+
+    for (const [templateName, exportedName] of pairs) {
+      const templateSkill = fs.readFileSync(
+        path.join(
+          root,
+          "templates",
+          "plan",
+          ".agents",
+          "skills",
+          templateName,
+          "SKILL.md",
+        ),
+        "utf-8",
+      );
+      const exportedSkill = fs.readFileSync(
+        path.join(root, "skills", exportedName, "SKILL.md"),
+        "utf-8",
+      );
+      expect(exportedSkill).toBe(templateSkill);
+    }
   });
 
   it("installs project-scoped local Context X-Ray artifacts without global agent instructions", async () => {

@@ -17,7 +17,7 @@ import { loadPlanBundle, summarizePlans } from "../server/plans.js";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at in Agent-Native Plans, including the active HTML plan, sections, and annotations.",
+    "See what the user is currently looking at in Agent-Native Plans, including the active structured plan, exported HTML, sections, and annotations.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -34,6 +34,7 @@ export default defineAction({
         screen.visualPlan = {
           plan: bundle.plan,
           summary: bundle.summary,
+          contentBlockCount: bundle.plan.content?.blocks.length ?? 0,
           htmlLength: bundle.plan.html?.length ?? 0,
           sections: bundle.sections.map((section) => ({
             id: section.id,
@@ -45,7 +46,7 @@ export default defineAction({
             (comment) => comment.status === "open",
           ),
           agentWorkflow:
-            "For fast visual-plan iteration, call get-visual-plan with this plan ID to read the current HTML, then call update-visual-plan with a revised html string. The UI refreshes the iframe automatically.",
+            "For fast visual-plan iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId/regionId; use full content only for broad restructuring, and html only for legacy imported artifacts.",
         };
       } catch {
         screen.visualPlanError = `Could not load visual plan ${nav.planId}`;

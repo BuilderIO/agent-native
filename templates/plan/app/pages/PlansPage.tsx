@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   IconArrowsMaximize,
@@ -72,6 +79,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
 import {
   useCreatePlan,
   useCreateUiPlan,
@@ -84,6 +92,7 @@ import {
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
 import type { PlanBundle, PlanSource } from "@shared/types";
+import type { PlanContent } from "@shared/plan-content";
 
 const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "codex", label: "Codex" },
@@ -270,6 +279,14 @@ function buildPlanAgentContext(input: {
   documentHtml: string;
   url: string;
 }) {
+  const contentBlockCount = input.bundle.plan.content?.blocks.length ?? 0;
+  const contentBlocks = input.bundle.plan.content?.blocks
+    .slice(0, 12)
+    .map(
+      (block) =>
+        `- ${block.id}: ${block.type}${block.title ? `, "${block.title}"` : ""}`,
+    )
+    .join("\n");
   const openComments = input.bundle.comments
     .filter((comment) => comment.status === "open")
     .slice(0, 6)
@@ -285,14 +302,17 @@ function buildPlanAgentContext(input: {
     `Title: ${input.bundle.plan.title}`,
     `Status: ${input.bundle.plan.status}`,
     `URL: ${input.url}`,
-    `Rendered HTML length: ${input.documentHtml.length} characters`,
+    input.bundle.plan.content
+      ? `Structured content blocks: ${contentBlockCount}`
+      : `Legacy rendered HTML length: ${input.documentHtml.length} characters`,
     "",
     "Fast iteration workflow:",
-    "1. Call get-visual-plan with this plan ID to read the full current HTML, sections, comments, and activity.",
-    "2. Patch the document with update-visual-plan by passing the revised full html string.",
+    "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
+    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, update-wireframe-region for one wireframe rectangle, update-canvas-frame for frame layout, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
     "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
-    "4. Keep the output as a polished HTML plan document: prose, tables, diagrams, implementation maps, high-fidelity mockups, and minimal app chrome.",
-    "5. After applying feedback, keep the plan scannable and visually reactive instead of turning it into a dashboard.",
+    "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+    "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
+    contentBlocks ? `\nStructured content blocks:\n${contentBlocks}` : "",
     openComments ? `\nOpen comments:\n${openComments}` : "",
   ]
     .filter(Boolean)
@@ -300,13 +320,14 @@ function buildPlanAgentContext(input: {
 }
 
 function buildApplyFeedbackMessage(openCommentCount: number) {
-  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update the HTML plan and any related implementation details as needed.`;
+  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update structured content blocks and any related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
 export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const nativeReaderRef = useRef<HTMLDivElement>(null);
   const documentStateRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
@@ -464,6 +485,20 @@ export function PlansPage() {
   }, [annotatedDocumentHtml, postRuntimeState]);
 
   const getPositionFromAnchor = useCallback((anchor: PlanAnnotationAnchor) => {
+    const nativeReader = nativeReaderRef.current;
+    if (nativeReader) {
+      const rect = nativeReader.getBoundingClientRect();
+      const pointX =
+        (anchor.x / 100) * nativeReader.scrollWidth - nativeReader.scrollLeft;
+      const pointY =
+        (anchor.y / 100) * nativeReader.scrollHeight - nativeReader.scrollTop;
+      return resolveInlineCommentPosition({
+        pointX,
+        pointY,
+        viewportWidth: rect.width,
+        viewportHeight: rect.height,
+      });
+    }
     const rect = iframeRef.current?.getBoundingClientRect();
     if (!rect) return null;
     const doc = documentStateRef.current;
@@ -644,6 +679,71 @@ export function PlansPage() {
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setAnnotateMode(true);
+  };
+
+  const handleNativeReaderScroll = () => {
+    const reader = nativeReaderRef.current;
+    if (!reader) return;
+    documentStateRef.current = {
+      scrollX: reader.scrollLeft,
+      scrollY: reader.scrollTop,
+      scrollWidth: reader.scrollWidth,
+      scrollHeight: reader.scrollHeight,
+      clientWidth: reader.clientWidth,
+      clientHeight: reader.clientHeight,
+    };
+    setActiveAnnotation((current) => {
+      if (!current) return current;
+      const position = getPositionFromAnchor(current.annotation.anchor);
+      return position ? { ...current, position } : current;
+    });
+  };
+
+  const handleNativeReaderPointerDown = (
+    event: PointerEvent<HTMLDivElement>,
+  ) => {
+    if (!annotateMode || event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-plan-interactive]")) return;
+    const reader = nativeReaderRef.current;
+    if (!reader) return;
+    event.preventDefault();
+    const rect = reader.getBoundingClientRect();
+    const pointX = event.clientX - rect.left;
+    const pointY = event.clientY - rect.top;
+    const anchor: PlanAnnotationAnchor = {
+      x: ((pointX + reader.scrollLeft) / Math.max(reader.scrollWidth, 1)) * 100,
+      y: ((pointY + reader.scrollTop) / Math.max(reader.scrollHeight, 1)) * 100,
+      anchorKind: "point",
+      visualLabel: bundle?.plan.title,
+    };
+    documentStateRef.current = {
+      scrollX: reader.scrollLeft,
+      scrollY: reader.scrollTop,
+      scrollWidth: reader.scrollWidth,
+      scrollHeight: reader.scrollHeight,
+      clientWidth: reader.clientWidth,
+      clientHeight: reader.clientHeight,
+    };
+    setActiveAnnotation(null);
+    setPendingAnnotation(anchor);
+    setInlineCommentPosition(
+      resolveInlineCommentPosition({
+        pointX,
+        pointY,
+        viewportWidth: rect.width,
+        viewportHeight: rect.height,
+      }),
+    );
+  };
+
+  const updateStructuredContent = async (content: PlanContent) => {
+    if (!bundle) return;
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      content,
+      note: "Updated structured visual plan content.",
+    });
   };
 
   const togglePlansAgent = () => {
@@ -1166,17 +1266,45 @@ export function PlansPage() {
                   Click the plan to pin feedback
                 </div>
               )}
-              <iframe
-                ref={iframeRef}
-                title={`${bundle.plan.title} plan`}
-                srcDoc={annotatedDocumentHtml}
-                onLoad={handleIframeLoad}
-                sandbox="allow-forms allow-scripts"
-                className={cn(
-                  "h-full min-h-full w-full border-0 bg-background",
-                  annotateMode && "ring-1 ring-inset ring-primary/35",
-                )}
-              />
+              {bundle.plan.content ? (
+                <div
+                  ref={nativeReaderRef}
+                  className={cn(
+                    "h-full min-h-full w-full overflow-auto bg-background",
+                    annotateMode && "ring-1 ring-inset ring-primary/35",
+                  )}
+                  onScroll={handleNativeReaderScroll}
+                  onPointerDown={handleNativeReaderPointerDown}
+                >
+                  <PlanContentRenderer
+                    content={bundle.plan.content}
+                    fallbackTitle={bundle.plan.title}
+                    fallbackBrief={bundle.plan.brief}
+                    onContentChange={updateStructuredContent}
+                    onVisualQuestionsSubmit={(summary) => {
+                      sendToAgentChat({
+                        type: "content",
+                        submit: false,
+                        context: planAgentContext,
+                        message: summary,
+                      });
+                      toast.success("Visual answers added to the agent draft");
+                    }}
+                  />
+                </div>
+              ) : (
+                <iframe
+                  ref={iframeRef}
+                  title={`${bundle.plan.title} plan`}
+                  srcDoc={annotatedDocumentHtml}
+                  onLoad={handleIframeLoad}
+                  sandbox="allow-forms allow-scripts"
+                  className={cn(
+                    "h-full min-h-full w-full border-0 bg-background",
+                    annotateMode && "ring-1 ring-inset ring-primary/35",
+                  )}
+                />
+              )}
               {pendingAnnotation && inlineCommentPosition && (
                 <>
                   <div
@@ -1372,11 +1500,11 @@ function EmptyPlan({ onCreate }: { onCreate: () => void }) {
           <IconSparkles className="size-5 text-muted-foreground" />
         </div>
         <h2 className="mt-4 text-xl font-semibold tracking-tight">
-          Start with an HTML plan
+          Start with a visual plan
         </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Create a polished plan with diagrams, wireframes, prototypes, and
-          comments before implementation starts.
+          Create a polished plan with editable document blocks, diagrams,
+          wireframes, and comments before implementation starts.
         </p>
         <Button className="mt-5" onClick={onCreate}>
           <IconPlus className="size-4" />

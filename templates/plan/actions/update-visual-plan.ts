@@ -4,6 +4,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  normalizePlanContent,
+  serializePlanContent,
+} from "../server/plan-content.js";
+import {
   assertPlanEditor,
   buildPlanHtml,
   commentInputSchema,
@@ -14,10 +18,15 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
+import {
+  applyPlanContentPatches,
+  planContentPatchesSchema,
+  planContentSchema,
+} from "../shared/plan-content.js";
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plans HTML document, sections, comments, or status. Use this for fast side-by-side iteration: read the plan with get-visual-plan, patch the HTML, and write the revised full HTML back here.",
+    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one wireframe region, one canvas frame, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional(),
@@ -25,6 +34,13 @@ export default defineAction({
     status: planStatusSchema.optional(),
     currentFocus: z.string().optional(),
     html: z.string().optional(),
+    content: planContentSchema.optional(),
+    contentPatches: planContentPatchesSchema
+      .optional()
+      .default([])
+      .describe(
+        "Targeted structured content edits. Prefer these for small changes: update a rich-text block, replace a block, update a wireframe region, edit a canvas frame, append/remove a block, or update a custom HTML fragment.",
+      ),
     markdown: z.string().optional(),
     sections: z.array(sectionInputSchema).optional().default([]),
     comments: z.array(commentInputSchema).optional().default([]),
@@ -38,7 +54,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Visual Plan",
     description:
-      "Patch the live HTML plan, add visual sections, record comments, or mark feedback consumed.",
+      "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
   },
   run: async (args) => {
     const onlyAddsNewComments =
@@ -47,6 +63,8 @@ export default defineAction({
       !args.status &&
       !args.currentFocus &&
       args.html === undefined &&
+      args.content === undefined &&
+      args.contentPatches.length === 0 &&
       args.markdown === undefined &&
       args.sections.length === 0 &&
       args.consumedCommentIds.length === 0 &&
@@ -67,12 +85,27 @@ export default defineAction({
 
     const db = getDb();
     const now = nowIso();
+    let nextContent =
+      args.content !== undefined ? normalizePlanContent(args.content) : null;
+    if (args.content === undefined && args.contentPatches.length > 0) {
+      const bundle = await loadPlanBundle(args.planId);
+      if (!bundle.plan.content) {
+        throw new Error(
+          "Targeted content patches require a structured plan. Pass content for a full conversion, or html for legacy artifacts.",
+        );
+      }
+      nextContent = applyPlanContentPatches(
+        bundle.plan.content,
+        args.contentPatches,
+      );
+    }
     const planPatch = {
       ...(args.title ? { title: args.title } : {}),
       ...(args.brief ? { brief: args.brief } : {}),
       ...(args.status ? { status: args.status } : {}),
       ...(args.currentFocus ? { currentFocus: args.currentFocus } : {}),
       ...(args.html !== undefined ? { html: args.html } : {}),
+      ...(nextContent ? { content: serializePlanContent(nextContent) } : {}),
       ...(args.markdown !== undefined ? { markdown: args.markdown } : {}),
       ...(args.status === "approved" ? { approvedAt: now } : {}),
       updatedAt: now,

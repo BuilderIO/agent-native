@@ -19,7 +19,7 @@ react to.
 `/visual-plan` remains the general rich planning command for architecture,
 backend, refactors, migrations, and mixed work. Use `/visual-questions` first
 when the user should answer visual intake questions before a UI plan. Use
-`/visualize-plan` when a text plan already exists and should become an HTML
+`/visualize-plan` when a text plan already exists and should become a visual
 companion.
 
 ## Plan Discipline
@@ -48,7 +48,9 @@ companion.
 ## UI-First Workflow
 
 1. Call `create-ui-plan` with a UI-specific title, brief, source, repo path,
-   and a complete bespoke `html` document whenever possible.
+   and structured `content` when you need custom blocks. Otherwise provide
+   `states`, `components`, and `implementationNotes` so Plans can generate the
+   native editable canvas and document.
 2. When the plan has meaningful UI flows, screens, or diagrams, make the top
    of the document a bounded pan/zoom sketch canvas with the key artboards,
    connectors, margin notes, and commentable visual anchors.
@@ -67,7 +69,8 @@ companion.
    the document after the visual review area.
 6. Call `get-plan-feedback` before implementation, after review, after a long
    pause, and before the final response. Apply changes with
-   `update-visual-plan`.
+   `update-visual-plan`. Prefer targeted `contentPatches` for small changes to
+   one state tab, wireframe region, canvas frame, code tab, or document block.
 
 ## Mockup Quality Bar
 
@@ -87,12 +90,9 @@ companion.
 
 ## State Tabs
 
-When showing multiple UI states, use the Plans tab attributes so the iframe
-runtime wires up the interaction:
-
-- Put `data-plan-tabs` on the tab group.
-- Put `data-tab-target` on each tab button.
-- Put matching `data-tab-panel` values on panels.
+When showing multiple UI states, prefer the structured `tabs` block. Each tab
+can contain rich text, sketch wireframes, diagrams, code tabs, or bounded custom
+HTML fragments. Raw HTML tab attributes are only for legacy imported artifacts.
 
 Good state tab sets include:
 
@@ -107,8 +107,8 @@ Generated `/ui-plan` documents use one default shape: an optional Figma-style
 pan/zoom visual preface followed by a refined Notion-like document. There is no
 mode boolean. Provide `states` and `components` when the top canvas will help
 the reviewer understand the flow; omit them when the plan should be
-document-only. You may pass `sketchiness` from `0` to `100`; omit it for the
-default hand-drawn strength.
+document-only. Use structured blocks for custom states, diagrams, and code
+detail instead of full standalone HTML.
 
 The document below the canvas should still include the same planning substance:
 screen states, component notes, implementation map, review prompts, comments,
@@ -147,11 +147,12 @@ starts editing.
 
 ## Tool Guidance
 
-- `create-ui-plan`: create the UI-first HTML plan.
+- `create-ui-plan`: create the UI-first structured visual plan.
 - `create-visual-questions`: ask a rich visual intake form before the UI plan
   when direction-changing answers are needed.
-- `update-visual-plan`: revise mockups, state tabs, comments, or handoff notes.
-- `get-visual-plan`: inspect the current plan and annotations.
+- `update-visual-plan`: revise content blocks, mockups, comments, or handoff notes.
+  Prefer targeted `contentPatches` over regenerating the whole UI plan.
+- `get-visual-plan`: inspect the current structured plan, exported HTML, and annotations.
 - `get-plan-feedback`: read unconsumed reviewer comments before coding.
 - `export-visual-plan`: export a review receipt when needed.
 

@@ -79,7 +79,7 @@ import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
-import { humanizeToolLabelText, humanizeToolName } from "./tool-display.js";
+import { humanizeToolName } from "./tool-display.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
@@ -260,7 +260,6 @@ function getFileDataURL(file: File | Blob): Promise<string> {
 // images on the client before we ever serialize them.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
-const SHOW_AGENT_ACTIVITY_STEPS = true;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -1726,66 +1725,6 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
   );
 }
 
-function activityTrailFromMetadata(message: unknown): ActivityStep[] {
-  const meta = (message as { metadata?: unknown })?.metadata as
-    | {
-        custom?: { activityTrail?: unknown };
-        activityTrail?: unknown;
-      }
-    | undefined;
-  const raw = meta?.custom?.activityTrail ?? meta?.activityTrail;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item, index): ActivityStep | null => {
-      if (!item || typeof item !== "object") return null;
-      const label = (item as { label?: unknown }).label;
-      const tool = (item as { tool?: unknown }).tool;
-      if (typeof label !== "string" || !label.trim()) return null;
-      return {
-        id: `trail-${index}-${label}`,
-        label: label.trim(),
-        ...(typeof tool === "string" && tool.trim()
-          ? { tool: tool.trim() }
-          : {}),
-      };
-    })
-    .filter((item): item is ActivityStep => item !== null);
-}
-
-function RunActivityTrail({ steps }: { steps: ActivityStep[] }) {
-  const [open, setOpen] = useState(false);
-  if (steps.length === 0) return null;
-  const visibleSteps = steps.slice(-6);
-  return (
-    <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-      >
-        <IconChevronDown
-          size={12}
-          className={cn("transition-transform", open && "rotate-180")}
-        />
-        Steps
-      </button>
-      {open && (
-        <div className="mt-1 rounded-md border border-border/60 bg-muted/25 px-2.5 py-2 text-[11px] text-muted-foreground">
-          <div className="space-y-1">
-            {visibleSteps.map((step) => (
-              <div key={step.id} className="flex min-w-0 items-center gap-2">
-                <IconCheck className="h-3 w-3 shrink-0 text-emerald-500" />
-                <span className="truncate">{step.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ToolCallDisplay({
   toolName,
   argsText,
@@ -2440,9 +2379,6 @@ function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
-  const activityTrail = SHOW_AGENT_ACTIVITY_STEPS
-    ? activityTrailFromMetadata(msg)
-    : [];
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -2515,9 +2451,6 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {SHOW_AGENT_ACTIVITY_STEPS && isComplete && activityTrail.length > 0 && (
-        <RunActivityTrail steps={activityTrail} />
-      )}
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
           <div className="flex min-w-0 items-center gap-2">
@@ -2577,63 +2510,10 @@ function AssistantMessage() {
 
 // ─── Thinking Indicator ─────────────────────────────────────────────────────
 
-interface ActivityStep {
-  id: string;
-  label: string;
-  tool?: string;
-}
-
-function ActivitySteps({
-  steps,
-  className,
-}: {
-  steps: ActivityStep[];
-  className?: string;
-}) {
-  if (steps.length === 0) return null;
-  const visibleSteps = steps.slice(-4);
-  return (
-    <div
-      className={cn(
-        "max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground",
-        className,
-      )}
-      aria-live="polite"
-    >
-      <div className="space-y-1">
-        {visibleSteps.map((step, index) => {
-          const isCurrent = index === visibleSteps.length - 1;
-          return (
-            <div key={step.id} className="flex min-w-0 items-center gap-2">
-              {isCurrent ? (
-                <IconLoader2 className="h-3 w-3 shrink-0 animate-spin" />
-              ) : (
-                <IconCheck className="h-3 w-3 shrink-0 text-emerald-500" />
-              )}
-              <span className="truncate">{step.label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function RunningActivityStatus({
-  steps,
-  label,
-}: {
-  steps: ActivityStep[];
-  label: string;
-}) {
+function RunningActivityStatus({ label }: { label: string }) {
   return (
     <div className="agent-running-activity shrink-0 px-4 pb-2">
-      <div className="flex flex-col gap-2">
-        {SHOW_AGENT_ACTIVITY_STEPS && (
-          <ActivitySteps steps={steps} className="max-w-full" />
-        )}
-        <ThinkingIndicator label={label} />
-      </div>
+      <ThinkingIndicator label={label} />
     </div>
   );
 }
@@ -4009,8 +3889,6 @@ const AssistantChatInner = forwardRef<
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
-  const [activityLabel, setActivityLabel] = useState<string | null>(null);
-  const activityStepIdCounter = useRef(0);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
@@ -4030,7 +3908,6 @@ const AssistantChatInner = forwardRef<
   const wasRunningRef = useRef(false);
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
-  const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([]);
 
   useEffect(() => {
     if (lastBroadcastRunningRef.current === isRunning) return;
@@ -4760,60 +4637,6 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as {
-        label?: string;
-        tool?: string;
-        tabId?: string;
-      };
-      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (
-        SHOW_AGENT_ACTIVITY_STEPS &&
-        typeof detail?.label === "string" &&
-        detail.label.trim()
-      ) {
-        const label = detail.label.trim();
-        const tool = detail.tool?.trim() || undefined;
-        const displayLabel = humanizeToolLabelText(label, tool);
-        setActivityLabel(displayLabel);
-        setActivitySteps((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.label === displayLabel && last.tool === tool) return prev;
-          return [
-            ...prev,
-            {
-              id: `${Date.now()}-${++activityStepIdCounter.current}`,
-              label: displayLabel,
-              ...(tool ? { tool } : {}),
-            },
-          ].slice(-6);
-        });
-      }
-    };
-    window.addEventListener("agent-chat:activity", handler);
-    return () => window.removeEventListener("agent-chat:activity", handler);
-  }, [tabId]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { tabId?: string };
-      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      setActivityLabel(null);
-      setActivitySteps([]);
-    };
-    window.addEventListener("agent-chat:activity-clear", handler);
-    return () =>
-      window.removeEventListener("agent-chat:activity-clear", handler);
-  }, [tabId]);
-
-  useEffect(() => {
-    if (!showRunningInUI) {
-      setActivityLabel(null);
-      setActivitySteps([]);
-    }
-  }, [showRunningInUI]);
-
   // Auto-dequeue: when agent finishes running, send the next queued message
   useEffect(() => {
     if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
@@ -4959,8 +4782,6 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
-      setActivityLabel(null);
-      setActivitySteps([]);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
@@ -5612,18 +5433,10 @@ const AssistantChatInner = forwardRef<
                 />
               )}
               <SelectionAttachedPill />
-              {/* Keep live run progress pinned in the composer footer while the
-                completed/collapsed trail remains attached to the transcript. */}
+              {/* Keep live run progress pinned in the composer footer. */}
               {showRunningInUI && (
                 <RunningActivityStatus
-                  steps={activitySteps}
-                  label={
-                    isReconnecting
-                      ? "Reconnecting"
-                      : SHOW_AGENT_ACTIVITY_STEPS
-                        ? (activityLabel ?? "Thinking")
-                        : "Thinking"
-                  }
+                  label={isReconnecting ? "Reconnecting" : "Thinking"}
                 />
               )}
               {/* Input area */}

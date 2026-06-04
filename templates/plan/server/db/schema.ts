@@ -24,6 +24,7 @@ export const plans = table("plans", {
   currentFocus: text("current_focus"),
   html: text("html"),
   markdown: text("markdown"),
+  content: text("content"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   approvedAt: text("approved_at"),

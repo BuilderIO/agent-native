@@ -1,8 +1,9 @@
 # Agent-Native Plans — Agent Guide
 
-Agent-Native Plans is a local-first HTML plan mode for coding agents. Its job is
-to turn agent plans into diagrams, wireframes, prototype options, annotations,
-and comments that a person can review before code changes happen.
+Agent-Native Plans is a local-first structured visual plan mode for coding
+agents. Its job is to turn agent plans into editable rich blocks, diagrams,
+wireframes, prototype options, annotations, and comments that a person can
+review before code changes happen.
 
 ## Core Rules
 
@@ -14,7 +15,8 @@ and comments that a person can review before code changes happen.
   unclear.
 - For new features, update UI, actions, skills/instructions, and application
   state when applicable.
-- Default to visual artifacts over long Markdown. Text is a fallback layer.
+- Default to structured visual artifacts over long Markdown. Text is one block
+  type, not the whole plan.
 - Current app actions require a real user session so plans stay scoped and
   shareable. Local development can use the framework's auto-created dev account;
   hosted persistence, private sharing, reviewer links, and cross-device/team

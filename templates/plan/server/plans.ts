@@ -17,6 +17,7 @@ import {
   type PlanSection,
   type PlanSummary,
 } from "../shared/types.js";
+import { buildPlanContentHtml, parsePlanContent } from "./plan-content.js";
 
 type ImplementationFile = {
   id: string;
@@ -200,6 +201,7 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       currentFocus: plan.currentFocus,
       html: plan.html,
       markdown: plan.markdown,
+      content: parsePlanContent(plan.content),
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,
@@ -332,6 +334,16 @@ function inferSectionType(title: string, body: string) {
 }
 
 export function buildPlanHtml(bundle: PlanBundle): string {
+  if (bundle.plan.content) {
+    return buildPlanContentHtml({
+      content: bundle.plan.content,
+      title: bundle.plan.title,
+      brief: bundle.plan.brief,
+      source: bundle.plan.source,
+      status: bundle.plan.status,
+      repoPath: bundle.plan.repoPath,
+    });
+  }
   const storedHtml = normalizeStoredHtml(bundle.plan.html);
   if (storedHtml.trim()) return storedHtml;
   const title = escapeHtml(bundle.plan.title);

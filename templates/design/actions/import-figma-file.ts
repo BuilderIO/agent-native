@@ -1,8 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { decodeFig, buildImageMap } from "../server/lib/fig/decode.js";
-import { renderHtmlTemplates } from "../server/lib/fig/fig-to-html.js";
-import { extractDesignSystemFromFig } from "../server/lib/fig/extract-design-system.js";
+import {
+  buildImageMap,
+  decodeFig,
+  extractDesignSystemFromFig,
+  renderHtmlTemplates,
+} from "@agent-native/core/brand-kit/fig";
 
 /** Per-frame HTML is capped so the tool result stays a manageable size. The
  * agent can re-run with a smaller selection or fetch the full design via the

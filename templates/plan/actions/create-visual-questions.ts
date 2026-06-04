@@ -6,6 +6,12 @@ import {
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  createVisualQuestionsContent,
+  normalizePlanContent,
+  serializePlanContent,
+  type VisualQuestionBuilderInput,
+} from "../server/plan-content.js";
+import {
   buildPlanHtml,
   commentInputSchema,
   loadPlanBundle,
@@ -18,10 +24,7 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import {
-  buildVisualQuestionsHtml,
-  type VisualQuestion,
-} from "../server/visual-questions-html.js";
+import { planContentSchema } from "../shared/plan-content.js";
 
 const visualQuestionOptionSchema = z.object({
   value: z.string().optional(),
@@ -98,7 +101,12 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Optional full bespoke questionnaire HTML. If omitted, Plans generates the interactive visual question form.",
+          "Legacy standalone questionnaire HTML. Prefer content blocks for new visual question plans.",
+        ),
+      content: planContentSchema
+        .optional()
+        .describe(
+          "Structured editable visual-question content. Prefer this for rich intake questions, visual options, sketch wireframes, diagrams, and follow-up notes.",
         ),
       markdown: z
         .string()
@@ -150,16 +158,7 @@ export default defineAction({
     const now = nowIso();
     const brief = args.brief || args.goal || "";
     const title = args.title || "Visual questions";
-    const questions = args.questions as VisualQuestion[];
-    const html =
-      args.html ??
-      buildVisualQuestionsHtml({
-        title,
-        brief,
-        source: args.source,
-        repoPath: args.repoPath,
-        questions,
-      });
+    const questions = args.questions as VisualQuestionBuilderInput[];
     const sections =
       args.sections.length > 0
         ? args.sections
@@ -186,6 +185,15 @@ export default defineAction({
               createdBy: "agent" as const,
             },
           ];
+    const content = args.content
+      ? normalizePlanContent(args.content)
+      : args.html
+        ? null
+        : createVisualQuestionsContent({
+            title,
+            brief,
+            questions,
+          });
 
     await getDb()
       .insert(schema.plans)
@@ -197,8 +205,9 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "visual questions",
-        html,
+        html: args.html ?? null,
         markdown: args.markdown ?? null,
+        content: content ? serializePlanContent(content) : null,
         createdAt: now,
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,

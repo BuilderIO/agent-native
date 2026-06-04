@@ -6,6 +6,10 @@ import {
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  createPlanContentFromSections,
+  serializePlanContent,
+} from "../server/plan-content.js";
+import {
   buildPlanHtml,
   deriveSectionsFromText,
   loadPlanBundle,
@@ -32,7 +36,7 @@ function inferTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Convert an existing Codex, Claude Code, Markdown, or pasted text plan into an Agent-Native Plans HTML companion with tabbed diagrams/wireframes, file/symbol implementation maps, code previews, and annotation space.",
+    "Convert an existing Codex, Claude Code, Markdown, or pasted text plan into an Agent-Native visual plan with editable rich blocks, sketch diagrams/wireframes, implementation maps, code previews, and annotation space.",
   schema: z.object({
     title: z.string().optional().describe("Short title for the visual plan"),
     brief: z
@@ -81,6 +85,17 @@ export default defineAction({
       args.goal ||
       `Visual companion for an imported coding-agent plan.`;
     const sections = deriveSectionsFromText(args.planText);
+    const content = createPlanContentFromSections({
+      title,
+      brief,
+      sections: sections.map((section, index) => ({
+        id: `section-${index + 1}`,
+        type: section.type,
+        title: section.title,
+        body: section.body,
+        html: section.html,
+      })),
+    });
 
     await getDb()
       .insert(schema.plans)
@@ -94,6 +109,7 @@ export default defineAction({
         currentFocus: args.currentFocus ?? "visual review",
         html: null,
         markdown: args.planText,
+        content: serializePlanContent(content),
         createdAt: now,
         updatedAt: now,
         approvedAt: null,
@@ -138,7 +154,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native Plans companion, react to the visual sections, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
+        "Open the Agent-Native Plans companion, react to the editable visual sections, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

@@ -11,6 +11,7 @@ import type {
   PlanStatus,
   PlanSummary,
 } from "@shared/types";
+import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
 
 export type PlanSectionInput = {
   id?: string;
@@ -41,6 +42,8 @@ export type CreatePlanInput = {
   currentFocus?: string;
   status?: PlanStatus;
   html?: string;
+  content?: PlanContent;
+  contentPatches?: PlanContentPatch[];
   markdown?: string;
   sections?: PlanSectionInput[];
   comments?: PlanCommentInput[];
@@ -94,6 +97,8 @@ export type UpdatePlanInput = {
   status?: PlanStatus;
   currentFocus?: string;
   html?: string;
+  content?: PlanContent;
+  contentPatches?: PlanContentPatch[];
   markdown?: string;
   sections?: PlanSectionInput[];
   comments?: PlanCommentInput[];
