@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildDynamicAgentSuggestions,
   mergeAgentSuggestions,
   normalizeAgentDynamicSuggestionsConfig,
+  useAgentDynamicSuggestionsResult,
 } from "./dynamic-suggestions.js";
 
 describe("buildDynamicAgentSuggestions", () => {
@@ -118,5 +123,70 @@ describe("normalizeAgentDynamicSuggestionsConfig", () => {
       enabled: false,
       includeStatic: true,
     });
+  });
+});
+
+function SuggestionsProbe() {
+  const result = useAgentDynamicSuggestionsResult({
+    staticSuggestions: ["Static prompt"],
+  });
+  return React.createElement("div", {
+    "data-testid": "suggestions-probe",
+    "data-loading": String(result.isLoading),
+    "data-suggestions": (result.suggestions ?? []).join("|"),
+  });
+}
+
+describe("useAgentDynamicSuggestionsResult", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let releaseFetches: () => void;
+  let fetchGate: Promise<void>;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    fetchGate = new Promise((resolve) => {
+      releaseFetches = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => fetchGate.then(() => new Response("", { status: 204 }))),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    releaseFetches();
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  function probe() {
+    const node = container.querySelector("[data-testid='suggestions-probe']");
+    if (!(node instanceof HTMLElement)) {
+      throw new Error("suggestions probe did not render");
+    }
+    return node;
+  }
+
+  it("reports loading until the initial app-state suggestion read finishes", async () => {
+    act(() => {
+      root.render(React.createElement(SuggestionsProbe));
+    });
+
+    expect(probe().dataset.loading).toBe("true");
+    expect(probe().dataset.suggestions).toBe("");
+
+    await act(async () => {
+      releaseFetches();
+      await fetchGate;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(probe().dataset.loading).toBe("false");
+    expect(probe().dataset.suggestions).toBe("Static prompt");
   });
 });

@@ -45,7 +45,7 @@ import {
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import {
-  useAgentDynamicSuggestions,
+  useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -3725,6 +3725,19 @@ import {
 } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
+function EmptyStateSuggestionSkeleton() {
+  return (
+    <div
+      className="flex w-full max-w-[280px] flex-col gap-1.5"
+      aria-hidden="true"
+    >
+      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
+      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
+      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
+    </div>
+  );
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -3784,13 +3797,14 @@ const AssistantChatInner = forwardRef<
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
-  const resolvedSuggestions = useAgentDynamicSuggestions({
-    staticSuggestions: suggestions,
-    dynamicSuggestions,
-    browserTabId,
-    scope: contextScope,
-    enabled: messages.length === 0,
-  });
+  const { suggestions: resolvedSuggestions, isLoading: suggestionsLoading } =
+    useAgentDynamicSuggestionsResult({
+      staticSuggestions: suggestions,
+      dynamicSuggestions,
+      browserTabId,
+      scope: contextScope,
+      enabled: messages.length === 0,
+    });
   const messageListResetKey = useMemo(
     () => messages.map((message) => message.id).join("|"),
     [messages],
@@ -5403,11 +5417,14 @@ const AssistantChatInner = forwardRef<
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
                       <IconMessage className="h-5 w-5 text-muted-foreground" />
                     </div>
-                    <p className="text-sm text-muted-foreground text-center max-w-[240px]">
+                    <p className="sr-only">
                       {emptyStateText ?? "How can I help you?"}
                     </p>
                     {emptyStateAddon}
-                    {resolvedSuggestions && resolvedSuggestions.length > 0 && (
+                    {suggestionsLoading ? (
+                      <EmptyStateSuggestionSkeleton />
+                    ) : resolvedSuggestions &&
+                      resolvedSuggestions.length > 0 ? (
                       <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
                         {resolvedSuggestions.map((suggestion) => (
                           <button
@@ -5424,7 +5441,7 @@ const AssistantChatInner = forwardRef<
                           </button>
                         ))}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 ) : (
                   <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">

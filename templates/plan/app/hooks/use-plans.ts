@@ -53,6 +53,30 @@ export type CreateUiPlanInput = CreatePlanInput & {
   implementationNotes?: string;
 };
 
+export type VisualQuestionOptionInput = {
+  value?: string;
+  label: string;
+  description?: string;
+  recommended?: boolean;
+  preview?: "desktop" | "mobile" | "split" | "flow" | "diagram";
+  bullets?: string[];
+};
+
+export type VisualQuestionInput = {
+  id: string;
+  type: "single" | "multi" | "freeform" | "visual";
+  title: string;
+  subtitle?: string;
+  options?: VisualQuestionOptionInput[];
+  allowOther?: boolean;
+  placeholder?: string;
+  required?: boolean;
+};
+
+export type CreateVisualQuestionsInput = CreatePlanInput & {
+  questions?: VisualQuestionInput[];
+};
+
 export type VisualizePlanInput = {
   title?: string;
   brief?: string;
@@ -130,6 +154,17 @@ export function useCreateUiPlan() {
   >("create-ui-plan", {
     onSuccess: invalidate,
     onError: showActionError("Failed to create UI plan"),
+  });
+}
+
+export function useCreateVisualQuestions() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    CreateVisualQuestionsInput
+  >("create-visual-questions", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to create visual questions"),
   });
 }
 

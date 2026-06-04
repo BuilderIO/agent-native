@@ -45,6 +45,16 @@ export {
   type ClientAppStateWriteOptions,
 } from "./application-state.js";
 export {
+  useAgentRouteState,
+  useSemanticNavigationState,
+  type AgentRouteLocation,
+  type SemanticNavigationCommandEnvelope,
+  type UseAgentRouteStateOptions,
+  type UseAgentRouteStateResult,
+  type UseSemanticNavigationStateOptions,
+  type UseSemanticNavigationStateResult,
+} from "./route-state.js";
+export {
   ensureEmbedAuthFetchInterceptor,
   getEmbedAuthToken,
   isEmbedAuthActive,

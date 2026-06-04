@@ -57,6 +57,12 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 The `navigation` key is written by the UI whenever the route changes. The `navigate` key is a one-shot command: the agent writes it, the UI reads and executes the navigation, then deletes it.
 
+UI code should use `useAgentRouteState` / `useSemanticNavigationState` from
+`@agent-native/core/client` for navigation sync instead of hand-written
+`fetch("/_agent-native/application-state/...")` calls. Keep shareable filters
+in URL query params; the framework exposes them as `<current-url>` and the
+built-in agent can update them with `set-search-params`.
+
 ## Mounted Workspace Routing
 
 This app may be mounted under `/<app-id>` in a workspace. Inside app source, React Router paths are app-local: use `<Link to="/review">` and `navigate("/review")`, not `/<app-id>/review`. The workspace gateway and `APP_BASE_PATH` add the mounted prefix in the browser; hardcoding it inside React Router links causes doubled URLs such as `/<app-id>/<app-id>/review`.
@@ -123,7 +129,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 **Read the `adding-a-feature` skill first** — it has the full four-area checklist (UI / Action / Skills / App-State). Quick summary:
 
-1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes
+1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes with `useAgentRouteState`
 2. **Enhance view-screen** — make the view-screen script return relevant context for the new view
 3. **Create domain actions** — add actions in `actions/` for CRUD operations on new data models; do not create REST wrappers around those actions
 4. **Wire UI for auto-refresh** — use `useActionQuery` / `useActionMutation` for normal CRUD. If a raw `useQuery` is unavoidable, fold `useChangeVersions([<source>, "action"])` into its key with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.

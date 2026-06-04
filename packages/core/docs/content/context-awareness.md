@@ -11,13 +11,14 @@ How the agent knows what the user is looking at -- and how the agent can control
 
 Without context awareness, the agent is blind. It asks "which email?" when the user is staring at one. It cannot act on the current selection, cannot provide relevant suggestions, and cannot modify what the user sees. With context awareness, the user can click a row, highlight a paragraph, select a slide element, or press Cmd+I, then say "summarize this" and the agent already knows what "this" means.
 
-Five patterns solve this:
+Six patterns solve this:
 
 1. **Navigation state** -- the UI writes a `navigation` key to application-state on every route change
-2. **Selection state** -- the UI writes a `selection` key when the user focuses, selects, or multi-selects something meaningful
-3. **`view-screen`** -- an action that reads application state, fetches contextual data, and returns a snapshot of what the user sees
-4. **Prompt handoff** -- UI controls call `sendToAgentChat()` when a click should become an agent turn
-5. **`navigate`** -- a one-shot command from the agent that tells the UI where to go
+2. **Current URL** -- the framework writes `__url__` so query params are visible and editable by the agent
+3. **Selection state** -- the UI writes a `selection` key when the user focuses, selects, or multi-selects something meaningful
+4. **`view-screen`** -- an action that reads application state, fetches contextual data, and returns a snapshot of what the user sees
+5. **Prompt handoff** -- UI controls call `sendToAgentChat()` when a click should become an agent turn
+6. **`navigate`** -- a one-shot command from the agent that tells the UI where to go
 
 ## Context layers {#context-layers}
 
@@ -25,25 +26,26 @@ Use different context channels for different jobs:
 
 | Layer                                     | Owner             | Use it for                                                                 |
 | ----------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
-| `navigation` app-state key                | UI                | Current route, view, open record, filters, active tab                      |
+| `navigation` app-state key                | UI                | Semantic route state: current view, open record, active tab, stable IDs    |
+| `__url__` app-state key                   | Framework UI      | Current pathname, search string, hash, and parsed URL query params         |
+| `__set_url__` app-state key               | Agent / framework | One-shot URL edits from `set-search-params` and `set-url-path`             |
 | `selection` app-state key                 | UI                | Durable semantic selection: rows, blocks, shapes, assets, messages         |
 | `pending-selection-context` app-state key | UI / `AgentPanel` | One-shot selected text attached to the next chat turn, usually from Cmd+I  |
 | `view-screen` action                      | Agent             | Hydrating the app-state keys into real records and screen summaries        |
 | `sendToAgentChat()`                       | UI                | Turning a click, command, comment pin, or selected item into a chat prompt |
 | `navigate` app-state key                  | Agent             | Asking the UI to move to another route or focus another object             |
 
-The short version: app state tells the agent what the user is looking at, `view-screen` turns that state into useful data, and `sendToAgentChat()` turns UI intent into a chat message when the user clicks a command.
+The short version: URL query params are the source of truth for shareable filters, `navigation` stores semantic IDs and view names, `view-screen` turns those state layers into useful data, and `sendToAgentChat()` turns UI intent into a chat message when the user clicks a command.
 
 ## Navigation state {#navigation-state}
 
-The UI writes a `navigation` key to application-state on every route change. This tells the agent what view the user is on, what item is open, and which filters shape the visible list.
+The UI writes a `navigation` key to application-state on every route change. This tells the agent what view the user is on, what item is open, and which semantic UI state matters.
 
 ```json
 {
   "view": "inbox",
   "threadId": "thread-123",
   "focusedEmailId": "msg-456",
-  "search": "budget",
   "label": "important"
 }
 ```
@@ -52,10 +54,10 @@ What to include in navigation state:
 
 - `view` -- the current page/section, such as "inbox", "form-builder", or "dashboard"
 - Item IDs -- the selected/open item, such as `threadId` or `formId`
-- Filter state -- active search, label, or category filters
+- Semantic aliases -- active tab, label name, or other stable app concepts that help the agent reason
 - Light focus state -- focused row, active tab, current panel
 
-Keep `navigation` small and URL-like. It should identify the current screen, not duplicate whole records. Fetch records in `view-screen` so the agent always gets fresh data.
+Keep `navigation` small and semantic. It should identify the current screen, not duplicate whole records or mirror every query param. Fetch records in `view-screen` so the agent always gets fresh data.
 
 The agent reads this before acting:
 
@@ -64,6 +66,44 @@ import { readAppState } from "@agent-native/core/application-state";
 
 const navigation = await readAppState("navigation");
 // { view: "inbox", threadId: "thread-123", label: "important" }
+```
+
+## Current URL and filters {#current-url}
+
+`AgentPanel` automatically syncs the current React Router URL into the `__url__` application-state key. The built-in agent includes it in every turn as a `<current-url>` block:
+
+```txt
+<current-url>
+pathname: /adhoc/revenue
+search: ?f_region=west&q=renewal
+searchParams:
+  f_region: west
+  q: renewal
+</current-url>
+```
+
+This is the canonical layer for shareable filter state. If the user can copy a URL and come back to the same filtered list, the filter belongs in the query string. The agent can change those filters with the built-in `set-search-params` tool:
+
+```txt
+set-search-params({ "params": { "f_region": "east", "q": null } })
+```
+
+Use `navigation` only for semantic aliases that help `view-screen` fetch or summarize the right data. A dashboard might keep `navigation.dashboardId` while `__url__.searchParams` owns `f_region`, `f_dateStart`, and `q`.
+
+When `view-screen` returns a richer snapshot, it can copy important URL filters into a friendly `activeFilters` object:
+
+```ts
+const url = (await readAppState("__url__")) as {
+  searchParams?: Record<string, string>;
+} | null;
+
+if (url?.searchParams) {
+  screen.activeFilters = Object.fromEntries(
+    Object.entries(url.searchParams).filter(
+      ([key, value]) => key.startsWith("f_") && value,
+    ),
+  );
+}
 ```
 
 ## Selection state {#selection-state}
@@ -257,58 +297,60 @@ import { writeAppState } from "@agent-native/core/application-state";
 await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 ```
 
-The UI polls for this command and navigates when it appears:
+The UI should consume these commands through `useAgentRouteState`, which handles command polling, tab-scoped fallback keys, duplicate-command protection, and delete-after-read:
 
-```ts
-// UI side -- poll for navigate commands
-import {
-  deleteClientAppState,
-  readClientAppState,
-} from "@agent-native/core/client";
+```tsx
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
 
-const { data: navCommand } = useQuery({
-  queryKey: ["navigate-command"],
-  queryFn: async () => {
-    const data = await readClientAppState<NavigateCommand>("navigate");
-    if (data) {
-      await deleteClientAppState("navigate");
-      return data;
-    }
-    return null;
-  },
-  staleTime: 2_000,
-});
+interface NavigationState {
+  view: "inbox" | "thread";
+  threadId?: string;
+}
 
-useEffect(() => {
-  if (navCommand) {
-    router.navigate(buildPath(navCommand));
-  }
-}, [navCommand]);
+export function useNavigationState() {
+  useAgentRouteState<NavigationState>({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname }) => {
+      const match = pathname.match(/^\/thread\/([^/]+)/);
+      return match ? { view: "thread", threadId: match[1] } : { view: "inbox" };
+    },
+    getCommandPath: (command) =>
+      command.view === "thread" && command.threadId
+        ? `/thread/${command.threadId}`
+        : "/",
+  });
+}
 ```
 
 The `navigation` key belongs to the UI -- the agent should never write to it directly. Instead, the agent writes to `navigate`, and the UI performs the actual navigation, which then updates `navigation`.
 
 ## useNavigationState hook {#use-navigation-state}
 
-The `use-navigation-state.ts` hook syncs routes to application-state on every navigation:
+The `use-navigation-state.ts` hook is usually a thin wrapper around `useAgentRouteState`. Template code supplies the app-specific route mapping; core owns application-state writes, command reads/deletes, request-source headers, and duplicate-command prevention.
 
-```ts
+```tsx
 // app/hooks/use-navigation-state.ts
-import { useEffect } from "react";
-import { useLocation } from "react-router";
-import { setClientAppState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
-  const location = useLocation();
-
-  useEffect(() => {
-    const state = deriveNavigationState(location.pathname);
-    setClientAppState("navigation", state).catch(() => {});
-  }, [location.pathname]);
+  useAgentRouteState({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, searchParams }) => ({
+      view: pathname === "/" ? "home" : pathname.slice(1),
+      // Optional semantic alias. Raw query params are still visible in
+      // <current-url> and controllable with set-search-params.
+      label: searchParams.get("label"),
+    }),
+    getCommandPath: (command: any) => command.path ?? "/",
+  });
 }
 ```
 
-The `deriveNavigationState()` function is template-specific -- it parses the URL path and extracts the view, item IDs, and filters relevant to your app.
+For non-router state channels, use the lower-level `useSemanticNavigationState`. It takes a ready-made `state`, an ordered list of `navigationKeys`/`commandKeys`, and an `onCommand` callback, but does not import or assume React Router.
 
 ## Jitter prevention {#jitter-prevention}
 

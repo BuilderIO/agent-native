@@ -16,6 +16,19 @@ This is for people who need something to react to quickly: diagrams, UI mocks,
 state sketches, option cards, and comment prompts instead of a wall of text. It
 should still read like a plan, not a marketing page.
 
+## Plan Discipline
+
+- **Right-size first.** If the source plan is for trivial, unambiguous work,
+  skip the companion and just implement. A visual companion is worth it only
+  when the plan is long, risky, or hard to react to as text.
+- **Stay grounded and read-only.** Preserve the source plan's intent, do not
+  invent codebase facts, and label anything inferred as inferred. Make no source
+  edits while building or reviewing the companion.
+- **The companion is the approval gate.** Ask the user to review and approve the
+  direction before you write any code, and name which files/areas the work will
+  touch. Carry unresolved assumptions and open questions into a clear block
+  instead of guessing silently.
+
 ## Workflow
 
 1. Gather the existing plan text from the user's paste, a referenced file, or

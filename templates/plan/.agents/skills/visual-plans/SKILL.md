@@ -25,14 +25,16 @@ Users install Plans with the Agent-Native CLI:
 agent-native skills add plans
 ```
 
-That one command installs `/visual-plan`, `/ui-plan`, and `/visualize-plan` and
-registers the hosted MCP app connector for supported hosts such as Claude Code
-and Codex.
+That one command installs `/visual-plan`, `/ui-plan`, `/visual-questions`, and
+`/visualize-plan` and registers the hosted MCP app connector for supported hosts
+such as Claude Code and Codex.
 
 Use `/visual-plan` for a fresh general plan. Use `/ui-plan` when the work is
 primarily product UI and the review should start with high-fidelity screens and
-states. Use `/visualize-plan` when there is already a Codex, Claude Code,
-Markdown, or pasted text plan that should become an HTML companion.
+states. Use `/visual-questions` when the agent should ask a visual intake form
+before choosing the plan direction. Use `/visualize-plan` when there is already
+a Codex, Claude Code, Markdown, or pasted text plan that should become an HTML
+companion.
 
 ## Slash Commands
 
@@ -44,6 +46,10 @@ Markdown, or pasted text plan that should become an HTML companion.
   Use an optional top pan/zoom wireframe or diagram canvas when visuals clarify
   the flow, then continue as a refined Notion-like document with rich tabs,
   comments/drawing prompts, code tabs, and agent handoff notes.
+- `/visual-questions`: create a rich visual intake questionnaire before a plan.
+  Use this for chips, freeform answers, mockup choice tabs, sketch diagrams, and
+  a generated answer summary that can feed `/ui-plan`, `/visual-plan`, or
+  `/visualize-plan`.
 - `/visualize-plan`: import an existing Codex, Claude Code, Markdown, or pasted
   text plan and turn it into a visual companion. Preserve the plan's intent,
   then add diagrams, wireframes, option cards, file/symbol maps, and annotation
@@ -60,6 +66,48 @@ Create or update a visual plan when:
 - architecture, data flow, UI direction, options, or open questions would be
   clearer visually;
 - you need the user to react before implementation.
+
+## Plan Discipline
+
+Plan mode protects the user from wasted work; it is not ceremony. Hold this
+discipline before and around the plan document:
+
+- **Right-size first.** Build a visual plan when work is multi-file, ambiguous,
+  risky, architectural, UI-heavy, has multiple valid approaches, or the code is
+  unfamiliar. Skip it for trivial, unambiguous work — typos, one-line fixes, a
+  single well-specified function, anything whose diff you could describe in one
+  sentence — and just make the change. A polished HTML plan is the most
+  expensive plan form; only invest when a wrong direction is costly. Never pad a
+  plan with filler or ship a single-step plan.
+- **Research before you draft.** Read the real files, actions, schema, and
+  existing patterns first, and name actual files, symbols, and data shapes in
+  the plan instead of inventing them. Check existing `actions/` before proposing
+  endpoints and prefer named client helpers over raw fetch. Delegate wide
+  exploration to a sub-agent so the main context stays clear.
+- **Planning is read-only.** Make no source edits while building or reviewing
+  the plan. Start editing code only after the user approves the direction.
+- **Clarify vs. assume.** Do not ask the user how to build it — explore and
+  present the approach and options in the plan. Ask a clarifying question only
+  when an ambiguity would change the design and you cannot resolve it from the
+  code or a sensible default; batch a small set (2-4) of high-leverage,
+  decision-changing questions before finalizing. Otherwise state the most
+  reasonable assumption explicitly and proceed. Put anything still unresolved in
+  a dedicated open-questions / needs-clarification block — never guess silently,
+  and never fill it with detail you could infer.
+- **Be specific.** Every plan states the objective and what "done" means,
+  explicit scope and non-goals, ordered verifiable steps that name real files,
+  symbols, and actions, the key choices with rationale, risks, and a closing
+  verification step (tests, build, or a checkable behavior). Replace vague prose
+  with specifics; never ship a step like "make it work."
+- **The plan is the approval gate.** After surfacing the plan, explicitly ask
+  the user to review and approve before you write any code, and name which
+  files/areas and permissions the work will touch so approval grants scope.
+  Presenting the plan and requesting sign-off is the approval step — do not ask
+  a separate "does this look good?" question.
+- **The document is the source of truth, not the chat.** When scope shifts
+  during review or implementation, update the plan with `update-visual-plan`
+  rather than only changing course in chat, and re-read the approved plan before
+  major steps so the work does not drift.
 
 ## Core Workflow
 
@@ -121,6 +169,8 @@ Create or update a visual plan when:
 
 - `create-visual-plan`: start one HTML plan per agent task/run.
 - `create-ui-plan`: start a UI-first plan with high-fidelity screen/state tabs.
+- `create-visual-questions`: start a visual intake questionnaire whose answers
+  feed a UI plan, visual plan, or plan update.
 - `visualize-plan`: create an HTML companion from an existing text plan.
 - `update-visual-plan`: revise the plan document, sections, status, or comments.
 - `get-visual-plan`: read the current plan document and annotations.

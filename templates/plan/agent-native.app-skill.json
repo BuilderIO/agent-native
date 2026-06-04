@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, /visual-questions, and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {
@@ -36,6 +36,12 @@
       "action": "create-ui-plan",
       "path": "/plans",
       "description": "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below."
+    },
+    {
+      "id": "visual-questions",
+      "action": "create-visual-questions",
+      "path": "/plans",
+      "description": "Create a rich visual intake questionnaire that feeds answers into a UI or visual plan prompt."
     },
     {
       "id": "visualize-plan",
@@ -54,6 +60,11 @@
       "path": ".agents/skills/ui-plan",
       "visibility": "both",
       "exportAs": "ui-plan"
+    },
+    {
+      "path": ".agents/skills/visual-questions",
+      "visibility": "both",
+      "exportAs": "visual-questions"
     },
     {
       "path": ".agents/skills/visualize-plan",
