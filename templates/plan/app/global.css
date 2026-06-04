@@ -347,6 +347,12 @@
 }
 
 .plan-region-button {
+  color: currentColor;
+  background: transparent;
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+.plan-region-button-emphasis {
   color: white;
   background: hsl(var(--ring));
   box-shadow: 0 0 0 1px hsl(var(--ring) / 0.8);
