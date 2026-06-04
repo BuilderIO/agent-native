@@ -329,24 +329,15 @@ function renderChipChoices(question: VisualQuestion): string {
 
 function renderVisualChoice(question: VisualQuestion): string {
   const options = question.options ?? [];
-  const first = optionValue(options[0] ?? { label: "Option" });
-  return `<div class="vq-visual-tabs" data-vq-tabs>
-    <div class="vq-tab-list" role="tablist" aria-label="${escapeHtml(question.title)} options">
-      ${options
-        .map((option, index) => {
-          const value = optionValue(option);
-          return `<button type="button" class="vq-tab${index === 0 ? " is-active" : ""}" data-visual-tab="${escapeHtml(value)}" aria-selected="${index === 0 ? "true" : "false"}">${escapeHtml(option.label)}</button>`;
-        })
-        .join("\n")}
-    </div>
+  return `<div class="vq-visual-options" role="radiogroup" aria-label="${escapeHtml(question.title)} options">
     ${options
       .map((option, index) => {
         const value = optionValue(option);
-        return `<div class="vq-visual-panel${index === 0 ? " is-active" : ""}" data-visual-panel="${escapeHtml(value)}" ${value === first ? "" : "hidden"}>
-          <button type="button" class="vq-visual-card" data-choice="${escapeHtml(value)}" aria-pressed="false">
+        return `<div class="vq-visual-option">
+          <button type="button" class="vq-visual-card" data-choice="${escapeHtml(value)}" role="radio" aria-checked="false">
             ${renderPreview(option, index)}
             <span class="vq-visual-copy">
-              <strong>${escapeHtml(option.label)}</strong>
+              <span class="vq-visual-title"><span aria-hidden="true"></span><strong>${escapeHtml(option.label)}</strong></span>
               ${option.description ? `<span>${escapeHtml(option.description)}</span>` : ""}
             </span>
           </button>
@@ -403,31 +394,33 @@ button, input, textarea { font: inherit; }
 h1 { margin: 0; font-size: clamp(30px, 4vw, 52px); line-height: 1.05; letter-spacing: -.03em; }
 .vq-form { display: grid; gap: 46px; margin-top: 48px; }
 .vq-question { display: grid; gap: 17px; }
-.vq-question-heading { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 14px; align-items: start; }
-.vq-question-heading > span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 99px; background: var(--paper-soft); color: var(--muted); font-size: 12px; font-weight: 700; }
+.vq-question-heading { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 14px; align-items: start; }
+.vq-question-heading > span { display: inline-flex; width: 18px; height: 18px; margin-top: 4px; align-items: center; justify-content: center; border-radius: 99px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 650; opacity: .62; }
 .vq-question h2 { margin: 0; font-size: clamp(21px, 2.2vw, 28px); letter-spacing: -.02em; line-height: 1.16; }
 .vq-question p { max-width: 680px; margin: 6px 0 0; color: var(--muted); font-size: 15px; }
-.vq-chip-cloud { display: flex; flex-wrap: wrap; gap: 12px; padding-left: 42px; }
+.vq-chip-cloud { display: flex; flex-wrap: wrap; gap: 12px; padding-left: 34px; }
 .vq-chip, .vq-secondary, .vq-primary { min-height: 40px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); padding: 0 18px; font-weight: 650; cursor: pointer; transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease; }
 .vq-chip:hover { border-color: var(--line-strong); background: var(--paper-soft); }
 .vq-chip.is-selected { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
 .vq-chip em { margin-left: 8px; color: var(--accent); font-style: normal; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 .vq-other { min-height: 40px; width: min(280px, 100%); border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); padding: 0 18px; outline: none; }
 .vq-other:focus, .vq-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.vq-textarea { min-height: 120px; width: calc(100% - 42px); margin-left: 42px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); padding: 16px 18px; outline: none; }
-.vq-visual-tabs { display: grid; gap: 16px; padding-left: 42px; }
-.vq-tab-list { display: flex; width: fit-content; max-width: 100%; gap: 8px; overflow-x: auto; border-bottom: 1px solid var(--line); }
-.vq-tab { min-height: 36px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 0 8px; font-weight: 700; cursor: pointer; }
-.vq-tab:hover { color: var(--ink); }
-.vq-tab.is-active, .vq-tab.is-active:hover { border-color: var(--accent); color: var(--ink); background: transparent; }
-.vq-visual-panel { display: grid; grid-template-columns: minmax(280px, 520px) minmax(220px, 1fr); gap: 20px; align-items: start; }
-.vq-visual-card { display: grid; gap: 16px; width: 100%; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); padding: 0; text-align: left; cursor: pointer; box-shadow: var(--shadow); }
-.vq-visual-card:hover { border-color: var(--line-strong); }
-.vq-visual-card.is-selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: none; }
-.vq-visual-copy { display: grid; gap: 4px; padding: 0 4px 2px; }
+.vq-textarea { min-height: 120px; width: calc(100% - 34px); margin-left: 34px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); padding: 16px 18px; outline: none; }
+.vq-visual-options { display: grid; gap: 34px; padding-left: 34px; }
+.vq-visual-option { display: grid; grid-template-columns: minmax(280px, 520px) minmax(220px, 1fr); gap: 24px; align-items: start; }
+.vq-visual-option + .vq-visual-option { padding-top: 34px; border-top: 1px solid color-mix(in srgb, var(--line) 68%, transparent); }
+.vq-visual-card { display: grid; gap: 14px; width: 100%; border: 0; border-radius: 0; background: transparent; color: var(--ink); padding: 0; text-align: left; cursor: pointer; box-shadow: none; }
+.vq-visual-card:hover .vq-visual-title strong { color: var(--accent); }
+.vq-visual-card:focus-visible { outline: 0; }
+.vq-visual-card:focus-visible .vq-preview { outline: 2px solid var(--accent); outline-offset: 4px; }
+.vq-visual-card.is-selected .vq-visual-title span { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 4px var(--paper); }
+.vq-visual-card.is-selected .vq-preview { outline: 2px solid var(--accent-soft); outline-offset: 4px; }
+.vq-visual-copy { display: grid; gap: 4px; }
+.vq-visual-title { display: flex; align-items: center; gap: 9px; color: var(--ink); }
+.vq-visual-title span { width: 14px; height: 14px; flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 99px; background: transparent; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 .vq-visual-copy strong { font-size: 18px; }
-.vq-visual-copy span, .vq-bullets { color: var(--muted); }
-.vq-bullets { margin: 10px 0 0; padding-left: 20px; font-size: 15px; }
+.vq-visual-copy > span:not(.vq-visual-title), .vq-bullets { color: var(--muted); }
+.vq-bullets { margin: 26px 0 0; padding-left: 20px; font-size: 15px; }
 .vq-preview { position: relative; display: block; min-height: 190px; overflow: hidden; border: 1.5px solid var(--wire-line); border-radius: 7px; background: var(--wire-surface); filter: url(#visual-questions-roughen); }
 .vq-preview::after, .vq-preview-flow b::after, .vq-preview-diagram b::after { content: ""; position: absolute; inset: -2px; border: 1px solid var(--wire-line-soft); border-radius: inherit; transform: translate(2px, -1px) rotate(.18deg); pointer-events: none; }
 .vq-preview-desktop i, .vq-preview-split i { position: absolute; inset: 0 auto 0 0; width: 26%; border-right: 1px solid var(--wire-line-soft); background: var(--wire-soft); }
@@ -463,8 +456,8 @@ h1 { margin: 0; font-size: clamp(30px, 4vw, 52px); line-height: 1.05; letter-spa
 .vq-primary { border-color: var(--accent); background: var(--accent); color: white; }
 @media (max-width: 760px) {
   .vq-shell { width: min(100vw - 28px, 1040px); padding-top: 44px; }
-  .vq-summary, .vq-visual-panel { grid-template-columns: 1fr; }
-  .vq-chip-cloud, .vq-visual-tabs, .vq-textarea { margin-left: 0; padding-left: 0; width: 100%; }
+  .vq-summary, .vq-visual-option { grid-template-columns: 1fr; }
+  .vq-chip-cloud, .vq-visual-options, .vq-textarea { margin-left: 0; padding-left: 0; width: 100%; }
   .vq-question-heading { grid-template-columns: 1fr; }
   .vq-action-bar { align-items: stretch; flex-wrap: wrap; }
   .vq-action-bar div { flex: 1 1 100%; }
@@ -585,7 +578,11 @@ const VISUAL_QUESTIONS_SCRIPT = `
             ? (answer.values || []).includes(value)
             : answer.value === value;
         choice.classList.toggle("is-selected", selected);
-        choice.setAttribute("aria-pressed", String(selected));
+        if (choice.getAttribute("role") === "radio") {
+          choice.setAttribute("aria-checked", String(selected));
+        } else {
+          choice.setAttribute("aria-pressed", String(selected));
+        }
       }
     }
     const answered = config.questions.filter(isAnswered).length;
