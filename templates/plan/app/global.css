@@ -96,6 +96,7 @@
     --plan-wireframe: hsl(42 16% 98%);
     --plan-sketch-line: hsl(28 4% 20%);
     --plan-muted-line: hsl(36 6% 78%);
+    --plan-placeholder-line: hsl(36 5% 72% / 0.72);
     --plan-code: hsl(40 12% 96%);
     --plan-code-text: hsl(28 5% 14%);
   }
@@ -112,6 +113,7 @@
     --plan-wireframe: hsl(34 3% 13.4%);
     --plan-sketch-line: hsl(38 5% 84%);
     --plan-muted-line: hsl(36 4% 44%);
+    --plan-placeholder-line: hsl(36 4% 54% / 0.62);
     --plan-code: hsl(32 4% 9.8%);
     --plan-code-text: hsl(40 9% 92%);
   }
@@ -257,58 +259,67 @@
 
 .plan-region-scaffold {
   position: absolute;
-  inset: 14% 10%;
+  inset: 18% 14%;
   pointer-events: none;
 }
 
 .plan-region-scaffold i {
   display: block;
   border-radius: 999px;
-  background: var(--plan-muted-line);
+  background: var(--plan-placeholder-line);
 }
 
 .plan-region-scaffold-lines {
   display: grid;
   align-content: center;
-  gap: 8px;
-}
-
-.plan-region-scaffold-lines i {
-  height: 7px;
-}
-
-.plan-region-scaffold-lines i:nth-child(1) {
-  width: 82%;
-}
-
-.plan-region-scaffold-lines i:nth-child(2) {
-  width: 58%;
-}
-
-.plan-region-scaffold-lines i:nth-child(3) {
-  width: 36%;
-}
-
-.plan-region-scaffold-lines.plan-region-scaffold-with-label {
-  inset: 40% 12% 14%;
-  align-content: start;
   gap: 7px;
 }
 
+.plan-region-scaffold-lines i {
+  height: 4px;
+}
+
+.plan-region-scaffold-lines i:nth-child(1) {
+  width: 76%;
+}
+
+.plan-region-scaffold-lines i:nth-child(2) {
+  width: 56%;
+}
+
+.plan-region-scaffold-lines i:nth-child(3) {
+  width: 34%;
+}
+
+.plan-region-scaffold-lines.plan-region-scaffold-with-label {
+  inset: auto 15% 16%;
+  top: clamp(30px, 50%, 44px);
+  align-content: start;
+  gap: 6px;
+}
+
+.plan-region-scaffold-lines.plan-region-scaffold-compact {
+  gap: 5px;
+}
+
+.plan-region-scaffold-lines.plan-region-scaffold-with-label.plan-region-scaffold-compact {
+  top: clamp(28px, 54%, 36px);
+}
+
 .plan-region-scaffold-input {
-  inset: auto 12% 20%;
+  inset: auto 15% 22%;
   display: flex;
   align-items: center;
-  height: 8px;
+  height: 5px;
 }
 
 .plan-region-scaffold-input i {
-  width: 82%;
-  height: 7px;
+  width: 72%;
+  height: 4px;
 }
 
 .plan-region-scaffold-input.plan-region-scaffold-with-label {
-  bottom: 18%;
+  bottom: 22%;
 }
 
 .plan-region-scaffold-toolbar {

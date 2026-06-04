@@ -1374,6 +1374,19 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
   const isButton = region.kind === "button";
   const isPopover =
     /\bpopover\b/i.test(region.id) || /\bpopover\b/i.test(region.label ?? "");
+  const isCompactRegion = region.height < 14;
+  const scaffoldLineCount =
+    region.kind === "list"
+      ? region.label
+        ? region.height < 10
+          ? 1
+          : region.height < 18
+            ? 2
+            : 3
+        : region.height < 12
+          ? 2
+          : 3
+      : 3;
   const showScaffold =
     !isButton &&
     ((region.kind === "list" && (!region.label || region.height >= 10)) ||
@@ -1413,14 +1426,19 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
             "plan-sketch-label absolute z-10 max-w-[calc(100%-1rem)] truncate text-[13px] font-semibold leading-none",
             isButton
               ? "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-2"
-              : "left-2.5 top-2 px-1.5 py-0.5",
+              : "left-3 top-3 px-2 py-0.5",
           )}
         >
           {region.label}
         </span>
       )}
       {showScaffold && (
-        <RegionScaffold kind={region.kind} hasLabel={Boolean(region.label)} />
+        <RegionScaffold
+          kind={region.kind}
+          hasLabel={Boolean(region.label)}
+          compact={isCompactRegion}
+          lineCount={scaffoldLineCount}
+        />
       )}
     </div>
   );
@@ -1429,9 +1447,13 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
 function RegionScaffold({
   kind,
   hasLabel,
+  compact,
+  lineCount = 3,
 }: {
   kind: PlanWireframeRegion["kind"];
   hasLabel?: boolean;
+  compact?: boolean;
+  lineCount?: number;
 }) {
   if (kind === "input") {
     return (
@@ -1439,6 +1461,7 @@ function RegionScaffold({
         className={cn(
           "plan-region-scaffold plan-region-scaffold-input",
           hasLabel && "plan-region-scaffold-with-label",
+          compact && "plan-region-scaffold-compact",
         )}
       >
         <i />
@@ -1451,11 +1474,12 @@ function RegionScaffold({
         className={cn(
           "plan-region-scaffold plan-region-scaffold-lines",
           hasLabel && "plan-region-scaffold-with-label",
+          compact && "plan-region-scaffold-compact",
         )}
       >
-        <i />
-        <i />
-        <i />
+        {Array.from({ length: lineCount }).map((_, index) => (
+          <i key={index} />
+        ))}
       </span>
     );
   }

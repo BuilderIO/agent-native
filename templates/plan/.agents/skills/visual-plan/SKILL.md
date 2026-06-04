@@ -156,12 +156,19 @@ discipline before and around the plan document:
 - Layered surfaces such as popovers and floating panels need an opaque sketch
   surface; do not let background frames show through them.
 - Placeholder text strokes should be sparse, aligned, and separated from labels
-  so they read as content rhythm instead of noisy gray bars.
+  so they read as content rhythm instead of noisy gray bars. In compact cards,
+  use one or two thin strokes or omit strokes entirely rather than stacking bars
+  into the label area.
+- Keep sketch regions padded. Labels, placeholder strokes, and buttons need
+  visible breathing room from rough borders; avoid placing UI marks directly on
+  frame edges.
 - Buttons and primary actions in UI mockups must look actionable, not like inert
   labels or decorative chips.
 - When a top canvas is present, include Figma-like annotation text/arrows on the
   canvas itself, not only in prose below. Prefer plain annotation text plus
-  arrows over boxed cards with borders, backgrounds, or shadows.
+  arrows over boxed cards with borders, backgrounds, or shadows. Place each note
+  close to the frame it explains, aligned with that frame when possible, instead
+  of parking notes in unrelated canvas gaps.
 - When showing multiple diagrams, wireframes, mockups, or design directions,
   use native `tabs` blocks so the plan stays readable and editable. Raw HTML tab
   attributes are only for legacy imported artifacts.
