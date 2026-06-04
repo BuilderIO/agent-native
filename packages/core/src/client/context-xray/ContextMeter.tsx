@@ -1,9 +1,13 @@
-import { IconExternalLink, IconGauge } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ContextManifest,
   ContextSegmentStatus,
 } from "../../shared/context-xray.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
@@ -13,23 +17,60 @@ import {
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import { ContextXRayPanel } from "./ContextXRayPanel.js";
-import {
-  CONTEXT_XRAY_MODEL_LIMIT,
-  formatTokens,
-  groupColor,
-} from "./format.js";
+import { CONTEXT_XRAY_MODEL_LIMIT, formatTokens } from "./format.js";
 
-export function ContextMeter({ threadId }: { threadId?: string | null }) {
+function ContextDonut({ pct, advisory }: { pct: number; advisory: boolean }) {
+  const radius = 7.5;
+  const circumference = 2 * Math.PI * radius;
+  const displayPct = Math.max(3, Math.min(100, pct));
+  const dashOffset = circumference - (displayPct / 100) * circumference;
+
+  return (
+    <span className="relative flex size-5 items-center justify-center">
+      <svg aria-hidden="true" viewBox="0 0 20 20" className="-rotate-90 size-5">
+        <circle
+          cx="10"
+          cy="10"
+          r={radius}
+          className="stroke-muted"
+          fill="none"
+          strokeWidth="3"
+        />
+        <circle
+          cx="10"
+          cy="10"
+          r={radius}
+          className={cn(advisory ? "stroke-amber-500" : "stroke-[#00B5FF]")}
+          fill="none"
+          strokeLinecap="round"
+          strokeWidth="3"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <span className="absolute size-2 rounded-full bg-background" />
+    </span>
+  );
+}
+
+export function ContextMeter({
+  threadId,
+  enabled = true,
+}: {
+  threadId?: string | null;
+  enabled?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [optimistic, setOptimistic] = useState<
     Map<string, ContextSegmentStatus>
   >(new Map());
   const currentThreadId = useRef(threadId);
+  const shouldQuery = Boolean(threadId && enabled);
   const query = useActionQuery(
     "context-manifest-get",
-    threadId ? { threadId } : undefined,
+    shouldQuery && threadId ? { threadId } : undefined,
     {
-      enabled: Boolean(threadId),
+      enabled: shouldQuery,
       staleTime: 1000,
     },
   ) as { data?: ContextManifest };
@@ -43,14 +84,14 @@ export function ContextMeter({ threadId }: { threadId?: string | null }) {
   }, [threadId]);
 
   useEffect(() => {
-    if (!threadId || typeof window === "undefined") return;
+    if (!threadId || !enabled || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const wantsXray = params.get("contextXray") === "1";
     const targetThread = params.get("threadId");
     if (wantsXray && (!targetThread || targetThread === threadId)) {
       setOpen(true);
     }
-  }, [threadId]);
+  }, [enabled, threadId]);
 
   const manifest = query.data;
   const segments = manifest?.segments ?? [];
@@ -60,22 +101,10 @@ export function ContextMeter({ threadId }: { threadId?: string | null }) {
         Math.round((manifest.totalTokens / CONTEXT_XRAY_MODEL_LIMIT) * 100),
       )
     : 0;
-  const visibleGroups = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const segment of segments) {
-      if (segment.status === "evicted") continue;
-      const group = segment.status === "pinned" ? "Pinned" : segment.group;
-      totals.set(group, (totals.get(group) ?? 0) + segment.tokenCount);
-    }
-    const total = [...totals.values()].reduce((sum, n) => sum + n, 0);
-    return [...totals.entries()].map(([group, tokens]) => ({
-      group,
-      tokens,
-      pct: total > 0 ? (tokens / total) * 100 : 0,
-    }));
-  }, [segments]);
 
-  if (!threadId || !manifest || manifest.rawTokens <= 0) return null;
+  if (!shouldQuery || !threadId || !manifest || manifest.rawTokens <= 0) {
+    return null;
+  }
 
   const mutateStatus = (
     segmentId: string,
@@ -99,49 +128,45 @@ export function ContextMeter({ threadId }: { threadId?: string | null }) {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="shrink-0 px-3 pb-1">
+      <Popover open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => setOpen(true)}
-              className="flex w-full items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left hover:bg-accent/40"
-            >
-              <IconGauge className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                  <span>
-                    Context {pct}% · {formatTokens(manifest.totalTokens)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    {!manifest.enforceable && "Advisory"}
-                    <IconExternalLink className="h-3 w-3" />
-                  </span>
-                </div>
-                <div className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-muted">
-                  {visibleGroups.map((group) => (
-                    <span
-                      key={group.group}
-                      className={cn("h-full", groupColor(group.group))}
-                      style={{ width: `${group.pct}%` }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </button>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Context ${pct}%, ${formatTokens(
+                  manifest.totalTokens,
+                )}. Open Context X-Ray.`}
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  open && "bg-accent/60 text-foreground",
+                )}
+              >
+                <ContextDonut pct={pct} advisory={!manifest.enforceable} />
+              </button>
+            </PopoverTrigger>
           </TooltipTrigger>
-          <TooltipContent>Open Context X-Ray</TooltipContent>
+          <TooltipContent>
+            Context {pct}% · {formatTokens(manifest.totalTokens)}
+          </TooltipContent>
         </Tooltip>
-      </div>
-      <ContextXRayPanel
-        open={open}
-        onOpenChange={setOpen}
-        manifest={manifest}
-        optimistic={optimistic}
-        onPin={(segmentId) => mutateStatus(segmentId, "pinned", "pin")}
-        onEvict={(segmentId) => mutateStatus(segmentId, "evicted", "evict")}
-        onRestore={(segmentId) => mutateStatus(segmentId, "active", "restore")}
-      />
+        <PopoverContent
+          align="end"
+          side="top"
+          sideOffset={8}
+          className="w-[min(92vw,420px)] overflow-hidden p-0"
+        >
+          <ContextXRayPanel
+            manifest={manifest}
+            optimistic={optimistic}
+            onPin={(segmentId) => mutateStatus(segmentId, "pinned", "pin")}
+            onEvict={(segmentId) => mutateStatus(segmentId, "evicted", "evict")}
+            onRestore={(segmentId) =>
+              mutateStatus(segmentId, "active", "restore")
+            }
+          />
+        </PopoverContent>
+      </Popover>
     </TooltipProvider>
   );
 }

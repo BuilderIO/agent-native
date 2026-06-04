@@ -20,6 +20,7 @@ export const PLAN_SECTION_TYPES = [
   "summary",
   "diagram",
   "wireframe",
+  "mockup",
   "prototype",
   "steps",
   "implementation",

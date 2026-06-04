@@ -46,6 +46,12 @@ export type CreatePlanInput = {
   comments?: PlanCommentInput[];
 };
 
+export type CreateUiPlanInput = CreatePlanInput & {
+  states?: Array<{ name: string; description: string }>;
+  components?: Array<{ name: string; description: string }>;
+  implementationNotes?: string;
+};
+
 export type VisualizePlanInput = {
   title?: string;
   brief?: string;
@@ -112,6 +118,17 @@ export function useCreatePlan() {
   >("create-visual-plan", {
     onSuccess: invalidate,
     onError: showActionError("Failed to create visual plan"),
+  });
+}
+
+export function useCreateUiPlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    CreateUiPlanInput
+  >("create-ui-plan", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to create UI plan"),
   });
 }
 

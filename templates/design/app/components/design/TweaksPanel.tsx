@@ -26,7 +26,7 @@ export function TweaksPanel({
   visible,
 }: TweaksPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [position, setPosition] = useState({ x: 16, y: 16 });
+  const [position, setPosition] = useState({ x: 16, y: 64 });
   const panelRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -37,9 +37,10 @@ export function TweaksPanel({
       if (e.button !== 0) return;
       e.preventDefault();
       dragging.current = true;
+      const viewportWidth = document.documentElement.clientWidth;
       const viewportHeight = document.documentElement.clientHeight;
       dragOffset.current = {
-        x: e.clientX - position.x,
+        x: viewportWidth - e.clientX - position.x,
         y: viewportHeight - e.clientY - position.y,
       };
 
@@ -50,7 +51,7 @@ export function TweaksPanel({
         const viewportHeight = document.documentElement.clientHeight;
         const panelWidth = rect?.width ?? 240;
         const panelHeight = rect?.height ?? 220;
-        const nextX = ev.clientX - dragOffset.current.x;
+        const nextX = viewportWidth - ev.clientX - dragOffset.current.x;
         const nextY = viewportHeight - ev.clientY - dragOffset.current.y;
         setPosition({
           x: Math.min(Math.max(nextX, 8), viewportWidth - panelWidth - 8),
@@ -76,7 +77,7 @@ export function TweaksPanel({
     <div
       ref={panelRef}
       className="fixed z-30 w-60 rounded-xl border border-border bg-card shadow-2xl backdrop-blur-sm"
-      style={{ left: position.x, bottom: position.y }}
+      style={{ right: position.x, bottom: position.y }}
     >
       {/* Header — drag handle + collapse toggle */}
       <div

@@ -32,7 +32,7 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|plans|visual-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|plans|visual-plan|ui-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
@@ -232,10 +232,11 @@ Install with the Agent-Native CLI. It adds the skills and the MCP connector:
 npx @agent-native/core@latest skills add plans
 \`\`\`
 
-Then start typing \`/visual-plan\` for a fresh plan or \`/visualize-plan\` to
-turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual
-companion. The hosted MCP app opens inline where supported and falls back to a
-browser link everywhere else.
+Then start typing \`/visual-plan\` for a fresh general plan, \`/ui-plan\` for a
+UI-first high-fidelity plan, or \`/visualize-plan\` to turn an existing Codex,
+Claude Code, Markdown, or pasted plan into a visual companion. The hosted MCP
+app opens inline where supported and falls back to a browser link everywhere
+else.
 
 ## Slash Commands
 
@@ -243,6 +244,10 @@ browser link everywhere else.
   a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
   mockups when UI is involved, an implementation map with files/symbols/snippets,
   tradeoffs, open questions, and clear feedback prompts.
+- \`/ui-plan\`: create a UI-first high-fidelity HTML plan before implementation.
+  Put full-width screen mockups and state tabs first, include comment/drawing
+  prompts and agent handoff notes, then place file/symbol implementation
+  details lower in the document.
 - \`/visualize-plan\`: import an existing Codex, Claude Code, Markdown, or pasted
   text plan and turn it into a visual companion. Preserve the plan's intent,
   then add diagrams, wireframes, option cards, file/symbol maps, and annotation
@@ -288,6 +293,9 @@ wants a visual companion instead of a fresh plan.
   approach, phases or steps, files/symbols/snippets, risks, open questions, and
   validation.
 - UI work gets detailed wireframes, mockups, or prototype options before coding.
+- Use \`/ui-plan\` when UI direction is the center of the work. \`/visual-plan\`
+  stays the general plan command for architecture, backend, refactors, and
+  mixed implementation planning.
 - Wireframes should be concrete enough to critique: layout regions, controls,
   states, empty/loading/error paths, review affordances, and copy placeholders.
 - Backend/refactor work gets architecture and data-flow diagrams.
@@ -313,6 +321,7 @@ wants a visual companion instead of a fresh plan.
 ## Tool Guidance
 
 - \`create-visual-plan\`: start one HTML plan per agent task/run.
+- \`create-ui-plan\`: start a UI-first plan with high-fidelity screen/state tabs.
 - \`visualize-plan\`: create a visual companion from an existing text plan.
 - \`update-visual-plan\`: revise the plan document, sections, status, or comments.
 - \`get-visual-plan\`: read the current plan document and annotations.
@@ -337,6 +346,115 @@ wants a visual companion instead of a fresh plan.
 - Hosted default: connect
   \`https://plan.agent-native.com/_agent-native/mcp\`. Do not put shared
   secrets in skill files.
+`;
+
+const UI_PLAN_SKILL_MD = `---
+name: ui-plan
+description: >-
+  Use Agent-Native Plans for UI-first, high-fidelity visual plans with screen
+  mockups, full-width state tabs, comments, drawing, and agent handoff.
+metadata:
+  visibility: exported
+---
+
+# UI Plan
+
+Use \`/ui-plan\` when the task is primarily about product UI, user flows,
+interaction states, component layout, responsive behavior, or visual direction.
+This is a specialized Agent-Native Plans workflow: the reviewable UI comes
+first, and implementation details come after the user has something concrete to
+react to.
+
+\`/visual-plan\` remains the general rich planning command for architecture,
+backend, refactors, migrations, and mixed work. Use \`/visualize-plan\` when a
+text plan already exists and should become an HTML companion.
+
+## UI-First Workflow
+
+1. Call \`create-ui-plan\` with a UI-specific title, brief, source, repo path,
+   and a complete bespoke \`html\` document whenever possible.
+2. Make the first substantial section the UI mockup surface, not the file map.
+   The user should see screens, states, controls, layout, and copy before they
+   see implementation prose.
+3. Use full-width, high-fidelity state tabs for the primary screen or flow:
+   default, loading, empty, error, selected/active, permission, and responsive
+   variants as relevant.
+4. Add comment prompts, drawing-friendly regions, and agent handoff notes near
+   the mockups so reviewers can mark what should change.
+5. Put files, symbols, data/actions, migrations, risks, and validation lower in
+   the document after the visual review area.
+6. Call \`get-plan-feedback\` before implementation, after review, after a long
+   pause, and before the final response. Apply changes with
+   \`update-visual-plan\`.
+
+## Mockup Quality Bar
+
+- Build high-fidelity screen sections with realistic spacing, controls,
+  hierarchy, text, and state-specific content. Avoid vague gray boxes.
+- Show the actual workflow the user will use: navigation, toolbar actions,
+  forms, dialogs, empty states, error recovery, loading affordances, and
+  confirmation/success states.
+- Include desktop and mobile/responsive states when layout decisions could
+  change. Put them in tabs or adjacent panels rather than burying them in prose.
+- Use concrete labels and copy placeholders that expose content length,
+  truncation, disabled states, and destructive actions.
+- Make state tabs span the plan content width. Small cards are fine for repeated
+  items, but the primary UI preview should not be trapped in a tiny thumbnail.
+- Keep visuals review-focused, not decorative. Do not make a marketing page,
+  hero section, brand deck, or abstract mood board unless the user asks.
+
+## State Tabs
+
+When showing multiple UI states, use the Plans tab attributes so the iframe
+runtime wires up the interaction:
+
+- Put \`data-plan-tabs\` on the tab group.
+- Put \`data-tab-target\` on each tab button.
+- Put matching \`data-tab-panel\` values on panels.
+
+Good state tab sets include:
+
+- \`Default\`, \`Loading\`, \`Empty\`, \`Error\`
+- \`List\`, \`Detail\`, \`Edit\`, \`Confirm\`
+- \`Desktop\`, \`Tablet\`, \`Mobile\`
+- \`Owner\`, \`Reviewer\`, \`Signed out\`
+
+## Comments, Drawing, And Handoff
+
+- Add visible annotation prompts beside the mockups: "Comment on layout",
+  "Circle unclear copy", "Mark missing state", or "Pick this option".
+- Leave enough whitespace around key UI regions for drawing and callouts.
+- Label important regions so comments can reference them without ambiguity.
+- Include an "Agent Handoff" section after the mockups that summarizes the
+  chosen UI direction, unresolved visual questions, and feedback that must be
+  read before code changes.
+- Never claim feedback has been applied until \`get-plan-feedback\` or the user
+  has supplied the feedback in chat.
+
+## Implementation Details Lower Down
+
+After the visual review surface, include a concise implementation section:
+
+- file paths and symbols/components to touch;
+- data/actions/hooks/routes needed for the UI;
+- state ownership, optimistic updates, and sync expectations;
+- accessibility, responsive, and keyboard considerations;
+- test and verification plan;
+- short code-shape snippets only where they clarify the implementation.
+
+Do not paste whole files or let implementation prose crowd out the mockups.
+The purpose of \`/ui-plan\` is to get visual direction approved before the agent
+starts editing.
+
+## Tool Guidance
+
+- \`create-ui-plan\`: create the UI-first HTML plan.
+- \`update-visual-plan\`: revise mockups, state tabs, comments, or handoff notes.
+- \`get-visual-plan\`: inspect the current plan and annotations.
+- \`get-plan-feedback\`: read unconsumed reviewer comments before coding.
+- \`export-visual-plan\`: export a review receipt when needed.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
 `;
 
 const VISUALIZE_PLAN_SKILL_MD = `---
@@ -365,8 +483,8 @@ Install with the Agent-Native CLI if Plans is not already available:
 npx @agent-native/core@latest skills add plans
 \`\`\`
 
-That installs both \`/visual-plan\` and \`/visualize-plan\` plus the MCP
-connector.
+That installs \`/visual-plan\`, \`/ui-plan\`, and \`/visualize-plan\` plus the
+MCP connector.
 
 ## When To Use
 
@@ -381,8 +499,9 @@ Use \`visualize-plan\` when:
 - the user wants feedback on wireframes, design/prototype options, diagrams, or
   tradeoffs before implementation.
 
-If there is no existing plan text available, ask for it or use \`visual-plans\`
-to create a fresh plan instead.
+If there is no existing plan text available, ask for it, use \`visual-plans\`
+to create a fresh general plan, or use \`ui-plan\` when the work is UI-heavy and
+should start with high-fidelity state mockups.
 
 ## Workflow
 
@@ -402,6 +521,10 @@ to create a fresh plan instead.
    before implementing, after review, and before final response.
 6. Treat the imported text as source material. Structured Plans state is
    canonical for feedback, assumptions, and decisions.
+
+If there is no existing plan text and the work is UI-heavy, use \`/ui-plan\`
+instead so full-width state mockups, comments/drawing affordances, and agent
+handoff come before file implementation details.
 
 ## Visual Defaults
 
@@ -528,6 +651,7 @@ const BUILT_IN_APP_SKILLS = {
   "visual-plans": {
     skillName: "visual-plans",
     extraSkills: {
+      "ui-plan": UI_PLAN_SKILL_MD,
       "visualize-plan": VISUALIZE_PLAN_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
@@ -544,13 +668,20 @@ const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add /visual-plan and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add /visual-plan, /ui-plan, and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
           id: "visual-plan",
           action: "create-visual-plan",
           path: "/plans",
+        },
+        {
+          id: "ui-plan",
+          action: "create-ui-plan",
+          path: "/plans",
+          description:
+            "Create a UI-first, high-fidelity Agent-Native plan with full-width screen/state mockups before implementation details.",
         },
         {
           id: "visualize-plan",
@@ -563,6 +694,11 @@ const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-plans",
           visibility: "exported",
           exportAs: "visual-plans",
+        },
+        {
+          path: "skills/ui-plan",
+          visibility: "exported",
+          exportAs: "ui-plan",
         },
         {
           path: "skills/visualize-plan",
@@ -645,6 +781,8 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "agent-native-design-exploration": "design",
   "visual-plans": "visual-plans",
   "visual-plan": "visual-plans",
+  "ui-plan": "visual-plans",
+  "ui-plans": "visual-plans",
   "visualize-plan": "visual-plans",
   "visualize-plans": "visual-plans",
   plans: "visual-plans",
@@ -669,7 +807,13 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "ux-exploration",
     "agent-native-design-exploration",
   ],
-  "visual-plans": ["plans", "visualize-plan", "html-plan", "plannotate"],
+  "visual-plans": [
+    "plans",
+    "ui-plan",
+    "visualize-plan",
+    "html-plan",
+    "plannotate",
+  ],
   "context-xray": ["xray", "context-window", "context-usage"],
 } satisfies Record<BuiltInAppSkillId, string[]>;
 

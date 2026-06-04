@@ -4,6 +4,7 @@ import {
   deriveSectionsFromText,
   summarizePlan,
 } from "./plans.js";
+import { buildUiPlanHtml } from "./ui-plan-html.js";
 import type { PlanBundle, PlanComment, PlanSection } from "../shared/types.js";
 
 function section(
@@ -68,6 +69,54 @@ describe("Plans helpers", () => {
     );
 
     expect(sections.some((item) => item.type === "implementation")).toBe(true);
+  });
+
+  it("detects UI mockup sections separately from generic wireframes", () => {
+    const sections = deriveSectionsFromText(
+      "# UI mockups\n\nShow default, empty, loading, and mobile states for the plan review screen.",
+    );
+
+    expect(sections.some((item) => item.type === "mockup")).toBe(true);
+  });
+
+  it("builds a UI-first plan with full-width state tabs", () => {
+    const html = buildUiPlanHtml({
+      title: "/ui-plan review",
+      brief: "Start with high-fidelity UI states before implementation notes.",
+      source: "codex",
+      repoPath: "/Users/steve/project",
+      states: [
+        {
+          name: "Default",
+          description: "Primary review state with comments available.",
+        },
+        {
+          name: "Error",
+          description: "Recover from failed handoff.",
+        },
+        {
+          name: "Mobile",
+          description: "Narrow screen review and comment handoff.",
+        },
+      ],
+      components: [
+        {
+          name: "Comment popover",
+          description: "Inline composer near the selected UI region.",
+        },
+      ],
+    });
+
+    expect(html).toContain("<!doctype html>");
+    expect(html).toContain("UI plan for review");
+    expect(html).toContain("Full-width mockups");
+    expect(html).toContain("data-plan-tabs");
+    expect(html).toContain('data-tab-target="ui-default-0"');
+    expect(html).toContain('data-tab-panel="ui-error-1"');
+    expect(html).toContain("mock-stage");
+    expect(html).toContain("mobile-stage");
+    expect(html).toContain("Implementation map");
+    expect(html).toContain("/Users/steve/project");
   });
 
   it("renders a complete iframe-safe visual plan", () => {

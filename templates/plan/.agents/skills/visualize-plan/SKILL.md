@@ -35,6 +35,10 @@ should still read like a plan, not a marketing page.
 6. Treat imported text as source material. The HTML plan and comments are the
    review surface.
 
+If there is no existing plan text and the work is UI-heavy, use `/ui-plan`
+instead so full-width state mockups, comments/drawing affordances, and agent
+handoff come before file implementation details.
+
 ## Visual Defaults
 
 - Keep the first screen simple and plan-like: title, brief, concise scope, and

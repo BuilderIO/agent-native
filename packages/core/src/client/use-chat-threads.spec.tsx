@@ -333,6 +333,67 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("general-thread");
   });
 
+  it("starts a new scoped chat when entering a resource with no saved active chat", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:design-app:scope:design:design-a",
+      "design-a-thread",
+    );
+    const designAThread: ChatThreadSummary = {
+      id: "design-a-thread",
+      title: "Design A edits",
+      preview: "make the button brighter",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: { type: "design", id: "design-a", label: "Design A" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [designAThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ scope }: { scope: ChatThreadScope }) {
+      hook = useChatThreads("/chat", "design-app", scope);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <Harness
+          scope={{ type: "design", id: "design-a", label: "Design A" }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("design-a-thread");
+
+    await act(async () => {
+      root.render(
+        <Harness
+          scope={{ type: "design", id: "design-b", label: "Design B" }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+    expect(hook!.threads[0]).toMatchObject({
+      id: "forked-thread",
+      scope: { type: "design", id: "design-b", label: "Design B" },
+    });
+  });
+
   it("sends the current client snapshot when forking a thread", async () => {
     const sourceThread: ChatThreadSummary = {
       id: "source-thread",

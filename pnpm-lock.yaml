@@ -1032,6 +1032,30 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  templates/.retired/calls: {}
+
+  templates/.retired/code: {}
+
+  templates/.retired/contracts: {}
+
+  templates/.retired/images: {}
+
+  templates/.retired/issues: {}
+
+  templates/.retired/meeting-notes: {}
+
+  templates/.retired/migration: {}
+
+  templates/.retired/recruiting: {}
+
+  templates/.retired/scheduling: {}
+
+  templates/.retired/visual-plans: {}
+
+  templates/.retired/voice: {}
+
+  templates/.retired/workbench: {}
+
   templates/analytics:
     dependencies:
       '@agent-native/core':

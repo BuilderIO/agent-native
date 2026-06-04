@@ -137,11 +137,17 @@ describe("agent-native skills", () => {
       );
 
       expect(result.id).toBe("visual-plans");
-      expect(result.skillNames).toEqual(["visual-plans", "visualize-plan"]);
+      expect(result.skillNames).toEqual([
+        "visual-plans",
+        "ui-plan",
+        "visualize-plan",
+      ]);
       expect(commands[0].args).toEqual(
         expect.arrayContaining([
           "--skill",
           "visual-plans",
+          "--skill",
+          "ui-plan",
           "--skill",
           "visualize-plan",
           "-a",
@@ -184,11 +190,60 @@ describe("agent-native skills", () => {
     );
 
     expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual(["visual-plans", "visualize-plan"]);
+    expect(result.skillNames).toEqual([
+      "visual-plans",
+      "ui-plan",
+      "visualize-plan",
+    ]);
     expect(commands[0].args).toEqual(
       expect.arrayContaining([
         "--skill",
         "visual-plans",
+        "--skill",
+        "ui-plan",
+        "--skill",
+        "visualize-plan",
+      ]),
+    );
+    expect(result.mcpUrl).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
+  });
+
+  it("accepts ui-plan as a Plans UI-first alias", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "ui-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("visual-plans");
+    expect(result.skillNames).toEqual([
+      "visual-plans",
+      "ui-plan",
+      "visualize-plan",
+    ]);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "--skill",
+        "visual-plans",
+        "--skill",
+        "ui-plan",
         "--skill",
         "visualize-plan",
       ]),

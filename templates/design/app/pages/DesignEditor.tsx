@@ -5,13 +5,13 @@ import {
   IconPencil,
   IconMessage,
   IconBrush,
-  IconSettings,
+  IconAdjustmentsHorizontal,
   IconZoomIn,
   IconZoomOut,
   IconDeviceDesktop,
   IconDeviceTablet,
   IconDeviceMobile,
-  IconDeviceDesktopOff,
+  IconViewportWide,
   IconPlus,
   IconLayoutGrid,
   IconX,
@@ -23,7 +23,7 @@ import {
   IconMenu2,
   IconChevronDown,
   IconCheck,
-  IconDots,
+  IconDotsVertical,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -45,7 +45,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -67,7 +66,6 @@ import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
 import { VariantGrid } from "@/components/design/VariantGrid";
 import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
-import { SaveStatusIndicator } from "@/components/visual-editor";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
@@ -1022,9 +1020,21 @@ export default function DesignEditor() {
     [activeFile, viewMode],
   );
 
+  useEffect(() => {
+    if (
+      embedded ||
+      mode !== "comment" ||
+      !activeFile ||
+      viewMode === "overview"
+    ) {
+      return;
+    }
+    setPinMode(true);
+  }, [activeFile?.id, embedded, mode, viewMode]);
+
   const handleCommentTabClick = useCallback(() => {
     if (mode !== "comment" || !activeFile || viewMode === "overview") return;
-    setPinMode((current) => !current);
+    setPinMode(true);
     setDrawMode(false);
   }, [activeFile, mode, viewMode]);
 
@@ -1492,10 +1502,6 @@ ${serializedHtml}
               {design.title}
             </button>
           )}
-          <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {design.projectType}
-          </Badge>
-
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
             {!embedded && (
               <>
@@ -1544,12 +1550,17 @@ ${serializedHtml}
                   size="icon"
                   className="h-7 w-7 cursor-pointer"
                   onClick={handleViewModeToggle}
+                  aria-label={
+                    viewMode === "overview"
+                      ? "Return to current screen"
+                      : "Open screen overview"
+                  }
                 >
                   <IconLayoutGrid className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {viewMode === "overview" ? "Single screen" : "All screens"}
+                {viewMode === "overview" ? "Current screen" : "Screen overview"}
               </TooltipContent>
             </Tooltip>
 
@@ -1573,7 +1584,7 @@ ${serializedHtml}
                           ) : deviceFrame === "mobile" ? (
                             <IconDeviceMobile className="w-3.5 h-3.5" />
                           ) : (
-                            <IconDeviceDesktopOff className="w-3.5 h-3.5" />
+                            <IconViewportWide className="w-3.5 h-3.5" />
                           )}
                           <IconChevronDown className="w-3 h-3 opacity-60" />
                         </Button>
@@ -1589,7 +1600,7 @@ ${serializedHtml}
                       }
                     >
                       <DropdownMenuRadioItem value="none">
-                        <IconDeviceDesktopOff className="mr-2 h-4 w-4" />
+                        <IconViewportWide className="mr-2 h-4 w-4" />
                         Responsive
                       </DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="desktop">
@@ -1654,27 +1665,6 @@ ${serializedHtml}
               </>
             )}
 
-            {/* Tweaks */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={tweaksVisible ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  onClick={() => setTweaksVisible(!tweaksVisible)}
-                >
-                  <IconSettings className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Tweaks</TooltipContent>
-            </Tooltip>
-
-            {/* Save state — currently the design template doesn't expose a
-              dedicated "save in flight" signal (file edits go through Yjs +
-              update-file actions). Surface the indicator so the UX matches
-              slides; flip `saving` off until we wire a real source. */}
-            <SaveStatusIndicator saving={false} className="ml-1 mr-1" />
-
             {!embedded && (
               <ShareButton
                 resourceType="design"
@@ -1694,7 +1684,7 @@ ${serializedHtml}
                         size="icon"
                         className="relative h-7 w-7 cursor-pointer"
                       >
-                        <IconDots className="w-3.5 h-3.5" />
+                        <IconDotsVertical className="w-3.5 h-3.5" />
                         {pinMode && (
                           <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#609FF8]" />
                         )}
@@ -1709,7 +1699,7 @@ ${serializedHtml}
                     disabled={!activeFile || viewMode === "overview"}
                   >
                     <IconPin className="mr-2 h-4 w-4" />
-                    {pinMode ? "Exit comment pin" : "Drop comment pin"}
+                    {pinMode ? "Stop pinning comments" : "Pin comment"}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
@@ -1905,6 +1895,8 @@ ${serializedHtml}
                 onExitPinMode={() => setPinMode(false)}
                 designId={id}
                 designTitle={design?.title}
+                commentContextId={`${id}:${activeFile.id}`}
+                commentContextLabel={`${design?.title ?? "Design"} / ${prettyScreenName(activeFile.filename)}`}
                 onPrototypeNavigate={(screen) => {
                   if (!screen) return;
                   const norm = (s: string) =>
@@ -1976,6 +1968,24 @@ ${serializedHtml}
             </div>
           ))}
 
+        {!pendingVariants && activeFile && viewMode === "single" && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant={tweaksVisible ? "secondary" : "outline"}
+                size="icon"
+                className="absolute bottom-4 right-4 z-30 size-9 cursor-pointer rounded-full bg-background/95 shadow-lg backdrop-blur"
+                onClick={() => setTweaksVisible((visible) => !visible)}
+                aria-label={tweaksVisible ? "Hide tweaks" : "Show tweaks"}
+              >
+                <IconAdjustmentsHorizontal className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Tweaks</TooltipContent>
+          </Tooltip>
+        )}
+
         {/* Edit panel (right side) */}
         {mode === "edit" && (
           <EditPanel
@@ -2005,7 +2015,7 @@ ${serializedHtml}
               visible
             />
           ) : (
-            <div className="absolute bottom-4 left-4 z-30 w-60 rounded-xl border border-border bg-card p-4 shadow-2xl">
+            <div className="absolute bottom-16 right-4 z-30 w-60 rounded-xl border border-border bg-card p-4 shadow-2xl">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Tweaks

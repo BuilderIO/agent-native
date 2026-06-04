@@ -67,6 +67,7 @@ import {
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import {
   useCreatePlan,
+  useCreateUiPlan,
   usePlan,
   usePlans,
   useUpdatePlan,
@@ -290,6 +291,7 @@ export function PlansPage() {
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
   const createPlan = useCreatePlan();
+  const createUiPlan = useCreateUiPlan();
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
   const { resolvedTheme, setTheme } = useTheme();
@@ -963,6 +965,7 @@ export function PlansPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         createPlan={createPlan}
+        createUiPlan={createUiPlan}
         visualizePlan={visualizePlan}
         onCreated={(id) => navigate(`/plans/${id}`)}
       />
@@ -1079,12 +1082,14 @@ function CreatePlanDialog({
   open,
   onOpenChange,
   createPlan,
+  createUiPlan,
   visualizePlan,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   createPlan: ReturnType<typeof useCreatePlan>;
+  createUiPlan: ReturnType<typeof useCreateUiPlan>;
   visualizePlan: ReturnType<typeof useVisualizePlan>;
   onCreated: (id: string) => void;
 }) {
@@ -1094,8 +1099,10 @@ function CreatePlanDialog({
   );
   const [source, setSource] = useState<PlanSource>("codex");
   const [planText, setPlanText] = useState("");
+  const [planKind, setPlanKind] = useState<"ui" | "visual">("ui");
 
-  const isPending = createPlan.isPending || visualizePlan.isPending;
+  const isPending =
+    createPlan.isPending || createUiPlan.isPending || visualizePlan.isPending;
   const submit = () => {
     const onSuccess = (result: PlanBundle & { planId?: string }) => {
       onOpenChange(false);
@@ -1108,6 +1115,56 @@ function CreatePlanDialog({
           brief,
           source,
           planText,
+        },
+        { onSuccess },
+      );
+      return;
+    }
+    if (planKind === "ui") {
+      createUiPlan.mutate(
+        {
+          title,
+          brief,
+          source,
+          states: [
+            {
+              name: "Review",
+              description:
+                "The user sees the full-width plan mockup first and can react before reading implementation detail.",
+            },
+            {
+              name: "Comment",
+              description:
+                "Selected text, clicked UI, and drawn marks become anchored feedback the agent can read.",
+            },
+            {
+              name: "Agent handoff",
+              description:
+                "Once comments exist, the primary action sends feedback to the inline Plans agent or copies it for the host agent.",
+            },
+            {
+              name: "Mobile",
+              description:
+                "The plan still supports quick commenting and handoff on narrow screens.",
+            },
+          ],
+          components: [
+            {
+              name: "Floating toolbar",
+              description:
+                "Keep review controls compact: comment, send to agent, share, and overflow.",
+            },
+            {
+              name: "Comment popover",
+              description:
+                "Use a Figma-like inline comment box with a single field and nearby context.",
+            },
+            {
+              name: "Implementation map",
+              description:
+                "Show files, intent, short snippets, and editor-open controls after UI review.",
+            },
+          ],
         },
         { onSuccess },
       );
@@ -1186,6 +1243,29 @@ function CreatePlanDialog({
               </SelectContent>
             </Select>
           </div>
+          {!planText.trim() && (
+            <div className="grid gap-2">
+              <Label>Plan type</Label>
+              <Select
+                value={planKind}
+                onValueChange={(value) =>
+                  setPlanKind(value === "visual" ? "visual" : "ui")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ui">
+                    UI-first plan - high-fidelity mockups and states
+                  </SelectItem>
+                  <SelectItem value="visual">
+                    General visual plan - diagrams, steps, and file map
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="plan-text">Existing plan text</Label>
             <Textarea
@@ -1206,7 +1286,11 @@ function CreatePlanDialog({
             Cancel
           </Button>
           <Button type="button" onClick={submit} disabled={isPending}>
-            {planText.trim() ? "Visualize Plan" : "Create Plan"}
+            {planText.trim()
+              ? "Visualize Plan"
+              : planKind === "ui"
+                ? "Create UI Plan"
+                : "Create Plan"}
           </Button>
         </DialogFooter>
       </DialogContent>

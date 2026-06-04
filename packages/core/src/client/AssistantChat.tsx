@@ -5192,6 +5192,10 @@ const AssistantChatInner = forwardRef<
     !isComposerDisabled &&
     !showRunningInUI;
   const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
+  const contextXRayEnabled = Boolean(
+    threadId &&
+    (messages.length > 0 || isReconnecting || reconnectContent.length > 0),
+  );
   const handleImplementPlan = useCallback(() => {
     onExecModeChange?.("build");
     void addToQueue(
@@ -5616,7 +5620,6 @@ const AssistantChatInner = forwardRef<
                   }
                 />
               )}
-              <ContextMeter threadId={threadId} />
               {/* Input area */}
               <AgentComposerFrame
                 layoutVariant={composerLayoutVariant}
@@ -5682,8 +5685,13 @@ const AssistantChatInner = forwardRef<
                   draftScope={threadId || tabId}
                   interceptBuildRequestsForBuilder
                   extraActionButton={
-                    composerExtraActionButton || showRunningInUI ? (
+                    contextXRayEnabled ||
+                    composerExtraActionButton ||
+                    showRunningInUI ? (
                       <>
+                        {contextXRayEnabled && (
+                          <ContextMeter threadId={threadId} />
+                        )}
                         {composerExtraActionButton}
                         {showRunningInUI && (
                           <Tooltip>

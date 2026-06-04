@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {
@@ -30,6 +30,12 @@
       "action": "create-visual-plan",
       "path": "/plans",
       "description": "Create or open an Agent-Native visual plan for a coding-agent task."
+    },
+    {
+      "id": "ui-plan",
+      "action": "create-ui-plan",
+      "path": "/plans",
+      "description": "Create a UI-first, high-fidelity Agent-Native plan with full-width screen/state mockups before implementation details."
     },
     {
       "id": "visualize-plan",
@@ -43,6 +49,11 @@
       "path": ".agents/skills/visual-plans",
       "visibility": "both",
       "exportAs": "visual-plans"
+    },
+    {
+      "path": ".agents/skills/ui-plan",
+      "visibility": "both",
+      "exportAs": "ui-plan"
     },
     {
       "path": ".agents/skills/visualize-plan",

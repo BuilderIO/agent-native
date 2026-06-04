@@ -20,6 +20,7 @@ Supported aliases include:
 
 - `agent-native skills add plans`
 - `agent-native skills add visual-plan`
+- `agent-native skills add ui-plan`
 - `agent-native skills add visualize-plan`
 
 Restart or reload the host if the tools are not visible immediately.
@@ -27,6 +28,9 @@ Restart or reload the host if the tools are not visible immediately.
 ## Use
 
 Type `/visual-plan` when you want a fresh plan before the agent builds.
+
+Type `/ui-plan` when UI direction is the center of the work and you want
+high-fidelity mockups and states reviewed before implementation details.
 
 Type `/visualize-plan` when you already have a Codex, Claude Code, Markdown, or
 pasted plan and want a richer visual companion.
@@ -36,6 +40,9 @@ Command behavior:
 - `/visual-plan` creates a new rich HTML plan with docs-level detail, diagrams,
   detailed wireframes/mockups when UI is involved, tradeoffs, open questions,
   file/symbol implementation details, code previews, and feedback prompts.
+- `/ui-plan` creates a UI-first high-fidelity HTML plan. Full-width screen
+  mockups and state tabs come first, comments/drawing and agent handoff are
+  built in, and file/symbol implementation details sit lower in the document.
 - `/visualize-plan` imports an existing text plan, preserves its intent, and
   adds visual structure so the user can annotate and react before implementation.
 

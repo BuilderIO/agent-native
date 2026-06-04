@@ -735,6 +735,8 @@ function chatTabStatusFromAgentTeamStatus(
   return isActiveAgentTeamStatus(status) ? "running" : "completed";
 }
 
+const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
+
 function runToAgentTeamTabInfo(
   run: AgentTeamRunSummary,
 ): AgentTeamTabInfo | null {
@@ -1293,11 +1295,12 @@ export function MultiTabAssistantChat({
 
     // Hide tabs that have had no activity for more than 12 hours. Stale tabs
     // are removed from the sidebar on load but remain accessible via history.
-    const STALE_THRESHOLD_MS = 12 * 60 * 60 * 1000;
     const now = Date.now();
     const isStale = (id: string) => {
       const thread = threadMap.get(id);
-      return thread ? now - thread.updatedAt > STALE_THRESHOLD_MS : false;
+      return thread
+        ? now - thread.updatedAt > STALE_THREAD_THRESHOLD_MS
+        : false;
     };
 
     // If the active thread is a sub-agent, switch to its parent or the most recent main thread
@@ -1337,13 +1340,26 @@ export function MultiTabAssistantChat({
   // Ensure active thread is always in open tabs.
   // Use functional update to check inside the setter — avoids race with the
   // initialization effect that may have already added the ID in the same batch.
+  //
+  // Scoped navigation can reset openTabIds from a different localStorage key
+  // without changing activeThreadId. Re-check after tab-list resets so the
+  // sidebar cannot end up with a live active thread but no mounted chat.
   useEffect(() => {
-    if (activeThreadId) {
-      setOpenTabIds((prev) =>
-        prev.includes(activeThreadId) ? prev : [...prev, activeThreadId],
-      );
+    if (!activeThreadId || openTabIds.includes(activeThreadId)) return;
+    if (parentMap[activeThreadId]) return;
+
+    const activeThread = threads.find((thread) => thread.id === activeThreadId);
+    if (
+      activeThread &&
+      Date.now() - activeThread.updatedAt > STALE_THREAD_THRESHOLD_MS
+    ) {
+      return;
     }
-  }, [activeThreadId]);
+
+    setOpenTabIds((prev) =>
+      prev.includes(activeThreadId) ? prev : [...prev, activeThreadId],
+    );
+  }, [activeThreadId, openTabIds, parentMap, threads]);
 
   // Ensure at least one tab is always open — auto-create if sidebar is empty.
   // Skipped when an active thread already exists (e.g. the hook generated an

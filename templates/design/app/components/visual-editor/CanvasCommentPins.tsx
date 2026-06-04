@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
+import {
+  IconMessage,
+  IconMessageCheck,
+  IconSend,
+  IconX,
+} from "@tabler/icons-react";
 import { sendToAgentChat } from "@agent-native/core";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,7 +26,7 @@ export interface CanvasPin {
   targetText?: string;
   /** Pending comment text the user is composing */
   draft?: string;
-  /** Submitted state — pin disappears once the agent acknowledges */
+  /** Submitted state — the marker stays visible as confirmation. */
   submitted?: boolean;
 }
 
@@ -49,9 +54,9 @@ interface CanvasCommentPinsProps {
  * Mirrors claude.ai/design's "inline comments" feature — the most-praised
  * interaction pattern of that tool. A user clicks anywhere on the canvas to
  * drop a pin, types a one-line instruction, and the pin's position + nearby
- * element selector + instruction is sent to the agent. The pin disappears
- * once submitted; the agent's reply lands in the chat sidebar where it can
- * make targeted edits.
+ * element selector + instruction is sent to the agent. Submitted pins stay on
+ * the canvas as local confirmation; the agent's reply lands in the chat
+ * sidebar where it can make targeted edits.
  *
  * Why pins (vs text-anchored comments):
  *   The existing slide_comments table anchors comments to text selections via
@@ -202,8 +207,7 @@ export function CanvasCommentPins({
       console.error("[CanvasCommentPins] failed to send to agent:", err);
     }
     updatePin(pin.id, { submitted: true });
-    // Auto-clear after a short delay so the user sees the pin "fly away"
-    setTimeout(() => removePin(pin.id), 1500);
+    setActivePinId(null);
   };
 
   if (!active && pins.length === 0) return null;
@@ -260,16 +264,13 @@ export function CanvasCommentPins({
         const left = rect.left + (pin.xPct / 100) * rect.width;
         const top = rect.top + (pin.yPct / 100) * rect.height;
         const isActive = activePinId === pin.id;
+        const PinIcon = pin.submitted ? IconMessageCheck : IconMessage;
         return (
           <div
             key={pin.id}
             data-pin-popover
             data-pin-id={pin.id}
-            className={cn(
-              "fixed z-[55]",
-              pin.submitted &&
-                "transition-all duration-1000 opacity-0 -translate-y-4",
-            )}
+            className="fixed z-[55]"
             style={{ left, top }}
           >
             {/* Pin marker. The tooltip is suppressed while the composer is
@@ -281,17 +282,22 @@ export function CanvasCommentPins({
             <Tooltip open={isActive ? false : undefined}>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => setActivePinId(pin.id)}
+                  onClick={() => {
+                    if (!pin.submitted) setActivePinId(pin.id);
+                  }}
                   className={cn(
                     "absolute -translate-x-1/2 -translate-y-full -mt-1 flex items-center justify-center w-7 h-7 rounded-full rounded-bl-none shadow-lg cursor-pointer",
-                    "bg-[#609FF8] text-black hover:scale-110 transition-transform",
+                    pin.submitted
+                      ? "bg-emerald-500 text-white"
+                      : "bg-[#609FF8] text-black",
+                    "hover:scale-110 transition-transform",
                   )}
                 >
-                  <IconMessage className="w-3.5 h-3.5" />
+                  <PinIcon className="w-3.5 h-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent className="pointer-events-none">
-                {pin.draft || "Comment"}
+                {pin.draft || (pin.submitted ? "Comment sent" : "Comment")}
               </TooltipContent>
             </Tooltip>
 

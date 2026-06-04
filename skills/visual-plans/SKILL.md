@@ -21,8 +21,9 @@ Install with the Agent-Native CLI. It adds the skills and MCP connector:
 npx @agent-native/core@latest skills add plans
 ```
 
-Then start typing `/visual-plan` for a fresh plan or `/visualize-plan` to turn
-an existing Codex, Claude Code, Markdown, or pasted plan into a visual companion.
+Then start typing `/visual-plan` for a fresh general plan, `/ui-plan` for a
+UI-first high-fidelity plan, or `/visualize-plan` to turn an existing Codex,
+Claude Code, Markdown, or pasted plan into a visual companion.
 
 ## Slash Commands
 
@@ -30,6 +31,10 @@ an existing Codex, Claude Code, Markdown, or pasted plan into a visual companion
   a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
   mockups when UI is involved, tradeoffs, open questions, and clear feedback
   prompts.
+- `/ui-plan`: create a UI-first high-fidelity HTML plan before implementation.
+  Put full-width screen mockups and state tabs first, include comment/drawing
+  prompts and agent handoff notes, then place file/symbol implementation
+  details lower in the document.
 - `/visualize-plan`: import an existing Codex, Claude Code, Markdown, or pasted
   text plan and turn it into a visual companion. Preserve the plan's intent,
   then add diagrams, wireframes, option cards, and annotation prompts.
@@ -47,6 +52,7 @@ an existing Codex, Claude Code, Markdown, or pasted plan into a visual companion
 ## Tools
 
 - `create-visual-plan`
+- `create-ui-plan`
 - `visualize-plan`
 - `update-visual-plan`
 - `get-visual-plan`
@@ -57,6 +63,9 @@ an existing Codex, Claude Code, Markdown, or pasted plan into a visual companion
 
 - Wireframes must be concrete enough to critique: layout regions, controls,
   states, empty/loading/error paths, review affordances, and copy placeholders.
+- Use `/ui-plan` when UI direction is the center of the work. `/visual-plan`
+  stays the general plan command for architecture, backend, refactors, and
+  mixed implementation planning.
 - Include README-like details when helpful: command names, tool behavior,
   install flow, MCP/link fallback, data shape, and what is in or out of scope.
 - Avoid vague rectangle-only sketches and generic dashboards.
