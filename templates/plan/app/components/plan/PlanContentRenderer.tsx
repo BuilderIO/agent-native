@@ -317,7 +317,7 @@ function PlanCanvas({
         {canvas.notes?.map((note) => (
           <div
             key={note.id}
-            className="plan-canvas-note absolute max-w-[300px] rounded-lg border border-plan-line bg-plan-chrome px-4 py-3 text-sm leading-6 text-plan-muted shadow-lg backdrop-blur"
+            className="plan-canvas-note absolute max-w-[300px] text-sm leading-6 text-plan-muted"
             style={{ left: note.x ?? 60, top: note.y ?? 60 }}
           >
             {note.title && (
@@ -1372,11 +1372,23 @@ function SketchWireframe({
 
 function RoughRegion({ region }: { region: PlanWireframeRegion }) {
   const isButton = region.kind === "button";
+  const isPopover =
+    /\bpopover\b/i.test(region.id) || /\bpopover\b/i.test(region.label ?? "");
+  const showScaffold =
+    !isButton &&
+    ((region.kind === "list" && (!region.label || region.height >= 10)) ||
+      region.kind === "input" ||
+      (!region.label &&
+        (region.kind === "content" ||
+          region.kind === "header" ||
+          region.kind === "nav" ||
+          region.kind === "toolbar")));
   return (
     <div
       className={cn(
         "plan-sketch-region absolute",
         region.label && "plan-region-has-label",
+        isPopover && "plan-region-popover",
         region.kind === "header" && "plan-region-header",
         region.kind === "nav" && "plan-region-nav",
         region.kind === "list" && "plan-region-list",
@@ -1406,12 +1418,46 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
           {region.label}
         </span>
       )}
-      {!region.label && <RegionScaffold kind={region.kind} />}
+      {showScaffold && (
+        <RegionScaffold kind={region.kind} hasLabel={Boolean(region.label)} />
+      )}
     </div>
   );
 }
 
-function RegionScaffold({ kind }: { kind: PlanWireframeRegion["kind"] }) {
+function RegionScaffold({
+  kind,
+  hasLabel,
+}: {
+  kind: PlanWireframeRegion["kind"];
+  hasLabel?: boolean;
+}) {
+  if (kind === "input") {
+    return (
+      <span
+        className={cn(
+          "plan-region-scaffold plan-region-scaffold-input",
+          hasLabel && "plan-region-scaffold-with-label",
+        )}
+      >
+        <i />
+      </span>
+    );
+  }
+  if (kind === "list") {
+    return (
+      <span
+        className={cn(
+          "plan-region-scaffold plan-region-scaffold-lines",
+          hasLabel && "plan-region-scaffold-with-label",
+        )}
+      >
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
   if (kind === "nav") {
     return (
       <span className="plan-region-scaffold plan-region-scaffold-nav">

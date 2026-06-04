@@ -384,10 +384,15 @@ discipline before and around the plan document:
 - For component, popover, or widget plans, show one broader app-context frame
   when placement affects understanding, then focused component states. Avoid
   fake desktop/mobile flows unless real responsive behavior changes layout.
+- Layered surfaces such as popovers and floating panels need an opaque sketch
+  surface; do not let background frames show through them.
+- Placeholder text strokes should be sparse, aligned, and separated from labels
+  so they read as content rhythm instead of noisy gray bars.
 - Buttons and primary actions in UI mockups must look actionable, not like inert
   labels or decorative chips.
 - When a top canvas is present, include Figma-like annotation text/arrows on the
-  canvas itself, not only in prose below.
+  canvas itself, not only in prose below. Prefer plain annotation text plus
+  arrows over boxed cards with borders, backgrounds, or shadows.
 - Tabs for UI states, component notes, or interaction notes should include a
   relevant visual block unless they are intentionally document-only. Do not
   create large tab controls that reveal only prose.
@@ -559,6 +564,8 @@ states instead.
   phone screen.
 - When placement matters, include one broader app-context frame showing the
   surrounding page, sidebar, or toolbar, then focused component states.
+- Layered surfaces such as popovers, menus, and floating inspectors need an
+  opaque sketch surface so they read as overlays instead of transparent boxes.
 - Use state tabs such as \`Default\`, \`Expanded\`, \`Map\`, \`Loading\`, \`Empty\`,
   and \`Error\`. Do not add \`Desktop\`, \`Mobile\`, or responsive states unless the
   component actually changes layout across breakpoints.
@@ -569,6 +576,8 @@ states instead.
   density. If you have seen a screenshot or component code, reflect it.
 - Keep labels outside collision zones. Text must never overlap wireframes,
   connectors, toolbar controls, or neighboring notes.
+- Placeholder text strokes should be sparse, aligned, and below labels; avoid
+  random-looking gray bars that collide with copy or make the sketch messy.
 - Use the app-owned Rough.js/sketch renderer for wireframes and diagrams. The
   result should look deliberately hand-drawn/scribbly with Virgil-style labels,
   not like crisp bordered boxes on a grid.
@@ -609,7 +618,9 @@ document with notes explaining how the screens work together.
 ## Comments, Drawing, And Handoff
 
 - Add visible annotation prompts beside the mockups: "Comment on layout",
-  "Circle unclear copy", "Mark missing state", or "Pick this option".
+  "Circle unclear copy", "Mark missing state", or "Pick this option". Canvas
+  annotations should feel like Figma callouts: plain text plus arrows, without
+  card borders, shadows, or background panels unless editing UI is required.
 - Leave enough whitespace around key UI regions for drawing and callouts.
 - Label important regions so comments can reference them without ambiguity.
 - Include an "Agent Handoff" section after the mockups that summarizes the

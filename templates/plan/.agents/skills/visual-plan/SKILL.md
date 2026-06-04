@@ -153,10 +153,15 @@ discipline before and around the plan document:
 - For component, popover, or widget plans, show one broader app-context frame
   when placement affects understanding, then focused component states. Avoid
   fake desktop/mobile flows unless real responsive behavior changes layout.
+- Layered surfaces such as popovers and floating panels need an opaque sketch
+  surface; do not let background frames show through them.
+- Placeholder text strokes should be sparse, aligned, and separated from labels
+  so they read as content rhythm instead of noisy gray bars.
 - Buttons and primary actions in UI mockups must look actionable, not like inert
   labels or decorative chips.
 - When a top canvas is present, include Figma-like annotation text/arrows on the
-  canvas itself, not only in prose below.
+  canvas itself, not only in prose below. Prefer plain annotation text plus
+  arrows over boxed cards with borders, backgrounds, or shadows.
 - When showing multiple diagrams, wireframes, mockups, or design directions,
   use native `tabs` blocks so the plan stays readable and editable. Raw HTML tab
   attributes are only for legacy imported artifacts.
