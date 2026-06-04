@@ -3,6 +3,14 @@
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
 
+@font-face {
+  font-family: "Virgil";
+  src: url("/fonts/Virgil-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @source "./**/*.{ts,tsx}";
 
 :root {
@@ -82,6 +90,7 @@
     --plan-block: hsl(42 16% 94%);
     --plan-chrome: hsl(42 15% 96% / 0.92);
     --plan-line: hsl(36 9% 82%);
+    --plan-grid-line: hsl(36 9% 70% / 0.14);
     --plan-text: hsl(30 5% 11%);
     --plan-muted: hsl(30 5% 45%);
     --plan-wireframe: hsl(42 16% 98%);
@@ -97,6 +106,7 @@
     --plan-block: hsl(32 3% 15.5%);
     --plan-chrome: hsl(32 3% 15.5% / 0.92);
     --plan-line: hsl(34 4% 24%);
+    --plan-grid-line: hsl(34 4% 36% / 0.14);
     --plan-text: hsl(40 8% 94%);
     --plan-muted: hsl(36 5% 65%);
     --plan-wireframe: hsl(34 3% 13.4%);
@@ -174,15 +184,9 @@
 .plan-canvas {
   background-color: var(--plan-canvas);
   background-image:
-    linear-gradient(var(--plan-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--plan-line) 1px, transparent 1px);
+    linear-gradient(var(--plan-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--plan-grid-line) 1px, transparent 1px);
   touch-action: none;
-}
-
-.dark .plan-canvas {
-  background-image:
-    linear-gradient(hsl(34 4% 25% / 0.42) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(34 4% 25% / 0.42) 1px, transparent 1px);
 }
 
 .plan-document-flow > .plan-block,
@@ -238,6 +242,19 @@
   border-radius: 10px;
 }
 
+.plan-sketch {
+  font-family:
+    "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  letter-spacing: 0;
+}
+
+.plan-sketch-label {
+  color: currentColor;
+  background: var(--plan-wireframe);
+  border-radius: 4px;
+  text-shadow: 0 1px 0 var(--plan-wireframe);
+}
+
 .plan-region-list::before,
 .plan-region-list::after,
 .plan-region-input::before {
@@ -259,12 +276,36 @@
   right: 34%;
 }
 
+.plan-region-has-label.plan-region-list::before {
+  top: 42%;
+}
+
+.plan-region-has-label.plan-region-list::after {
+  top: 68%;
+}
+
 .plan-region-input::before {
   top: calc(50% - 4px);
 }
 
+.plan-region-has-label.plan-region-input::before {
+  top: 58%;
+}
+
 .plan-region-button {
-  background: hsl(var(--ring) / 0.12);
+  color: white;
+  background: hsl(var(--ring));
+  box-shadow: 0 0 0 1px hsl(var(--ring) / 0.8);
+}
+
+.plan-region-button .plan-sketch-label {
+  color: inherit;
+  background: transparent;
+  text-shadow: none;
+}
+
+.plan-region-button .plan-rough-svg {
+  opacity: 0.58;
 }
 
 ::-webkit-scrollbar {

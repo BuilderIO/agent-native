@@ -376,9 +376,18 @@ discipline before and around the plan document:
   mixed implementation planning.
 - Wireframes should be concrete enough to critique: layout regions, controls,
   states, empty/loading/error paths, review affordances, and copy placeholders.
-- Sketch wireframes and diagrams should visibly use the hand-drawn/scribbly
-  renderer. If the result looks like crisp boxes with normal borders, revise the
+- Sketch wireframes and diagrams should visibly use the app-owned
+  Rough.js/sketch renderer with subtle grids where useful, imperfect strokes,
+  and Virgil-style labels. Labels must not overlap rough lines, connectors, or
+  nodes. If the result looks like crisp boxes with normal borders, revise the
   block data or renderer before asking for review.
+- For component, popover, or widget plans, show one broader app-context frame
+  when placement affects understanding, then focused component states. Avoid
+  fake desktop/mobile flows unless real responsive behavior changes layout.
+- Buttons and primary actions in UI mockups must look actionable, not like inert
+  labels or decorative chips.
+- When a top canvas is present, include Figma-like annotation text/arrows on the
+  canvas itself, not only in prose below.
 - Tabs for UI states, component notes, or interaction notes should include a
   relevant visual block unless they are intentionally document-only. Do not
   create large tab controls that reveal only prose.
@@ -425,6 +434,9 @@ discipline before and around the plan document:
   implementation maps make the work reviewable.
 - Use \`custom-html\` only for bounded fragments inside a block. Never include
   \`html\`, \`head\`, \`body\`, or \`script\` tags in custom fragments.
+- \`sketch-diagram\` blocks must be legible: labels cannot overlap nodes,
+  connectors, rough lines, or each other; omit the diagram when it does not
+  clarify a real architecture, sequence, dependency, or state relationship.
 - Match Agent-Native's restrained theme unless the user asks otherwise.
 - Keep the first viewport legible and plan-like: title, brief, concise scope,
   and a useful diagram/checklist/table when it helps.
@@ -496,6 +508,15 @@ text plan already exists and should become a visual companion.
 2. When the plan has meaningful UI flows, screens, or diagrams, make the top
    of the document a bounded pan/zoom sketch canvas with the key artboards,
    connectors, margin notes, and commentable visual anchors.
+   Use the app-owned Rough.js/sketch renderer: subtle grid field, deliberately
+   imperfect lines, Virgil-style wireframe labels, and Figma-like annotation
+   text/arrows on the top canvas. Labels must sit clear of rough lines,
+   connectors, controls, and neighboring notes.
+   Treat notes like Figma text layers: sprinkle headings, supporting text,
+   bullets, arrows, and labels around the artboards, but do not overlap the
+   wireframes or wrap the artboards in explanatory cards.
+   In dark mode, keep the canvas field slightly darker than the document, and
+   keep wireframe artboards flat rather than shadowed.
 3. Continue below the canvas as a restrained, Notion-like interactive document:
    clear prose, horizontal state tabs, inline wireframes, sketchy diagrams,
    tables, vertical code tabs, and concise implementation notes.
@@ -520,6 +541,8 @@ text plan already exists and should become a visual companion.
   change. Put them in tabs or adjacent panels rather than burying them in prose.
 - Use concrete labels and copy placeholders that expose content length,
   truncation, disabled states, and destructive actions.
+- Buttons and primary actions must look actionable: visible affordance,
+  readable label/icon, and enabled/disabled treatment when relevant.
 - Make state tabs span the plan content width. Small cards are fine for repeated
   items, but the primary UI preview should not be trapped in a tiny thumbnail.
 - Keep visuals review-focused, not decorative. Do not make a marketing page,
@@ -534,6 +557,8 @@ states instead.
 - Prefer square or vertical frames that match the component's real footprint. A
   sidebar popover should look like a sidebar popover, not a desktop page or
   phone screen.
+- When placement matters, include one broader app-context frame showing the
+  surrounding page, sidebar, or toolbar, then focused component states.
 - Use state tabs such as \`Default\`, \`Expanded\`, \`Map\`, \`Loading\`, \`Empty\`,
   and \`Error\`. Do not add \`Desktop\`, \`Mobile\`, or responsive states unless the
   component actually changes layout across breakpoints.
@@ -544,9 +569,9 @@ states instead.
   density. If you have seen a screenshot or component code, reflect it.
 - Keep labels outside collision zones. Text must never overlap wireframes,
   connectors, toolbar controls, or neighboring notes.
-- Use the app-owned sketch renderer for wireframes and diagrams. The result
-  should look deliberately hand-drawn/scribbly, not like crisp bordered boxes on
-  a grid.
+- Use the app-owned Rough.js/sketch renderer for wireframes and diagrams. The
+  result should look deliberately hand-drawn/scribbly with Virgil-style labels,
+  not like crisp bordered boxes on a grid.
 
 ## State Tabs
 

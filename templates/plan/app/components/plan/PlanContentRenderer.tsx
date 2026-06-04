@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import type {
   PlanBlock,
   PlanCanvasFrame,
+  PlanCanvasNote,
   PlanContent,
   PlanSketchDiagramBlock,
   PlanSketchWireframeBlock,
@@ -135,16 +136,19 @@ function PlanCanvas({
     [canvas.frames],
   );
   const board = useMemo(() => {
+    const notes = canvas.notes ?? [];
     const maxX = Math.max(
       1600,
       ...frames.map((frame) => (frame.x ?? 0) + (frame.width ?? 420)),
+      ...notes.map((note) => (note.x ?? 0) + 340),
     );
     const maxY = Math.max(
       980,
       ...frames.map((frame) => (frame.y ?? 0) + (frame.height ?? 360)),
+      ...notes.map((note) => (note.y ?? 0) + 170),
     );
     return { width: maxX + 360, height: maxY + 260 };
-  }, [frames]);
+  }, [canvas.notes, frames]);
   const { zoom, pan } = view;
 
   const setZoomAtAnchor = useCallback(
@@ -304,9 +308,16 @@ function PlanCanvas({
           />
         ))}
         {canvas.notes?.map((note) => (
+          <CanvasNoteConnector
+            key={`${note.id}-connector`}
+            note={note}
+            frames={frames}
+          />
+        ))}
+        {canvas.notes?.map((note) => (
           <div
             key={note.id}
-            className="absolute max-w-[300px] text-sm leading-6 text-plan-muted"
+            className="plan-canvas-note absolute max-w-[300px] rounded-lg border border-plan-line bg-plan-chrome px-4 py-3 text-sm leading-6 text-plan-muted shadow-lg backdrop-blur"
             style={{ left: note.x ?? 60, top: note.y ?? 60 }}
           >
             {note.title && (
@@ -345,6 +356,93 @@ function PlanCanvas({
         </Button>
       </div>
     </section>
+  );
+}
+
+function CanvasNoteConnector({
+  note,
+  frames,
+}: {
+  note: PlanCanvasNote;
+  frames: PlanCanvasFrame[];
+}) {
+  if (!note.arrowToFrameId) return null;
+  const frame = frames.find(
+    (candidate) => candidate.id === note.arrowToFrameId,
+  );
+  if (!frame) return null;
+
+  const noteX = note.x ?? 60;
+  const noteY = note.y ?? 60;
+  const noteWidth = 300;
+  const noteHeight = 96;
+  const frameX = frame.x ?? 80;
+  const frameY = frame.y ?? 80;
+  const frameWidth = frame.width ?? 420;
+  const frameHeight = frame.height ?? 360;
+  const noteCenterX = noteX + noteWidth / 2;
+  const noteCenterY = noteY + noteHeight / 2;
+  const frameCenterX = frameX + frameWidth / 2;
+  const frameCenterY = frameY + frameHeight / 2;
+  let startX = noteCenterX;
+  let startY = noteCenterY;
+  let endX = frameCenterX;
+  let endY = frameCenterY;
+
+  if (noteCenterY > frameY + frameHeight) {
+    startY = noteY;
+    endY = frameY + frameHeight;
+  } else if (noteCenterY < frameY) {
+    startY = noteY + noteHeight;
+    endY = frameY;
+  } else if (noteCenterX > frameX + frameWidth) {
+    startX = noteX;
+    endX = frameX + frameWidth;
+  } else if (noteCenterX < frameX) {
+    startX = noteX + noteWidth;
+    endX = frameX;
+  }
+
+  const left = Math.min(startX, endX) - 12;
+  const top = Math.min(startY, endY) - 12;
+  const width = Math.abs(endX - startX) + 24;
+  const height = Math.abs(endY - startY) + 24;
+  const localStartX = startX - left;
+  const localStartY = startY - top;
+  const localEndX = endX - left;
+  const localEndY = endY - top;
+  const controlX = width / 2;
+  const markerId = `note-arrow-${note.id}`;
+
+  return (
+    <svg
+      className="pointer-events-none absolute overflow-visible"
+      style={{ left, top, width, height }}
+      viewBox={`0 0 ${width} ${height}`}
+    >
+      <defs>
+        <marker
+          id={markerId}
+          markerHeight="8"
+          markerWidth="8"
+          orient="auto"
+          refX="6"
+          refY="4"
+          viewBox="0 0 8 8"
+        >
+          <path d="M 0 0 L 8 4 L 0 8 z" fill="hsl(var(--ring))" />
+        </marker>
+      </defs>
+      <path
+        d={`M ${localStartX} ${localStartY} C ${controlX} ${localStartY}, ${controlX} ${localEndY}, ${localEndX} ${localEndY}`}
+        fill="none"
+        markerEnd={`url(#${markerId})`}
+        stroke="hsl(var(--ring))"
+        strokeDasharray="8 7"
+        strokeLinecap="round"
+        strokeWidth="2.2"
+      />
+    </svg>
   );
 }
 
@@ -1273,14 +1371,16 @@ function SketchWireframe({
 }
 
 function RoughRegion({ region }: { region: PlanWireframeRegion }) {
+  const isButton = region.kind === "button";
   return (
     <div
       className={cn(
         "plan-sketch-region absolute",
+        region.label && "plan-region-has-label",
         region.kind === "list" && "plan-region-list",
-        region.kind === "button" && "plan-region-button",
+        isButton && "plan-region-button",
         region.kind === "input" && "plan-region-input",
-        region.emphasis && "text-primary",
+        region.emphasis && !isButton && "text-primary",
       )}
       style={{
         left: `${region.x}%`,
@@ -1291,7 +1391,14 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
     >
       <RoughBox id={region.id} emphasis={region.emphasis} />
       {region.label && (
-        <span className="plan-sketch-label absolute left-2 top-1 max-w-[calc(100%-1rem)] truncate text-[12px] font-semibold">
+        <span
+          className={cn(
+            "plan-sketch-label absolute z-10 max-w-[calc(100%-1rem)] truncate text-[13px] font-semibold leading-none",
+            isButton
+              ? "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-2"
+              : "left-2.5 top-[-0.45rem] px-1.5 py-0.5",
+          )}
+        >
           {region.label}
         </span>
       )}
@@ -1305,9 +1412,9 @@ function RoughBox({ id, emphasis }: { id: string; emphasis?: boolean }) {
       seed: roughSeed(id),
       stroke: "currentColor",
       strokeWidth: emphasis ? 1.45 : 1.15,
-      roughness: 0.55,
+      roughness: 0.42,
       bowing: 0.35,
-      maxRandomnessOffset: 0.85,
+      maxRandomnessOffset: 0.62,
       disableMultiStroke: false,
       fixedDecimalPlaceDigits: 1,
     }),

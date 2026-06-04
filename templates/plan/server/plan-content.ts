@@ -4,6 +4,7 @@ import {
   planContentSchema,
   type PlanBlock,
   type PlanCanvasFrame,
+  type PlanCanvasNote,
   type PlanContent,
   type PlanContentInput,
   type PlanDiagramEdge,
@@ -140,33 +141,60 @@ export function createUiPlanContent(input: {
     ),
   );
   const componentPlan = isComponentPlan(input);
-  const frames: PlanCanvasFrame[] = states.slice(0, 6).map((state, index) => ({
-    id: `frame-${stateIds[index] ?? index + 1}`,
-    title: state.name,
-    blockId: stateBlockIds[index]?.wireframe,
-    wireframe: createWireframeData({
-      title: state.name,
-      description: state.description,
-      viewport: viewportForState(state, componentPlan),
-      component: componentPlan,
-    }),
-    ...(componentPlan
-      ? {
-          x: 80 + (index % 3) * 420,
-          y: 96 + Math.floor(index / 3) * 430,
-          width: 360,
-          height: 360,
-        }
-      : {}),
-  }));
+  const includeComponentContext =
+    componentPlan && shouldShowComponentContext(input);
   const stateFlow = shouldUseStateFlow(input, componentPlan);
+  const stateFrames: PlanCanvasFrame[] = states
+    .slice(0, 6)
+    .map((state, index) => ({
+      id: `frame-${stateIds[index] ?? index + 1}`,
+      title: state.name,
+      blockId: stateBlockIds[index]?.wireframe,
+      wireframe: createWireframeData({
+        title: state.name,
+        description: state.description,
+        viewport: viewportForState(state, componentPlan, {
+          index,
+          stateFlow,
+        }),
+        component: componentPlan,
+      }),
+      ...(componentPlan
+        ? {
+            x: (includeComponentContext ? 820 : 80) + (index % 3) * 420,
+            y: 96 + Math.floor(index / 3) * 430,
+            width: 360,
+            height: 360,
+          }
+        : {}),
+    }));
+  const contextFrame: PlanCanvasFrame | undefined = includeComponentContext
+    ? {
+        id: "frame-app-context",
+        title: "App context",
+        wireframe: createComponentContextWireframe(input),
+        x: 80,
+        y: 96,
+        width: 660,
+        height: 420,
+      }
+    : undefined;
+  const frames: PlanCanvasFrame[] = contextFrame
+    ? [contextFrame, ...stateFrames]
+    : stateFrames;
   const flow: PlanDiagramEdge[] = stateFlow
-    ? frames.slice(0, -1).map((frame, index) => ({
+    ? stateFrames.slice(0, -1).map((frame, index) => ({
         from: frame.id,
-        to: frames[index + 1]?.id ?? frame.id,
+        to: stateFrames[index + 1]?.id ?? frame.id,
         label: `Step ${index + 1}`,
       }))
     : [];
+  const notes = createCanvasNotes({
+    componentPlan,
+    includeComponentContext,
+    contextFrame,
+    stateFrames,
+  });
   const blocks: PlanBlock[] = [
     {
       id: createPlanBlockId("summary"),
@@ -206,7 +234,10 @@ export function createUiPlanContent(input: {
                     data: createWireframeData({
                       title: state.name,
                       description: state.description,
-                      viewport: viewportForState(state, componentPlan),
+                      viewport: viewportForState(state, componentPlan, {
+                        index,
+                        stateFlow,
+                      }),
                       component: componentPlan,
                     }),
                   },
@@ -302,24 +333,66 @@ export function createUiPlanContent(input: {
             title: componentPlan ? "Component States" : "UI Flow",
             frames,
             ...(flow.length > 0 ? { flow } : {}),
-            ...(componentPlan
-              ? {}
-              : {
-                  notes: [
-                    {
-                      id: "canvas-note-review",
-                      title: "Read this like a design handoff.",
-                      body: "Pan and zoom to compare states, then scroll for the document spec.",
-                      x: 80,
-                      y: 560,
-                    },
-                  ],
-                }),
+            ...(notes.length > 0 ? { notes } : {}),
           },
         }
       : {}),
     blocks,
   });
+}
+
+function createCanvasNotes(input: {
+  componentPlan: boolean;
+  includeComponentContext: boolean;
+  contextFrame?: PlanCanvasFrame;
+  stateFrames: PlanCanvasFrame[];
+}): PlanCanvasNote[] {
+  if (input.componentPlan) {
+    if (!input.includeComponentContext || !input.contextFrame) return [];
+    return [
+      {
+        id: "canvas-note-app-context",
+        title: "Start in the product.",
+        body: "Show the host chat and agent sidebar first so the popover scale, anchor, and surrounding chrome are reviewable.",
+        x: input.contextFrame.x ?? 80,
+        y:
+          (input.contextFrame.y ?? 96) +
+          (input.contextFrame.height ?? 420) +
+          48,
+        arrowToFrameId: input.contextFrame.id,
+      },
+      ...(input.stateFrames[0]
+        ? [
+            {
+              id: "canvas-note-focused-states",
+              title: "Then focus the component.",
+              body: "Compare compact popover states as widget variants, not as a fake desktop/mobile journey.",
+              x: input.stateFrames[0].x ?? 820,
+              y:
+                (input.stateFrames[0].y ?? 96) +
+                (input.stateFrames[0].height ?? 360) +
+                48,
+              arrowToFrameId: input.stateFrames[0].id,
+            },
+          ]
+        : []),
+    ];
+  }
+
+  if (!input.stateFrames[0]) return [];
+  return [
+    {
+      id: "canvas-note-review",
+      title: "Read this like a design handoff.",
+      body: "Pan and zoom to compare states, then scroll for the document spec.",
+      x: input.stateFrames[0].x ?? 80,
+      y:
+        (input.stateFrames[0].y ?? 80) +
+        (input.stateFrames[0].height ?? 420) +
+        60,
+      arrowToFrameId: input.stateFrames[0].id,
+    },
+  ];
 }
 
 function isComponentPlan(input: {
@@ -340,6 +413,28 @@ function isComponentPlan(input: {
     .join(" ")
     .toLowerCase();
   return /\b(component|widget|popover|sidebar|side\s*panel|panel|dialog|modal|dropdown|toolbar|inspector|menu|card)\b/.test(
+    text,
+  );
+}
+
+function shouldShowComponentContext(input: {
+  title: string;
+  brief: string;
+  states: Array<{ name: string; description: string }>;
+  components: Array<{ name: string; description: string }>;
+}) {
+  const text = [
+    input.title,
+    input.brief,
+    ...input.states.flatMap((state) => [state.name, state.description]),
+    ...input.components.flatMap((component) => [
+      component.name,
+      component.description,
+    ]),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return /\b(popover|sidebar|side\s*panel|agent sidebar|chat|composer|inspector|floating|anchored|context)\b/.test(
     text,
   );
 }
@@ -368,10 +463,14 @@ function shouldUseStateFlow(
 function viewportForState(
   state: { name: string; description: string },
   componentPlan: boolean,
+  options?: { index?: number; stateFlow?: boolean },
 ): "desktop" | "tablet" | "phone" {
   if (componentPlan) return "desktop";
   const name = state.name.toLowerCase();
   const description = state.description.toLowerCase();
+  if (/\b(desktop|overview|home|dashboard|workspace|board)\b/.test(name)) {
+    return "desktop";
+  }
   if (/\b(phone|mobile|narrow)\b/.test(name)) return "phone";
   if (/\b(tablet)\b/.test(name)) return "tablet";
   if (/\b(tablet-only|tablet first|tablet-first)\b/.test(description)) {
@@ -384,6 +483,7 @@ function viewportForState(
   ) {
     return "phone";
   }
+  if (options?.stateFlow && (options.index ?? 0) > 0) return "phone";
   return "desktop";
 }
 
@@ -603,6 +703,110 @@ function findCanvas(blocks: PlanBlock[]): PlanContent["canvas"] | undefined {
   };
 }
 
+function createComponentContextWireframe(input: {
+  title: string;
+  brief: string;
+}): PlanSketchWireframeBlock["data"] {
+  return {
+    viewport: "desktop",
+    caption: `Show ${input.title} in the surrounding app before reviewing focused component states.`,
+    regions: [
+      {
+        id: "app-shell",
+        kind: "content",
+        label: "App shell",
+        x: 3,
+        y: 7,
+        width: 94,
+        height: 86,
+      },
+      {
+        id: "chat-thread",
+        kind: "list",
+        label: "Chat thread",
+        x: 8,
+        y: 16,
+        width: 53,
+        height: 48,
+      },
+      {
+        id: "thinking-status",
+        kind: "toolbar",
+        label: "Thinking status",
+        x: 9,
+        y: 70,
+        width: 25,
+        height: 7,
+      },
+      {
+        id: "composer",
+        kind: "input",
+        label: "Composer",
+        x: 8,
+        y: 82,
+        width: 53,
+        height: 8,
+      },
+      {
+        id: "agent-sidebar",
+        kind: "nav",
+        label: "Agent sidebar",
+        x: 66,
+        y: 13,
+        width: 23,
+        height: 74,
+      },
+      {
+        id: "xray-trigger",
+        kind: "button",
+        label: "X-Ray",
+        x: 77,
+        y: 78,
+        width: 10,
+        height: 7,
+        emphasis: true,
+      },
+      {
+        id: "xray-popover",
+        kind: "content",
+        label: "Context X-Ray popover",
+        x: 53,
+        y: 20,
+        width: 40,
+        height: 44,
+        emphasis: true,
+      },
+      {
+        id: "xray-meter",
+        kind: "content",
+        label: "2.0k used",
+        x: 57,
+        y: 32,
+        width: 32,
+        height: 9,
+      },
+      {
+        id: "xray-view-toggle",
+        kind: "toolbar",
+        label: "List / Map",
+        x: 57,
+        y: 45,
+        width: 22,
+        height: 7,
+      },
+      {
+        id: "xray-segment-row",
+        kind: "list",
+        label: "Conversation",
+        x: 57,
+        y: 56,
+        width: 32,
+        height: 6,
+      },
+    ],
+  };
+}
+
 function createWireframeData(input: {
   title: string;
   description?: string;
@@ -610,6 +814,8 @@ function createWireframeData(input: {
   component?: boolean;
 }): PlanSketchWireframeBlock["data"] {
   const viewport = input.viewport ?? "desktop";
+  const title = compactLabel(input.title, 24);
+  const description = compactLabel(input.description ?? "", 78);
   if (input.component) {
     return {
       viewport,
@@ -622,12 +828,90 @@ function createWireframeData(input: {
       viewport,
       caption: input.description,
       regions: [
-        { id: "top", kind: "header", x: 8, y: 5, width: 84, height: 10 },
-        { id: "tabs", kind: "toolbar", x: 10, y: 20, width: 70, height: 8 },
-        { id: "list", kind: "list", x: 10, y: 34, width: 78, height: 42 },
+        {
+          id: "phone-back",
+          kind: "button",
+          label: "Back",
+          x: 9,
+          y: 7,
+          width: 18,
+          height: 7,
+          emphasis: true,
+        },
+        {
+          id: "phone-title",
+          kind: "header",
+          label: title,
+          x: 32,
+          y: 7,
+          width: 34,
+          height: 7,
+        },
+        {
+          id: "phone-menu",
+          kind: "toolbar",
+          label: "...",
+          x: 76,
+          y: 7,
+          width: 12,
+          height: 7,
+        },
+        {
+          id: "phone-filter-all",
+          kind: "button",
+          label: "All",
+          x: 9,
+          y: 20,
+          width: 17,
+          height: 8,
+          emphasis: true,
+        },
+        {
+          id: "phone-filter-active",
+          kind: "button",
+          label: "Active",
+          x: 29,
+          y: 20,
+          width: 24,
+          height: 8,
+        },
+        {
+          id: "phone-filter-done",
+          kind: "button",
+          label: "Done",
+          x: 56,
+          y: 20,
+          width: 21,
+          height: 8,
+        },
+        {
+          id: "phone-row-1",
+          kind: "list",
+          x: 9,
+          y: 35,
+          width: 80,
+          height: 10,
+        },
+        {
+          id: "phone-row-2",
+          kind: "list",
+          x: 9,
+          y: 49,
+          width: 80,
+          height: 10,
+        },
+        {
+          id: "phone-row-3",
+          kind: "list",
+          x: 9,
+          y: 63,
+          width: 80,
+          height: 10,
+        },
         {
           id: "action",
           kind: "button",
+          label: "+",
           x: 70,
           y: 82,
           width: 16,
@@ -641,14 +925,89 @@ function createWireframeData(input: {
     viewport,
     caption: input.description,
     regions: [
-      { id: "chrome", kind: "header", x: 3, y: 4, width: 94, height: 8 },
-      { id: "nav", kind: "nav", x: 3, y: 12, width: 22, height: 78 },
-      { id: "title", kind: "header", x: 30, y: 18, width: 48, height: 11 },
-      { id: "toolbar", kind: "toolbar", x: 30, y: 34, width: 36, height: 8 },
-      { id: "content", kind: "list", x: 30, y: 46, width: 62, height: 34 },
+      {
+        id: "chrome",
+        kind: "header",
+        label: title,
+        x: 3,
+        y: 4,
+        width: 94,
+        height: 8,
+      },
+      {
+        id: "nav",
+        kind: "nav",
+        label: "Workspace",
+        x: 3,
+        y: 12,
+        width: 22,
+        height: 78,
+      },
+      {
+        id: "nav-active",
+        kind: "button",
+        x: 6,
+        y: 25,
+        width: 16,
+        height: 7,
+        emphasis: true,
+      },
+      { id: "nav-item-1", kind: "toolbar", x: 6, y: 37, width: 16, height: 6 },
+      { id: "nav-item-2", kind: "toolbar", x: 6, y: 48, width: 16, height: 6 },
+      { id: "nav-item-3", kind: "toolbar", x: 6, y: 59, width: 16, height: 6 },
+      {
+        id: "title",
+        kind: "header",
+        label: title,
+        x: 30,
+        y: 18,
+        width: 36,
+        height: 8,
+      },
+      {
+        id: "summary",
+        kind: "content",
+        label: description,
+        x: 30,
+        y: 29,
+        width: 50,
+        height: 11,
+      },
+      {
+        id: "filter-all",
+        kind: "button",
+        label: "All",
+        x: 30,
+        y: 45,
+        width: 9,
+        height: 7,
+        emphasis: true,
+      },
+      {
+        id: "filter-active",
+        kind: "button",
+        label: "Active",
+        x: 42,
+        y: 45,
+        width: 14,
+        height: 7,
+      },
+      {
+        id: "filter-done",
+        kind: "button",
+        label: "Done",
+        x: 59,
+        y: 45,
+        width: 13,
+        height: 7,
+      },
+      { id: "row-1", kind: "list", x: 30, y: 58, width: 62, height: 10 },
+      { id: "row-2", kind: "list", x: 30, y: 71, width: 62, height: 10 },
+      { id: "row-3", kind: "list", x: 30, y: 84, width: 62, height: 8 },
       {
         id: "primary",
         kind: "button",
+        label: "Primary",
         x: 82,
         y: 20,
         width: 12,
@@ -657,6 +1016,12 @@ function createWireframeData(input: {
       },
     ],
   };
+}
+
+function compactLabel(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
 }
 
 function createComponentWireframeRegions(input: {

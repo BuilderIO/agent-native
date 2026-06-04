@@ -54,12 +54,15 @@ companion.
 2. When the plan has meaningful UI flows, screens, or diagrams, make the top
    of the document a bounded pan/zoom sketch canvas with the key artboards,
    connectors, margin notes, and commentable visual anchors.
+   Use the app-owned Rough.js/sketch renderer: subtle grid field, deliberately
+   imperfect lines, Virgil-style wireframe labels, and Figma-like annotation
+   text/arrows on the top canvas. Labels must sit clear of rough lines,
+   connectors, controls, and neighboring notes.
    Treat notes like Figma text layers: sprinkle headings, supporting text,
    bullets, arrows, and labels around the artboards, but do not overlap the
    wireframes or wrap the artboards in explanatory cards.
-   In dark mode, keep the canvas field slightly darker than the document with a
-   very subtle moving grid, and keep wireframe artboards flat rather than
-   shadowed.
+   In dark mode, keep the canvas field slightly darker than the document, and
+   keep wireframe artboards flat rather than shadowed.
 3. Continue below the canvas as a restrained, Notion-like interactive document:
    clear prose, horizontal state tabs, inline wireframes, sketchy diagrams,
    tables, vertical code tabs, and concise implementation notes.
@@ -83,6 +86,8 @@ companion.
   change. Put them in tabs or adjacent panels rather than burying them in prose.
 - Use concrete labels and copy placeholders that expose content length,
   truncation, disabled states, and destructive actions.
+- Buttons and primary actions must look actionable: visible affordance,
+  readable label/icon, and enabled/disabled treatment when relevant.
 - Make state tabs span the plan content width. Small cards are fine for repeated
   items, but the primary UI preview should not be trapped in a tiny thumbnail.
 - Keep visuals review-focused, not decorative. Do not make a marketing page,
@@ -97,6 +102,8 @@ states instead.
 - Prefer square or vertical frames that match the component's real footprint.
   A sidebar popover should look like a sidebar popover, not a desktop page or
   phone screen.
+- When placement matters, include one broader app-context frame showing the
+  surrounding page, sidebar, or toolbar, then focused component states.
 - Use state tabs such as `Default`, `Expanded`, `Map`, `Loading`, `Empty`, and
   `Error`. Do not add `Desktop`, `Mobile`, or responsive states unless the
   component actually changes layout across breakpoints.
@@ -107,10 +114,10 @@ states instead.
   density. If you have seen a screenshot or component code, reflect it.
 - Keep labels outside collision zones. Text must never overlap wireframes,
   connectors, toolbar controls, or neighboring notes.
-- Use the app-owned sketch renderer for wireframes and diagrams. The result
-  should look deliberately hand-drawn/scribbly, not like crisp bordered boxes on
-  a grid. If the rendered plan does not read as sketchy, fix the renderer or
-  block data before handing it off.
+- Use the app-owned Rough.js/sketch renderer for wireframes and diagrams. The
+  result should look deliberately hand-drawn/scribbly with Virgil-style labels,
+  not like crisp bordered boxes on a grid. If the rendered plan does not read as
+  sketchy, fix the renderer or block data before handing it off.
 
 ## State Tabs
 

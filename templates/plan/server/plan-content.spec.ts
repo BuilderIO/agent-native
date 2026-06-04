@@ -312,29 +312,39 @@ describe("structured plan content", () => {
 
     expect(content.canvas?.title).toBe("Component States");
     expect(content.canvas?.flow).toBeUndefined();
-    expect(content.canvas?.frames[0]?.width).toBe(360);
+    expect(content.canvas?.frames[0]?.title).toBe("App context");
+    expect(content.canvas?.frames[0]?.width).toBe(660);
+    expect(content.canvas?.frames[1]?.width).toBe(360);
+    expect(content.canvas?.notes?.map((note) => note.arrowToFrameId)).toContain(
+      "frame-app-context",
+    );
     expect(
       content.canvas?.frames[0]?.wireframe?.regions.map(
+        (region) => region.label,
+      ),
+    ).toContain("Context X-Ray popover");
+    expect(
+      content.canvas?.frames[1]?.wireframe?.regions.map(
         (region) => region.label,
       ),
     ).toContain("Context X-Ray");
     expect(
-      content.canvas?.frames[0]?.wireframe?.regions.map(
+      content.canvas?.frames[1]?.wireframe?.regions.map(
         (region) => region.label,
       ),
     ).toContain("2.0k used");
     expect(
-      content.canvas?.frames[2]?.wireframe?.regions.map(
+      content.canvas?.frames[3]?.wireframe?.regions.map(
         (region) => region.label,
       ),
     ).toContain("Token map");
     expect(
-      content.canvas?.frames[3]?.wireframe?.regions.map(
+      content.canvas?.frames[4]?.wireframe?.regions.map(
         (region) => region.label,
       ),
     ).toContain("Composer");
     expect(
-      content.canvas?.frames[3]?.wireframe?.regions.map(
+      content.canvas?.frames[4]?.wireframe?.regions.map(
         (region) => region.label,
       ),
     ).not.toContain("Step");

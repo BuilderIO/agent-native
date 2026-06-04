@@ -145,9 +145,18 @@ discipline before and around the plan document:
 - Wireframes should be concrete enough to critique: show layout regions,
   controls, states, empty/loading/error paths, review affordances, and copy
   placeholders. Avoid vague rectangle-only sketches.
-- Sketch wireframes and diagrams should visibly use the hand-drawn/scribbly
-  renderer. If the result looks like crisp boxes with normal borders, revise the
+- Sketch wireframes and diagrams should visibly use the app-owned
+  Rough.js/sketch renderer with subtle grids where useful, imperfect strokes,
+  and Virgil-style labels. Labels must not overlap rough lines, connectors, or
+  nodes. If the result looks like crisp boxes with normal borders, revise the
   block data or renderer before asking for review.
+- For component, popover, or widget plans, show one broader app-context frame
+  when placement affects understanding, then focused component states. Avoid
+  fake desktop/mobile flows unless real responsive behavior changes layout.
+- Buttons and primary actions in UI mockups must look actionable, not like inert
+  labels or decorative chips.
+- When a top canvas is present, include Figma-like annotation text/arrows on the
+  canvas itself, not only in prose below.
 - When showing multiple diagrams, wireframes, mockups, or design directions,
   use native `tabs` blocks so the plan stays readable and editable. Raw HTML tab
   attributes are only for legacy imported artifacts.
@@ -203,8 +212,8 @@ discipline before and around the plan document:
 - Do not use `custom-html` as a placeholder, demo, or proof of flexibility. It
   must contain a complete useful fragment that fits the surrounding document.
 - `sketch-diagram` blocks must be legible: labels cannot overlap nodes,
-  connectors, or each other; omit the diagram when it does not clarify a real
-  architecture, sequence, dependency, or state relationship.
+  connectors, rough lines, or each other; omit the diagram when it does not
+  clarify a real architecture, sequence, dependency, or state relationship.
 - `decision` blocks are static records unless the UI supports changing them.
   Do not style them like inactive buttons, tabs, or selectable chips.
 - `implementation-map` and `code-tabs` blocks should include concrete file
