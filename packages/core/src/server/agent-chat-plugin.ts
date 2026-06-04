@@ -177,6 +177,27 @@ function normalizeResourcePathForPrompt(path: string): string {
   return path.replace(/^\/+/, "").trim();
 }
 
+function resourceToolHint(
+  action: "list" | "read" | "effective" | "write" | "delete" | "promote",
+  extra?: string,
+): string {
+  return `Use the \`resources\` tool with \`action: "${action}"\`${extra ? `, ${extra}` : ""}.`;
+}
+
+function skillDocsSlug(name: string): string {
+  return `skill-${name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}`;
+}
+
+function ensureSentence(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 function escapeXmlAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -192,7 +213,10 @@ function truncatePromptResourceContent(
   const omitted = trimmed.length - maxChars;
   const hint =
     readHint ??
-    `Use resource-read --path "${path}" with the resource's scope for the full content.`;
+    resourceToolHint(
+      "read",
+      `\`path: "${path}"\` and the resource's \`scope\` for the full content`,
+    );
   return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. ${hint}]`;
 }
 
@@ -365,7 +389,10 @@ async function loadResourceSkillsPromptBlock(
       const scope = resourceScopeForOwner(resource.owner, owner);
       const description = meta.description || "(no description)";
       lines.push(
-        `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${description}. Read it with \`resource-read --path "${resource.path}" --scope ${scope}\` before starting a task it applies to.`,
+        `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${ensureSentence(description)} ${resourceToolHint(
+          "read",
+          `\`path: "${resource.path}"\` and \`scope: "${scope}"\` before starting a task it applies to`,
+        )}`,
       );
     }
     if (lines.length === 0) return null;
@@ -400,7 +427,10 @@ async function loadResourceIndexForPrompt(
     }
     if (resources.length > listed.length) {
       lines.push(
-        `- ...${resources.length - listed.length} more ${scope} resources. Use \`resource-list --scope ${scope}\` to inspect them.`,
+        `- ...${resources.length - listed.length} more ${scope} resources. ${resourceToolHint(
+          "list",
+          `\`scope: "${scope}"\` to inspect them`,
+        )}`,
       );
     }
 
@@ -408,7 +438,10 @@ async function loadResourceIndexForPrompt(
       scope === "workspace"
         ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
         : "Shared app/organization reference resources are available for app-specific or team context.";
-    return `<workspace-resources scope="${scope}">\n${label} Use \`resource-read --path <path> --scope ${scope}\` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
+    return `<workspace-resources scope="${scope}">\n${label} ${resourceToolHint(
+      "read",
+      `\`path: <path>\` and \`scope: "${scope}"\` when a task may depend on them`,
+    )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
   } catch {
     return null;
   }
@@ -1029,7 +1062,7 @@ async function createDocsScriptEntries(): Promise<Record<string, ActionEntry>> {
       "docs-search": wrapCliScript(
         {
           description:
-            "Search and read agent-native framework documentation. Use --list to see all pages, --query to search, --slug to read a specific page.",
+            "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
           parameters: {
             type: "object",
             properties: {
@@ -2282,8 +2315,8 @@ Bring a senior engineer's judgment, arrived at through attention not premature c
 
 ### Resources
 
-Use resource-list, resource-read, resource-effective, resource-write, resource-delete for persistent notes and context files.
-Resources have three levels: workspace defaults inherited from Dispatch, shared organization/app overrides, and personal overrides. Use resource-effective before editing when you need to explain or inspect which level is active for a path.
+Use the \`resources\` tool for persistent notes and context files: \`action: "list"\`, \`"read"\`, \`"effective"\`, \`"write"\`, \`"promote"\`, or \`"delete"\`.
+Resources have three levels: workspace defaults inherited from Dispatch, shared organization/app overrides, and personal overrides. Use \`resources\` with \`action: "effective"\` before editing when you need to explain or inspect which level is active for a path.
 Workspace resources are user-facing by default. If you need temporary working files, write them as agent scratch (\`visibility: "agent_scratch"\`); scratch is hidden from the Workspace view by default and expires. Use \`visibility: "workspace"\` only when the user explicitly asked to save/manage that file, or for durable AGENTS.md, LEARNINGS.md, memory, skills, jobs, or custom agents.
 
 ### Navigation Rule
@@ -2381,7 +2414,7 @@ You can create recurring jobs that run on a cron schedule. Jobs are resource fil
 - \`manage-jobs\` (action: "create") — Create a new recurring job with a cron schedule and instructions
 - \`manage-jobs\` (action: "list") — List all recurring jobs and their status
 - \`manage-jobs\` (action: "update") — Update a job's schedule, instructions, or toggle enabled/disabled
-- Delete a job with \`resource-delete --path jobs/<name>.md\`
+- Delete a job with the \`resources\` tool: \`action: "delete"\`, \`path: "jobs/<name>.md"\`
 
 Convert natural language to 5-field cron format:
 - "every morning" / "daily at 9am" → \`0 9 * * *\`
@@ -2448,7 +2481,7 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 **Tools:**
 - \`save-memory\` — Create or update a memory (name, type, description, content)
 - \`delete-memory\` — Remove a memory and its index entry
-- \`resource-read --path memory/<name>.md\` — Read the full content of a specific memory
+- \`resources\` with \`action: "read"\` and \`path: "memory/<name>.md"\` — Read the full content of a specific memory
 
 **Memory types:** user, feedback, project, reference
 
@@ -2540,7 +2573,7 @@ Gather context efficiently: when you need several independent read-only lookups 
 ### Resources
 
 You have access to a Resources system for persistent notes and context files.
-Use resource-list, resource-read, resource-effective, resource-write, resource-delete to manage resources.
+Use the \`resources\` tool to manage resources: \`action: "list"\`, \`"read"\`, \`"effective"\`, \`"write"\`, \`"promote"\`, or \`"delete"\`.
 Resources can be workspace defaults inherited from Dispatch, shared organization/app overrides, or personal overrides. By default, resources are personal. Workspace-scope resources are read-only from app agents; create shared or personal resources to override or narrow them.
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
@@ -2638,7 +2671,7 @@ In Act mode, when the user asks you to change the UI, modify code, add a feature
 
 When \`builderEnabled\` is false, Builder Cloud Agents are not self-serve from Builder org settings. Do NOT tell the user to go to Builder org settings, beta features, "Cloud Agents", or "AI Agents" to enable them. The only allowed guidance is the card's waitlist/local-dev fallback: join the waitlist when the card offers it, use Agent Native Desktop, or edit from a local clone.
 
-**Act-mode handoff — do exactly this:** The moment a code change is requested, call \`connect-builder\` with the user's verbatim request, then write one sentence framing the next click. That is the whole job: Builder plans and edits in its own sandbox, so the planning, file-mapping, and code all happen there, not here. Keep your turn to the call plus that one sentence — skip code exploration, implementation plans, \`resource-write\` of specs, and sub-agents (they have no code-editing tools either). You don't need filesystem access to recommend Builder, so don't reach for it or list tools you lack.
+**Act-mode handoff — do exactly this:** The moment a code change is requested, call \`connect-builder\` with the user's verbatim request, then write one sentence framing the next click. That is the whole job: Builder plans and edits in its own sandbox, so the planning, file-mapping, and code all happen there, not here. Keep your turn to the call plus that one sentence — skip code exploration, implementation plans, \`resources\` writes of specs, and sub-agents (they have no code-editing tools either). You don't need filesystem access to recommend Builder, so don't reach for it or list tools you lack.
 
 Builder Cloud Agents are the recommended path when available because they are one-click and run in the cloud. Local dev and the desktop app are the fallback when cloud agent access is waitlisted or unavailable.
 ${FRAMEWORK_CORE}`;
@@ -2795,11 +2828,14 @@ export async function loadResourcesForPrompt(
       const skillsBlock = generateSkillsPromptBlock(bundle);
       if (skillsBlock) sections.push(skillsBlock);
     } else if (Object.keys(bundle.skills).length > 0) {
-      const names = Object.values(bundle.skills)
-        .map((s) => s.meta.name)
-        .join(", ");
+      const lines = Object.values(bundle.skills).map((s) => {
+        const description = s.meta.description?.trim()
+          ? ` - ${ensureSentence(s.meta.description)}`
+          : "";
+        return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`;
+      });
       sections.push(
-        `<skills-summary>\nSkills available in .agents/skills/: ${names}. Use \`docs-search\` to read a skill before starting a task it applies to.\n</skills-summary>`,
+        `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills.\n\n${lines.join("\n")}\n</skills-summary>`,
       );
     }
   } catch {}
@@ -2859,10 +2895,10 @@ export async function loadResourcesForPrompt(
 
   if (compact) {
     // In compact mode, skip learnings and memory in the prompt.
-    // The agent can access them via resource-read when needed.
+    // The agent can access them via the resources tool when needed.
     // Add a brief pointer so the agent knows they exist.
     sections.push(
-      `<context-note>Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via \`resource-read\`. Check them when making decisions that might benefit from prior context.</context-note>`,
+      `<context-note>Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool with \`action: "read"\`. Check them when making decisions that might benefit from prior context.</context-note>`,
     );
   } else {
     // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
@@ -5435,61 +5471,78 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }> = [];
           const seenNames = new Set<string>();
 
-          // In dev mode, scan .agents/skills/ directory
+          // In dev mode, scan .agents/skills/ plus legacy .agent/skills/.
           if (currentDevMode) {
             try {
               const _fs = await lazyFs();
-              const skillsDir = nodePath.join(
-                process.cwd(),
-                ".agents",
-                "skills",
-              );
-              const entries = _fs.readdirSync(skillsDir, {
-                withFileTypes: true,
-              });
-              for (const entry of entries) {
-                // Support both flat .md files and subdirectory-based skills (dir/SKILL.md)
-                let skillFilePath: string;
-                let skillRelPath: string;
-
-                if (entry.isDirectory()) {
-                  // Subdirectory layout: .agents/skills/<name>/SKILL.md
-                  const candidate = nodePath.join(
-                    skillsDir,
-                    entry.name,
-                    "SKILL.md",
-                  );
-                  if (!_fs.existsSync(candidate)) continue;
-                  skillFilePath = candidate;
-                  skillRelPath = `.agents/skills/${entry.name}/SKILL.md`;
-                } else if (entry.isFile() && entry.name.endsWith(".md")) {
-                  // Flat layout: .agents/skills/<name>.md
-                  skillFilePath = nodePath.join(skillsDir, entry.name);
-                  skillRelPath = `.agents/skills/${entry.name}`;
-                } else {
+              const skillRoots = [
+                {
+                  dir: nodePath.join(process.cwd(), ".agents", "skills"),
+                  display: ".agents/skills",
+                },
+                {
+                  dir: nodePath.join(process.cwd(), ".agent", "skills"),
+                  display: ".agent/skills",
+                },
+              ];
+              for (const root of skillRoots) {
+                let entries: Array<{
+                  name: string;
+                  isDirectory: () => boolean;
+                  isFile: () => boolean;
+                }>;
+                try {
+                  entries = _fs.readdirSync(root.dir, {
+                    withFileTypes: true,
+                  });
+                } catch {
                   continue;
                 }
+                for (const entry of entries) {
+                  // Support both flat .md files and subdirectory-based skills (dir/SKILL.md)
+                  let skillFilePath: string;
+                  let skillRelPath: string;
 
-                try {
-                  const content = _fs.readFileSync(skillFilePath, "utf-8");
-                  const fm = parseSkillFrontmatter(content);
-                  if (fm.userInvocable === false) continue;
-                  const skillName = fm.name || entry.name.replace(/\.md$/, "");
-                  if (!seenNames.has(skillName)) {
-                    seenNames.add(skillName);
-                    skills.push({
-                      name: skillName,
-                      description: fm.description,
-                      path: skillRelPath,
-                      source: "codebase",
-                    });
+                  if (entry.isDirectory()) {
+                    // Subdirectory layout: <skills-root>/<name>/SKILL.md
+                    const candidate = nodePath.join(
+                      root.dir,
+                      entry.name,
+                      "SKILL.md",
+                    );
+                    if (!_fs.existsSync(candidate)) continue;
+                    skillFilePath = candidate;
+                    skillRelPath = `${root.display}/${entry.name}/SKILL.md`;
+                  } else if (entry.isFile() && entry.name.endsWith(".md")) {
+                    // Flat layout: <skills-root>/<name>.md
+                    skillFilePath = nodePath.join(root.dir, entry.name);
+                    skillRelPath = `${root.display}/${entry.name}`;
+                  } else {
+                    continue;
                   }
-                } catch {
-                  // Could not read individual skill file — skip
+
+                  try {
+                    const content = _fs.readFileSync(skillFilePath, "utf-8");
+                    const fm = parseSkillFrontmatter(content);
+                    if (fm.userInvocable === false) continue;
+                    const skillName =
+                      fm.name || entry.name.replace(/\.md$/, "");
+                    if (!seenNames.has(skillName)) {
+                      seenNames.add(skillName);
+                      skills.push({
+                        name: skillName,
+                        description: fm.description,
+                        path: skillRelPath,
+                        source: "codebase",
+                      });
+                    }
+                  } catch {
+                    // Could not read individual skill file — skip
+                  }
                 }
               }
             } catch {
-              // .agents/skills/ directory doesn't exist or not readable — skip
+              // Skill directories don't exist or are not readable — skip.
             }
           }
 

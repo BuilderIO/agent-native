@@ -666,6 +666,7 @@ const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
+const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
 
 /**
  * Hard cap on the `<current-screen>` block injected into EVERY user message.
@@ -704,7 +705,7 @@ function limitInventoryLines(lines: string[], label: string): string[] {
   const omitted = lines.length - MAX_RESOURCE_INVENTORY_ITEMS;
   return [
     ...lines.slice(0, MAX_RESOURCE_INVENTORY_ITEMS),
-    `  … ${omitted} more ${label} omitted; use resource-list/resource-read for the full inventory.`,
+    `  … ${omitted} more ${label} omitted; use the resources tool with action "list" or "read" for the full inventory.`,
   ];
 }
 
@@ -1034,10 +1035,67 @@ export function structuredHistoryToEngineMessages(
 }
 
 /** Build enriched message with file/skill/mention references */
-function enrichMessage(
+function capInlineSkillReferenceContent(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= MAX_INLINE_SKILL_REFERENCE_CHARS) return trimmed;
+  const omitted = trimmed.length - MAX_INLINE_SKILL_REFERENCE_CHARS;
+  return `${trimmed.slice(0, MAX_INLINE_SKILL_REFERENCE_CHARS)}\n\n[Skill content truncated after ${MAX_INLINE_SKILL_REFERENCE_CHARS.toLocaleString()} chars; ${omitted.toLocaleString()} chars omitted.]`;
+}
+
+function escapeReferenceAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+async function resolveSkillReferenceContent(
+  ref: AgentChatReference,
+): Promise<string | null> {
+  if (!ref.path && !ref.name) return null;
+
+  if (ref.source === "resource") {
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail || !ref.path) return null;
+    try {
+      const { resourceEffectiveContext, resourceGet } =
+        await import("../resources/store.js");
+      const resourceOptions = {
+        userEmail: ownerEmail,
+        orgId: getRequestOrgId() ?? null,
+      };
+      const effective = await resourceEffectiveContext(ownerEmail, ref.path, {
+        ...resourceOptions,
+      });
+      if (!effective.effectiveResource) return null;
+      const full = await resourceGet(effective.effectiveResource.id, {
+        ...resourceOptions,
+      });
+      return full?.content ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const { loadAgentsBundle } = await import("../server/agents-bundle.js");
+    const bundle = await loadAgentsBundle();
+    const normalizedPath = ref.path.replace(/\/+$/g, "");
+    const skill = Object.values(bundle.skills).find((candidate) => {
+      const skillPath = candidate.dir.replace(/\/+$/g, "");
+      return (
+        candidate.meta.name === ref.name ||
+        normalizedPath === skillPath ||
+        normalizedPath === `${skillPath}/SKILL.md`
+      );
+    });
+    return skill?.content ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichMessage(
   message: string,
   references: AgentChatReference[],
-): string {
+): Promise<string> {
   if (references.length === 0) return message;
 
   const fileRefs = references.filter((r) => r.type === "file");
@@ -1057,14 +1115,22 @@ function enrichMessage(
     );
   }
   if (skillRefs.length > 0) {
+    const skillLines = await Promise.all(
+      skillRefs.map(async (r) => {
+        const content = await resolveSkillReferenceContent(r);
+        if (content?.trim()) {
+          return `- ${r.name} (${r.path})\n\n<applied-skill name="${escapeReferenceAttribute(r.name)}" path="${escapeReferenceAttribute(r.path)}" source="${escapeReferenceAttribute(r.source)}">\n${capInlineSkillReferenceContent(content)}\n</applied-skill>`;
+        }
+        return `- ${r.name} (${r.path})${
+          r.source === "resource"
+            ? ' — content was not inlined; read with the resources tool (action: "read") if needed'
+            : " — content was not inlined; read with the read tool if needed"
+        }`;
+      }),
+    );
     parts.push(
-      "Applied skills:\n" +
-        skillRefs
-          .map(
-            (r) =>
-              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read"}`,
-          )
-          .join("\n"),
+      "Applied skills (read and follow before acting):\n" +
+        skillLines.join("\n"),
     );
   }
   if (customAgentRefs.length > 0) {
@@ -2299,7 +2365,7 @@ export function createProductionAgentHandler(
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
-    const enrichedMessage = enrichMessage(requestMessage, references);
+    const enrichedMessagePromise = enrichMessage(requestMessage, references);
     const loopSettingsPromise = readAgentLoopSettings({
       userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
       orgId: getRequestOrgId() ?? null,
@@ -2488,13 +2554,13 @@ export function createProductionAgentHandler(
             if (fileLines.length > 0) {
               const lines = limitInventoryLines(fileLines, "files");
               blocks.push(
-                `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path.\n</available-files>`,
+                `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
               );
             }
             if (skillLines.length > 0) {
               const lines = limitInventoryLines(skillLines, "skills");
               blocks.push(
-                `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n</available-skills>`,
+                `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
               );
             }
             if (agentLines.length > 0) {
@@ -2526,6 +2592,7 @@ export function createProductionAgentHandler(
       selectionBlock,
       filesContext,
       loopSettings,
+      enrichedMessage,
     ] = await Promise.all([
       systemPromptPromise,
       screenContextPromise,
@@ -2533,6 +2600,7 @@ export function createProductionAgentHandler(
       selectionContextPromise,
       filesContextPromise,
       loopSettingsPromise,
+      enrichedMessagePromise,
     ]);
 
     if (systemPromptError) {

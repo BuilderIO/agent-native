@@ -158,9 +158,9 @@ Review the current conversation and save anything worth remembering using the st
 ## Steps
 
 1. Review the conversation for new insights
-2. Check your memory index: \`resource-read --path memory/MEMORY.md\`
+2. Check your memory index with the \`resources\` tool: \`action: "read"\`, \`path: "memory/MEMORY.md"\`
 3. For each new insight, use \`save-memory\` with a descriptive name, type, and content
-4. If updating an existing memory, read it first with \`resource-read --path memory/<name>.md\`, then save with merged content
+4. If updating an existing memory, read it first with the \`resources\` tool (\`action: "read"\`, \`path: "memory/<name>.md"\`), then save with merged content
 
 ## What NOT to capture
 
@@ -199,10 +199,10 @@ Review the current conversation and update the shared \`LEARNINGS.md\` resource 
 
 ## Steps
 
-1. Read shared learnings: \`pnpm action resource-read --path LEARNINGS.md --scope shared\`
+1. Read shared learnings with the \`resources\` tool: \`action: "read"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`
 2. Review the conversation for team-relevant insights
 3. Merge new learnings with existing ones — don't duplicate, refine existing entries
-4. Write back: \`pnpm action resource-write --path LEARNINGS.md --scope shared --content "..."\`
+4. Write back with the \`resources\` tool: \`action: "write"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`, \`content: "..."\`
 
 Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
 `;

@@ -1,5 +1,6 @@
 /**
  * Agents bundle — loads AGENTS.md and .agents/skills/ from the template.
+ * The legacy singular .agent/skills/ directory is also accepted as an alias.
  *
  * This is the single source of truth the framework's agent uses to mirror what
  * Claude Code / Codex / any other agent would see when running locally in the
@@ -12,7 +13,7 @@
  *      framework's Vite plugin. This is the ONLY path that works on edge
  *      runtimes (Cloudflare Workers) where `readFileSync` doesn't exist.
  *   2. Filesystem fallback — `process.cwd()/AGENTS.md` +
- *      `process.cwd()/.agents/skills/`. Only reliable in local dev and Node
+ *      `process.cwd()/.agents/skills/` (or legacy `.agent/skills/`). Only reliable in local dev and Node
  *      production (`agent-native start`); not on Netlify/Vercel/CF at runtime.
  *   3. Empty bundle — everything silently returns empty strings.
  *
@@ -127,6 +128,11 @@ export function parseSkillFrontmatter(content: string): Partial<SkillMeta> {
 import fs from "node:fs";
 import path from "node:path";
 
+const TEMPLATE_SKILLS_DIRS = [
+  path.join(".agents", "skills"),
+  path.join(".agent", "skills"),
+] as const;
+
 /**
  * Paths to a workspace-core's agent resources, for merging into a template's
  * bundle. All fields optional — pass null for any missing piece.
@@ -233,12 +239,14 @@ export function readAgentsBundleFromFs(
 
   // Merge skills: template first (so its entries are authoritative), then
   // workspace-core with skipExistingNames=true so same-named skills don't
-  // overwrite the template's.
+  // overwrite the template's. `.agents/skills` is canonical; `.agent/skills`
+  // is accepted as a legacy alias and does not override canonical skills.
   const skills: Record<string, Skill> = {};
-  try {
-    const skillsDir = path.join(cwd, ".agents", "skills");
-    readSkillsDir(skillsDir, cwd, skills, false);
-  } catch {}
+  for (const [index, relSkillsDir] of TEMPLATE_SKILLS_DIRS.entries()) {
+    try {
+      readSkillsDir(path.join(cwd, relSkillsDir), cwd, skills, index > 0);
+    } catch {}
+  }
 
   if (workspaceSource?.skillsDir) {
     try {
@@ -309,9 +317,10 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
 /**
  * Generate the `<skills>` block to inject into the system prompt.
  *
- * Skills are folders at `.agents/skills/<name>/` containing a `SKILL.md` entry
- * file plus any number of supporting files (additional markdown, examples,
- * images, scripts). This block lists what's available and how to read them.
+ * Skills are folders at `.agents/skills/<name>/` (or legacy
+ * `.agent/skills/<name>/`) containing a `SKILL.md` entry file plus any number
+ * of supporting files (additional markdown, examples, images, scripts). This
+ * block lists what's available and how to read them.
  *
  * In dev mode the agent has bash access and reads skills via `cat` — exactly
  * like running `claude` locally in the repo. In production mode the agent has
@@ -331,11 +340,11 @@ export function generateSkillsPromptBlock(bundle: AgentsBundle): string {
   });
 
   return `<skills>
-The following skills live in the repo at \`.agents/skills/<name>/\`. Each skill is a folder containing a \`SKILL.md\` entry file and sometimes supporting files. Read a skill BEFORE starting a task it applies to.
+The following skills live in the repo, usually at \`.agents/skills/<name>/\` (legacy \`.agent/skills/<name>/\` is also supported). Each skill is a folder containing a \`SKILL.md\` entry file and sometimes supporting files. Read a skill BEFORE starting a task it applies to.
 
 To read a skill in dev mode (when you have bash access):
-  \`bash(command="cat .agents/skills/<name>/SKILL.md")\`
-  \`bash(command="ls .agents/skills/<name>/")\` to see all files in the folder
+  \`bash(command="cat <skill-dir>/SKILL.md")\`
+  \`bash(command="ls <skill-dir>/")\` to see all files in the folder
 
 Available skills:
 ${lines.join("\n")}

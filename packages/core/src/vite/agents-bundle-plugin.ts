@@ -1,6 +1,7 @@
 /**
  * Vite plugin that resolves `virtual:agents-bundle` to a statically-inlined
  * ES module containing the template's AGENTS.md + .agents/skills/ content.
+ * The legacy singular .agent/skills/ directory is also watched as an alias.
  *
  * This is how the framework's agent gets its instructions and skills into the
  * system prompt on EVERY deployment target — Node, Netlify Functions, Vercel
@@ -22,6 +23,10 @@ import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
 
 const VIRTUAL_ID = "virtual:agents-bundle";
 const RESOLVED_ID = "\0" + VIRTUAL_ID;
+const TEMPLATE_SKILLS_DIRS = [
+  path.join(".agents", "skills"),
+  path.join(".agent", "skills"),
+] as const;
 
 async function emitBundleModule(projectRoot: string): Promise<string> {
   // If the project is inside an enterprise monorepo with a workspace core,
@@ -99,11 +104,11 @@ export function agentsBundlePlugin(): Plugin {
         const rel = path.relative(projectRoot, file);
         if (!rel.startsWith("..")) {
           if (rel === "AGENTS.md") return true;
-          if (
-            rel.startsWith(".agents" + path.sep + "skills") &&
-            rel.endsWith("SKILL.md")
-          )
-            return true;
+          if (rel.endsWith("SKILL.md")) {
+            for (const skillsDir of TEMPLATE_SKILLS_DIRS) {
+              if (rel.startsWith(skillsDir + path.sep)) return true;
+            }
+          }
         }
         // Workspace-core files
         if (workspaceAgentsMdPath && file === workspaceAgentsMdPath) {
@@ -131,9 +136,13 @@ export function agentsBundlePlugin(): Plugin {
       // Explicitly add template + workspace-core paths to the watcher so
       // edits outside the normal Vite watch set still trigger invalidation.
       const agentsMdPath = path.join(projectRoot, "AGENTS.md");
-      const skillsDir = path.join(projectRoot, ".agents", "skills");
+      const skillsDirs = TEMPLATE_SKILLS_DIRS.map((rel) =>
+        path.join(projectRoot, rel),
+      );
       if (fs.existsSync(agentsMdPath)) watcher.add(agentsMdPath);
-      if (fs.existsSync(skillsDir)) watcher.add(skillsDir);
+      for (const skillsDir of skillsDirs) {
+        if (fs.existsSync(skillsDir)) watcher.add(skillsDir);
+      }
       if (workspaceAgentsMdPath && fs.existsSync(workspaceAgentsMdPath)) {
         watcher.add(workspaceAgentsMdPath);
       }

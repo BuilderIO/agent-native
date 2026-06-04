@@ -78,6 +78,49 @@ describe("readAgentsBundleFromFs", () => {
     }
   });
 
+  it("accepts legacy .agent/skills as a codebase skills directory", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(tpl, ".agent", "skills", "runtime");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: runtime\ndescription: Runtime skill\n---\nRuntime body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills.runtime).toBeDefined();
+      expect(bundle.skills.runtime!.dir).toBe(".agent/skills/runtime");
+      expect(bundle.skills.runtime!.content).toContain("Runtime body");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps .agents/skills canonical when legacy .agent/skills has the same skill", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const canonical = path.join(tpl, ".agents", "skills", "policy");
+    const legacy = path.join(tpl, ".agent", "skills", "policy");
+    fs.mkdirSync(canonical, { recursive: true });
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(
+      path.join(canonical, "SKILL.md"),
+      "---\nname: policy\ndescription: Canonical\n---\nCanonical body",
+    );
+    fs.writeFileSync(
+      path.join(legacy, "SKILL.md"),
+      "---\nname: policy\ndescription: Legacy\n---\nLegacy body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills.policy!.meta.description).toBe("Canonical");
+      expect(bundle.skills.policy!.dir).toBe(".agents/skills/policy");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
   it("adds workspace AGENTS.md when provided", () => {
     const tpl = makeTemplate(null);
     const ws = makeWorkspaceSource({ agentsMd: "# Workspace wide" });

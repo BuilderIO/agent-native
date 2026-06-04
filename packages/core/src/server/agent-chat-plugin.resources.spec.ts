@@ -8,6 +8,12 @@ const mocks = vi.hoisted(() => ({
   resourceGet: vi.fn(),
   resourcePut: vi.fn(async () => undefined),
   discoverAgents: vi.fn(async () => []),
+  loadAgentsBundle: vi.fn(async () => ({
+    workspaceAgentsMd: "",
+    agentsMd: "",
+    skills: {},
+  })),
+  generateSkillsPromptBlock: vi.fn(() => ""),
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -28,12 +34,9 @@ vi.mock("./agent-discovery.js", () => ({
 }));
 
 vi.mock("./agents-bundle.js", () => ({
-  loadAgentsBundle: vi.fn(async () => ({
-    workspaceAgentsMd: "",
-    agentsMd: "",
-    skills: {},
-  })),
-  generateSkillsPromptBlock: vi.fn(() => ""),
+  loadAgentsBundle: (...args: any[]) => mocks.loadAgentsBundle(...args),
+  generateSkillsPromptBlock: (...args: any[]) =>
+    mocks.generateSkillsPromptBlock(...args),
 }));
 
 import { loadResourcesForPrompt } from "./agent-chat-plugin.js";
@@ -135,6 +138,12 @@ function meta(id: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.loadAgentsBundle.mockResolvedValue({
+    workspaceAgentsMd: "",
+    agentsMd: "",
+    skills: {},
+  });
+  mocks.generateSkillsPromptBlock.mockReturnValue("");
   mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
     if (owner === "__workspace__" && path === "AGENTS.md") {
       return { content: "# Workspace Instructions\n\nUse global context." };
@@ -248,7 +257,7 @@ describe("loadResourcesForPrompt", () => {
       '<resource name="instructions/guardrails.md" scope="workspace-instruction"',
     );
     expect(analyticsPrompt).toContain(
-      "`company-voice` at resource `skills/company-voice/SKILL.md` (personal) - Personal voice override.",
+      '`company-voice` at resource `skills/company-voice/SKILL.md` (personal) - Personal voice override. Use the `resources` tool with `action: "read"`',
     );
     expect(analyticsPrompt).toContain(
       '<workspace-resources scope="workspace">',
@@ -301,6 +310,10 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<resource-skills>");
     expect(prompt).toContain("`company-voice` at resource");
     expect(prompt).toContain("(personal) - Personal voice override.");
+    expect(prompt).toContain(
+      'Use the `resources` tool with `action: "read"`, `path: "skills/company-voice/SKILL.md"` and `scope: "personal"`',
+    );
+    expect(prompt).not.toContain("resource-read --path");
     expect(prompt).not.toContain("Workspace voice default.");
     expect(prompt).not.toContain("Organization voice override.");
     expect(prompt).toContain('<workspace-resources scope="workspace">');
@@ -308,8 +321,33 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain(
       "`context/messaging.md` - Messaging: Core value props and proof points.",
     );
-    expect(prompt).not.toContain(
-      '<workspace-resources scope="workspace">\nWorkspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context. Use `resource-read --path <path> --scope workspace` when a task may depend on them; do not assume their contents without reading the relevant file.\n\n- `instructions/guardrails.md`',
+    expect(prompt).not.toContain("Use `resource-read --path <path>");
+  });
+
+  it("points compact bundled skills at their docs-search skill slugs", async () => {
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: "",
+      agentsMd: "",
+      skills: {
+        "deep-review": {
+          meta: {
+            name: "deep-review",
+            description: "Use when reviewing risky changes.",
+          },
+          content: "---\nname: deep-review\n---\n# Deep Review",
+          dir: ".agents/skills/deep-review",
+          extraFiles: [],
+        },
+      },
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain("<skills-summary>");
+    expect(prompt).toContain(
+      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to.',
     );
+    expect(prompt).toContain("Do not use MCP resource reads for these skills.");
+    expect(prompt).not.toContain("Use `docs-search` to read a skill");
   });
 });
