@@ -51,6 +51,22 @@ const visualQuestionSchema = z.object({
   required: z.boolean().optional().describe("Whether the answer matters"),
 });
 
+const visualQuestionsSchema = z
+  .array(visualQuestionSchema)
+  .superRefine((questions, ctx) => {
+    const seen = new Set<string>();
+    questions.forEach((question, index) => {
+      if (seen.has(question.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Question IDs must be unique: ${question.id}`,
+          path: [index, "id"],
+        });
+      }
+      seen.add(question.id);
+    });
+  });
+
 export default defineAction({
   description:
     "Create a visual intake questionnaire as an Agent-Native Plan. Use this before /ui-plan or /visual-plan when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes.",
@@ -72,8 +88,7 @@ export default defineAction({
         .optional()
         .describe("Current visual-question focus"),
       status: planStatusSchema.optional().default("review"),
-      questions: z
-        .array(visualQuestionSchema)
+      questions: visualQuestionsSchema
         .optional()
         .default([])
         .describe(
