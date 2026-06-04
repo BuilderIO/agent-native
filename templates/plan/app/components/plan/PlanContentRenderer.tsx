@@ -7,7 +7,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { RoughGenerator } from "roughjs/bin/generator.js";
+import rough from "roughjs";
 import {
   IconCheck,
   IconCode,
@@ -16,7 +16,6 @@ import {
   IconEdit,
   IconMinus,
   IconPlus,
-  IconRotateClockwise,
   IconX,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -32,7 +31,7 @@ import type {
   PlanVisualQuestion,
 } from "@shared/plan-content";
 
-const roughGenerator = new RoughGenerator();
+const roughGenerator = rough.generator();
 
 type PlanContentRendererProps = {
   content: PlanContent;
@@ -340,18 +339,6 @@ function PlanCanvas({
           aria-label="Zoom in"
         >
           <IconPlus className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={() => {
-            setView(DEFAULT_CANVAS_VIEW);
-          }}
-          aria-label="Reset canvas"
-        >
-          <IconRotateClockwise className="size-3.5" />
         </Button>
       </div>
     </section>
