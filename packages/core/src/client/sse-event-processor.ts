@@ -1,7 +1,7 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
-import { runningToolLabel } from "./tool-display.js";
+import { humanizeToolLabelText, runningToolLabel } from "./tool-display.js";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -13,6 +13,7 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       mcpApp?: AgentMcpAppPayload;
+      activity?: boolean;
     };
 
 export interface SSEEvent {
@@ -74,6 +75,23 @@ export class AgentAutoContinueSignal extends Error {
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 
 type ActivityTrailEntry = AgentActivityTrailEntry;
+
+function findPendingToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+): number {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
 
 function appendActivityTrail(
   trail: ActivityTrailEntry[],
@@ -273,22 +291,39 @@ export function processEvent(
   }
 
   if (ev.type === "activity") {
+    const tool = ev.tool?.trim() || undefined;
+    const label = humanizeToolLabelText(ev.label ?? "Working", tool);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:activity", {
           detail: {
-            label: ev.label ?? "Working",
-            ...(ev.tool ? { tool: ev.tool } : {}),
+            label,
+            ...(tool ? { tool } : {}),
             tabId,
           },
         }),
       );
     }
-    return { action: "continue" };
+    if (!tool) return { action: "continue" };
+
+    const pendingToolCallIndex = findPendingToolCallIndex(content, tool);
+    if (pendingToolCallIndex === -1) {
+      content.push({
+        type: "tool-call",
+        toolCallId: `tc_${++toolCallCounter.value}`,
+        toolName: tool,
+        argsText: "",
+        args: {},
+        activity: true,
+      });
+    }
+    return {
+      action: "yield",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
   }
 
   if (ev.type === "tool_start") {
-    const toolCallId = `tc_${++toolCallCounter.value}`;
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
     if (typeof window !== "undefined") {
@@ -307,13 +342,32 @@ export function processEvent(
         }),
       );
     }
-    content.push({
-      type: "tool-call",
-      toolCallId,
-      toolName: tool,
-      argsText: JSON.stringify(args),
-      args,
-    });
+    const pendingToolCallIndex = findPendingToolCallIndex(content, tool);
+    const pendingToolCall =
+      pendingToolCallIndex >= 0 ? content[pendingToolCallIndex] : undefined;
+    if (
+      pendingToolCall &&
+      pendingToolCall.type === "tool-call" &&
+      pendingToolCall.activity === true &&
+      pendingToolCall.argsText === "" &&
+      Object.keys(pendingToolCall.args).length === 0
+    ) {
+      content[pendingToolCallIndex] = {
+        type: "tool-call",
+        toolCallId: pendingToolCall.toolCallId,
+        toolName: tool,
+        argsText: JSON.stringify(args),
+        args,
+      };
+    } else {
+      content.push({
+        type: "tool-call",
+        toolCallId: `tc_${++toolCallCounter.value}`,
+        toolName: tool,
+        argsText: JSON.stringify(args),
+        args,
+      });
+    }
     return {
       action: "yield",
       result: { content: [...content] } as ChatModelRunResult,
@@ -642,9 +696,10 @@ export async function* readSSEStream(
         if (ev.type === "clear") {
           activityTrail.length = 0;
         } else if (ev.type === "activity") {
+          const tool = ev.tool?.trim() || undefined;
           appendActivityTrail(activityTrail, {
-            label: ev.label ?? "Working",
-            ...(ev.tool ? { tool: ev.tool } : {}),
+            label: humanizeToolLabelText(ev.label ?? "Working", tool),
+            ...(tool ? { tool } : {}),
           });
         } else if (ev.type === "tool_start") {
           const tool = ev.tool ?? "unknown";

@@ -190,21 +190,40 @@ export function buildUiPlanHtml(input: BuildUiPlanHtmlInput): string {
         </div>
         <p>${implementationNotes}</p>
       </div>
-      <div class="file-map-preview">
-        <div class="file-list">
-          <button class="file-tab is-active" type="button"><strong>PlansPage.tsx</strong><span>UI shell, annotation runtime, toolbar states</span></button>
-          <button class="file-tab" type="button"><strong>create-ui-plan.ts</strong><span>Agent action and MCP surface</span></button>
-          <button class="file-tab" type="button"><strong>ui-plan/SKILL.md</strong><span>Slash command behavior and generation rules</span></button>
+      <div class="file-map-preview" data-plan-tabs>
+        <div class="file-list" role="tablist" aria-label="Implementation files">
+          <button class="file-tab is-active" type="button" data-tab-target="ui-file-plans-page"><strong>PlansPage.tsx</strong><span>UI shell, annotation runtime, toolbar states</span></button>
+          <button class="file-tab" type="button" data-tab-target="ui-file-create-action"><strong>create-ui-plan.ts</strong><span>Agent action and MCP surface</span></button>
+          <button class="file-tab" type="button" data-tab-target="ui-file-skill"><strong>ui-plan/SKILL.md</strong><span>Slash command behavior and generation rules</span></button>
         </div>
-        <div class="file-detail">
-          <h3>Expected code shape</h3>
-          <p>Generated UI plans should include full-width state tabs, component-detail tabs, and a compact implementation map for the files the agent expects to touch.</p>
-          <pre><code><span class="syntax-keyword">type</span> UiPlanAnchor = {
+        <div class="file-panels">
+          <article class="file-detail tab-panel is-active" data-tab-panel="ui-file-plans-page">
+            <h3>PlansPage.tsx</h3>
+            <p>Owns the immersive reader, annotation runtime, floating toolbar state, tab-aware comment anchors, and agent-sidebar handoff.</p>
+            <pre><code><span class="syntax-keyword">type</span> UiPlanAnchor = {
   stateId: <span class="syntax-string">"review"</span> | <span class="syntax-string">"comment"</span> | <span class="syntax-string">"draw"</span>;
   nearbyText?: string;
   nodePath?: string;
   point?: { x: number; y: number };
 };</code></pre>
+          </article>
+          <article class="file-detail tab-panel" data-tab-panel="ui-file-create-action">
+            <h3>create-ui-plan.ts</h3>
+            <p>Accepts a UI brief, target surface, states, component details, and implementation notes, then creates a reviewable HTML plan bundle.</p>
+            <pre><code><span class="syntax-keyword">return</span> createPlan({
+  title,
+  sections: [<span class="syntax-string">"mockups"</span>, <span class="syntax-string">"states"</span>, <span class="syntax-string">"implementation"</span>],
+  html: buildUiPlanHtml(input),
+});</code></pre>
+          </article>
+          <article class="file-detail tab-panel" data-tab-panel="ui-file-skill">
+            <h3>ui-plan/SKILL.md</h3>
+            <p>Teaches Claude Code, Codex, and other MCP hosts to make UI-first plans: more mockups, fewer paragraphs, and comments before code.</p>
+            <pre><code>/ui-plan
+- lead with full-width UI states
+- include component-level variants
+- keep implementation details below the design decision</code></pre>
+          </article>
         </div>
       </div>
     </section>
@@ -482,9 +501,11 @@ h3 { font-size: 20px; line-height: 1.2; letter-spacing: -.018em; }
 .file-map-preview { display: grid; grid-template-columns: minmax(250px, .38fr) minmax(0, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .file-list { border-right: 1px solid var(--line); }
 .file-tab { width: 100%; display: grid; gap: 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--muted); padding: 16px; text-align: left; }
+.file-tab:hover { color: var(--text); background: rgba(255,255,255,.035); cursor: pointer; }
 .file-tab.is-active { color: var(--text); background: var(--paper-2); box-shadow: inset 3px 0 0 var(--accent); }
 .file-tab strong { font: 750 15px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .file-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-panels { min-width: 0; }
 .file-detail { min-width: 0; padding: 26px; }
 .file-detail p { color: var(--soft); }
 pre { margin: 18px 0 0; overflow: auto; border: 1px solid var(--line); border-radius: 22px; background: #070809; padding: 20px 22px; color: #dfe2e7; font: 13px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }

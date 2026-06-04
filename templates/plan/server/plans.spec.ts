@@ -116,6 +116,9 @@ describe("Plans helpers", () => {
     expect(html).toContain("mock-stage");
     expect(html).toContain("mobile-stage");
     expect(html).toContain("Implementation map");
+    expect(html).toContain("file-map-preview");
+    expect(html).toContain('data-tab-target="ui-file-create-action"');
+    expect(html).toContain('data-tab-panel="ui-file-create-action"');
     expect(html).toContain("/Users/steve/project");
   });
 

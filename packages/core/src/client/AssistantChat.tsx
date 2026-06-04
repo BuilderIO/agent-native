@@ -79,7 +79,7 @@ import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
-import { humanizeToolName, runningToolLabel } from "./tool-display.js";
+import { humanizeToolLabelText, humanizeToolName } from "./tool-display.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
@@ -4761,7 +4761,7 @@ const AssistantChatInner = forwardRef<
       ) {
         const label = detail.label.trim();
         const tool = detail.tool?.trim() || undefined;
-        const displayLabel = tool ? runningToolLabel(tool) : label;
+        const displayLabel = humanizeToolLabelText(label, tool);
         setActivityLabel(displayLabel);
         setActivitySteps((prev) => {
           const last = prev[prev.length - 1];

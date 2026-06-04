@@ -21,3 +21,13 @@ export function humanizeToolName(toolName: string | undefined): string {
 export function runningToolLabel(toolName: string | undefined): string {
   return `Running ${humanizeToolName(toolName)}`;
 }
+
+export function humanizeToolLabelText(
+  label: string,
+  toolName: string | undefined,
+): string {
+  const text = label.trim();
+  const tool = (toolName ?? "").trim();
+  if (!tool) return text;
+  return text.split(tool).join(humanizeToolName(tool));
+}

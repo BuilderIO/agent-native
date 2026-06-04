@@ -69,6 +69,7 @@ import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import {
   DESIGN_VARIANT_PICKED_EVENT,
@@ -151,9 +152,24 @@ function formatUploadedFileContext(files: UploadedFile[]): string {
   return lines.join("\n");
 }
 
-function designIntakeQuestionDirectives(designId: string): string[] {
+function designSystemGenerationDirectives(
+  designSystemId?: string | null,
+): string[] {
+  if (!designSystemId) return [];
+  return [
+    `Use design system id "${designSystemId}" for this generation.`,
+    "Before generating visual code, call `get-design-system` for that id and follow its tokens, assets, and custom instructions.",
+    `When calling \`generate-design\`, pass \`designSystemId: "${designSystemId}"\` so the design remains linked.`,
+  ];
+}
+
+function designIntakeQuestionDirectives(
+  designId: string,
+  designSystemId?: string | null,
+): string[] {
   return [
     `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
+    ...designSystemGenerationDirectives(designSystemId),
     "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
     "Make the questions feel like Claude Design intake: form factor, aesthetic direction, important features/content, special interactions/polish, and whether to explore variations. Omit or rephrase anything the user's prompt already answered.",
     "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
@@ -161,9 +177,13 @@ function designIntakeQuestionDirectives(designId: string): string[] {
   ];
 }
 
-function designGenerationDirectives(designId: string): string[] {
+function designGenerationDirectives(
+  designId: string,
+  designSystemId?: string | null,
+): string[] {
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
+    ...designSystemGenerationDirectives(designSystemId),
     "If the user asked to explore variations, call `present-design-variants` with 2-5 complete HTML directions and wait for their pick before calling generate-design. Otherwise generate one polished first direction.",
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
@@ -254,6 +274,9 @@ export default function DesignEditor() {
     null,
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
+  const [promptDesignSystemId, setPromptDesignSystemId] = useState<
+    string | null | undefined
+  >(undefined);
   // When generation stalls we keep the original prompt + files around so the
   // user can retry with one click instead of re-typing. Cleared as soon as the
   // user kicks off a new run (retry or fresh prompt).
@@ -263,6 +286,7 @@ export default function DesignEditor() {
     model?: PromptComposerSubmitOptions["model"];
     engine?: PromptComposerSubmitOptions["engine"];
     effort?: PromptComposerSubmitOptions["effort"];
+    designSystemId?: string | null;
     attempt?: number;
   } | null>(null);
   const generationOutputReadyRef = useRef(false);
@@ -290,6 +314,7 @@ export default function DesignEditor() {
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
       });
       return true;
@@ -552,6 +577,53 @@ export default function DesignEditor() {
   }, []);
 
   const design = isDesignData(designResult) ? designResult : null;
+  const {
+    designSystems,
+    defaultSystem,
+    isLoading: designSystemsLoading,
+  } = useDesignSystems();
+
+  const resolvePromptDesignSystemId = useCallback(
+    () =>
+      design?.designSystemId ??
+      defaultSystem?.id ??
+      designSystems[0]?.id ??
+      null,
+    [defaultSystem?.id, design?.designSystemId, designSystems],
+  );
+
+  const selectedPromptDesignSystemId =
+    promptDesignSystemId === undefined
+      ? resolvePromptDesignSystemId()
+      : promptDesignSystemId;
+
+  const handlePromptOpenChange = useCallback(
+    (open: boolean) => {
+      setShowPrompt(open);
+      if (open) {
+        setPromptDesignSystemId(resolvePromptDesignSystemId());
+      } else {
+        setPromptDesignSystemId(undefined);
+      }
+    },
+    [resolvePromptDesignSystemId],
+  );
+
+  const persistPromptDesignSystem = useCallback(
+    (designSystemId: string | null) => {
+      if (!id || design?.designSystemId === designSystemId) return;
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, designSystemId };
+      });
+      updateDesignMutation.mutate({ id, designSystemId } as any, {
+        onError: () => {
+          queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+        },
+      });
+    },
+    [design?.designSystemId, id, queryClient, updateDesignMutation],
+  );
 
   useEffect(() => {
     if (!design?.title) return;
@@ -641,6 +713,10 @@ export default function DesignEditor() {
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
+    const pendingDesignSystemId =
+      pending.designSystemId === undefined
+        ? design.designSystemId
+        : pending.designSystemId;
 
     if (pending.autoGenerate === false) {
       setGenerationIssue(null);
@@ -653,9 +729,12 @@ export default function DesignEditor() {
       `Design id: "${id}"`,
       `Design title: "${design.title}"`,
       `User request: "${prompt}"`,
+      pendingDesignSystemId
+        ? `Design system id: "${pendingDesignSystemId}"`
+        : "",
       fileContext,
       "",
-      ...designIntakeQuestionDirectives(id),
+      ...designIntakeQuestionDirectives(id, pendingDesignSystemId),
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -670,6 +749,7 @@ export default function DesignEditor() {
     patchPendingGeneration(id, {
       runTabId,
       attempt: pending.attempt ?? 1,
+      designSystemId: pendingDesignSystemId,
       startedAt: Date.now(),
     });
     setHasPendingGeneration(true);
@@ -1111,10 +1191,13 @@ export default function DesignEditor() {
       const context = [
         `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
         `User request: "${promptState.prompt}"`,
+        promptState.designSystemId
+          ? `Design system id: "${promptState.designSystemId}"`
+          : "",
         fileContext,
         "",
         retryLine,
-        ...designGenerationDirectives(id),
+        ...designGenerationDirectives(id, promptState.designSystemId),
       ].join("\n");
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
@@ -1132,6 +1215,7 @@ export default function DesignEditor() {
         prompt: promptState.prompt,
         files: promptState.files,
         title: design.title,
+        designSystemId: promptState.designSystemId,
         model: promptState.model,
         engine: promptState.engine,
         effort: promptState.effort,
@@ -1993,7 +2077,7 @@ ${serializedHtml}
                         className="cursor-pointer"
                         onClick={() => {
                           setRetryablePrompt(null);
-                          setShowPrompt(true);
+                          handlePromptOpenChange(true);
                         }}
                       >
                         <IconPlus className="w-3.5 h-3.5" />
@@ -2076,45 +2160,24 @@ ${serializedHtml}
 
       <PromptPopover
         open={showPrompt}
-        onOpenChange={setShowPrompt}
+        onOpenChange={handlePromptOpenChange}
         title="Generate design"
         placeholder="Describe what you want to build..."
-        skipLabel="Skip prompt"
-        onSkip={() => {
-          clearGenerationCompleteTimer();
-          setGenerationIssue(null);
-          const runTabId = agentSubmit(
-            `Prepare design questions for "${design.title}".`,
-            [
-              `The user has design "${id}" (title: "${design.title}") open and wants to start a design.`,
-              ...designIntakeQuestionDirectives(id),
-            ].join("\n"),
-            { newTab: true },
-          );
-          setGenerationChatTabId(runTabId);
-          patchPendingGeneration(id, {
-            prompt: `Create an initial design for ${design.title}.`,
-            files: [],
-            title: design.title,
-            runTabId,
-            attempt: 1,
-            startedAt: Date.now(),
-          });
-          setHasPendingGeneration(true);
-          setShowPrompt(false);
-        }}
         onSubmit={(
           prompt: string,
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
+          const designSystemId = selectedPromptDesignSystemId;
+          persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
+            designSystemId ? `Design system id: "${designSystemId}"` : "",
             fileContext,
             "",
-            ...designIntakeQuestionDirectives(id),
+            ...designIntakeQuestionDirectives(id, designSystemId),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
@@ -2128,16 +2191,25 @@ ${serializedHtml}
             prompt,
             files,
             title: design.title,
+            designSystemId,
             ...options,
             runTabId,
             attempt: 1,
             startedAt: Date.now(),
           });
           setHasPendingGeneration(true);
-          setShowPrompt(false);
+          handlePromptOpenChange(false);
         }}
         loading={generating}
         anchorRef={promptAnchorRef}
+        designSystems={designSystems}
+        designSystemsLoading={designSystemsLoading}
+        selectedDesignSystemId={selectedPromptDesignSystemId}
+        onDesignSystemChange={setPromptDesignSystemId}
+        onCreateDesignSystem={() => {
+          handlePromptOpenChange(false);
+          navigate("/design-systems/setup");
+        }}
       />
     </div>
   );

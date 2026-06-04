@@ -123,6 +123,7 @@ function contentToContinuationHistory(content: ContentPart[]): string {
       if (part.text.trim()) chunks.push(part.text.trim());
       continue;
     }
+    if (part.activity === true) continue;
     const toolSummary = [
       `Tool: ${part.toolName}`,
       part.argsText ? `Input: ${part.argsText}` : "",
@@ -440,6 +441,7 @@ function contentToStructuredMessages(
     }
 
     if (isToolCallContentPart(part)) {
+      if (part.activity === true) continue;
       const toolCallId = nextToolCallId();
       assistantParts.push({
         type: "tool-call",
@@ -513,6 +515,7 @@ function assistantUiMessagesToStructuredHistory(
         continue;
       }
       if (part?.type === "tool-call") {
+        if ((part as { activity?: unknown }).activity === true) continue;
         const toolNameRaw =
           typeof part.toolName === "string"
             ? part.toolName
@@ -631,7 +634,10 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
  */
 function hasInFlightToolCall(content: ContentPart[]): boolean {
   return content.some(
-    (part) => part.type === "tool-call" && part.result === undefined,
+    (part) =>
+      part.type === "tool-call" &&
+      part.result === undefined &&
+      part.activity !== true,
   );
 }
 

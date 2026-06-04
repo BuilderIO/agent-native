@@ -9,7 +9,6 @@ import {
   PromptComposer,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
-import { ComposerPrimitive } from "@assistant-ui/react";
 import {
   IconPalette,
   IconPhoto,
@@ -150,6 +149,7 @@ export default function PromptPopover({
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
+  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -157,6 +157,7 @@ export default function PromptPopover({
     if (open) return;
     setAssetsPickerOpen(false);
     setPickedAssets([]);
+    setSelectedUploadFiles([]);
   }, [open]);
 
   // Position the popover after render so we can measure its actual size
@@ -256,16 +257,17 @@ export default function PromptPopover({
       options: PromptComposerSubmitOptions,
     ) => {
       try {
-        const uploaded = await uploadFiles(files);
+        const uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
         onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
         setPickedAssets([]);
+        setSelectedUploadFiles([]);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to upload file",
         );
       }
     },
-    [onSubmit, pickedAssets, uploadFiles],
+    [onSubmit, pickedAssets, selectedUploadFiles, uploadFiles],
   );
 
   const handleAssetsPickerReady = useCallback(
@@ -317,6 +319,12 @@ export default function PromptPopover({
     );
   }, []);
 
+  const removeSelectedUploadFile = useCallback((index: number) => {
+    setSelectedUploadFiles((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index),
+    );
+  }, []);
+
   if (!open) return null;
 
   const popover = (
@@ -348,6 +356,9 @@ export default function PromptPopover({
             attachButton={
               <PromptAttachmentMenu
                 disabled={loading || uploading}
+                onUploadFiles={(files) =>
+                  setSelectedUploadFiles((current) => [...current, ...files])
+                }
                 onPickAsset={() => setAssetsPickerOpen(true)}
               />
             }
@@ -406,8 +417,24 @@ export default function PromptPopover({
           </div>
         )}
 
-        {pickedAssets.length > 0 && (
+        {(selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
           <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
+            {selectedUploadFiles.map((file, index) => (
+              <span
+                key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
+                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+              >
+                <span className="truncate">{file.name}</span>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => removeSelectedUploadFile(index)}
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
             {pickedAssets.map((asset) => (
               <span
                 key={asset.path}
@@ -468,14 +495,28 @@ export default function PromptPopover({
 
 function PromptAttachmentMenu({
   disabled,
+  onUploadFiles,
   onPickAsset,
 }: {
   disabled?: boolean;
+  onUploadFiles: (files: File[]) => void;
   onPickAsset: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   return (
     <Popover open={open} onOpenChange={setOpen}>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          onUploadFiles(Array.from(event.target.files ?? []));
+          event.target.value = "";
+          setOpen(false);
+        }}
+      />
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -493,23 +534,21 @@ function PromptAttachmentMenu({
         data-agent-native-composer-popover
         className="w-52 p-1"
       >
-        <ComposerPrimitive.AddAttachment asChild>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
-            onClick={() => setOpen(false)}
-          >
-            <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
-            <span>
-              <span className="block font-medium text-foreground">
-                Upload file
-              </span>
-              <span className="block text-[10px] text-muted-foreground">
-                Images, PDFs, text/code
-              </span>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
+          onClick={() => inputRef.current?.click()}
+        >
+          <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
+          <span>
+            <span className="block font-medium text-foreground">
+              Upload file
             </span>
-          </button>
-        </ComposerPrimitive.AddAttachment>
+            <span className="block text-[10px] text-muted-foreground">
+              Images, PDFs, text/code
+            </span>
+          </span>
+        </button>
         <button
           type="button"
           className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"

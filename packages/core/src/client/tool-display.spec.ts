@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { humanizeToolName, runningToolLabel } from "./tool-display.js";
+import {
+  humanizeToolLabelText,
+  humanizeToolName,
+  runningToolLabel,
+} from "./tool-display.js";
 
 describe("tool display labels", () => {
   it("humanizes dashed, underscored, and MCP tool names", () => {
@@ -12,5 +16,14 @@ describe("tool display labels", () => {
 
   it("uses humanized names in running labels", () => {
     expect(runningToolLabel("generate-design")).toBe("Running generate design");
+  });
+
+  it("humanizes tool names inside activity labels without changing the verb", () => {
+    expect(
+      humanizeToolLabelText(
+        "Preparing create-document action",
+        "create-document",
+      ),
+    ).toBe("Preparing create document action");
   });
 });
