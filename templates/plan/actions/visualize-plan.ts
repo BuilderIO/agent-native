@@ -138,7 +138,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native Plans companion, react to the visual sections, add comments or corrections, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
+        "Open the Agent-Native Plans companion, react to the visual sections, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

@@ -69,7 +69,7 @@ const visualQuestionsSchema = z
 
 export default defineAction({
   description:
-    "Create a visual intake questionnaire as an Agent-Native Plan. Use this before /ui-plan or /visual-plan when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes.",
+    "Create a visual intake questionnaire as an Agent-Native Plan. Use this as the /visual-plan preflight or /visual-questions manual override when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before the final plan.",
   schema: z
     .object({
       title: z.string().optional().describe("Short questionnaire title"),
@@ -262,7 +262,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the visual questions plan, answer the chips, freeform fields, mockup tabs, and diagram choices, then use Copy prompt or Send to agent to feed the summary into a UI/visual plan.",
+        "Open the visual questions plan, answer the chips, freeform fields, mockup choices, and diagram options, then use Copy prompt or Send to agent to feed the summary into a UI/visual plan. The live link is private until shared.",
     };
   },
   link: ({ result }) => {

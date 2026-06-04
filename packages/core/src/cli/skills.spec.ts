@@ -7,6 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { addAgentNativeSkill, parseSkillsArgs, runSkills } from "./skills.js";
 
 const tmpRoots: string[] = [];
+const PLANS_SKILL_NAMES = [
+  "visual-plan",
+  "visual-questions",
+  "ui-plan",
+  "visualize-plan",
+];
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -137,15 +143,13 @@ describe("agent-native skills", () => {
       );
 
       expect(result.id).toBe("visual-plans");
-      expect(result.skillNames).toEqual([
-        "visual-plans",
-        "ui-plan",
-        "visualize-plan",
-      ]);
+      expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
       expect(commands[0].args).toEqual(
         expect.arrayContaining([
           "--skill",
-          "visual-plans",
+          "visual-plan",
+          "--skill",
+          "visual-questions",
           "--skill",
           "ui-plan",
           "--skill",
@@ -190,15 +194,13 @@ describe("agent-native skills", () => {
     );
 
     expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual([
-      "visual-plans",
-      "ui-plan",
-      "visualize-plan",
-    ]);
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
     expect(commands[0].args).toEqual(
       expect.arrayContaining([
         "--skill",
-        "visual-plans",
+        "visual-plan",
+        "--skill",
+        "visual-questions",
         "--skill",
         "ui-plan",
         "--skill",
@@ -233,15 +235,54 @@ describe("agent-native skills", () => {
     );
 
     expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual([
-      "visual-plans",
-      "ui-plan",
-      "visualize-plan",
-    ]);
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
     expect(commands[0].args).toEqual(
       expect.arrayContaining([
         "--skill",
-        "visual-plans",
+        "visual-plan",
+        "--skill",
+        "visual-questions",
+        "--skill",
+        "ui-plan",
+        "--skill",
+        "visualize-plan",
+      ]),
+    );
+    expect(result.mcpUrl).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
+  });
+
+  it("accepts visual-questions as a Plans intake alias", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "visual-questions",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("visual-plans");
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "--skill",
+        "visual-plan",
+        "--skill",
+        "visual-questions",
         "--skill",
         "ui-plan",
         "--skill",

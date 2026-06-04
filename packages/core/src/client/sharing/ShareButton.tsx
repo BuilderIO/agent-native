@@ -23,6 +23,7 @@ import {
   IconLoader2,
   IconSearch,
   IconSearchOff,
+  IconShare3,
 } from "@tabler/icons-react";
 import * as Select from "@radix-ui/react-select";
 import {
@@ -42,6 +43,10 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
+  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label. */
+  trigger?: "label" | "icon";
+  /** Optional className applied to the trigger button. */
+  triggerClassName?: string;
   /** Notified when the share popover opens or closes. Hosts that render the
    *  button next to an iframe use this to disable the iframe's pointer events
    *  while the popover is open, so popover hover/clicks aren't swallowed. */
@@ -277,25 +282,34 @@ export function ShareButton(props: ShareButtonProps) {
     });
   };
 
-  // The trigger always says "Share" — the icon reflects the resource's
+  // The default trigger says "Share" — the icon reflects the resource's
   // current visibility (lock / building / globe), matching Google Docs.
   // While the query is loading and we don't know the visibility yet,
   // render a skeleton placeholder in the icon slot instead of guessing.
+  const iconOnly = props.trigger === "icon";
   const loaded = sharesQuery.data !== undefined;
   const serverVisibility =
     (sharesQuery.data?.visibility as Visibility | null) ?? "private";
   const currentVisibility = pendingVisibility ?? serverVisibility;
-  const TriggerIcon =
+  const VisibilityIcon =
     currentVisibility === "public"
       ? IconWorld
       : currentVisibility === "org"
         ? IconBuilding
         : IconLock;
+  const TriggerIcon = iconOnly ? IconShare3 : VisibilityIcon;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <button type="button" className={BUTTON_OUTLINE_SM}>
+        <button
+          type="button"
+          className={cn(
+            iconOnly ? BUTTON_GHOST_ICON : BUTTON_OUTLINE_SM,
+            props.triggerClassName,
+          )}
+          aria-label={iconOnly ? "Share" : undefined}
+        >
           {loaded ? (
             <TriggerIcon size={16} strokeWidth={1.75} />
           ) : (
@@ -304,7 +318,7 @@ export function ShareButton(props: ShareButtonProps) {
               className="inline-block h-4 w-4 rounded-sm bg-muted animate-pulse"
             />
           )}
-          <span>Share</span>
+          {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
       <PopoverContent

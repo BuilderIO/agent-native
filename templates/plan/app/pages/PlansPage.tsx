@@ -8,6 +8,7 @@ import {
   IconChevronRight,
   IconClipboardText,
   IconCopy,
+  IconDownload,
   IconDotsVertical,
   IconLayoutSidebarRight,
   IconLoader2,
@@ -15,7 +16,6 @@ import {
   IconMessageCircle,
   IconMoon,
   IconPlus,
-  IconShare3,
   IconSparkles,
   IconSun,
   IconX,
@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
+  ShareButton,
   sendToAgentChat,
   setAgentChatContextItem,
   type AgentSidebarStateChangeDetail,
@@ -76,6 +77,7 @@ import {
   usePlan,
   usePlans,
   useUpdatePlan,
+  useExportPlan,
   useVisualizePlan,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
@@ -196,6 +198,36 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function planExportFilename(
+  title: string | undefined,
+  extension: "html" | "md",
+) {
+  const slug =
+    (title || "visual-plan")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 72) || "visual-plan";
+  return `${slug}.${extension}`;
+}
+
+function downloadTextFile(
+  filename: string,
+  contents: string,
+  type = "text/html;charset=utf-8",
+) {
+  const blob = new Blob([contents], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -304,6 +336,7 @@ export function PlansPage() {
   const createVisualQuestions = useCreateVisualQuestions();
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
+  const exportPlan = useExportPlan(selectedId);
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkTheme = resolvedTheme !== "light";
   const planTheme = isDarkTheme ? "dark" : "light";
@@ -353,6 +386,11 @@ export function PlansPage() {
         : `${window.location.origin}/plans/${selectedId}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
   }, [bundle, documentHtml, selectedId]);
+
+  const planShareUrl = useMemo(() => {
+    if (!selectedId || typeof window === "undefined") return undefined;
+    return `${window.location.origin}/plans/${selectedId}`;
+  }, [selectedId]);
 
   useEffect(() => {
     const onSidebarState = (event: Event) => {
@@ -549,17 +587,55 @@ export function PlansPage() {
     setInlineCommentPosition(null);
   };
 
-  const copyShareLink = async () => {
-    if (!selectedId) return;
-    const url = `${window.location.origin}/plans/${selectedId}`;
-    await navigator.clipboard.writeText(url);
+  const copyPlanLink = async () => {
+    if (!planShareUrl) return;
+    await navigator.clipboard.writeText(planShareUrl);
     toast.success("Plan link copied");
   };
 
+  const readPlanExport = async () => {
+    const result = await exportPlan.refetch();
+    const data = result.data ?? exportPlan.data;
+    if (!data) {
+      throw new Error("Plan export was not available yet.");
+    }
+    return data;
+  };
+
   const copyPlanHtml = async () => {
-    if (!documentHtml) return;
-    await navigator.clipboard.writeText(documentHtml);
+    const data = await readPlanExport();
+    await navigator.clipboard.writeText(data.html);
     toast.success("Plan HTML copied");
+  };
+
+  const copyPlanMarkdown = async () => {
+    const data = await readPlanExport();
+    await navigator.clipboard.writeText(data.markdown);
+    toast.success("Plan Markdown copied");
+  };
+
+  const downloadPlanHtml = async () => {
+    const data = await readPlanExport();
+    downloadTextFile(planExportFilename(bundle?.plan.title, "html"), data.html);
+  };
+
+  const downloadPlanMarkdown = async () => {
+    const data = await readPlanExport();
+    downloadTextFile(
+      planExportFilename(bundle?.plan.title, "md"),
+      data.markdown,
+      "text/markdown;charset=utf-8",
+    );
+  };
+
+  const runPlanExportAction = (action: () => Promise<void>) => {
+    void action().catch((error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Plan export was not available.",
+      );
+    });
   };
 
   const startCommenting = () => {
@@ -821,21 +897,40 @@ export function PlansPage() {
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
               <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={copyShareLink}
-                      aria-label="Share plan"
-                    >
-                      <IconShare3 className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy plan link</TooltipContent>
-                </Tooltip>
+                {planShareUrl && (
+                  <ShareButton
+                    resourceType="plan"
+                    resourceId={bundle.plan.id}
+                    resourceTitle={bundle.plan.title}
+                    shareUrl={planShareUrl}
+                    shareUrlLabel="Plan link"
+                    shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
+                    shareUrlPlacement="top"
+                    peopleAccessLabel="People with plan access"
+                    generalAccessLabel="General plan access"
+                    accessNote="Use Export when you want a durable HTML or Markdown snapshot to check into source."
+                    visibilityCopy={{
+                      private: {
+                        label: "Private",
+                        description: "Only invited people can open this plan",
+                      },
+                      org: {
+                        label: "Organization",
+                        description:
+                          "Anyone in your organization with the link can view",
+                      },
+                      public: {
+                        label: "Public",
+                        description: "Anyone with the link can view",
+                      },
+                    }}
+                    trigger="icon"
+                    triggerClassName="pointer-events-auto size-8"
+                    onOpenChange={(open) => {
+                      if (open) closeInlineComment();
+                    }}
+                  />
+                )}
                 {annotateMode || bundle.summary.openCommentCount === 0 ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -992,11 +1087,41 @@ export function PlansPage() {
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
                       <DropdownMenuItem
-                        onClick={copyPlanHtml}
+                        onClick={() => runPlanExportAction(copyPlanLink)}
+                        className="gap-2"
+                      >
+                        <IconCopy className="size-4" />
+                        Copy link
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => runPlanExportAction(copyPlanMarkdown)}
+                        className="gap-2"
+                      >
+                        <IconClipboardText className="size-4" />
+                        Copy Markdown
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          runPlanExportAction(downloadPlanMarkdown)
+                        }
+                        className="gap-2"
+                      >
+                        <IconDownload className="size-4" />
+                        Download Markdown
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => runPlanExportAction(copyPlanHtml)}
                         className="gap-2"
                       >
                         <IconCopy className="size-4" />
                         Copy HTML
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => runPlanExportAction(downloadPlanHtml)}
+                        className="gap-2"
+                      >
+                        <IconDownload className="size-4" />
+                        Download HTML
                       </DropdownMenuItem>
                       {bundle.summary.openCommentCount > 0 && (
                         <DropdownMenuItem
@@ -1220,7 +1345,8 @@ const CREATE_PLAN_PROMPTS = [
   },
 ] as const;
 
-type CreatePlanKind = "ui" | "questions" | "visual";
+type CreatePlanKind = "auto" | "ui" | "questions" | "visual";
+type ResolvedPlanKind = Exclude<CreatePlanKind, "auto">;
 
 function cleanPlanTitleLine(line: string) {
   return line
@@ -1271,6 +1397,81 @@ function isProbablyImportedPlan(prompt: string) {
     (hasHeading && (taskCount >= 3 || hasPlanLanguage)) ||
     (checklistCount >= 2 && trimmed.length > 220)
   );
+}
+
+function assessPlanPrompt(prompt: string): {
+  kind: ResolvedPlanKind;
+  label: string;
+  reason: string;
+} {
+  let score = 0;
+  let ambiguitySignals = 0;
+
+  const explicitQuestions =
+    /\b(ask questions|questions first|intake first|show me options|explore options|help me choose|not sure|unsure|which direction|compare)\b/i.test(
+      prompt,
+    );
+  const exactOrTrivial =
+    /\b(typo|copy tweak|one line|single file|exactly|no questions|don't ask|dont ask|just implement)\b/i.test(
+      prompt,
+    );
+  const uiDirection =
+    /\b(ui|screen|screens|layout|wireframe|mockup|form factor|mobile|desktop|responsive|nav|sidebar|flow|redesign|empty state|loading state|error state)\b/i.test(
+      prompt,
+    );
+  const multipleApproaches =
+    /\b(option|variant|alternative|tradeoff|approach|architecture|data model|permission|auth|integration|migration|state machine)\b/i.test(
+      prompt,
+    );
+  const newSurface =
+    /\b(new surface|multi-screen|workflow|journey|end-to-end|dashboard|settings|checkout|onboarding|review flow)\b/i.test(
+      prompt,
+    );
+  const risky =
+    /\b(auth|permission|billing|migration|schema|integration|oauth|webhook|security|role|privacy|external)\b/i.test(
+      prompt,
+    );
+
+  if (uiDirection) {
+    score += 2;
+    ambiguitySignals += 1;
+  }
+  if (multipleApproaches) {
+    score += 2;
+    ambiguitySignals += 1;
+  }
+  if (newSurface) score += 1;
+  if (risky) score += 1;
+  if (/\b(best|better|improve|explore|direction|choose)\b/i.test(prompt)) {
+    score += 1;
+    ambiguitySignals += 1;
+  }
+  if (exactOrTrivial) score -= 3;
+
+  if (explicitQuestions || (score >= 4 && ambiguitySignals >= 2)) {
+    return {
+      kind: "questions",
+      label: "Visual questions",
+      reason:
+        "Auto detected choices that could change the plan; start with visual intake.",
+    };
+  }
+
+  if (uiDirection) {
+    return {
+      kind: "ui",
+      label: "UI flow",
+      reason:
+        "Auto detected UI states or flows; create a wireframe-first plan.",
+    };
+  }
+
+  return {
+    kind: "visual",
+    label: "General visual",
+    reason:
+      "Auto will create a rich technical plan with diagrams and implementation detail.",
+  };
 }
 
 function buildUiPlanStates(prompt: string) {
@@ -1340,7 +1541,7 @@ function CreatePlanDialog({
   onCreated: (id: string) => void;
 }) {
   const [source, setSource] = useState<PlanSource>("codex");
-  const [planKind, setPlanKind] = useState<CreatePlanKind>("ui");
+  const [planKind, setPlanKind] = useState<CreatePlanKind>("auto");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [promptSeed, setPromptSeed] = useState("");
@@ -1358,6 +1559,9 @@ function CreatePlanDialog({
     createUiPlan.isPending ||
     createVisualQuestions.isPending ||
     visualizePlan.isPending;
+  const promptAssessment = promptText.trim()
+    ? assessPlanPrompt(promptText)
+    : null;
   const submit = (value: string) => {
     const prompt = value.trim();
     if (!prompt) {
@@ -1381,7 +1585,9 @@ function CreatePlanDialog({
       );
       return;
     }
-    if (planKind === "ui") {
+    const resolvedPlanKind =
+      planKind === "auto" ? assessPlanPrompt(prompt).kind : planKind;
+    if (resolvedPlanKind === "ui") {
       createUiPlan.mutate(
         {
           title,
@@ -1397,7 +1603,7 @@ function CreatePlanDialog({
       );
       return;
     }
-    if (planKind === "questions") {
+    if (resolvedPlanKind === "questions") {
       createVisualQuestions.mutate(
         {
           title: `${title} questions`,
@@ -1490,11 +1696,15 @@ function CreatePlanDialog({
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="truncate">
                     {sourceOptionLabel(source)} ·{" "}
-                    {planKind === "ui"
-                      ? "UI flow"
-                      : planKind === "questions"
-                        ? "Visual questions"
-                        : "General visual"}
+                    {planKind === "auto"
+                      ? promptAssessment
+                        ? `Auto: ${promptAssessment.label}`
+                        : "Auto"
+                      : planKind === "ui"
+                        ? "UI flow"
+                        : planKind === "questions"
+                          ? "Visual questions"
+                          : "General visual"}
                   </span>
                   <IconChevronDown
                     className={cn(
@@ -1538,11 +1748,13 @@ function CreatePlanDialog({
                     value={planKind}
                     onValueChange={(value) =>
                       setPlanKind(
-                        value === "visual"
-                          ? "visual"
-                          : value === "questions"
-                            ? "questions"
-                            : "ui",
+                        value === "auto"
+                          ? "auto"
+                          : value === "visual"
+                            ? "visual"
+                            : value === "questions"
+                              ? "questions"
+                              : "ui",
                       )
                     }
                   >
@@ -1550,6 +1762,9 @@ function CreatePlanDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="auto">
+                        Auto - choose the right planning path
+                      </SelectItem>
                       <SelectItem value="ui">
                         UI flow - wireframes and states
                       </SelectItem>
@@ -1562,12 +1777,19 @@ function CreatePlanDialog({
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Pasted plans are detected and imported automatically.
+                    Pasted plans are detected and imported automatically. Auto
+                    asks visual questions only when choices would change the
+                    plan.
                   </p>
                 </div>
               </div>
             </CollapsibleContent>
           </Collapsible>
+          {promptAssessment && planKind === "auto" ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              {promptAssessment.reason}
+            </p>
+          ) : null}
           {promptText.trim() && isProbablyImportedPlan(promptText) ? (
             <p className="px-1 text-xs text-muted-foreground">
               Looks like an existing plan. It will be imported and visualized.

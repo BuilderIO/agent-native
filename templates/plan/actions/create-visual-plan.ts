@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with tabbed diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, and annotations.",
+    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a durable visual spec with diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, annotations, and a share/export workflow.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -186,7 +186,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native Plans link, scan the HTML plan, add comments or corrections, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
+        "Open the Agent-Native Plans link, scan the HTML plan, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

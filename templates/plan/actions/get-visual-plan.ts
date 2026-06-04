@@ -1,6 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { buildPlanHtml, loadPlanBundle } from "../server/plans.js";
+import {
+  buildPlanHtml,
+  loadPlanBundle,
+  planDeepLink,
+} from "../server/plans.js";
 
 export default defineAction({
   description:
@@ -21,4 +25,9 @@ export default defineAction({
     const bundle = await loadPlanBundle(args.id);
     return { ...bundle, planId: bundle.plan.id, html: buildPlanHtml(bundle) };
   },
+  link: ({ args }) => ({
+    url: planDeepLink(args.id),
+    label: "Open Plan",
+    view: "plan",
+  }),
 });

@@ -32,13 +32,13 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|plans|visual-plan|ui-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
-  agent-native skills add plans
+  agent-native skills add visual-plan
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
@@ -206,7 +206,7 @@ iteration, or a human-in-the-loop choice among design directions.
 `;
 
 const VISUAL_PLANS_SKILL_MD = `---
-name: visual-plans
+name: visual-plan
 description: >-
   Use Agent-Native Plans when coding-agent work needs an interactive HTML plan
   document with diagrams, wireframes, mockups, prototypes, annotations, and
@@ -229,14 +229,14 @@ and read prose only where it helps.
 Install with the Agent-Native CLI. It adds the skills and the MCP connector:
 
 \`\`\`bash
-npx @agent-native/core@latest skills add plans
+npx @agent-native/core@latest skills add visual-plan
 \`\`\`
 
 Then start typing \`/visual-plan\` for a fresh general plan, \`/ui-plan\` for a
-UI-first high-fidelity plan, or \`/visualize-plan\` to turn an existing Codex,
-Claude Code, Markdown, or pasted plan into a visual companion. The hosted MCP
-app opens inline where supported and falls back to a browser link everywhere
-else.
+UI-first high-fidelity plan, \`/visual-questions\` to force visual intake before
+a plan, or \`/visualize-plan\` to turn an existing Codex, Claude Code, Markdown,
+or pasted plan into a visual companion. The hosted MCP app opens inline where
+supported and falls back to a browser link everywhere else.
 
 ## Slash Commands
 
@@ -244,6 +244,10 @@ else.
   a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
   mockups when UI is involved, an implementation map with files/symbols/snippets,
   tradeoffs, open questions, and clear feedback prompts.
+- \`/visual-questions\`: manually force the visual intake step before a plan.
+  Use it for chip questions, freeform answers, mockup choice tabs, sketch
+  diagrams, and a generated answer summary that can feed \`/visual-plan\`,
+  \`/ui-plan\`, \`/visualize-plan\`, or an existing plan update.
 - \`/ui-plan\`: create a UI-first high-fidelity HTML plan before implementation.
   Use an optional top pan/zoom wireframe or diagram canvas when visuals clarify
   the flow, then continue as a refined Notion-like document with rich tabs,
@@ -265,9 +269,33 @@ Create or update a visual plan when:
   clearer visually;
 - you need the user to react before implementation.
 
-The companion \`visualize-plan\` skill is installed with this one. Use it when
-the user already has a Codex, Claude Code, Markdown, or pasted text plan and
-wants a visual companion instead of a fresh plan.
+The companion \`visual-questions\` and \`visualize-plan\` skills are installed
+with this one. Use \`visual-questions\` as the manual override when the user or
+agent wants intake first; use \`visualize-plan\` when the user already has a
+Codex, Claude Code, Markdown, or pasted text plan and wants a visual companion
+instead of a fresh plan.
+
+## Automatic Visual-Question Preflight
+
+\`/visual-plan\` stays the main entry point. Before calling
+\`create-visual-plan\`, decide whether a visual-question preflight would make the
+plan meaningfully better.
+
+Run \`create-visual-questions\` first when:
+
+- UI direction, form factor, layout model, feature scope, visual style,
+  architecture shape, or flow depth is fuzzy enough that 2-6 answers would
+  change the plan;
+- there are multiple plausible visual options and the user would benefit from
+  comparing mockups, diagrams, or chips before reading a plan;
+- the user asks to see choices, answer questions, pick a direction, or review
+  intake before planning.
+
+Skip the preflight when the work is trivial, the right answer is clear from the
+codebase, the missing details can be safely stated as assumptions in the plan,
+or asking questions would only slow down an otherwise concrete task. If the user
+types \`/visual-questions\`, honor it as a manual override even if the heuristic
+would normally skip intake.
 
 ## Plan Discipline
 
@@ -364,6 +392,8 @@ discipline before and around the plan document:
 
 - \`create-visual-plan\`: start one HTML plan per agent task/run.
 - \`create-ui-plan\`: start a UI-first plan with high-fidelity screen/state tabs.
+- \`create-visual-questions\`: ask a visual intake questionnaire before creating
+  or updating a plan.
 - \`visualize-plan\`: create a visual companion from an existing text plan.
 - \`update-visual-plan\`: revise the plan document, sections, status, or comments.
 - \`get-visual-plan\`: read the current plan document and annotations.
@@ -540,6 +570,91 @@ starts editing.
 Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
 `;
 
+const VISUAL_QUESTIONS_SKILL_MD = `---
+name: visual-questions
+description: >-
+  Use Agent-Native Plans to ask rich visual intake questions before creating a
+  UI plan or visual plan.
+metadata:
+  visibility: exported
+---
+
+# Visual Questions
+
+Use \`/visual-questions\` when the next best step is not a plan yet, but a
+reviewable visual intake: single-choice chips, multi-select chips, freeform
+notes, mockup option tabs, sketch diagrams, and a generated answer summary that
+feeds the next planning prompt.
+
+\`/visual-questions\` is the manual override for the automatic preflight that
+\`/visual-plan\` may run. Use it when the user explicitly asks for intake first
+or when the plan would be materially better after 2-6 visual choices.
+
+## When To Use
+
+- The user asks to be shown options before the agent writes a plan.
+- UI direction, form factor, layout model, feature set, architecture shape,
+  flow depth, or visual style is still fuzzy enough that 2-6 answers would
+  materially change the plan.
+- The user would benefit from choosing between visual mockups or diagrams rather
+  than answering text-only terminal prompts.
+- The next flow should be: answer questions -> create UI plan, answer questions
+  -> create visual plan, answer questions -> update/visualize an existing plan.
+
+Skip this for tiny, unambiguous changes. If the agent can reasonably infer the
+answer, prefer \`/visual-plan\` or \`/ui-plan\` directly and put assumptions in
+the plan.
+
+## Workflow
+
+1. Call \`create-visual-questions\` with a clear title, brief, source, and repo
+   path when known.
+2. Omit \`questions\` for the default UI intake. Provide a custom \`questions\`
+   array only when the task has domain-specific choices.
+3. Surface the returned Plans link and ask the user to answer visually.
+4. The user can click \`Copy prompt\` or \`Send to agent\`; that generated
+   summary should drive the next step:
+   - call \`create-ui-plan\` for UI flow plans;
+   - call \`create-visual-plan\` for general visual plans;
+   - call \`visualize-plan\` when the user already has a text plan;
+   - call \`update-visual-plan\` when the active plan should absorb answers.
+5. If the user leaves comments on the visual questionnaire, call
+   \`get-plan-feedback\` before using the answers.
+
+## Question Types
+
+Supported \`questions\` entries:
+
+- \`single\`: chip group where one option wins.
+- \`multi\`: chip group where multiple options can be selected.
+- \`freeform\`: textarea for constraints, inspirations, or things to avoid.
+- \`visual\`: tabbed visual options with cards and sketch previews. Use this
+  for layout direction, flow depth, mobile/desktop choices, or diagram choices.
+
+Each option can include \`label\`, \`value\`, \`description\`, \`recommended\`,
+\`preview\`, and \`bullets\`. Valid \`preview\` values are \`desktop\`,
+\`mobile\`, \`split\`, \`flow\`, and \`diagram\`.
+
+## Quality Bar
+
+- Ask only decision-changing questions. A beautiful form with low-value
+  questions is still friction.
+- Prefer visible, answerable options over abstract prose.
+- Use visual tabs when users need to compare layout/flow shapes.
+- Keep the output calm and document-like, not a landing page.
+- The generated answer summary is not the final plan; it is the intake prompt
+  for the next agent step.
+
+## Tool Guidance
+
+- \`create-visual-questions\`: create the interactive intake plan.
+- \`get-visual-plan\`: inspect the current visual question plan.
+- \`get-plan-feedback\`: read comments before creating or updating the next plan.
+- \`create-ui-plan\`: create a UI-first plan from the answers.
+- \`create-visual-plan\`: create a general visual plan from the answers.
+- \`visualize-plan\`: enrich an existing text plan after answers are gathered.
+`;
+
 const VISUALIZE_PLAN_SKILL_MD = `---
 name: visualize-plan
 description: >-
@@ -563,11 +678,11 @@ It should still read like a plan, not a marketing page.
 Install with the Agent-Native CLI if Plans is not already available:
 
 \`\`\`bash
-npx @agent-native/core@latest skills add plans
+npx @agent-native/core@latest skills add visual-plan
 \`\`\`
 
-That installs \`/visual-plan\`, \`/ui-plan\`, and \`/visualize-plan\` plus the
-MCP connector.
+That installs \`/visual-plan\`, \`/visual-questions\`, \`/ui-plan\`, and
+\`/visualize-plan\` plus the MCP connector.
 
 ## When To Use
 
@@ -582,7 +697,7 @@ Use \`visualize-plan\` when:
 - the user wants feedback on wireframes, design/prototype options, diagrams, or
   tradeoffs before implementation.
 
-If there is no existing plan text available, ask for it, use \`visual-plans\`
+If there is no existing plan text available, ask for it, use \`visual-plan\`
 to create a fresh general plan, or use \`ui-plan\` when the work is UI-heavy and
 should start with high-fidelity state mockups.
 
@@ -745,8 +860,9 @@ const BUILT_IN_APP_SKILLS = {
     skillMarkdown: DESIGN_EXPLORATION_SKILL_MD,
   },
   "visual-plans": {
-    skillName: "visual-plans",
+    skillName: "visual-plan",
     extraSkills: {
+      "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
       "ui-plan": UI_PLAN_SKILL_MD,
       "visualize-plan": VISUALIZE_PLAN_SKILL_MD,
     },
@@ -764,13 +880,20 @@ const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add /visual-plan, /ui-plan, and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add /visual-plan, /visual-questions, /ui-plan, and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
           id: "visual-plan",
           action: "create-visual-plan",
           path: "/plans",
+        },
+        {
+          id: "visual-questions",
+          action: "create-visual-questions",
+          path: "/plans",
+          description:
+            "Create a visual intake questionnaire before generating or updating an Agent-Native plan.",
         },
         {
           id: "ui-plan",
@@ -787,9 +910,14 @@ const BUILT_IN_APP_SKILLS = {
       ],
       skills: [
         {
-          path: "skills/visual-plans",
+          path: "skills/visual-plan",
           visibility: "exported",
-          exportAs: "visual-plans",
+          exportAs: "visual-plan",
+        },
+        {
+          path: "skills/visual-questions",
+          visibility: "exported",
+          exportAs: "visual-questions",
         },
         {
           path: "skills/ui-plan",
@@ -877,12 +1005,12 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "agent-native-design-exploration": "design",
   "visual-plans": "visual-plans",
   "visual-plan": "visual-plans",
+  "visual-questions": "visual-plans",
+  "visual-question": "visual-plans",
   "ui-plan": "visual-plans",
   "ui-plans": "visual-plans",
   "visualize-plan": "visual-plans",
   "visualize-plans": "visual-plans",
-  plans: "visual-plans",
-  plan: "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
@@ -904,7 +1032,8 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "agent-native-design-exploration",
   ],
   "visual-plans": [
-    "plans",
+    "visual-plan",
+    "visual-questions",
     "ui-plan",
     "visualize-plan",
     "html-plan",

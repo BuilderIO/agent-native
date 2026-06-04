@@ -163,6 +163,28 @@ describe("ShareButton", () => {
     ).toBe(true);
   });
 
+  it("can render an icon-only trigger", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="plan"
+            resourceId="plan-1"
+            shareUrl="https://plan.agent-native.com/plans/plan-1"
+            trigger="icon"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const trigger = container.querySelector(
+      'button[aria-label="Share"]',
+    ) as HTMLButtonElement | null;
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.textContent).not.toContain("Share");
+  });
+
   it("renders both primary and secondary share URLs", async () => {
     await act(async () => {
       root.render(

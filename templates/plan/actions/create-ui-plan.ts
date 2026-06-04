@@ -38,7 +38,7 @@ const uiPlanComponentSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined Notion-like document with tabs, diagrams, code tabs, comments, and agent handoff.",
+    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined Notion-like document with tabs, diagrams, code tabs, comments, share/export, and agent handoff.",
   schema: z
     .object({
       title: z.string().optional().describe("Short UI plan title"),
@@ -249,7 +249,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native UI plan, review the top pan/zoom wireframe canvas when present, continue through the Notion-like document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing.",
+        "Open the Agent-Native UI plan, review the top pan/zoom wireframe canvas when present, continue through the Notion-like document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {
