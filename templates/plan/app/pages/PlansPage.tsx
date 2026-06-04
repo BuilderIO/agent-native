@@ -2459,7 +2459,10 @@ function injectAnnotationRuntime(
         scheduleAnnotationMarkerSync();
         postDocState();
       });
-      window.addEventListener("agent-native-plan-board-layout-change", scheduleAnnotationMarkerSync);
+      window.addEventListener("agent-native-plan-board-layout-change", () => {
+        scheduleAnnotationMarkerSync();
+        postDocState();
+      });
       function pct(value, total) {
         return Math.max(0, Math.min(100, Number(((value / Math.max(total, 1)) * 100).toFixed(3))));
       }
