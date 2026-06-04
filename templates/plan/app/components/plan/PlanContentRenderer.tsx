@@ -7,6 +7,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { RoughGenerator } from "roughjs/bin/generator.js";
 import {
   IconCheck,
   IconCode,
@@ -31,6 +32,8 @@ import type {
   PlanVisualQuestion,
 } from "@shared/plan-content";
 
+const roughGenerator = new RoughGenerator();
+
 type PlanContentRendererProps = {
   content: PlanContent;
   fallbackTitle: string;
@@ -45,7 +48,7 @@ const DEFAULT_CANVAS_VIEW = {
 };
 const MIN_CANVAS_ZOOM = 0.32;
 const MAX_CANVAS_ZOOM = 2.4;
-const CANVAS_WHEEL_ZOOM_SENSITIVITY = 0.0028;
+const CANVAS_WHEEL_ZOOM_STEP = 0.06;
 
 type CanvasView = typeof DEFAULT_CANVAS_VIEW;
 
@@ -68,23 +71,6 @@ export function PlanContentRenderer({
 
   return (
     <article className="plan-content-surface min-h-full bg-plan-document text-plan-text">
-      <svg className="pointer-events-none absolute h-0 w-0" aria-hidden="true">
-        <filter id="plan-rough">
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.028"
-            numOctaves="2"
-            result="noise"
-          />
-          <feDisplacementMap
-            in="SourceGraphic"
-            in2="noise"
-            scale="0.85"
-            xChannelSelector="R"
-            yChannelSelector="G"
-          />
-        </filter>
-      </svg>
       {content.canvas && (
         <PlanCanvas
           canvas={content.canvas}
@@ -161,11 +147,14 @@ function PlanCanvas({
   }, [frames]);
   const { zoom, pan } = view;
 
-  const zoomBy = useCallback(
-    (factor: number, anchor?: { x: number; y: number }) => {
+  const setZoomAtAnchor = useCallback(
+    (
+      nextZoomFor: (currentZoom: number) => number,
+      anchor?: { x: number; y: number },
+    ) => {
       setView((current) => {
         const nextZoom = clamp(
-          current.zoom * factor,
+          nextZoomFor(current.zoom),
           MIN_CANVAS_ZOOM,
           MAX_CANVAS_ZOOM,
         );
@@ -189,6 +178,18 @@ function PlanCanvas({
     },
     [],
   );
+  const zoomBy = useCallback(
+    (factor: number, anchor?: { x: number; y: number }) => {
+      setZoomAtAnchor((currentZoom) => currentZoom * factor, anchor);
+    },
+    [setZoomAtAnchor],
+  );
+  const zoomByStep = useCallback(
+    (step: number, anchor?: { x: number; y: number }) => {
+      setZoomAtAnchor((currentZoom) => currentZoom + step, anchor);
+    },
+    [setZoomAtAnchor],
+  );
 
   useEffect(() => {
     const element = canvasRef.current;
@@ -207,12 +208,15 @@ function PlanCanvas({
       const deltaX = event.deltaX * deltaScale;
       const deltaY = event.deltaY * deltaScale;
 
-      if (event.ctrlKey || event.metaKey) {
+      if (event.ctrlKey || event.metaKey || event.altKey) {
         const rect = element.getBoundingClientRect();
-        zoomBy(Math.exp(-deltaY * CANVAS_WHEEL_ZOOM_SENSITIVITY), {
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-        });
+        zoomByStep(
+          deltaY > 0 ? -CANVAS_WHEEL_ZOOM_STEP : CANVAS_WHEEL_ZOOM_STEP,
+          {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          },
+        );
         return;
       }
 
@@ -227,7 +231,7 @@ function PlanCanvas({
 
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [zoomBy]);
+  }, [zoomByStep]);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -251,6 +255,8 @@ function PlanCanvas({
       style={{
         backgroundPosition: `${pan.x}px ${pan.y}px`,
         backgroundSize: `${28 * zoom}px ${28 * zoom}px`,
+        overscrollBehavior: "contain",
+        touchAction: "none",
       }}
       onPointerDown={onPointerDown}
       onPointerMove={(event) => {
@@ -278,6 +284,7 @@ function PlanCanvas({
           width: board.width,
           height: board.height,
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transformOrigin: "0 0",
         }}
       >
         {canvas.flow?.map((edge, index) => (
@@ -1303,6 +1310,18 @@ function RoughRegion({ region }: { region: PlanWireframeRegion }) {
 }
 
 function RoughBox({ id, emphasis }: { id: string; emphasis?: boolean }) {
+  const paths = roughGenerator.toPaths(
+    roughGenerator.path(roundedRectPath(), {
+      seed: roughSeed(id),
+      stroke: "currentColor",
+      strokeWidth: emphasis ? 1.45 : 1.15,
+      roughness: 0.55,
+      bowing: 0.35,
+      maxRandomnessOffset: 0.85,
+      disableMultiStroke: false,
+      fixedDecimalPlaceDigits: 1,
+    }),
+  );
   return (
     <svg
       aria-hidden="true"
@@ -1310,65 +1329,45 @@ function RoughBox({ id, emphasis }: { id: string; emphasis?: boolean }) {
       viewBox="0 0 100 100"
       preserveAspectRatio="none"
     >
-      <path
-        d={roughRectPath(id, 0)}
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={emphasis ? 2.2 : 1.55}
-        vectorEffect="non-scaling-stroke"
-      />
-      <path
-        d={roughRectPath(id, 1)}
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={emphasis ? 1.8 : 1.15}
-        vectorEffect="non-scaling-stroke"
-        opacity="0.72"
-      />
+      {paths.map((path, index) => (
+        <path
+          key={index}
+          d={path.d}
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={path.strokeWidth}
+          vectorEffect="non-scaling-stroke"
+          opacity={index === 0 ? 0.92 : 0.72}
+        />
+      ))}
     </svg>
   );
 }
 
-function roughRectPath(seed: string, pass: number) {
-  const point = (index: number, x: number, y: number) => {
-    const jitterX = roughNoise(`${seed}:${pass}:${index}:x`) * 2.2 - 1.1;
-    const jitterY = roughNoise(`${seed}:${pass}:${index}:y`) * 2.2 - 1.1;
-    return `${roundPoint(x + jitterX)} ${roundPoint(y + jitterY)}`;
-  };
+function roundedRectPath() {
   return [
-    `M ${point(0, 3.5, 4)}`,
-    `L ${point(1, 25, 3)}`,
-    `L ${point(2, 51, 4)}`,
-    `L ${point(3, 75, 3)}`,
-    `L ${point(4, 96.5, 4.5)}`,
-    `L ${point(5, 96, 30)}`,
-    `L ${point(6, 97, 63)}`,
-    `L ${point(7, 95.5, 96)}`,
-    `L ${point(8, 73, 97)}`,
-    `L ${point(9, 48, 96)}`,
-    `L ${point(10, 24, 97)}`,
-    `L ${point(11, 4.5, 95.5)}`,
-    `L ${point(12, 3, 67)}`,
-    `L ${point(13, 4, 34)}`,
+    "M 5 2.5",
+    "H 95",
+    "Q 98 2.5 98 5.5",
+    "V 94.5",
+    "Q 98 97.5 95 97.5",
+    "H 5",
+    "Q 2 97.5 2 94.5",
+    "V 5.5",
+    "Q 2 2.5 5 2.5",
     "Z",
   ].join(" ");
 }
 
-function roughNoise(value: string) {
+function roughSeed(value: string) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index++) {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0) / 4294967295;
-}
-
-function roundPoint(value: number) {
-  return Math.round(value * 10) / 10;
+  return ((hash >>> 0) % 2147483646) + 1;
 }
 
 function SketchDiagram({
