@@ -224,7 +224,6 @@ function originForServer(serverUrl: string): string {
   return originForUrl(serverUrl) ?? serverUrl.trim().replace(/\/+$/, "");
 }
 
-
 function serverUrlForPendingUpload(
   upload: PendingDesktopUpload,
   currentServerUrl: string,
@@ -925,7 +924,6 @@ export function App() {
     selectedMicId,
     selectedMicLabel,
   });
-
 
   // OAuth (Google) opens in the system browser — the popover WebView can't
   // share a cookie jar with a separate Tauri WebviewWindow, and the old

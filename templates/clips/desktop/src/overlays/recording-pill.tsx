@@ -50,6 +50,7 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
+  const ctxRef = useRef<PillContext>({ mode: "clip" });
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -105,10 +106,12 @@ export function RecordingPill() {
     };
     trackListen(
       listen<PillContext>("clips:pill-context", (ev) => {
-        setCtx({
+        const next: PillContext = {
           meetingId: ev.payload?.meetingId ?? null,
           mode: ev.payload?.mode ?? "clip",
-        });
+        };
+        ctxRef.current = next;
+        setCtx(next);
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
@@ -144,6 +147,7 @@ export function RecordingPill() {
       listen<{ meetingId: string; initialNotes: string }>(
         "clips:meeting-notes-init",
         (ev) => {
+          if (ctxRef.current.meetingId !== ev.payload.meetingId) return;
           activeMeetingIdRef.current = ev.payload.meetingId;
           if (pendingNotesRef.current !== null) {
             // User typed before the async fetch resolved — keep their edits and

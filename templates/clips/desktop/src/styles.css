@@ -3738,7 +3738,9 @@ body[data-clips-route="recording-pill"] #root {
   max-width: 0;
   opacity: 0;
   pointer-events: none;
-  transition: max-width 160ms ease, opacity 120ms ease;
+  transition:
+    max-width 160ms ease,
+    opacity 120ms ease;
 }
 
 /* Reveal on hover (CSS :hover, not React events — works unfocused). */
