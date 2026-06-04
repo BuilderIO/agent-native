@@ -372,6 +372,7 @@ export function PlansPage() {
           annotateMode,
           theme: planTheme,
           preferredEditor,
+          parentOrigin: window.location.origin,
           restoreScroll: restoreScroll ?? null,
         },
         "*",
@@ -388,6 +389,7 @@ export function PlansPage() {
         annotateMode,
         theme: planTheme,
         preferredEditor,
+        parentOrigin: window.location.origin,
         restoreScroll: restoreScroll ?? null,
       },
       "*",
@@ -423,6 +425,10 @@ export function PlansPage() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.origin !== "null" && event.origin !== window.location.origin) {
+        return;
+      }
+      if (!event.data || typeof event.data !== "object") return;
       const data = event.data as
         | {
             type?: string;
@@ -500,11 +506,11 @@ export function PlansPage() {
       ) {
         sendToAgentChat({
           type: "content",
-          submit: true,
+          submit: false,
           context: planAgentContext,
           message: data.summary,
         });
-        toast.success("Sent visual answers to the agent");
+        toast.success("Visual answers added to the agent draft");
       }
     };
     window.addEventListener("message", onMessage);
@@ -2408,6 +2414,9 @@ function injectAnnotationRuntime(
       window.addEventListener("message", (event) => {
         const data = event.data || {};
         if (data.type !== "agent-native-plan-runtime-state") return;
+        if (typeof data.parentOrigin === "string" && data.parentOrigin && data.parentOrigin !== "null") {
+          window.__agentNativePlanParentOrigin = data.parentOrigin;
+        }
         if (typeof data.theme === "string") setRuntimeTheme(data.theme);
         if (typeof data.preferredEditor === "string") {
           setPreferredEditor(data.preferredEditor, false);
@@ -2431,6 +2440,14 @@ function injectAnnotationRuntime(
           }
         }, "*");
       }
+      let annotationMarkerSyncFrame = 0;
+      function scheduleAnnotationMarkerSync() {
+        if (annotationMarkerSyncFrame) return;
+        annotationMarkerSyncFrame = requestAnimationFrame(() => {
+          annotationMarkerSyncFrame = 0;
+          syncAnnotationMarkers();
+        });
+      }
       removeEmptyPlanSections();
       upgradeImplementationFileMaps();
       initializePlanTabs();
@@ -2439,9 +2456,10 @@ function injectAnnotationRuntime(
       postDocState();
       window.addEventListener("scroll", postDocState, { passive: true });
       window.addEventListener("resize", () => {
-        syncAnnotationMarkers();
+        scheduleAnnotationMarkerSync();
         postDocState();
       });
+      window.addEventListener("agent-native-plan-board-layout-change", scheduleAnnotationMarkerSync);
       function pct(value, total) {
         return Math.max(0, Math.min(100, Number(((value / Math.max(total, 1)) * 100).toFixed(3))));
       }

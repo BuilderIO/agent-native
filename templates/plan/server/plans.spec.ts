@@ -118,9 +118,13 @@ describe("Plans helpers", () => {
     expect(html).not.toContain("canvas-toolbar");
     expect(html).not.toContain("Wireframe canvas");
     expect(html).toContain(
-      "--canvas: #100f0e; --grid-line: rgba(244,244,242,.022)",
+      "--canvas: #201f1d; --grid-line: rgba(244,244,242,.024)",
     );
-    expect(html).toContain("--bg: #171615");
+    expect(html).toContain("--bg: #1d1c1a");
+    expect(html).not.toContain('window.dispatchEvent(new Event("resize"))');
+    expect(html).toContain(
+      'window.dispatchEvent(new Event("agent-native-plan-board-layout-change"))',
+    );
     expect(html).toContain(
       "background-size: var(--grid-size) var(--grid-size)",
     );
@@ -134,7 +138,7 @@ describe("Plans helpers", () => {
     expect(html).not.toContain('class="frame-caption"');
     expect(html).not.toContain("<span>::</span>");
     expect(html).not.toContain("doc-meta");
-    expect(html).toContain("--wire-surface: #151514");
+    expect(html).toContain("--wire-surface: #20201e");
     expect(html).toContain(
       ".wire-window { position: absolute; inset: 0; overflow: hidden; border: 1.5px solid var(--wire-line); border-radius: 5px; background: var(--wire-surface); color: var(--ink); filter: url(#ui-plan-roughen); box-shadow: none;",
     );
@@ -201,6 +205,9 @@ describe("Plans helpers", () => {
     expect(html).toContain("data-vq-send");
     expect(html).toContain("agent-native-visual-questions-copy");
     expect(html).toContain("agent-native-visual-questions-send-to-agent");
+    expect(html).toContain("function parentOrigin()");
+    expect(html).not.toContain('}, "*");');
+    expect(html).not.toContain("Answer with visuals first.");
     expect(html).toContain("create or refine a UI-first visual plan");
     expect(html).not.toContain("/Users/steve/project</p>");
   });

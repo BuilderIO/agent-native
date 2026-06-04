@@ -627,6 +627,15 @@ function escapeHtml(value: unknown) {
 
 const UI_PLAN_JS = `
 (() => {
+  let boardLayoutFrame = 0;
+  function requestBoardLayoutSync() {
+    if (boardLayoutFrame) return;
+    boardLayoutFrame = requestAnimationFrame(() => {
+      boardLayoutFrame = 0;
+      window.dispatchEvent(new Event("agent-native-plan-board-layout-change"));
+    });
+  }
+
   function activateTab(tabset, target, focus) {
     const buttons = Array.from(tabset.querySelectorAll("[data-tab-target]"));
     const panels = Array.from(tabset.querySelectorAll("[data-tab-panel]"));
@@ -640,7 +649,7 @@ const UI_PLAN_JS = `
     for (const panel of panels) {
       panel.classList.toggle("is-active", panel.getAttribute("data-tab-panel") === target);
     }
-    window.dispatchEvent(new Event("resize"));
+    requestBoardLayoutSync();
   }
 
   for (const tabset of document.querySelectorAll("[data-plan-tabs]")) {
@@ -676,7 +685,7 @@ const UI_PLAN_JS = `
     root.style.setProperty("--grid-offset-y", panY.toFixed(2) + "px");
     if (zoomLabel) zoomLabel.textContent = Math.round(zoom * 100) + "%";
     if (roughMap) roughMap.setAttribute("scale", String(Math.round((Number.parseFloat(root.style.getPropertyValue("--sketch")) || 0.38) * 100 / 12)));
-    window.dispatchEvent(new Event("resize"));
+    requestBoardLayoutSync();
   }
 
   function setZoom(nextZoom, clientX, clientY) {
@@ -751,7 +760,7 @@ const UI_PLAN_JS = `
 const UI_PLAN_CSS = `
 @font-face { font-family: "Virgil"; src: url("/fonts/Virgil-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 :root { color-scheme: light; --bg: #faf9f7; --paper: #ffffff; --paper-soft: #f3f2ef; --ink: #18181b; --soft: #44403c; --muted: #78716c; --line: rgba(28,25,23,.13); --line-strong: rgba(28,25,23,.25); --canvas: #f3f2ef; --grid-line: rgba(28,25,23,.04); --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --warning: #fff4bf; --note-ink: #4d4219; --wire-surface: #ffffff; --wire-soft: #f4f4f5; --wire-mark: #d4d4d8; --wire-rule: rgba(63,63,70,.18); --wire-frame-bg: #ffffff; --wire-line: rgba(39,39,42,.8); --wire-line-soft: rgba(39,39,42,.28); --wire-dot: #71717a; --board-shell: rgba(255,255,255,.94); --board-card-bg: #fff9dc; --board-card-bg-2: #e9f4ec; --board-card-bg-3: #edf1fb; --diagram-bg: #f3f2ef; --diagram-node-bg: #ffffff; --code-bg: #f5f5f6; --code-ink: #27272a; --syntax-keyword: #0b67d2; --syntax-string: #287d43; --tab-hover: rgba(28,25,23,.055); --wire-font: "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive; --doc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace; --shadow-soft: 0 18px 56px rgba(24,24,27,.1); --density-scale: 1; }
-:root[data-agent-native-theme="dark"] { color-scheme: dark; --bg: #1d1c1a; --paper: #242321; --paper-soft: #2c2b28; --ink: #f4f4f2; --soft: #d8d5ce; --muted: #aaa59d; --line: rgba(244,244,242,.14); --line-strong: rgba(244,244,242,.26); --canvas: #1a1917; --grid-line: rgba(244,244,242,.024); --accent: #78a7ff; --accent-soft: rgba(120,167,255,.17); --warning: #3a3216; --note-ink: #ede7c7; --wire-surface: #20201e; --wire-soft: #2b2a27; --wire-mark: #625e57; --wire-rule: rgba(244,244,242,.14); --wire-frame-bg: #1d1c1a; --wire-line: rgba(244,244,242,.78); --wire-line-soft: rgba(244,244,242,.26); --wire-dot: #aaa59d; --board-shell: rgba(36,35,33,.95); --board-card-bg: #29282a; --board-card-bg-2: #242c28; --board-card-bg-3: #252b38; --diagram-bg: #242321; --diagram-node-bg: #1d1c1a; --code-bg: #171615; --code-ink: #e7e5e1; --syntax-keyword: #7ab8ff; --syntax-string: #9ee6a3; --tab-hover: rgba(244,244,242,.08); --shadow-soft: 0 18px 56px rgba(0,0,0,.24); }
+:root[data-agent-native-theme="dark"] { color-scheme: dark; --bg: #1d1c1a; --paper: #242321; --paper-soft: #2c2b28; --ink: #f4f4f2; --soft: #d8d5ce; --muted: #aaa59d; --line: rgba(244,244,242,.14); --line-strong: rgba(244,244,242,.26); --canvas: #201f1d; --grid-line: rgba(244,244,242,.024); --accent: #78a7ff; --accent-soft: rgba(120,167,255,.17); --warning: #3a3216; --note-ink: #ede7c7; --wire-surface: #20201e; --wire-soft: #2b2a27; --wire-mark: #625e57; --wire-rule: rgba(244,244,242,.14); --wire-frame-bg: #1d1c1a; --wire-line: rgba(244,244,242,.78); --wire-line-soft: rgba(244,244,242,.26); --wire-dot: #aaa59d; --board-shell: rgba(36,35,33,.95); --board-card-bg: #29282a; --board-card-bg-2: #242c28; --board-card-bg-3: #252b38; --diagram-bg: #242321; --diagram-node-bg: #1d1c1a; --code-bg: #171615; --code-ink: #e7e5e1; --syntax-keyword: #7ab8ff; --syntax-string: #9ee6a3; --tab-hover: rgba(244,244,242,.08); --shadow-soft: 0 18px 56px rgba(0,0,0,.24); }
 * { box-sizing: border-box; }
 html { background: var(--bg); scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--doc-font); line-height: 1.62; }
@@ -865,7 +874,7 @@ h1, h2, h3, p { margin-top: 0; }
 .notion-plan { width: min(910px, calc(100vw - 44px)); margin: 0 auto; padding: 88px 0 118px; }
 .doc-cover { padding-bottom: 34px; border-bottom: 1px solid var(--line); }
 .doc-kicker { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 760; letter-spacing: 0; text-transform: uppercase; }
-.doc-cover h1 { margin: 0 0 20px; font-size: clamp(42px, 6vw, 72px); line-height: .98; letter-spacing: -.035em; }
+.doc-cover h1 { margin: 0 0 18px; font-size: clamp(38px, 5vw, 62px); line-height: 1.02; letter-spacing: -.03em; }
 .doc-lede { max-width: 780px; margin: 0; color: var(--soft); font-size: clamp(19px, 2.4vw, 25px); line-height: 1.48; letter-spacing: -.012em; }
 .doc-block { padding: 34px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 20px; }
 .doc-block h2 { margin: 0 0 12px; font-size: clamp(25px, 3vw, 34px); line-height: 1.14; letter-spacing: -.024em; }
