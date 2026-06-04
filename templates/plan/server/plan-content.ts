@@ -294,7 +294,7 @@ export function createUiPlanContent(input: {
                       title: "Read this like a design handoff.",
                       body: "Pan and zoom to compare states, then scroll for the document spec.",
                       x: 80,
-                      y: 30,
+                      y: 560,
                     },
                   ],
                 }),

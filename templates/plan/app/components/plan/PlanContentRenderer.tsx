@@ -317,6 +317,7 @@ function CanvasFrame({
   return (
     <div
       className="absolute"
+      data-canvas-frame={frame.id}
       style={{
         left: frame.x ?? 80,
         top: frame.y ?? 80,
