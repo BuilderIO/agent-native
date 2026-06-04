@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   IconPlus,
   IconUpload,
@@ -7,9 +8,11 @@ import {
   IconBolt,
   IconTool,
   IconPlugConnected,
+  IconPhotoPlus,
   IconLoader2,
   IconCheck,
   IconArrowLeft,
+  IconX,
 } from "@tabler/icons-react";
 import { ComposerPrimitive } from "@assistant-ui/react";
 import { cn } from "../utils.js";
@@ -28,6 +31,7 @@ import {
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
 import type { ComposerMode } from "./types.js";
+import { setAgentChatContextItem } from "../agent-chat.js";
 import {
   Tooltip,
   TooltipContent,
@@ -47,6 +51,124 @@ interface ComposerPlusMenuProps {
 }
 
 type View = "menu" | "mcp-server" | "skill-upload";
+
+const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+const EMBED_PROTOCOL = "agent-native.embed";
+const EMBED_VERSION = 1;
+
+interface EmbedEnvelope<TPayload = unknown> {
+  protocol?: string;
+  version?: number;
+  type?: string;
+  name?: string;
+  payload?: TPayload;
+}
+
+interface AssetPickerPayload {
+  assetId?: unknown;
+  url?: unknown;
+  previewUrl?: unknown;
+  downloadUrl?: unknown;
+  embedUrl?: unknown;
+  altText?: unknown;
+  title?: unknown;
+  prompt?: unknown;
+  mediaType?: unknown;
+  libraryId?: unknown;
+}
+
+function assetPickerUrl() {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  return env.VITE_AGENT_NATIVE_ASSETS_PICKER_URL || DEFAULT_ASSETS_PICKER_URL;
+}
+
+function withEmbeddedParams(url: string): string {
+  try {
+    const parsed = new URL(url, window.location.href);
+    parsed.searchParams.set("embedded", "1");
+    parsed.searchParams.set("mediaType", "image");
+    return parsed.toString();
+  } catch {
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}embedded=1&mediaType=image`;
+  }
+}
+
+function assetPickerOrigin(url: string): string | null {
+  try {
+    return new URL(url, window.location.href).origin;
+  } catch {
+    return null;
+  }
+}
+
+function embedEnvelope(
+  type: "message" | "ready",
+  options: { name?: string; payload?: unknown } = {},
+): EmbedEnvelope {
+  return {
+    protocol: EMBED_PROTOCOL,
+    version: EMBED_VERSION,
+    type,
+    ...options,
+  };
+}
+
+function isEmbedEnvelope(value: unknown): value is EmbedEnvelope {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as EmbedEnvelope;
+  return (
+    candidate.protocol === EMBED_PROTOCOL &&
+    candidate.version === EMBED_VERSION &&
+    typeof candidate.type === "string"
+  );
+}
+
+function assetString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function assetImageSource(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const asset = payload as AssetPickerPayload;
+  return (
+    assetString(asset.url) ??
+    assetString(asset.previewUrl) ??
+    assetString(asset.downloadUrl) ??
+    assetString(asset.embedUrl)
+  );
+}
+
+function assetTitle(payload: unknown, url: string): string {
+  if (payload && typeof payload === "object") {
+    const title = assetString((payload as AssetPickerPayload).title);
+    if (title) return title;
+    const prompt = assetString((payload as AssetPickerPayload).prompt);
+    if (prompt) return prompt.slice(0, 80);
+  }
+  try {
+    const name = new URL(url).pathname.split("/").filter(Boolean).pop();
+    return name ? decodeURIComponent(name) : "Generated image";
+  } catch {
+    return "Generated image";
+  }
+}
+
+function assetContext(payload: unknown, url: string): string {
+  const lines = [`Image URL: ${url}`];
+  if (payload && typeof payload === "object") {
+    const asset = payload as AssetPickerPayload;
+    const assetId = assetString(asset.assetId);
+    const libraryId = assetString(asset.libraryId);
+    const prompt = assetString(asset.prompt);
+    const altText = assetString(asset.altText);
+    if (assetId) lines.push(`Asset ID: ${assetId}`);
+    if (libraryId) lines.push(`Library ID: ${libraryId}`);
+    if (prompt) lines.push(`Prompt: ${prompt}`);
+    if (altText) lines.push(`Alt text: ${altText}`);
+  }
+  return lines.join("\n");
+}
 
 function slugifyName(value: string): string {
   return (
@@ -92,6 +214,7 @@ function ComposerPlusMenuFull({
   onSelectMode,
 }: Pick<ComposerPlusMenuProps, "onSelectMode">) {
   const [open, setOpen] = useState(false);
+  const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
 
   // MCP state
@@ -329,11 +452,13 @@ function ComposerPlusMenuFull({
       },
     },
     {
-      icon: <IconBulb className="h-3.5 w-3.5" />,
-      label: "Create Skill",
-      desc: "Teach the agent a new ability",
-      action: openSkillFlyout,
-      hoverAction: openSkillFlyout,
+      icon: <IconPhotoPlus className="h-3.5 w-3.5" />,
+      label: "Generate Image",
+      desc: "Open the Assets image picker",
+      action: () => {
+        setOpen(false);
+        setAssetsPickerOpen(true);
+      },
     },
     {
       icon: <IconClock className="h-3.5 w-3.5" />,
@@ -367,6 +492,13 @@ function ComposerPlusMenuFull({
       label: "Connect MCP Server",
       desc: "Expose external tools to the agent",
       action: () => setView("mcp-server"),
+    },
+    {
+      icon: <IconBulb className="h-3.5 w-3.5" />,
+      label: "Create Skill",
+      desc: "Teach the agent a new ability",
+      action: openSkillFlyout,
+      hoverAction: openSkillFlyout,
     },
   ];
 
@@ -790,6 +922,123 @@ function ComposerPlusMenuFull({
           )}
         </PopoverContent>
       </Popover>
+      <AssetsPickerModal
+        open={assetsPickerOpen}
+        onOpenChange={setAssetsPickerOpen}
+      />
     </>
+  );
+}
+
+function AssetsPickerModal({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const sourceUrl = useMemo(() => assetPickerUrl(), []);
+  const iframeUrl = useMemo(() => withEmbeddedParams(sourceUrl), [sourceUrl]);
+  const targetOrigin = useMemo(() => assetPickerOrigin(sourceUrl), [sourceUrl]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (targetOrigin && event.origin !== targetOrigin) return;
+      if (!isEmbedEnvelope(event.data)) return;
+
+      if (event.data.type === "ready") {
+        iframeRef.current?.contentWindow?.postMessage(
+          embedEnvelope("message", {
+            name: "configure",
+            payload: { mediaType: "image", count: 3 },
+          }),
+          targetOrigin ?? "*",
+        );
+        return;
+      }
+
+      if (event.data.type !== "message") return;
+      if (event.data.name === "close") {
+        onOpenChange(false);
+        return;
+      }
+      if (
+        event.data.name !== "chooseImage" &&
+        event.data.name !== "chooseAsset"
+      )
+        return;
+
+      const url = assetImageSource(event.data.payload);
+      if (!url) return;
+      const title = assetTitle(event.data.payload, url);
+      const assetId =
+        event.data.payload && typeof event.data.payload === "object"
+          ? assetString((event.data.payload as AssetPickerPayload).assetId)
+          : null;
+      setAgentChatContextItem({
+        key: `asset-image:${assetId ?? url}`,
+        title: `Image: ${title}`,
+        context: assetContext(event.data.payload, url),
+      });
+      onOpenChange(false);
+    };
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false);
+    };
+
+    window.addEventListener("message", handleMessage);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [onOpenChange, open, targetOrigin]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[280] flex items-center justify-center bg-black/50 p-3"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="composer-assets-picker-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onOpenChange(false);
+      }}
+    >
+      <div className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+          <div
+            id="composer-assets-picker-title"
+            className="text-sm font-medium text-foreground"
+          >
+            Generate image
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Close image picker"
+          >
+            <IconX className="h-4 w-4" />
+          </button>
+        </div>
+        <iframe
+          ref={iframeRef}
+          src={iframeUrl}
+          title="Assets image picker"
+          className="min-h-0 flex-1 border-0 bg-background"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+          allow="clipboard-read; clipboard-write; microphone; fullscreen"
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      </div>
+    </div>,
+    document.body,
   );
 }
