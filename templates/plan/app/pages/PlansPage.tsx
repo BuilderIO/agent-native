@@ -58,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -1094,6 +1095,7 @@ function CreatePlanDialog({
   const [source, setSource] = useState<PlanSource>("codex");
   const [planText, setPlanText] = useState("");
   const [planKind, setPlanKind] = useState<"ui" | "visual">("ui");
+  const [figmaBoardMode, setFigmaBoardMode] = useState(false);
 
   const isPending =
     createPlan.isPending || createUiPlan.isPending || visualizePlan.isPending;
@@ -1159,6 +1161,8 @@ function CreatePlanDialog({
                 "Show files, intent, short snippets, and editor-open controls after UI review.",
             },
           ],
+          figmaBoardMode,
+          sketchiness: 38,
         },
         { onSuccess },
       );
@@ -1258,6 +1262,21 @@ function CreatePlanDialog({
                   </SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          {!planText.trim() && planKind === "ui" && (
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+              <div className="grid gap-1">
+                <Label htmlFor="figma-board-mode">Board mode</Label>
+                <p className="text-sm leading-5 text-muted-foreground">
+                  Sketchy artboards on a pan/zoom canvas.
+                </p>
+              </div>
+              <Switch
+                id="figma-board-mode"
+                checked={figmaBoardMode}
+                onCheckedChange={setFigmaBoardMode}
+              />
             </div>
           )}
           <div className="grid gap-2">

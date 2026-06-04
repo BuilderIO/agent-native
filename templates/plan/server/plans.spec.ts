@@ -122,6 +122,44 @@ describe("Plans helpers", () => {
     expect(html).toContain("/Users/steve/project");
   });
 
+  it("can build an opt-in sketchy board UI plan", () => {
+    const html = buildUiPlanHtml({
+      title: "/ui-plan board review",
+      brief: "Compare several app screens on one canvas.",
+      source: "codex",
+      repoPath: "/Users/steve/project",
+      figmaBoardMode: true,
+      sketchiness: 64,
+      states: [
+        {
+          name: "Desktop - Today",
+          description: "Full desktop artboard with the main workflow.",
+        },
+        {
+          name: "Mobile - List",
+          description: "Narrow list view on the same board.",
+        },
+      ],
+      components: [
+        {
+          name: "Tweaks",
+          description: "Controls for density, sketchiness, and accent color.",
+        },
+      ],
+    });
+
+    expect(html).toContain('data-ui-plan-mode="figma-board"');
+    expect(html).not.toContain("Virgil-Regular.woff2");
+    expect(html).toContain("data-board-canvas");
+    expect(html).toContain("tweaks-panel");
+    expect(html).toContain("data-sketchiness");
+    expect(html).toContain("A - Screen directions");
+    expect(html).toContain("Desktop - Today");
+    expect(html).toContain("Mobile - List");
+    expect(html).toContain("data-plan-visual");
+    expect(html).toContain("Implementation map");
+  });
+
   it("renders a complete iframe-safe visual plan", () => {
     const bundle: PlanBundle = {
       plan: {

@@ -18,7 +18,10 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import { buildUiPlanHtml } from "../server/ui-plan-html.js";
+import {
+  FIGMA_BOARD_UI_PLAN_DEFAULT,
+  buildUiPlanHtml,
+} from "../server/ui-plan-html.js";
 
 const uiPlanStateSchema = z.object({
   name: z.string().min(1).describe("State or screen name"),
@@ -74,6 +77,21 @@ export default defineAction({
         .default([])
         .describe(
           "Focused UI parts to show as two-column component-detail tabs.",
+        ),
+      figmaBoardMode: z
+        .boolean()
+        .optional()
+        .default(FIGMA_BOARD_UI_PLAN_DEFAULT)
+        .describe(
+          "Experimental opt-in: generate a Figma-style pan/zoom board with sketchy artboards instead of the standard UI plan document.",
+        ),
+      sketchiness: z
+        .number()
+        .min(0)
+        .max(100)
+        .optional()
+        .describe(
+          "Sketchiness for figmaBoardMode, from 0 for crisp to 100 for very hand-drawn.",
         ),
       implementationNotes: z
         .string()
@@ -132,6 +150,8 @@ export default defineAction({
         repoPath: args.repoPath,
         states: args.states,
         components: args.components,
+        figmaBoardMode: args.figmaBoardMode,
+        sketchiness: args.sketchiness,
         implementationNotes: args.implementationNotes,
       });
     const sections =
@@ -227,6 +247,7 @@ export default defineAction({
       payload: {
         states: args.states.map((state) => state.name),
         components: args.components.map((component) => component.name),
+        figmaBoardMode: args.figmaBoardMode,
       },
       createdBy: "agent",
     });
@@ -238,8 +259,9 @@ export default defineAction({
       html: buildPlanHtml(bundle),
       path: planPath(id),
       url: planPath(id),
-      fallbackInstructions:
-        "Open the Agent-Native UI plan, review the full-width mockup states first, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing.",
+      fallbackInstructions: args.figmaBoardMode
+        ? "Open the Agent-Native UI plan, review the sketchy artboards on the pan/zoom board, use tweaks if useful, add comments or drawings directly on frames, then I will call get-plan-feedback before implementing."
+        : "Open the Agent-Native UI plan, review the full-width mockup states first, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing.",
     };
   },
   link: ({ result }) => {
