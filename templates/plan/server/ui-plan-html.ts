@@ -736,7 +736,8 @@ const UI_PLAN_JS = `
 `;
 
 const UI_PLAN_CSS = `
-:root { color-scheme: light; --bg: #fbfaf7; --paper: #fffefa; --paper-soft: #f5f3ee; --ink: #23201d; --soft: #4b4640; --muted: #817970; --line: rgba(36,31,26,.13); --line-strong: rgba(36,31,26,.24); --canvas: #e9edf1; --sketch-line: #cfd5dc; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --warning: #fff4bf; --wire-font: "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive; --doc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace; --shadow-soft: 0 18px 56px rgba(38,32,24,.1); --density-scale: 1; }
+@font-face { font-family: "Virgil"; src: url("/fonts/Virgil-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+:root { color-scheme: light; --bg: #fbfaf7; --paper: #fffefa; --paper-soft: #f5f3ee; --ink: #23201d; --soft: #4b4640; --muted: #817970; --line: rgba(36,31,26,.13); --line-strong: rgba(36,31,26,.24); --canvas: #e9edf1; --sketch-line: #cfd5dc; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --warning: #fff4bf; --wire-font: "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive; --doc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace; --shadow-soft: 0 18px 56px rgba(38,32,24,.1); --density-scale: 1; }
 * { box-sizing: border-box; }
 html { background: var(--bg); scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--doc-font); line-height: 1.62; }

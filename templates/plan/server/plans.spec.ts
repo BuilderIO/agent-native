@@ -121,7 +121,7 @@ describe("Plans helpers", () => {
     expect(html).toContain("file-map-preview");
     expect(html).toContain('data-tab-target="ui-file-create-action"');
     expect(html).toContain('data-tab-panel="ui-file-create-action"');
-    expect(html).not.toContain("Virgil-Regular.woff2");
+    expect(html).toContain("Virgil-Regular.woff2");
     expect(html).not.toContain("tweaks-panel");
     expect(html).toContain("/Users/steve/project");
   });
