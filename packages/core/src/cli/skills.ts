@@ -269,6 +269,48 @@ The companion \`visualize-plan\` skill is installed with this one. Use it when
 the user already has a Codex, Claude Code, Markdown, or pasted text plan and
 wants a visual companion instead of a fresh plan.
 
+## Plan Discipline
+
+Plan mode protects the user from wasted work; it is not ceremony. Hold this
+discipline before and around the plan document:
+
+- **Right-size first.** Build a visual plan when work is multi-file, ambiguous,
+  risky, architectural, UI-heavy, has multiple valid approaches, or the code is
+  unfamiliar. Skip it for trivial, unambiguous work — typos, one-line fixes, a
+  single well-specified function, anything whose diff you could describe in one
+  sentence — and just make the change. A polished HTML plan is the most
+  expensive plan form; only invest when a wrong direction is costly. Never pad a
+  plan with filler or ship a single-step plan.
+- **Research before you draft.** Read the real files, actions, schema, and
+  existing patterns first, and name actual files, symbols, and data shapes in
+  the plan instead of inventing them. Check existing \`actions/\` before proposing
+  endpoints and prefer named client helpers over raw fetch. Delegate wide
+  exploration to a sub-agent so the main context stays clear.
+- **Planning is read-only.** Make no source edits while building or reviewing
+  the plan. Start editing code only after the user approves the direction.
+- **Clarify vs. assume.** Do not ask the user how to build it — explore and
+  present the approach and options in the plan. Ask a clarifying question only
+  when an ambiguity would change the design and you cannot resolve it from the
+  code or a sensible default; batch a small set (2-4) of high-leverage,
+  decision-changing questions before finalizing. Otherwise state the most
+  reasonable assumption explicitly and proceed. Put anything still unresolved in
+  a dedicated open-questions / needs-clarification block — never guess silently,
+  and never fill it with detail you could infer.
+- **Be specific.** Every plan states the objective and what "done" means,
+  explicit scope and non-goals, ordered verifiable steps that name real files,
+  symbols, and actions, the key choices with rationale, risks, and a closing
+  verification step (tests, build, or a checkable behavior). Replace vague prose
+  with specifics; never ship a step like "make it work."
+- **The plan is the approval gate.** After surfacing the plan, explicitly ask
+  the user to review and approve before you write any code, and name which
+  files/areas and permissions the work will touch so approval grants scope.
+  Presenting the plan and requesting sign-off is the approval step — do not ask
+  a separate "does this look good?" question.
+- **The document is the source of truth, not the chat.** When scope shifts
+  during review or implementation, update the plan with \`update-visual-plan\`
+  rather than only changing course in chat, and re-read the approved plan before
+  major steps so the work does not drift.
+
 ## Core Workflow
 
 1. Call \`create-visual-plan\` with the title, brief, source, repo path, and plan
@@ -369,6 +411,29 @@ react to.
 \`/visual-plan\` remains the general rich planning command for architecture,
 backend, refactors, migrations, and mixed work. Use \`/visualize-plan\` when a
 text plan already exists and should become an HTML companion.
+
+## Plan Discipline
+
+- **Right-size first.** Use a UI plan when the surface is new, ambiguous, spans
+  several screens or states, or the direction needs agreement before coding.
+  Skip it for cosmetic one-liners — a color, a label, a spacing tweak — and just
+  make the change.
+- **Research before you draft.** Read the real components, routes, design
+  tokens, and existing patterns first, and ground mockups and the file map in
+  actual files and symbols rather than inventing them. Delegate wide exploration
+  to a sub-agent when the surface is large.
+- **Planning is read-only.** Make no source edits while building or reviewing
+  the plan. Start editing only after the user approves the UI direction.
+- **Clarify vs. assume.** Do not ask the user how to build the UI — explore and
+  present the direction and options as mockups and tabs. Ask a clarifying
+  question only when an ambiguity would change the design and you cannot resolve
+  it from the code or a sensible default; batch 2-4 high-leverage,
+  decision-changing questions before finalizing. Otherwise state the assumption
+  in the plan and proceed.
+- **The plan is the approval gate.** Explicitly ask the user to review and
+  approve the UI direction before you write any code, and name the files/areas
+  the work will touch. Presenting the plan and requesting sign-off is the
+  approval step — do not ask a separate "does this look good?" question.
 
 ## UI-First Workflow
 
@@ -520,6 +585,19 @@ Use \`visualize-plan\` when:
 If there is no existing plan text available, ask for it, use \`visual-plans\`
 to create a fresh general plan, or use \`ui-plan\` when the work is UI-heavy and
 should start with high-fidelity state mockups.
+
+## Plan Discipline
+
+- **Right-size first.** If the source plan is for trivial, unambiguous work,
+  skip the companion and just implement. A visual companion is worth it only
+  when the plan is long, risky, or hard to react to as text.
+- **Stay grounded and read-only.** Preserve the source plan's intent, do not
+  invent codebase facts, and label anything inferred as inferred. Make no source
+  edits while building or reviewing the companion.
+- **The companion is the approval gate.** Ask the user to review and approve the
+  direction before you write any code, and name which files/areas the work will
+  touch. Carry unresolved assumptions and open questions into a clear block
+  instead of guessing silently.
 
 ## Workflow
 

@@ -2100,9 +2100,15 @@ export function MultiTabAssistantChat({
     [forkThread, switchThread],
   );
 
-  // Build tabs from open thread IDs
+  // Build tabs from open thread IDs. During the first thread-list fetch,
+  // `activeThreadId` is seeded synchronously so the chat can mount before
+  // persisted open tabs have been reconciled.
+  const visibleOpenTabIds =
+    activeThreadId && !openTabIds.includes(activeThreadId)
+      ? [...openTabIds, activeThreadId]
+      : openTabIds;
   const threadMap = new Map(threads.map((t) => [t.id, t]));
-  const tabs: ChatTab[] = openTabIds
+  const tabs: ChatTab[] = visibleOpenTabIds
     .filter((id) => threadMap.has(id) || id === activeThreadId)
     .map((id) => {
       const t = threadMap.get(id);
@@ -2125,7 +2131,7 @@ export function MultiTabAssistantChat({
     });
 
   // Include sub-agent tabs that aren't in threadMap yet (just created, not refreshed)
-  for (const id of openTabIds) {
+  for (const id of visibleOpenTabIds) {
     if (!tabs.some((t) => t.id === id)) {
       tabs.push({
         id,
@@ -2154,14 +2160,13 @@ export function MultiTabAssistantChat({
     clearActiveTab,
     showHistory,
     toggleHistory: () => setShowHistory((v) => !v),
-    tabCount: openTabIds.length,
+    tabCount: visibleOpenTabIds.length,
   };
 
-  // Wait for the first thread-list pass before mounting restored tabs. Saved
-  // localStorage ids may be empty client-only tabs or old ids from another
-  // deployment; rendering AssistantChat before validation causes harmless but
-  // noisy /threads/:id 404s during app startup.
-  if (isLoading) {
+  // Wait for the first thread-list pass only when there is no synchronously
+  // seeded active thread. Suggestion loading and thread-list reconciliation
+  // should not block the chat shell from mounting.
+  if (isLoading && !activeThreadId) {
     return (
       <ChatSkeleton
         header={renderHeader?.(headerProps)}
@@ -2406,7 +2411,7 @@ export function MultiTabAssistantChat({
         {/* Render tabs that have been activated at least once, hide inactive ones to preserve state.
             Sub-agent tabs are only mounted when first focused — prevents stale restore from running
             while the component is display:none before the user switches to it. */}
-        {[...new Set(openTabIds)]
+        {[...new Set(visibleOpenTabIds)]
           .filter(
             (tabId) =>
               tabId === activeThreadId || mountedTabsRef.current.has(tabId),

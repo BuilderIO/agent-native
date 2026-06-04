@@ -10,6 +10,7 @@ import {
   IconCopy,
   IconDotsVertical,
   IconLayoutSidebarRight,
+  IconLoader2,
   IconPencil,
   IconMessageCircle,
   IconMoon,
@@ -24,6 +25,7 @@ import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
+  PromptComposer,
   sendToAgentChat,
   setAgentChatContextItem,
   type AgentSidebarStateChangeDetail,
@@ -34,7 +36,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -47,8 +48,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -68,6 +72,7 @@ import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import {
   useCreatePlan,
   useCreateUiPlan,
+  useCreateVisualQuestions,
   usePlan,
   usePlans,
   useUpdatePlan,
@@ -84,6 +89,8 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "manual", label: "Manual" },
   { value: "imported", label: "Imported" },
 ];
+
+const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
 
 type PreferredEditor =
   | "vscode"
@@ -267,6 +274,8 @@ export function PlansPage() {
   const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentStateRef = useRef<PlanDocumentState | null>(null);
+  const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
+  const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(true);
@@ -292,6 +301,7 @@ export function PlansPage() {
   const bundle = planQuery.data;
   const createPlan = useCreatePlan();
   const createUiPlan = useCreateUiPlan();
+  const createVisualQuestions = useCreateVisualQuestions();
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
   const { resolvedTheme, setTheme } = useTheme();
@@ -299,6 +309,25 @@ export function PlansPage() {
   const planTheme = isDarkTheme ? "dark" : "light";
 
   useSetPageTitle(bundle?.plan.title || "Plans");
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const view = immersiveReader ? "immersive" : "app";
+    document.documentElement.dataset.planReaderView = view;
+    window.dispatchEvent(
+      new CustomEvent(PLAN_READER_VIEW_EVENT, {
+        detail: { view, immersive: immersiveReader },
+      }),
+    );
+    return () => {
+      delete document.documentElement.dataset.planReaderView;
+      window.dispatchEvent(
+        new CustomEvent(PLAN_READER_VIEW_EVENT, {
+          detail: { view: "app", immersive: false },
+        }),
+      );
+    };
+  }, [immersiveReader, selectedId]);
 
   const documentHtml = useMemo(() => {
     if (!bundle) return "";
@@ -336,20 +365,61 @@ export function PlansPage() {
       window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, onSidebarState);
   }, []);
 
-  const postRuntimeState = useCallback(() => {
+  const postRuntimeState = useCallback(
+    (restoreScroll?: PlanDocumentState | null) => {
+      iframeRef.current?.contentWindow?.postMessage(
+        {
+          type: "agent-native-plan-runtime-state",
+          annotateMode,
+          theme: planTheme,
+          preferredEditor,
+          parentOrigin: window.location.origin,
+          restoreScroll: restoreScroll ?? null,
+        },
+        "*",
+      );
+    },
+    [annotateMode, planTheme, preferredEditor],
+  );
+
+  const clearPendingDocumentRestore = useCallback(() => {
+    if (pendingDocumentRestoreTimerRef.current !== null) {
+      window.clearTimeout(pendingDocumentRestoreTimerRef.current);
+      pendingDocumentRestoreTimerRef.current = null;
+    }
+    pendingDocumentRestoreRef.current = null;
+  }, []);
+
+  const expirePendingDocumentRestore = useCallback(() => {
+    if (pendingDocumentRestoreTimerRef.current !== null) {
+      window.clearTimeout(pendingDocumentRestoreTimerRef.current);
+    }
+    pendingDocumentRestoreTimerRef.current = window.setTimeout(() => {
+      pendingDocumentRestoreRef.current = null;
+      pendingDocumentRestoreTimerRef.current = null;
+    }, 5000);
+  }, []);
+
+  const handleIframeLoad = useCallback(() => {
+    const restoreScroll = pendingDocumentRestoreRef.current;
     iframeRef.current?.contentWindow?.postMessage(
       {
         type: "agent-native-plan-runtime-state",
         annotateMode,
         theme: planTheme,
         preferredEditor,
+        parentOrigin: window.location.origin,
+        restoreScroll: restoreScroll ?? null,
       },
       "*",
     );
-  }, [annotateMode, planTheme, preferredEditor]);
+    clearPendingDocumentRestore();
+  }, [annotateMode, clearPendingDocumentRestore, planTheme, preferredEditor]);
+
+  useEffect(() => clearPendingDocumentRestore, [clearPendingDocumentRestore]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(postRuntimeState);
+    const frame = requestAnimationFrame(() => postRuntimeState());
     return () => cancelAnimationFrame(frame);
   }, [annotatedDocumentHtml, postRuntimeState]);
 
@@ -376,6 +446,10 @@ export function PlansPage() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.origin !== "null" && event.origin !== window.location.origin) {
+        return;
+      }
+      if (!event.data || typeof event.data !== "object") return;
       const data = event.data as
         | {
             type?: string;
@@ -384,6 +458,9 @@ export function PlansPage() {
             editor?: PreferredEditor;
             href?: string;
             state?: PlanDocumentState;
+            summary?: string;
+            answers?: unknown;
+            title?: string;
           }
         | undefined;
       if (data?.type === "agent-native-plan-annotate" && data.anchor) {
@@ -436,13 +513,38 @@ export function PlansPage() {
           return position ? { ...current, position } : current;
         });
       }
+      if (
+        data?.type === "agent-native-visual-questions-copy" &&
+        typeof data.summary === "string"
+      ) {
+        void navigator.clipboard.writeText(data.summary).then(() => {
+          toast.success("Visual intake prompt copied");
+        });
+      }
+      if (
+        data?.type === "agent-native-visual-questions-send-to-agent" &&
+        typeof data.summary === "string"
+      ) {
+        sendToAgentChat({
+          type: "content",
+          submit: false,
+          context: planAgentContext,
+          message: data.summary,
+        });
+        toast.success("Visual answers added to the agent draft");
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [getPositionFromAnchor]);
+  }, [getPositionFromAnchor, planAgentContext]);
 
   const closeInlineComment = () => {
     setAnnotateMode(false);
+    setPendingAnnotation(null);
+    setInlineCommentPosition(null);
+  };
+
+  const clearInlineCommentDraft = () => {
     setPendingAnnotation(null);
     setInlineCommentPosition(null);
   };
@@ -524,21 +626,30 @@ export function PlansPage() {
       )
         ? pendingAnnotation.sectionId
         : undefined;
-    await updatePlan.mutateAsync({
-      planId: bundle.plan.id,
-      comments: [
-        {
-          kind: "annotation",
-          status: "open",
-          message,
-          sectionId,
-          anchor: JSON.stringify(pendingAnnotation),
-          createdBy: "human",
-        },
-      ],
-      note: "Human added inline visual plan feedback.",
-    });
-    closeInlineComment();
+    clearPendingDocumentRestore();
+    pendingDocumentRestoreRef.current = documentStateRef.current;
+    try {
+      await updatePlan.mutateAsync({
+        planId: bundle.plan.id,
+        comments: [
+          {
+            kind: "annotation",
+            status: "open",
+            message,
+            sectionId,
+            anchor: JSON.stringify(pendingAnnotation),
+            createdBy: "human",
+          },
+        ],
+        note: "Human added inline visual plan feedback.",
+      });
+      expirePendingDocumentRestore();
+    } catch (error) {
+      clearPendingDocumentRestore();
+      throw error;
+    }
+    clearInlineCommentDraft();
+    setAnnotateMode(true);
     toast.success("Comment added");
   };
 
@@ -710,6 +821,21 @@ export function PlansPage() {
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
               <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="pointer-events-auto size-8"
+                      onClick={copyShareLink}
+                      aria-label="Share plan"
+                    >
+                      <IconShare3 className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy plan link</TooltipContent>
+                </Tooltip>
                 {annotateMode || bundle.summary.openCommentCount === 0 ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -775,17 +901,27 @@ export function PlansPage() {
                         <DropdownMenuGroup>
                           <DropdownMenuItem
                             onClick={sendPlanFeedbackToInlineAgent}
-                            className="gap-2"
+                            className="items-start gap-2"
                           >
-                            <IconSend className="size-4" />
-                            Send to inline agent
+                            <IconSend className="mt-0.5 size-4" />
+                            <span className="grid gap-0.5">
+                              <span>Send to inline agent</span>
+                              <span className="text-xs font-normal leading-4 text-muted-foreground">
+                                Posts open comments into the app side agent.
+                              </span>
+                            </span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={copyPlanFeedbackForAgent}
-                            className="gap-2"
+                            className="items-start gap-2"
                           >
-                            <IconClipboardText className="size-4" />
-                            Copy for this agent
+                            <IconClipboardText className="mt-0.5 size-4" />
+                            <span className="grid gap-0.5">
+                              <span>Copy for your agent</span>
+                              <span className="text-xs font-normal leading-4 text-muted-foreground">
+                                Copies a prompt you can paste into chat.
+                              </span>
+                            </span>
                           </DropdownMenuItem>
                         </DropdownMenuGroup>
                       </DropdownMenuContent>
@@ -856,13 +992,6 @@ export function PlansPage() {
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
                       <DropdownMenuItem
-                        onClick={copyShareLink}
-                        className="gap-2"
-                      >
-                        <IconShare3 className="size-4" />
-                        Copy link
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
                         onClick={copyPlanHtml}
                         className="gap-2"
                       >
@@ -906,7 +1035,7 @@ export function PlansPage() {
                 ref={iframeRef}
                 title={`${bundle.plan.title} plan`}
                 srcDoc={annotatedDocumentHtml}
-                onLoad={postRuntimeState}
+                onLoad={handleIframeLoad}
                 sandbox="allow-forms allow-scripts"
                 className={cn(
                   "h-full min-h-full w-full border-0 bg-background",
@@ -960,6 +1089,7 @@ export function PlansPage() {
         onOpenChange={setCreateOpen}
         createPlan={createPlan}
         createUiPlan={createUiPlan}
+        createVisualQuestions={createVisualQuestions}
         visualizePlan={visualizePlan}
         onCreated={(id) => navigate(`/plans/${id}`)}
       />
@@ -1072,11 +1202,132 @@ function PlansOverview({
   );
 }
 
+const CREATE_PLAN_PROMPTS = [
+  {
+    label: "Checkout flow",
+    prompt:
+      "Plan a checkout review flow with desktop and mobile wireframes, key empty/loading/error states, comment prompts, and implementation notes.",
+  },
+  {
+    label: "Settings redesign",
+    prompt:
+      "Create a UI flow plan for a settings redesign, including navigation states, risky interactions, review annotations, and code handoff notes.",
+  },
+  {
+    label: "Imported plan",
+    prompt:
+      "# Implementation plan\n\nPaste the existing Codex or Claude Code plan here and turn it into a visual review document.",
+  },
+] as const;
+
+type CreatePlanKind = "ui" | "questions" | "visual";
+
+function cleanPlanTitleLine(line: string) {
+  return line
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^[-*]\s+\[[ x]\]\s+/i, "")
+    .replace(/^[-*\d.)\s]+/, "")
+    .replace(
+      /^(please\s+)?(create|build|make|design|plan|wire|draft|generate)\s+(me\s+)?(a|an|the)?\s*/i,
+      "",
+    )
+    .trim();
+}
+
+function derivePromptTitle(prompt: string) {
+  const heading = prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,3}\s+\S/.test(line));
+  const firstLine =
+    heading ||
+    prompt
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+  const cleaned = firstLine ? cleanPlanTitleLine(firstLine) : "";
+  const sentence = cleaned.split(/[.!?]\s/)[0]?.trim() || cleaned;
+  if (!sentence) return "Untitled UI plan";
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1, 90);
+}
+
+function isProbablyImportedPlan(prompt: string) {
+  const trimmed = prompt.trim();
+  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
+  if (trimmed.length > 900 && lines.length > 8) return true;
+  const hasHeading = lines.some((line) => /^#{1,4}\s+\S/.test(line.trim()));
+  const checklistCount = lines.filter((line) =>
+    /^[-*]\s+\[[ x]\]\s+\S/i.test(line.trim()),
+  ).length;
+  const taskCount = lines.filter((line) =>
+    /^([-*]|\d+[.)])\s+\S/.test(line.trim()),
+  ).length;
+  const hasPlanLanguage =
+    /\b(implementation plan|acceptance criteria|milestones?|phases?|risks?|open questions?|test plan)\b/i.test(
+      trimmed,
+    );
+  return (
+    trimmed.includes("```") ||
+    (hasHeading && (taskCount >= 3 || hasPlanLanguage)) ||
+    (checklistCount >= 2 && trimmed.length > 220)
+  );
+}
+
+function buildUiPlanStates(prompt: string) {
+  return [
+    {
+      name: "Primary flow",
+      description: `Map the core journey requested in the prompt: ${prompt}`,
+    },
+    {
+      name: "Key states",
+      description:
+        "Show the states a reviewer needs to inspect before implementation: default, loading, empty, error, and success where relevant.",
+    },
+    {
+      name: "Feedback pass",
+      description:
+        "Make comments, annotations, and decisions visible next to the screens so feedback stays attached to the UI.",
+    },
+    {
+      name: "Agent handoff",
+      description:
+        "Summarize accepted direction, unresolved questions, and implementation notes for the coding agent.",
+    },
+  ];
+}
+
+function buildUiPlanComponents(prompt: string) {
+  return [
+    {
+      name: "Flow canvas",
+      description:
+        "Use a top-level pan and zoom canvas for the UI flow, with artboards, arrows, and margin notes.",
+    },
+    {
+      name: "Document sections",
+      description:
+        "Continue below the canvas with a restrained Notion-like plan document using tabs, tables, diagrams, and code snippets when useful.",
+    },
+    {
+      name: "Implementation map",
+      description: `Connect the visual direction back to files, components, and test notes from the prompt: ${prompt}`,
+    },
+  ];
+}
+
+function sourceOptionLabel(source: PlanSource) {
+  return (
+    SOURCE_OPTIONS.find((option) => option.value === source)?.label ?? source
+  );
+}
+
 function CreatePlanDialog({
   open,
   onOpenChange,
   createPlan,
   createUiPlan,
+  createVisualQuestions,
   visualizePlan,
   onCreated,
 }: {
@@ -1084,31 +1335,47 @@ function CreatePlanDialog({
   onOpenChange: (open: boolean) => void;
   createPlan: ReturnType<typeof useCreatePlan>;
   createUiPlan: ReturnType<typeof useCreateUiPlan>;
+  createVisualQuestions: ReturnType<typeof useCreateVisualQuestions>;
   visualizePlan: ReturnType<typeof useVisualizePlan>;
   onCreated: (id: string) => void;
 }) {
-  const [title, setTitle] = useState("Agent-Native Plans Product Plan");
-  const [brief, setBrief] = useState(
-    "Make coding-agent plans visual, scannable, and commentable before implementation.",
-  );
   const [source, setSource] = useState<PlanSource>("codex");
-  const [planText, setPlanText] = useState("");
-  const [planKind, setPlanKind] = useState<"ui" | "visual">("ui");
+  const [planKind, setPlanKind] = useState<CreatePlanKind>("ui");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [promptText, setPromptText] = useState("");
+  const [promptSeed, setPromptSeed] = useState("");
+  const [promptSeedKey, setPromptSeedKey] = useState(0);
+
+  useEffect(() => {
+    if (open) return;
+    setAdvancedOpen(false);
+    setPromptText("");
+    setPromptSeed("");
+  }, [open]);
 
   const isPending =
-    createPlan.isPending || createUiPlan.isPending || visualizePlan.isPending;
-  const submit = () => {
+    createPlan.isPending ||
+    createUiPlan.isPending ||
+    createVisualQuestions.isPending ||
+    visualizePlan.isPending;
+  const submit = (value: string) => {
+    const prompt = value.trim();
+    if (!prompt) {
+      toast.message("Describe the plan first.");
+      return;
+    }
+    const title = derivePromptTitle(prompt);
     const onSuccess = (result: PlanBundle & { planId?: string }) => {
       onOpenChange(false);
       onCreated(result.planId || result.plan.id);
     };
-    if (planText.trim()) {
+    if (isProbablyImportedPlan(prompt)) {
       visualizePlan.mutate(
         {
           title,
-          brief,
+          brief: "Visual companion for an imported coding-agent plan.",
           source,
-          planText,
+          planText: prompt,
         },
         { onSuccess },
       );
@@ -1118,48 +1385,25 @@ function CreatePlanDialog({
       createUiPlan.mutate(
         {
           title,
-          brief,
+          brief: prompt,
           source,
-          states: [
-            {
-              name: "Review",
-              description:
-                "The user sees the key wireframe flow first and can keep scrolling into the refined document details.",
-            },
-            {
-              name: "Comment",
-              description:
-                "Selected text, clicked UI, and drawn marks become anchored feedback the agent can read.",
-            },
-            {
-              name: "Agent handoff",
-              description:
-                "Once comments exist, the primary action sends feedback to the inline Plans agent or copies it for the host agent.",
-            },
-            {
-              name: "Mobile",
-              description:
-                "The plan still supports quick commenting and handoff on narrow screens.",
-            },
-          ],
-          components: [
-            {
-              name: "Floating toolbar",
-              description:
-                "Keep review controls compact: comment, send to agent, share, and overflow.",
-            },
-            {
-              name: "Comment popover",
-              description:
-                "Use a Figma-like inline comment box with a single field and nearby context.",
-            },
-            {
-              name: "Implementation map",
-              description:
-                "Show files, intent, short snippets, and editor-open controls after UI review.",
-            },
-          ],
+          states: buildUiPlanStates(prompt),
+          components: buildUiPlanComponents(prompt),
           sketchiness: 38,
+          implementationNotes:
+            "Tie each visual decision back to likely files, components, symbols, and tests once the repo has been inspected.",
+        },
+        { onSuccess },
+      );
+      return;
+    }
+    if (planKind === "questions") {
+      createVisualQuestions.mutate(
+        {
+          title: `${title} questions`,
+          brief: prompt,
+          source,
+          currentFocus: "visual questions",
         },
         { onSuccess },
       );
@@ -1168,23 +1412,23 @@ function CreatePlanDialog({
     createPlan.mutate(
       {
         title,
-        brief,
+        brief: prompt,
         source,
         sections: [
           {
             type: "summary",
-            title: "The plan in one screen",
-            body: brief,
-          },
-          {
-            type: "wireframe",
-            title: "Review surface",
-            body: "A document-first plan with visuals in the center and annotations one click away.",
+            title: "What we are planning",
+            body: prompt,
           },
           {
             type: "diagram",
-            title: "How feedback changes the build",
-            body: "The user reacts to visuals, comments on the plan, and the agent reads feedback before editing.",
+            title: "Bird's-eye review",
+            body: "Use diagrams, notes, and review prompts to make the plan scannable before implementation starts.",
+          },
+          {
+            type: "implementation",
+            title: "Agent handoff",
+            body: "Capture files, symbols, code snippets, risks, and test notes as the plan gets refined.",
           },
         ],
       },
@@ -1194,100 +1438,148 @@ function CreatePlanDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle>Create plan</DialogTitle>
           <DialogDescription>
-            Start fresh or paste an existing Claude Code/Codex plan to turn it
-            into a richer visual version.
+            Describe the plan you want, or paste an existing Codex/Claude plan
+            to visualize it.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="plan-title">Title</Label>
-            <Input
-              id="plan-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
+        <div className="grid gap-3">
+          <div className="rounded-xl border border-border bg-background p-2 shadow-sm">
+            <PromptComposer
+              autoFocus
+              disabled={isPending}
+              attachmentsEnabled={false}
+              showModelSelector={false}
+              placeholder="Plan the UI flow, implementation map, review notes..."
+              draftScope="plans:create-plan"
+              initialText={promptSeed}
+              initialTextKey={promptSeedKey}
+              onTextChange={setPromptText}
+              onSubmit={submit}
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="plan-brief">Brief</Label>
-            <Textarea
-              id="plan-brief"
-              value={brief}
-              onChange={(event) => setBrief(event.target.value)}
-              rows={3}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Source</Label>
-            <Select
-              value={source}
-              onValueChange={(value) => setSource(value as PlanSource)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SOURCE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {!planText.trim() && (
-            <div className="grid gap-2">
-              <Label>Plan type</Label>
-              <Select
-                value={planKind}
-                onValueChange={(value) =>
-                  setPlanKind(value === "visual" ? "visual" : "ui")
-                }
+          <div className="flex flex-wrap gap-2">
+            {CREATE_PLAN_PROMPTS.map((preset) => (
+              <Button
+                key={preset.label}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-full border-border/80 px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
+                disabled={isPending}
+                onClick={() => {
+                  setPromptSeed(preset.prompt);
+                  setPromptSeedKey((key) => key + 1);
+                  setPromptText(preset.prompt);
+                }}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ui">
-                    UI-first plan - high-fidelity mockups and states
-                  </SelectItem>
-                  <SelectItem value="visual">
-                    General visual plan - diagrams, steps, and file map
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <div className="grid gap-2">
-            <Label htmlFor="plan-text">Existing plan text</Label>
-            <Textarea
-              id="plan-text"
-              value={planText}
-              onChange={(event) => setPlanText(event.target.value)}
-              rows={7}
-              placeholder="Paste a Markdown/Codex/Claude Code plan here to visualize it."
-            />
+                {preset.label}
+              </Button>
+            ))}
           </div>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <span className="font-medium">Advanced</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate">
+                    {sourceOptionLabel(source)} ·{" "}
+                    {planKind === "ui"
+                      ? "UI flow"
+                      : planKind === "questions"
+                        ? "Visual questions"
+                        : "General visual"}
+                  </span>
+                  <IconChevronDown
+                    className={cn(
+                      "size-3.5 shrink-0 transition-transform",
+                      advancedOpen && "rotate-180",
+                    )}
+                  />
+                </span>
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <span className="text-xs font-medium text-foreground">
+                    Source
+                  </span>
+                  <Select
+                    value={source}
+                    onValueChange={(value) => setSource(value as PlanSource)}
+                  >
+                    <SelectTrigger aria-label="Plan source">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SOURCE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Provenance only. It helps explain where the plan started.
+                  </p>
+                </div>
+                <div className="grid gap-1.5">
+                  <span className="text-xs font-medium text-foreground">
+                    Fresh prompt style
+                  </span>
+                  <Select
+                    value={planKind}
+                    onValueChange={(value) =>
+                      setPlanKind(
+                        value === "visual"
+                          ? "visual"
+                          : value === "questions"
+                            ? "questions"
+                            : "ui",
+                      )
+                    }
+                  >
+                    <SelectTrigger aria-label="Fresh prompt style">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ui">
+                        UI flow - wireframes and states
+                      </SelectItem>
+                      <SelectItem value="questions">
+                        Visual questions - intake first
+                      </SelectItem>
+                      <SelectItem value="visual">
+                        General visual - diagrams and notes
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Pasted plans are detected and imported automatically.
+                  </p>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+          {promptText.trim() && isProbablyImportedPlan(promptText) ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              Looks like an existing plan. It will be imported and visualized.
+            </p>
+          ) : null}
+          {isPending ? (
+            <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+              <IconLoader2 className="size-3.5 animate-spin" />
+              Creating plan...
+            </div>
+          ) : null}
         </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={submit} disabled={isPending}>
-            {planText.trim()
-              ? "Visualize Plan"
-              : planKind === "ui"
-                ? "Create UI Plan"
-                : "Create Plan"}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -1306,11 +1598,21 @@ function InlineCommentPopover({
   const [submitError, setSubmitError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const mountedRef = useRef(true);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "44px";
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 44), 144);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > nextHeight ? "auto" : "hidden";
+  }, [message]);
   const canSubmit = message.trim().length > 0 && !isSubmitting;
   const submit = async () => {
     if (!canSubmit) return;
@@ -1333,8 +1635,9 @@ function InlineCommentPopover({
       className="absolute z-30 rounded-xl border border-border/80 bg-background/96 p-2 shadow-2xl backdrop-blur-xl"
       style={{ left: position.left, top: position.top, width: position.width }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-start gap-2">
         <Textarea
+          ref={textareaRef}
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={(event) => {
@@ -1350,7 +1653,7 @@ function InlineCommentPopover({
           rows={1}
           autoFocus
           placeholder="Add a comment..."
-          className="h-11 [min-height:2.75rem] resize-none border-border/80 bg-background py-2.5 text-sm leading-5 shadow-none focus-visible:ring-1"
+          className="h-11 min-h-11 max-h-36 resize-none overflow-hidden border-border/80 bg-background py-2.5 text-sm leading-5 shadow-none focus-visible:ring-1"
         />
         <Button
           type="button"
@@ -1640,6 +1943,8 @@ function injectAnnotationRuntime(
     }
     :root[data-agent-native-theme="light"] body { background: var(--bg) !important; color: var(--text) !important; }
     :root[data-agent-native-theme="light"] code { background: #eeeeea !important; color: #242424 !important; }
+    :root[data-agent-native-theme] pre code,
+    :root[data-agent-native-theme] pre code * { background: transparent !important; background-image: none !important; box-shadow: none !important; }
     :root[data-agent-native-theme="light"] .mock-plan,
     :root[data-agent-native-theme="light"] .mock-sidebar,
     :root[data-agent-native-theme="light"] .diagram-card,
@@ -1707,11 +2012,13 @@ function injectAnnotationRuntime(
     :root[data-agent-native-theme="light"] .editor-picker button:hover, :root[data-agent-native-theme="light"] .editor-picker-option.is-active { background: rgba(0,0,0,.06); color: var(--text, #171717); }
     :root[data-agent-native-theme="light"] .editor-picker-menu { background: var(--paper, #ffffff); box-shadow: 0 18px 50px rgba(29,29,24,.13); }
     .visual-tabs[data-plan-tabs] { display: grid; gap: 14px; }
-    .visual-tabs[data-plan-tabs] .tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 4px; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 11px; background: var(--paper-2, rgba(255,255,255,.04)); padding: 4px; overflow-x: auto; }
-    .visual-tabs[data-plan-tabs] .tab-button { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, #a4a4aa); padding: 0 11px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; }
+    .visual-tabs[data-plan-tabs] .tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 8px; border: 0; border-radius: 0; background: transparent; padding: 0; overflow-x: auto; }
+    .visual-tabs[data-plan-tabs] .tab-button { min-height: 30px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted, #a4a4aa); padding: 0 11px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; }
     .visual-tabs[data-plan-tabs] .tab-button:hover { color: var(--text, #f4f4f5); background: rgba(255,255,255,.05); }
-    .visual-tabs[data-plan-tabs] .tab-button.is-active { background: var(--text, #f4f4f5); color: var(--bg, #0a0a0b); }
+    .visual-tabs[data-plan-tabs] .tab-button.is-active { border-color: var(--text, #f4f4f5); background: transparent; color: var(--text, #f4f4f5); }
+    .visual-tabs[data-plan-tabs] .tab-button.is-active:hover { background: transparent; color: var(--text, #f4f4f5); }
     :root[data-agent-native-theme="light"] .visual-tabs[data-plan-tabs] .tab-button:hover { background: rgba(0,0,0,.06); }
+    :root[data-agent-native-theme="light"] .visual-tabs[data-plan-tabs] .tab-button.is-active:hover { background: transparent; color: var(--text, #171717); }
     .visual-tabs[data-plan-tabs] .tab-panel { display: none; }
     .visual-tabs[data-plan-tabs] .tab-panel.is-active { display: block; }
     .implementation-map { margin: 24px 0; border-top: 1px solid var(--line, rgba(255,255,255,.14)); }
@@ -2107,9 +2414,32 @@ function injectAnnotationRuntime(
         state.theme = theme === "light" ? "light" : "dark";
         root.dataset.agentNativeTheme = state.theme;
       }
+      function restoreDocumentScroll(savedState) {
+        if (!savedState) return;
+        const doc = document.documentElement;
+        const scrollWidth = Math.max(doc.scrollWidth, document.body?.scrollWidth || 0);
+        const scrollHeight = Math.max(doc.scrollHeight, document.body?.scrollHeight || 0);
+        const x =
+          typeof savedState.scrollX === "number"
+            ? savedState.scrollX * (scrollWidth / Math.max(savedState.scrollWidth || scrollWidth, 1))
+            : 0;
+        const y =
+          typeof savedState.scrollY === "number"
+            ? savedState.scrollY * (scrollHeight / Math.max(savedState.scrollHeight || scrollHeight, 1))
+            : 0;
+        requestAnimationFrame(() => {
+          window.scrollTo(x, y);
+          syncAnnotationMarkers();
+          postDocState();
+          requestAnimationFrame(postDocState);
+        });
+      }
       window.addEventListener("message", (event) => {
         const data = event.data || {};
         if (data.type !== "agent-native-plan-runtime-state") return;
+        if (typeof data.parentOrigin === "string" && data.parentOrigin && data.parentOrigin !== "null") {
+          window.__agentNativePlanParentOrigin = data.parentOrigin;
+        }
         if (typeof data.theme === "string") setRuntimeTheme(data.theme);
         if (typeof data.preferredEditor === "string") {
           setPreferredEditor(data.preferredEditor, false);
@@ -2117,6 +2447,7 @@ function injectAnnotationRuntime(
         if (typeof data.annotateMode === "boolean") {
           setRuntimeAnnotateMode(data.annotateMode);
         }
+        if (data.restoreScroll) restoreDocumentScroll(data.restoreScroll);
       });
       function postDocState() {
         const doc = document.documentElement;
@@ -2132,6 +2463,14 @@ function injectAnnotationRuntime(
           }
         }, "*");
       }
+      let annotationMarkerSyncFrame = 0;
+      function scheduleAnnotationMarkerSync() {
+        if (annotationMarkerSyncFrame) return;
+        annotationMarkerSyncFrame = requestAnimationFrame(() => {
+          annotationMarkerSyncFrame = 0;
+          syncAnnotationMarkers();
+        });
+      }
       removeEmptyPlanSections();
       upgradeImplementationFileMaps();
       initializePlanTabs();
@@ -2140,7 +2479,11 @@ function injectAnnotationRuntime(
       postDocState();
       window.addEventListener("scroll", postDocState, { passive: true });
       window.addEventListener("resize", () => {
-        syncAnnotationMarkers();
+        scheduleAnnotationMarkerSync();
+        postDocState();
+      });
+      window.addEventListener("agent-native-plan-board-layout-change", () => {
+        scheduleAnnotationMarkerSync();
         postDocState();
       });
       function pct(value, total) {

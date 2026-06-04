@@ -29,6 +29,19 @@ export type AgentDynamicSuggestionsOption =
   | boolean
   | AgentDynamicSuggestionsConfig;
 
+export interface AgentDynamicSuggestionsResult {
+  suggestions: string[] | undefined;
+  isLoading: boolean;
+}
+
+interface UseAgentDynamicSuggestionsOptions {
+  staticSuggestions?: readonly string[];
+  dynamicSuggestions?: AgentDynamicSuggestionsOption;
+  browserTabId?: string;
+  scope?: ChatThreadScope | null;
+  enabled?: boolean;
+}
+
 interface NormalizedAgentDynamicSuggestionsConfig {
   enabled: boolean;
   max: number;
@@ -318,13 +331,9 @@ export function mergeAgentSuggestions(options: {
   return dedupeSuggestions(merged).slice(0, options.max);
 }
 
-export function useAgentDynamicSuggestions(options: {
-  staticSuggestions?: readonly string[];
-  dynamicSuggestions?: AgentDynamicSuggestionsOption;
-  browserTabId?: string;
-  scope?: ChatThreadScope | null;
-  enabled?: boolean;
-}): string[] | undefined {
+export function useAgentDynamicSuggestionsResult(
+  options: UseAgentDynamicSuggestionsOptions,
+): AgentDynamicSuggestionsResult {
   const config = useMemo(
     () => normalizeAgentDynamicSuggestionsConfig(options.dynamicSuggestions),
     [options.dynamicSuggestions],
@@ -353,15 +362,18 @@ export function useAgentDynamicSuggestions(options: {
   const [context, setContext] = useState<AgentDynamicSuggestionContext | null>(
     null,
   );
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (!enabled) {
       setContext(null);
+      setIsLoading(false);
       return;
     }
 
     let cancelled = false;
-    const load = async () => {
+    const load = async (showLoading: boolean) => {
+      if (showLoading) setIsLoading(true);
       try {
         const [navigation, selection, pendingSelection, url] =
           await Promise.all([
@@ -387,12 +399,14 @@ export function useAgentDynamicSuggestions(options: {
           url: null,
           scope,
         });
+      } finally {
+        if (!cancelled && showLoading) setIsLoading(false);
       }
     };
 
-    void load();
+    void load(true);
     const interval = setInterval(() => {
-      void load();
+      void load(false);
     }, 2_000);
 
     return () => {
@@ -401,20 +415,15 @@ export function useAgentDynamicSuggestions(options: {
     };
   }, [appStateVersion, browserTabId, enabled, scope, scopeKey]);
 
-  return useMemo(() => {
+  const suggestions = useMemo(() => {
     if (!enabled) {
       return options.staticSuggestions
         ? dedupeSuggestions(options.staticSuggestions)
         : undefined;
     }
+    if (context === null) return undefined;
 
-    const ctx = context ?? {
-      navigation: null,
-      selection: null,
-      pendingSelection: null,
-      url: null,
-      scope,
-    };
+    const ctx = context;
     const dynamic = config.getSuggestions
       ? config.getSuggestions(ctx)
       : buildDynamicAgentSuggestions(ctx);
@@ -426,4 +435,15 @@ export function useAgentDynamicSuggestions(options: {
     });
     return merged.length > 0 ? merged : undefined;
   }, [config, context, enabled, scope, scopeKey, options.staticSuggestions]);
+
+  return {
+    suggestions,
+    isLoading: enabled && (context === null || isLoading),
+  };
+}
+
+export function useAgentDynamicSuggestions(
+  options: UseAgentDynamicSuggestionsOptions,
+): string[] | undefined {
+  return useAgentDynamicSuggestionsResult(options).suggestions;
 }

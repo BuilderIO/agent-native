@@ -31,6 +31,7 @@ method gives the UI, docs, and future agents one stable contract.
    | App action reads/writes | `useActionQuery` / `useActionMutation` from `@agent-native/core/client` |
    | Imperative action calls | `callAction` from `@agent-native/core/client` |
    | Browser application state | `readClientAppState`, `writeClientAppState`, `setClientAppState`, `deleteClientAppState` |
+   | Navigation/app-state sync | `useAgentRouteState` / `useSemanticNavigationState` from `@agent-native/core/client` |
    | Agent chat context | Agent chat client helpers from `@agent-native/core/client` |
    | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` |
    | Extension iframe calls | `appAction`, `appFetch`, `extensionFetch` from the extension runtime |

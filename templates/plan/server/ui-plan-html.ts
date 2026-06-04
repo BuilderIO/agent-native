@@ -89,7 +89,7 @@ export function buildUiPlanHtml(input: BuildUiPlanHtmlInput): string {
   const sketchiness = clampSketchiness(input.sketchiness);
 
   return `<!doctype html>
-<html lang="en" data-plan-theme="notion-document" style="--board-zoom:.68; --sketch:${(sketchiness / 100).toFixed(2)}; --accent:#2f6fed; --accent-soft:rgba(47,111,237,.1);">
+<html lang="en" data-plan-theme="notion-document" style="--board-zoom:.68; --sketch:${(sketchiness / 100).toFixed(2)}; --accent:#2f6fed; --accent-soft:rgba(47,111,237,.1); --grid-size:19px; --grid-offset-x:34px; --grid-offset-y:28px;">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -111,11 +111,6 @@ export function buildUiPlanHtml(input: BuildUiPlanHtmlInput): string {
       <p class="doc-kicker">UI plan</p>
       <h1>${title}</h1>
       <p class="doc-lede">${brief}</p>
-      <div class="doc-meta">
-        <span>${source}</span>
-        ${repoPath ? `<span>${repoPath}</span>` : ""}
-        <span>${hasTopCanvas ? "Wireframes + document" : "Document only"}</span>
-      </div>
     </header>
 
     <section class="doc-block" data-plan-section-id="ui-plan-focus">
@@ -157,45 +152,28 @@ function renderTopVisualCanvas(input: {
 }) {
   const board = buildTopCanvasLayout(input.states, input.components);
   return `<section class="top-canvas-section" data-plan-section-id="ui-flow-canvas" data-plan-visual data-label="UI flow canvas">
-    <div class="canvas-toolbar">
-      <div>
-        <p class="doc-kicker">Wireframe canvas</p>
-        <strong>${input.title}</strong>
-      </div>
-      <div class="canvas-controls" aria-label="Canvas controls">
-        <button type="button" data-zoom-out aria-label="Zoom out">-</button>
-        <button type="button" data-zoom-reset><span data-zoom-label>68%</span></button>
-        <button type="button" data-zoom-in aria-label="Zoom in">+</button>
-      </div>
+    <div class="canvas-controls" aria-label="Canvas controls">
+      <button type="button" data-zoom-out aria-label="Zoom out">-</button>
+      <button type="button" data-zoom-reset><span data-zoom-label>68%</span></button>
+      <button type="button" data-zoom-in aria-label="Zoom in">+</button>
     </div>
     <div class="canvas-viewport" data-board-viewport aria-label="${input.title} pan and zoom wireframe canvas">
       <div class="board-canvas" data-board-canvas style="width:${board.width}px;height:${board.height}px;">
-        <section class="board-note intro-note" style="${frameStyle(72, 72, 510, 246)}" data-plan-visual data-label="Plan brief">
-          <p class="eyebrow">Flow brief</p>
-          <h2>${input.title}</h2>
-          <p>${input.brief}</p>
-          <div class="note-meta">
-            <span>${input.source}</span>
-            ${input.repoPath ? `<span>${input.repoPath}</span>` : ""}
-          </div>
-        </section>
-
         ${
           input.states.length > 0
-            ? `<div class="board-group-label" style="${frameStyle(72, 350, 520, 42)}">A - UI flow wireframes</div>
-              ${renderBoardFlowConnectors(input.states)}
+            ? `${renderBoardFlowConnectors(input.states)}
               ${input.states.map((state, index) => renderBoardStateFrame(state, index)).join("")}`
             : ""
         }
 
         ${
           input.components.length > 0
-            ? `<div class="board-group-label" style="${frameStyle(72, board.componentY - 58, 430, 42)}">B - Interaction notes</div>
+            ? `<div class="board-group-label" style="${frameStyle(80, board.componentY - 48, 430, 42)}">Interaction notes</div>
               ${input.components.map((component, index) => renderBoardComponentFrame(component, index, board)).join("")}`
             : ""
         }
 
-        ${renderTopCanvasHelperNotes(board, input.sketchiness)}
+        ${renderCanvasAnnotationLayers(input.states, board, input.sketchiness)}
       </div>
     </div>
   </section>`;
@@ -209,32 +187,57 @@ function buildTopCanvasLayout(
   const stateRows = Math.max(1, Math.ceil(secondaryCount / 4));
   const componentRows =
     components.length > 0 ? Math.ceil(components.length / 4) : 0;
-  const componentY = states.length > 0 ? 1040 + (stateRows - 1) * 610 : 390;
+  const componentY = states.length > 0 ? 780 + (stateRows - 1) * 570 : 110;
   return {
     width: 2500,
-    height: componentY + Math.max(1, componentRows) * 330 + 230,
+    height: componentY + Math.max(1, componentRows) * 260 + 170,
     componentY,
-    implementationY: componentY + Math.max(1, componentRows) * 330 + 92,
+    implementationY: componentY + Math.max(1, componentRows) * 260 + 92,
   };
 }
 
-function renderTopCanvasHelperNotes(
+function renderCanvasAnnotationLayers(
+  states: UiPlanState[],
   board: ReturnType<typeof buildTopCanvasLayout>,
   sketchiness: number,
 ) {
-  return `<aside class="canvas-helper-note" style="${frameStyle(1780, 86, 390, 220)}">
-    <strong>Read this like a Figma handoff.</strong>
+  const primary = states[0];
+  const secondary = states[1];
+  const lastState =
+    states.length > 0 ? stateFrameLayout(states.length - 1) : null;
+  const handoffX = lastState
+    ? Math.min(board.width - 380, lastState.x + lastState.width + 96)
+    : 1760;
+  return `<div class="canvas-annotation handoff-note" style="${frameStyle(handoffX, 118, 340, 176)}">
+    <h4>Read this like a Figma handoff.</h4>
     <ul>
       <li>Pan and zoom to compare frames.</li>
-      <li>Use comments on any labeled artboard.</li>
-      <li>Scroll below for the document spec.</li>
+      <li>Leave comments directly on artboards.</li>
+      <li>Scroll for the doc spec below.</li>
     </ul>
-    <span>Sketchiness ${sketchiness}%</span>
-  </aside>
-  <aside class="canvas-helper-note muted" style="${frameStyle(1720, board.height - 320, 420, 210)}">
-    <strong>Document continues below</strong>
-    <p>The canvas is only the visual preface. State tabs, diagrams, code tabs, and implementation notes live in the refined document section.</p>
-  </aside>`;
+    <p>Sketchiness ${sketchiness}%</p>
+  </div>
+  ${
+    primary
+      ? `<div class="canvas-annotation" style="${frameStyle(104, 572, 430, 94)}">
+        <h4>${escapeHtml(primary.name)} frame</h4>
+        <p>${escapeHtml(primary.description)}</p>
+      </div>
+      <div class="annotation-arrow" style="${frameStyle(420, 512, 150, 88)}"><svg viewBox="0 0 150 88"><path d="M 6 80 C 52 34, 92 16, 142 8" /><path d="M 126 3 L 142 8 L 132 22" /></svg></div>`
+      : ""
+  }
+  ${
+    secondary
+      ? `<div class="canvas-annotation" style="${frameStyle(stateFrameLayout(1).x + 16, stateFrameLayout(1).y + stateFrameLayout(1).height + 32, 310, 96)}">
+        <h4>Comment path</h4>
+        <p>${escapeHtml(secondary.description)}</p>
+      </div>`
+      : ""
+  }
+  <div class="canvas-annotation quiet-note" style="${frameStyle(1550, board.height - 210, 430, 118)}">
+    <h4>Document continues below</h4>
+    <p>Use the lower section for state tabs, diagrams, code tabs, review prompts, and implementation detail.</p>
+  </div>`;
 }
 
 function renderDocumentStateTabs(states: UiPlanState[]) {
@@ -424,14 +427,14 @@ function frameStyle(x: number, y: number, width: number, height: number) {
 
 function stateFrameLayout(index: number) {
   if (index === 0) {
-    return { x: 80, y: 410, width: 780, height: 520, kind: "desktop" };
+    return { x: 80, y: 98, width: 780, height: 440, kind: "desktop" };
   }
   const secondary = index - 1;
   return {
-    x: 940 + (secondary % 4) * 360,
-    y: 390 + Math.floor(secondary / 4) * 610,
+    x: 1000 + (secondary % 4) * 430,
+    y: 98 + Math.floor(secondary / 4) * 570,
     width: 302,
-    height: 560,
+    height: 500,
     kind: "mobile",
   };
 }
@@ -439,17 +442,14 @@ function stateFrameLayout(index: number) {
 function renderBoardStateFrame(state: UiPlanState, index: number) {
   const layout = stateFrameLayout(index);
   const label = escapeHtml(state.name);
-  const description = escapeHtml(state.description);
   const id = `board-state-${index}`;
   const isDesktop = layout.kind === "desktop";
   const inner = isDesktop
     ? renderBoardDesktopScreen(state, index)
     : renderBoardPhoneScreen(state, index);
   return `<article id="${id}" class="board-frame ${isDesktop ? "desktop-frame" : "phone-frame"}" style="${frameStyle(layout.x, layout.y, layout.width, layout.height)}" data-plan-visual data-label="${label}" aria-label="${label} artboard">
-    <div class="frame-label"><span>::</span><strong>${label}</strong></div>
+    <div class="frame-label"><strong>${label}</strong></div>
     ${inner}
-    <div class="annotation-note">Flow ${index + 1}: ${label}</div>
-    <p class="frame-caption">${description}</p>
   </article>`;
 }
 
@@ -565,14 +565,10 @@ function renderBoardComponentFrame(
   board: { componentY: number },
 ) {
   const x = 80 + (index % 4) * 410;
-  const y = board.componentY + Math.floor(index / 4) * 330;
-  return `<article class="board-card component-card" style="${frameStyle(x, y, 370, 250)}" data-plan-visual data-label="${escapeHtml(component.name)}">
-    <p class="eyebrow">Component</p>
-    <h3>${escapeHtml(component.name)}</h3>
+  const y = board.componentY + Math.floor(index / 4) * 260;
+  return `<article class="canvas-annotation component-annotation" style="${frameStyle(x, y, 360, 190)}" data-plan-visual data-label="${escapeHtml(component.name)}">
+    <h4>${escapeHtml(component.name)}</h4>
     <p>${escapeHtml(component.description)}</p>
-    <div class="component-mini">
-      <span></span><span></span><button type="button">Action</button>
-    </div>
   </article>`;
 }
 
@@ -631,6 +627,15 @@ function escapeHtml(value: unknown) {
 
 const UI_PLAN_JS = `
 (() => {
+  let boardLayoutFrame = 0;
+  function requestBoardLayoutSync() {
+    if (boardLayoutFrame) return;
+    boardLayoutFrame = requestAnimationFrame(() => {
+      boardLayoutFrame = 0;
+      window.dispatchEvent(new Event("agent-native-plan-board-layout-change"));
+    });
+  }
+
   function activateTab(tabset, target, focus) {
     const buttons = Array.from(tabset.querySelectorAll("[data-tab-target]"));
     const panels = Array.from(tabset.querySelectorAll("[data-tab-panel]"));
@@ -644,7 +649,7 @@ const UI_PLAN_JS = `
     for (const panel of panels) {
       panel.classList.toggle("is-active", panel.getAttribute("data-tab-panel") === target);
     }
-    window.dispatchEvent(new Event("resize"));
+    requestBoardLayoutSync();
   }
 
   for (const tabset of document.querySelectorAll("[data-plan-tabs]")) {
@@ -675,9 +680,12 @@ const UI_PLAN_JS = `
   function applyCanvasTransform() {
     canvas.style.transform = "translate(" + panX + "px," + panY + "px) scale(" + zoom + ")";
     root.style.setProperty("--board-zoom", zoom.toFixed(3));
+    root.style.setProperty("--grid-size", (28 * zoom).toFixed(2) + "px");
+    root.style.setProperty("--grid-offset-x", panX.toFixed(2) + "px");
+    root.style.setProperty("--grid-offset-y", panY.toFixed(2) + "px");
     if (zoomLabel) zoomLabel.textContent = Math.round(zoom * 100) + "%";
     if (roughMap) roughMap.setAttribute("scale", String(Math.round((Number.parseFloat(root.style.getPropertyValue("--sketch")) || 0.38) * 100 / 12)));
-    window.dispatchEvent(new Event("resize"));
+    requestBoardLayoutSync();
   }
 
   function setZoom(nextZoom, clientX, clientY) {
@@ -692,6 +700,12 @@ const UI_PLAN_JS = `
     applyCanvasTransform();
   }
 
+  function panCanvas(deltaX, deltaY) {
+    panX -= deltaX;
+    panY -= deltaY;
+    applyCanvasTransform();
+  }
+
   document.querySelector("[data-zoom-out]")?.addEventListener("click", () => setZoom(zoom - 0.08));
   document.querySelector("[data-zoom-in]")?.addEventListener("click", () => setZoom(zoom + 0.08));
   document.querySelector("[data-zoom-reset]")?.addEventListener("click", () => {
@@ -702,16 +716,24 @@ const UI_PLAN_JS = `
   });
 
   viewport.addEventListener("wheel", (event) => {
-    if (!(event.metaKey || event.ctrlKey || event.altKey)) return;
+    if (root.classList.contains("an-plan-annotating")) return;
     event.preventDefault();
-    setZoom(zoom + (event.deltaY > 0 ? -0.06 : 0.06), event.clientX, event.clientY);
+    if (event.metaKey || event.ctrlKey || event.altKey) {
+      setZoom(zoom + (event.deltaY > 0 ? -0.06 : 0.06), event.clientX, event.clientY);
+      return;
+    }
+    const horizontal = event.shiftKey && Math.abs(event.deltaX) < Math.abs(event.deltaY)
+      ? event.deltaY
+      : event.deltaX;
+    const vertical = event.shiftKey ? event.deltaX : event.deltaY;
+    panCanvas(horizontal, vertical);
   }, { passive: false });
 
   viewport.addEventListener("pointerdown", (event) => {
     if (root.classList.contains("an-plan-annotating")) return;
     if (event.button !== 0) return;
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest(".canvas-toolbar,.board-frame,.board-card,.board-note,.canvas-helper-note,button,input,textarea,a,details,summary")) return;
+    if (target?.closest(".canvas-controls,.board-frame,.board-card,.board-note,.canvas-helper-note,.canvas-annotation,.annotation-arrow,button,input,textarea,a,details,summary")) return;
     panStart = { x: event.clientX, y: event.clientY, panX, panY };
     viewport.classList.add("is-panning");
     event.preventDefault();
@@ -737,51 +759,48 @@ const UI_PLAN_JS = `
 
 const UI_PLAN_CSS = `
 @font-face { font-family: "Virgil"; src: url("/fonts/Virgil-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
-:root { color-scheme: light; --bg: #fbfaf7; --paper: #fffefa; --paper-soft: #f5f3ee; --ink: #23201d; --soft: #4b4640; --muted: #817970; --line: rgba(36,31,26,.13); --line-strong: rgba(36,31,26,.24); --canvas: #e9edf1; --sketch-line: #cfd5dc; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --warning: #fff4bf; --wire-font: "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive; --doc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace; --shadow-soft: 0 18px 56px rgba(38,32,24,.1); --density-scale: 1; }
+:root { color-scheme: light; --bg: #faf9f7; --paper: #ffffff; --paper-soft: #f3f2ef; --ink: #18181b; --soft: #44403c; --muted: #78716c; --line: rgba(28,25,23,.13); --line-strong: rgba(28,25,23,.25); --canvas: #f3f2ef; --grid-line: rgba(28,25,23,.04); --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --warning: #fff4bf; --note-ink: #4d4219; --wire-surface: #ffffff; --wire-soft: #f4f4f5; --wire-mark: #d4d4d8; --wire-rule: rgba(63,63,70,.18); --wire-frame-bg: #ffffff; --wire-line: rgba(39,39,42,.8); --wire-line-soft: rgba(39,39,42,.28); --wire-dot: #71717a; --board-shell: rgba(255,255,255,.94); --board-card-bg: #fff9dc; --board-card-bg-2: #e9f4ec; --board-card-bg-3: #edf1fb; --diagram-bg: #f3f2ef; --diagram-node-bg: #ffffff; --code-bg: #f5f5f6; --code-ink: #27272a; --syntax-keyword: #0b67d2; --syntax-string: #287d43; --tab-hover: rgba(28,25,23,.055); --wire-font: "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive; --doc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace; --shadow-soft: 0 18px 56px rgba(24,24,27,.1); --density-scale: 1; }
+:root[data-agent-native-theme="dark"] { color-scheme: dark; --bg: #1f1e1d; --paper: #242423; --paper-soft: #2b2a2a; --ink: #f4f4f2; --soft: #d8d6d2; --muted: #aaa8a4; --line: rgba(244,244,242,.14); --line-strong: rgba(244,244,242,.26); --canvas: #1d1c1b; --grid-line: rgba(244,244,242,.024); --accent: #78a7ff; --accent-soft: rgba(120,167,255,.17); --warning: #3a3216; --note-ink: #ede7c7; --wire-surface: #202020; --wire-soft: #2a2a2a; --wire-mark: #686868; --wire-rule: rgba(244,244,242,.14); --wire-frame-bg: #202020; --wire-line: rgba(244,244,242,.78); --wire-line-soft: rgba(244,244,242,.26); --wire-dot: #aaa8a4; --board-shell: rgba(36,36,35,.95); --board-card-bg: #2a2929; --board-card-bg-2: #282828; --board-card-bg-3: #292a2e; --diagram-bg: #242423; --diagram-node-bg: #202020; --code-bg: #181817; --code-ink: #e7e5e1; --syntax-keyword: #7ab8ff; --syntax-string: #9ee6a3; --tab-hover: rgba(244,244,242,.08); --shadow-soft: 0 18px 56px rgba(0,0,0,.24); }
 * { box-sizing: border-box; }
 html { background: var(--bg); scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--doc-font); line-height: 1.62; }
 button, input, textarea { font: inherit; }
 .rough-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
-.top-canvas-section { position: relative; min-height: min(720px, 78vh); border-bottom: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
-.top-canvas-section::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(44,48,54,.055) 1px, transparent 1px), linear-gradient(90deg, rgba(44,48,54,.055) 1px, transparent 1px); background-size: 44px 44px; pointer-events: none; }
-.canvas-toolbar { position: sticky; z-index: 10; top: 0; display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(35,32,29,.1); background: rgba(251,250,247,.84); padding: 10px 22px; backdrop-filter: blur(14px); }
-.canvas-toolbar > div:first-child { min-width: 0; }
-.canvas-toolbar strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
-.canvas-controls { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.72); padding: 3px; }
-.canvas-controls button { min-width: 34px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); padding: 0 10px; font-weight: 760; cursor: pointer; }
-.canvas-controls button:hover { background: rgba(35,32,29,.07); }
-.canvas-viewport { position: absolute; inset: 58px 0 0; overflow: hidden; cursor: grab; touch-action: none; }
+.top-canvas-section { position: relative; height: 70vh; border-bottom: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
+.canvas-controls { position: absolute; z-index: 10; left: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: 1px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--paper) 84%, transparent); padding: 2px; box-shadow: 0 10px 28px rgba(0,0,0,.18); backdrop-filter: blur(14px); }
+.canvas-controls button { min-width: 26px; height: 24px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); padding: 0 7px; font-size: 12px; font-weight: 760; cursor: pointer; }
+.canvas-controls button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.canvas-viewport { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: var(--grid-size) var(--grid-size); background-position: var(--grid-offset-x) var(--grid-offset-y); }
 .canvas-viewport.is-panning { cursor: grabbing; user-select: none; }
 .board-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
-.board-note, .board-frame, .board-card, .board-group-label, .flow-connector, .canvas-helper-note { position: absolute; }
-.board-note, .board-frame, .board-card, .canvas-helper-note { z-index: 2; color: var(--ink); cursor: default; }
-.board-group-label { z-index: 2; display: flex; align-items: center; color: var(--ink); font: 400 28px/1 var(--wire-font); }
-.board-group-label::before { content: ""; width: 18px; height: 18px; margin-right: 10px; border: 1.5px dashed var(--accent); border-radius: 5px; background: var(--accent-soft); }
-.intro-note, .board-frame, .board-card, .canvas-helper-note { border: 1.7px solid rgba(43,39,34,.62); border-radius: 8px; background: rgba(255,254,250,.92); box-shadow: var(--shadow-soft); }
+.board-note, .board-frame, .board-card, .board-group-label, .flow-connector, .canvas-helper-note, .canvas-annotation, .annotation-arrow { position: absolute; }
+.board-note, .board-frame, .board-card, .canvas-helper-note, .canvas-annotation { z-index: 2; color: var(--ink); cursor: default; }
+.board-group-label { z-index: 2; display: flex; align-items: center; color: var(--ink); font: 760 18px/1 var(--doc-font); }
+.board-group-label::before { display: none; }
+.intro-note, .board-card, .canvas-helper-note { border: 1.7px solid var(--wire-line); border-radius: 8px; background: var(--board-shell); box-shadow: var(--shadow-soft); }
 .intro-note { display: flex; flex-direction: column; justify-content: space-between; padding: 22px 24px; }
-.intro-note::after, .board-frame::after, .board-card::after { content: ""; position: absolute; inset: calc(var(--sketch) * -3px); border: calc(1px + var(--sketch) * 1.35px) solid rgba(48,43,37,.25); border-radius: inherit; opacity: calc(var(--sketch) * .7); transform: translate(calc(var(--sketch) * 2px), calc(var(--sketch) * -1px)) rotate(calc(var(--sketch) * .26deg)); pointer-events: none; }
+.intro-note::after, .board-card::after { content: ""; position: absolute; inset: calc(var(--sketch) * -3px); border: calc(1px + var(--sketch) * 1.35px) solid var(--wire-line-soft); border-radius: inherit; opacity: calc(var(--sketch) * .7); transform: translate(calc(var(--sketch) * 2px), calc(var(--sketch) * -1px)) rotate(calc(var(--sketch) * .26deg)); pointer-events: none; }
 .eyebrow { margin: 0 0 10px; color: var(--muted); font: 750 11px/1.2 var(--doc-font); text-transform: uppercase; letter-spacing: 0; }
 h1, h2, h3, p { margin-top: 0; }
-.intro-note h2 { margin: 0 0 12px; font: 400 34px/1.08 var(--wire-font); letter-spacing: 0; }
+.intro-note h2 { margin: 0 0 12px; font: 760 30px/1.08 var(--doc-font); letter-spacing: 0; }
 .intro-note p, .board-card p, .frame-caption { color: var(--muted); font-size: 15px; }
 .note-meta { display: flex; flex-wrap: wrap; gap: 7px; }
 .note-meta span { max-width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 999px; background: var(--paper-soft); padding: 5px 9px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .flow-connector { z-index: 1; pointer-events: none; }
 .flow-connector svg { position: absolute; inset: 0; overflow: visible; }
 .flow-connector path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 8 8; opacity: .66; filter: url(#ui-plan-roughen); }
-.flow-connector span { position: absolute; display: inline-flex; min-height: 26px; align-items: center; border: 1px solid var(--accent); border-radius: 999px; background: #fff; color: var(--accent); padding: 0 9px; font: 400 12px/1 var(--wire-font); box-shadow: 0 8px 18px rgba(40,36,30,.1); }
-.frame-label { position: absolute; left: 0; right: 0; top: -32px; display: flex; align-items: center; gap: 9px; color: var(--muted); font: 650 15px/1.1 var(--doc-font); }
-.frame-label span { color: rgba(61,56,49,.48); font-weight: 900; letter-spacing: 0; }
-.frame-label strong { color: var(--ink); font: 400 20px/1 var(--wire-font); }
-.wire-window { position: absolute; inset: 14px 14px 76px; overflow: hidden; border: 1.5px solid rgba(43,39,34,.8); border-radius: 5px; background: #fff; filter: url(#ui-plan-roughen); }
-.window-bar { display: flex; height: 28px; align-items: center; gap: 6px; border-bottom: 1.4px solid rgba(43,39,34,.8); padding: 0 9px; }
-.window-bar span { width: 7px; height: 7px; border: 1.2px solid rgba(43,39,34,.8); border-radius: 999px; }
+.flow-connector span { position: absolute; display: inline-flex; min-height: 26px; align-items: center; border: 1px solid var(--accent); border-radius: 999px; background: var(--paper); color: var(--accent); padding: 0 9px; font: 760 12px/1 var(--doc-font); }
+.frame-label { position: absolute; left: 0; right: 0; top: -26px; display: flex; align-items: center; color: var(--muted); font: 650 15px/1.1 var(--doc-font); }
+.frame-label span { display: none; }
+.frame-label strong { color: var(--ink); font: 760 15px/1 var(--doc-font); }
+.wire-window { position: absolute; inset: 0; overflow: hidden; border: 1.5px solid var(--wire-line); border-radius: 5px; background: var(--wire-surface); color: var(--ink); filter: url(#ui-plan-roughen); box-shadow: none; }
+.window-bar { display: flex; height: 28px; align-items: center; gap: 6px; border-bottom: 1.4px solid var(--wire-line); padding: 0 9px; }
+.window-bar span { width: 7px; height: 7px; border: 1.2px solid var(--wire-line); border-radius: 999px; }
 .window-bar i { margin-left: 7px; color: var(--muted); font: 400 11px/1 var(--wire-font); font-style: normal; }
 .desktop-shell { display: grid; height: calc(100% - 28px); grid-template-columns: 154px 1fr; }
-.sketch-sidebar { display: flex; flex-direction: column; gap: 13px; border-right: 1.4px solid rgba(43,39,34,.8); padding: 18px 15px; }
+.sketch-sidebar { display: flex; flex-direction: column; gap: 13px; border-right: 1.4px solid var(--wire-line); padding: 18px 15px; }
 .sketch-sidebar b { margin-bottom: 4px; font: 400 15px/1 var(--wire-font); }
-.sketch-sidebar i { display: block; height: calc(27px * var(--density-scale)); border: 1.3px solid rgba(61,56,49,.42); border-radius: 5px; background: #f7f5ed; }
+.sketch-sidebar i { display: block; height: calc(27px * var(--density-scale)); border: 1.3px solid var(--wire-line-soft); border-radius: 5px; background: var(--wire-soft); }
 .sketch-sidebar i.is-active { background: var(--accent-soft); border-color: var(--accent); }
 .sketch-main { min-width: 0; padding: 22px 24px; }
 .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
@@ -789,39 +808,37 @@ h1, h2, h3, p { margin-top: 0; }
 .screen-head p { max-width: 420px; margin: 0; color: var(--muted); font: 400 14px/1.35 var(--wire-font); }
 .screen-head button, .handoff-actions button { min-height: 34px; border: 1.5px solid var(--accent); border-radius: 5px; background: var(--accent); color: #fff; padding: 0 14px; font: 750 13px/1 var(--doc-font); cursor: default; }
 .pill-row { display: flex; flex-wrap: wrap; gap: 9px; margin: 20px 0 18px; }
-.pill { display: inline-flex; min-height: 26px; align-items: center; border: 1.3px solid rgba(43,39,34,.8); border-radius: 999px; background: #fff; padding: 0 11px; font: 400 13px/1 var(--wire-font); }
+.pill { display: inline-flex; min-height: 26px; align-items: center; border: 1.3px solid var(--wire-line); border-radius: 999px; background: var(--wire-surface); padding: 0 11px; font: 400 13px/1 var(--wire-font); }
 .pill.is-active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .task-list { display: grid; gap: calc(12px * var(--density-scale)); }
-.task-row { display: grid; min-height: calc(52px * var(--density-scale)); grid-template-columns: 22px 1fr 58px; align-items: center; gap: 12px; border-top: 1.2px solid rgba(61,56,49,.18); }
-.check { display: inline-block; width: 15px; height: 15px; border: 1.5px solid rgba(43,39,34,.8); border-radius: 4px; background: #fff; }
+.task-row { display: grid; min-height: calc(52px * var(--density-scale)); grid-template-columns: 22px 1fr 58px; align-items: center; gap: 12px; border-top: 1.2px solid var(--wire-rule); }
+.check { display: inline-block; width: 15px; height: 15px; border: 1.5px solid var(--wire-line); border-radius: 4px; background: var(--wire-surface); }
 .check.checked { background: var(--accent); box-shadow: inset 0 0 0 3px #fff; }
-.task-row b, .task-row i, .phone-task b, .phone-task i, .phone-check i, .notes-lines i, .task-title, .input-line, .textarea-line { display: block; border-radius: 999px; background: #d8d1c3; }
+.task-row b, .task-row i, .phone-task b, .phone-task i, .phone-check i, .notes-lines i, .task-title, .input-line, .textarea-line { display: block; border-radius: 999px; background: var(--wire-mark); }
 .task-row b { width: 54%; height: 10px; margin-bottom: 8px; }
 .task-row i { width: 34%; height: 8px; }
-.task-row em { justify-self: end; border: 1.2px solid rgba(43,39,34,.8); border-radius: 999px; padding: 3px 7px; color: var(--muted); font: 400 11px/1 var(--wire-font); font-style: normal; }
+.task-row em { justify-self: end; border: 1.2px solid var(--wire-line); border-radius: 999px; padding: 3px 7px; color: var(--muted); font: 400 11px/1 var(--wire-font); font-style: normal; }
 .task-row em.hot { border-color: #cf5432; color: #cf5432; }
-.frame-caption { position: absolute; left: 16px; right: 16px; bottom: 14px; margin: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font: 400 14px/1.25 var(--wire-font); }
-.annotation-note { position: absolute; right: -22px; top: 58px; width: 144px; min-height: 62px; border: 1.3px solid rgba(61,56,49,.46); border-radius: 6px; background: var(--warning); padding: 10px; color: #6b5f3f; font: 400 13px/1.2 var(--wire-font); transform: rotate(calc(var(--sketch) * -1.8deg)); box-shadow: 0 12px 24px rgba(43,40,34,.1); }
-.phone-frame .annotation-note { right: -38px; width: 132px; }
-.phone-frame { padding: 13px; background: #fffdfa; }
-.phone-shell { position: absolute; inset: 13px 13px 56px; overflow: hidden; border: 1.5px solid rgba(43,39,34,.8); border-radius: 25px; background: #fff; filter: url(#ui-plan-roughen); }
+.frame-caption, .annotation-note { display: none; }
+.phone-frame { padding: 0; background: transparent; }
+.phone-shell { position: absolute; inset: 0; overflow: hidden; border: 1.5px solid var(--wire-line); border-radius: 25px; background: var(--wire-surface); color: var(--ink); filter: url(#ui-plan-roughen); box-shadow: none; }
 .phone-status { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 13px; color: var(--muted); font: 650 10px/1 var(--doc-font); }
 .phone-status span { flex: 1; }
-.phone-status i { width: 12px; height: 4px; border-radius: 99px; background: #8c867e; }
-.phone-header { display: grid; height: 40px; grid-template-columns: 54px 1fr 54px; align-items: center; border-bottom: 1.3px solid rgba(43,39,34,.8); padding: 0 9px; text-align: center; }
+.phone-status i { width: 12px; height: 4px; border-radius: 99px; background: var(--wire-dot); }
+.phone-header { display: grid; height: 40px; grid-template-columns: 54px 1fr 54px; align-items: center; border-bottom: 1.3px solid var(--wire-line); padding: 0 9px; text-align: center; }
 .phone-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 14px/1 var(--wire-font); }
 .phone-header button { border: 0; background: transparent; color: var(--accent); padding: 0; font: 750 11px/1 var(--doc-font); }
 .phone-list, .phone-form, .phone-detail { padding: 17px 14px; }
 .phone-list .pill-row { margin-top: 0; gap: 7px; }
-.phone-task { display: grid; min-height: calc(48px * var(--density-scale)); grid-template-columns: 18px 1fr 38px; align-items: center; gap: 8px; border-bottom: 1px solid rgba(61,56,49,.16); }
+.phone-task { display: grid; min-height: calc(48px * var(--density-scale)); grid-template-columns: 18px 1fr 38px; align-items: center; gap: 8px; border-bottom: 1px solid var(--wire-rule); }
 .phone-task b { width: 68%; height: 8px; margin-bottom: 7px; }
 .phone-task i { width: 43%; height: 7px; }
 .phone-task em { color: var(--muted); font: 400 10px/1 var(--wire-font); font-style: normal; }
 .phone-form label { display: block; margin: 13px 0 5px; color: var(--muted); font: 750 9px/1 var(--doc-font); text-transform: uppercase; letter-spacing: 0; }
-.input-line { height: 32px; border: 1.2px solid rgba(43,39,34,.8); background: transparent; }
-.textarea-line { height: 72px; border: 1.2px solid rgba(43,39,34,.8); border-radius: 5px; background: transparent; }
+.input-line { height: 32px; border: 1.2px solid var(--wire-line); background: transparent; }
+.textarea-line { height: 72px; border: 1.2px solid var(--wire-line); border-radius: 5px; background: transparent; }
 .chip-grid { display: flex; flex-wrap: wrap; gap: 7px; }
-.chip-grid span { border: 1.2px solid rgba(43,39,34,.8); border-radius: 999px; padding: 5px 8px; font: 400 11px/1 var(--wire-font); }
+.chip-grid span { border: 1.2px solid var(--wire-line); border-radius: 999px; padding: 5px 8px; font: 400 11px/1 var(--wire-font); }
 .chip-grid span.is-active { border-color: var(--accent); color: var(--accent); }
 .task-title { width: 84%; height: 21px; margin-bottom: 18px; }
 .priority-row { display: flex; gap: 8px; margin-bottom: 26px; }
@@ -833,27 +850,32 @@ h1, h2, h3, p { margin-top: 0; }
 .check-list { display: grid; gap: 15px; }
 .phone-check { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: center; }
 .phone-check i { height: 8px; }
-.board-card { background: #fff9df; padding: 19px 20px; }
-.component-card:nth-of-type(2n) { background: #e8f2e8; }
-.component-card:nth-of-type(3n) { background: #e9edf9; }
-.component-card h3 { margin: 0 0 10px; font: 400 25px/1.12 var(--wire-font); letter-spacing: 0; }
-.component-card p { font: 400 15px/1.35 var(--wire-font); }
-.component-mini { position: absolute; left: 20px; right: 20px; bottom: 18px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 9px; align-items: center; }
-.component-mini span { height: 26px; border: 1.3px solid rgba(61,56,49,.46); border-radius: 5px; background: rgba(255,255,255,.5); }
-.component-mini button { min-height: 28px; border: 1.3px solid var(--accent); border-radius: 5px; background: var(--accent-soft); color: var(--accent); padding: 0 10px; font-weight: 750; }
-.canvas-helper-note { padding: 18px 20px; background: rgba(255,254,250,.88); font-family: var(--wire-font); }
-.canvas-helper-note strong { display: block; margin-bottom: 10px; font-size: 21px; font-weight: 400; }
+.board-card { background: transparent; padding: 0; }
+.component-card:nth-of-type(2n), .component-card:nth-of-type(3n) { background: transparent; }
+.component-card h3 { margin: 0 0 10px; font: 760 19px/1.2 var(--doc-font); letter-spacing: 0; }
+.component-card p { font: 500 14px/1.45 var(--doc-font); }
+.component-mini { display: none; }
+.canvas-helper-note { padding: 18px 20px; background: color-mix(in srgb, var(--paper) 86%, transparent); font-family: var(--doc-font); }
+.canvas-helper-note strong { display: block; margin-bottom: 10px; font-size: 16px; font-weight: 760; }
 .canvas-helper-note ul { display: grid; gap: 5px; margin: 0 0 12px; padding-left: 19px; }
 .canvas-helper-note p { margin: 0; color: var(--muted); }
 .canvas-helper-note span { color: var(--accent); font-size: 13px; }
-.canvas-helper-note.muted { background: #f5f1e7; color: var(--soft); }
+.canvas-helper-note.muted { background: var(--paper-soft); color: var(--soft); }
+.canvas-annotation { font-family: var(--doc-font); pointer-events: auto; }
+.canvas-annotation h4 { margin: 0 0 7px; color: var(--ink); font-size: 15px; line-height: 1.15; font-weight: 760; letter-spacing: 0; }
+.canvas-annotation p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.canvas-annotation ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: var(--soft); font-size: 13px; line-height: 1.35; }
+.canvas-annotation.handoff-note h4, .canvas-annotation.component-annotation h4 { color: var(--ink); }
+.canvas-annotation.handoff-note p { margin-top: 12px; color: var(--accent); font-size: 12px; }
+.canvas-annotation.quiet-note { color: var(--muted); }
+.annotation-arrow { z-index: 1; pointer-events: none; }
+.annotation-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.annotation-arrow path { fill: none; stroke: var(--accent); stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; opacity: .72; filter: url(#ui-plan-roughen); }
 .notion-plan { width: min(910px, calc(100vw - 44px)); margin: 0 auto; padding: 88px 0 118px; }
 .doc-cover { padding-bottom: 34px; border-bottom: 1px solid var(--line); }
 .doc-kicker { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 760; letter-spacing: 0; text-transform: uppercase; }
-.doc-cover h1 { margin: 0 0 20px; font-size: clamp(42px, 6vw, 72px); line-height: .98; letter-spacing: -.035em; }
+.doc-cover h1 { margin: 0 0 18px; font-size: clamp(38px, 5vw, 62px); line-height: 1.02; letter-spacing: -.03em; }
 .doc-lede { max-width: 780px; margin: 0; color: var(--soft); font-size: clamp(19px, 2.4vw, 25px); line-height: 1.48; letter-spacing: -.012em; }
-.doc-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
-.doc-meta span { display: inline-flex; max-width: 100%; min-height: 26px; align-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 999px; background: var(--paper-soft); color: var(--muted); padding: 0 10px; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .doc-block { padding: 34px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 20px; }
 .doc-block h2 { margin: 0 0 12px; font-size: clamp(25px, 3vw, 34px); line-height: 1.14; letter-spacing: -.024em; }
 .doc-block h3 { margin: 0 0 10px; font-size: 22px; line-height: 1.2; letter-spacing: -.014em; }
@@ -866,74 +888,75 @@ h1, h2, h3, p { margin-top: 0; }
 .doc-list strong, .doc-list span { grid-column: 2; }
 .doc-list span { display: block; color: var(--soft); }
 .visual-tabs { display: grid; gap: 18px; margin-top: 20px; }
-.tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 8px; border: 0; overflow-x: auto; }
 .tab-button { min-height: 38px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 0 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
-.tab-button:hover { color: var(--ink); background: rgba(35,32,29,.045); }
+.tab-button:hover { color: var(--ink); background: var(--tab-hover); }
 .tab-button.is-active { border-color: var(--ink); color: var(--ink); }
+.tab-button.is-active:hover { color: var(--ink); background: transparent; }
 .tab-panel { display: none; }
 .tab-panel.is-active { display: block; }
 .state-spec { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(280px, .92fr); gap: 28px; align-items: start; }
-.inline-wireframe { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--paper); box-shadow: 0 8px 28px rgba(42,36,28,.06); filter: url(#ui-plan-roughen); }
+.inline-wireframe { overflow: hidden; border: 1px solid var(--wire-line-soft); border-radius: 8px; background: var(--wire-surface); filter: url(#ui-plan-roughen); box-shadow: none; }
 .inline-wireframe.is-mobile { max-width: 380px; border-radius: 28px; }
-.wireframe-top { display: flex; height: 34px; align-items: center; gap: 6px; border-bottom: 1px solid var(--line-strong); padding: 0 10px; }
-.wireframe-top span { width: 8px; height: 8px; border: 1px solid var(--line-strong); border-radius: 999px; }
+.wireframe-top { display: flex; height: 34px; align-items: center; gap: 6px; border-bottom: 1px solid var(--wire-line-soft); padding: 0 10px; }
+.wireframe-top span { width: 8px; height: 8px; border: 1px solid var(--wire-line-soft); border-radius: 999px; }
 .wireframe-top strong { margin-left: 8px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font: 400 13px/1 var(--wire-font); }
 .wireframe-body { display: grid; min-height: 330px; grid-template-columns: 92px 1fr; }
 .inline-wireframe.is-mobile .wireframe-body { grid-template-columns: 1fr; }
-.wireframe-body aside { display: grid; align-content: start; gap: 10px; border-right: 1px solid var(--line-strong); padding: 16px; }
+.wireframe-body aside { display: grid; align-content: start; gap: 10px; border-right: 1px solid var(--wire-line-soft); padding: 16px; }
 .inline-wireframe.is-mobile aside { display: none; }
-.wireframe-body aside i { height: 22px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper-soft); }
+.wireframe-body aside i { height: 22px; border: 1px solid var(--wire-line-soft); border-radius: 5px; background: var(--wire-soft); }
 .wireframe-body aside i.active { border-color: var(--accent); background: var(--accent-soft); }
 .wireframe-body main { padding: 24px; }
-.wireframe-body main b, .wireframe-body main p, .wireframe-grid span { display: block; border-radius: 999px; background: #d8d2c7; }
+.wireframe-body main b, .wireframe-body main p, .wireframe-grid span { display: block; border-radius: 999px; background: var(--wire-mark); }
 .wireframe-body main b { width: 58%; height: 28px; margin-bottom: 20px; }
 .wireframe-body main p { width: 84%; height: 10px; margin-bottom: 11px; }
 .wireframe-body main p.short { width: 46%; }
 .wireframe-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
-.wireframe-grid span { height: 86px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper-soft); }
+.wireframe-grid span { height: 86px; border-radius: 7px; border: 1px solid var(--wire-line-soft); background: var(--wire-soft); }
 .wireframe-grid span.accent { border-color: var(--accent); background: var(--accent-soft); }
 .state-notes { display: grid; gap: 14px; }
 details { border-top: 1px solid var(--line); padding-top: 12px; }
 summary { color: var(--ink); font-weight: 720; cursor: pointer; }
 details ul { margin: 12px 0 0; padding-left: 18px; color: var(--soft); }
-.sketch-flow-diagram { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-soft); padding: 22px; font-family: var(--wire-font); filter: url(#ui-plan-roughen); }
+.sketch-flow-diagram { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--diagram-bg); padding: 22px; font-family: var(--doc-font); filter: url(#ui-plan-roughen); }
 .diagram-step { display: flex; align-items: center; gap: 14px; }
-.diagram-node { min-width: 148px; border: 1.5px solid rgba(43,39,34,.72); border-radius: 8px; background: var(--paper); padding: 12px 14px; }
+.diagram-node { min-width: 148px; border: 1.5px solid var(--wire-line); border-radius: 8px; background: var(--diagram-node-bg); padding: 12px 14px; }
 .diagram-node span { display: inline-grid; width: 22px; height: 22px; place-items: center; margin-right: 8px; border-radius: 999px; background: var(--accent); color: #fff; font-family: var(--doc-font); font-size: 12px; font-weight: 800; }
-.diagram-node strong { font-weight: 400; }
+.diagram-node strong { font-weight: 760; }
 .diagram-arrow { color: var(--accent); font-size: 28px; }
 .component-spec { display: grid; grid-template-columns: minmax(0, .9fr) minmax(260px, 1.1fr); gap: 28px; align-items: center; }
-.component-mini-spec { display: grid; grid-template-columns: 1fr 1fr auto; gap: 11px; align-items: center; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--paper); padding: 20px; min-height: 180px; filter: url(#ui-plan-roughen); }
-.component-mini-spec span, .component-mini-spec i { min-height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-soft); }
+.component-mini-spec { display: grid; grid-template-columns: 1fr 1fr auto; gap: 11px; align-items: center; border: 1px solid var(--wire-line-soft); border-radius: 8px; background: var(--wire-surface); padding: 20px; min-height: 180px; filter: url(#ui-plan-roughen); }
+.component-mini-spec span, .component-mini-spec i { min-height: 30px; border: 1px solid var(--wire-line-soft); border-radius: 6px; background: var(--wire-soft); }
 .component-mini-spec button { min-height: 34px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; padding: 0 14px; font-weight: 760; }
 .component-mini-spec i { grid-column: span 3; min-height: 52px; }
-.file-map-preview { display: grid; grid-template-columns: minmax(220px, .36fr) minmax(0, 1fr); margin-top: 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.file-map-preview { display: grid; grid-template-columns: minmax(220px, .36fr) minmax(0, 1fr); margin-top: 20px; }
 .file-list { border-right: 1px solid var(--line); }
 .file-tab { display: grid; width: 100%; gap: 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--muted); padding: 16px 14px; text-align: left; cursor: pointer; }
-.file-tab:hover { background: rgba(35,32,29,.045); color: var(--ink); }
+.file-tab:hover { background: var(--tab-hover); color: var(--ink); }
 .file-tab.is-active { color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
 .file-tab strong { font: 760 13px/1.25 var(--mono-font); }
 .file-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .file-panels { min-width: 0; }
 .file-detail { min-width: 0; padding: 22px 24px; }
-pre { margin: 18px 0 0; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #f6f5f1; padding: 18px 20px; color: #2d2925; font: 13px/1.65 var(--mono-font); }
-.syntax-keyword { color: #0b67d2; }
-.syntax-string { color: #2f7d45; }
+pre { margin: 18px 0 0; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--code-bg); padding: 18px 20px; color: var(--code-ink); font: 13px/1.65 var(--mono-font); }
+pre code, pre code * { background: transparent !important; }
+.syntax-keyword { color: var(--syntax-keyword); }
+.syntax-string { color: var(--syntax-string); }
 .doc-table { width: 100%; margin-top: 16px; border-collapse: collapse; font-size: 14px; }
 .doc-table th, .doc-table td { border-bottom: 1px solid var(--line); padding: 12px 10px; text-align: left; vertical-align: top; }
 .doc-table th { color: var(--muted); font-size: 12px; font-weight: 760; text-transform: uppercase; letter-spacing: 0; }
 .doc-table td { color: var(--soft); }
 .doc-table td:first-child { color: var(--ink); font-weight: 720; }
 @media (max-width: 900px) {
-  .top-canvas-section { min-height: 620px; }
+  .top-canvas-section { height: 70vh; }
   .notion-plan { width: min(100vw - 28px, 910px); padding-top: 58px; }
   .state-spec, .component-spec, .file-map-preview { grid-template-columns: 1fr; }
   .file-list { border-right: 0; }
   .doc-cover h1 { font-size: clamp(38px, 10vw, 56px); }
 }
 @media (max-width: 620px) {
-  .canvas-toolbar { align-items: flex-start; flex-direction: column; }
-  .canvas-viewport { top: 98px; }
+  .canvas-controls { left: 14px; bottom: 14px; }
   .wireframe-body { grid-template-columns: 1fr; }
   .wireframe-body aside { display: none; }
   .sketch-flow-diagram { align-items: stretch; flex-direction: column; }

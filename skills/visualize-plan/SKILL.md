@@ -20,6 +20,19 @@ states, empty/loading/error paths, review affordances, and copy placeholders.
 When the source plan is terse, add README-like detail for slash commands, tool
 behavior, install flow, MCP/link fallback, data shape, and scope.
 
+## Plan Discipline
+
+- **Right-size first.** If the source plan is for trivial, unambiguous work,
+  skip the companion and just implement. A visual companion is worth it only
+  when the plan is long, risky, or hard to react to as text.
+- **Stay grounded and read-only.** Preserve the source plan's intent, do not
+  invent codebase facts, and label anything inferred as inferred. Make no source
+  edits while building or reviewing the companion.
+- **The companion is the approval gate.** Ask the user to review and approve the
+  direction before you write any code, and name which files/areas the work will
+  touch. Carry unresolved assumptions and open questions into a clear block
+  instead of guessing silently.
+
 Ask the user to comment in the plan, then call `get-plan-feedback` before
 implementation.
 

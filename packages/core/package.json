@@ -43,6 +43,7 @@
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
     "./client/application-state": "./dist/client/application-state.js",
     "./client/api-path": "./dist/client/api-path.js",
+    "./client/route-state": "./dist/client/route-state.js",
     "./client/observability": "./dist/client/observability/index.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/settings/useBuilderStatus": "./dist/client/settings/useBuilderStatus.js",

@@ -17,8 +17,33 @@ first, and implementation details come after the user has something concrete to
 react to.
 
 `/visual-plan` remains the general rich planning command for architecture,
-backend, refactors, migrations, and mixed work. Use `/visualize-plan` when a
-text plan already exists and should become an HTML companion.
+backend, refactors, migrations, and mixed work. Use `/visual-questions` first
+when the user should answer visual intake questions before a UI plan. Use
+`/visualize-plan` when a text plan already exists and should become an HTML
+companion.
+
+## Plan Discipline
+
+- **Right-size first.** Use a UI plan when the surface is new, ambiguous, spans
+  several screens or states, or the direction needs agreement before coding.
+  Skip it for cosmetic one-liners — a color, a label, a spacing tweak — and just
+  make the change.
+- **Research before you draft.** Read the real components, routes, design
+  tokens, and existing patterns first, and ground mockups and the file map in
+  actual files and symbols rather than inventing them. Delegate wide exploration
+  to a sub-agent when the surface is large.
+- **Planning is read-only.** Make no source edits while building or reviewing
+  the plan. Start editing only after the user approves the UI direction.
+- **Clarify vs. assume.** Do not ask the user how to build the UI — explore and
+  present the direction and options as mockups and tabs. Ask a clarifying
+  question only when an ambiguity would change the design and you cannot resolve
+  it from the code or a sensible default; batch 2-4 high-leverage,
+  decision-changing questions before finalizing. Otherwise state the assumption
+  in the plan and proceed.
+- **The plan is the approval gate.** Explicitly ask the user to review and
+  approve the UI direction before you write any code, and name the files/areas
+  the work will touch. Presenting the plan and requesting sign-off is the
+  approval step — do not ask a separate "does this look good?" question.
 
 ## UI-First Workflow
 
@@ -27,6 +52,12 @@ text plan already exists and should become an HTML companion.
 2. When the plan has meaningful UI flows, screens, or diagrams, make the top
    of the document a bounded pan/zoom sketch canvas with the key artboards,
    connectors, margin notes, and commentable visual anchors.
+   Treat notes like Figma text layers: sprinkle headings, supporting text,
+   bullets, arrows, and labels around the artboards, but do not overlap the
+   wireframes or wrap the artboards in explanatory cards.
+   In dark mode, keep the canvas field slightly darker than the document with a
+   very subtle moving grid, and keep wireframe artboards flat rather than
+   shadowed.
 3. Continue below the canvas as a restrained, Notion-like interactive document:
    clear prose, horizontal state tabs, inline wireframes, sketchy diagrams,
    tables, vertical code tabs, and concise implementation notes.
@@ -117,6 +148,8 @@ starts editing.
 ## Tool Guidance
 
 - `create-ui-plan`: create the UI-first HTML plan.
+- `create-visual-questions`: ask a rich visual intake form before the UI plan
+  when direction-changing answers are needed.
 - `update-visual-plan`: revise mockups, state tabs, comments, or handoff notes.
 - `get-visual-plan`: inspect the current plan and annotations.
 - `get-plan-feedback`: read unconsumed reviewer comments before coding.
