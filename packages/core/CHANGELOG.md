@@ -1,5 +1,28 @@
 # @agent-native/core
 
+## 0.37.0
+
+### Minor Changes
+
+- 5d6ef40: Add `useSemanticNavigationState` and `useAgentRouteState` client helpers for
+  consistent semantic navigation app-state sync, tab-scoped navigate command
+  consumption, and duplicate command protection.
+
+### Patch Changes
+
+- 5d6ef40: Keep the chat shell from waiting on dynamic prompt suggestions, and show a
+  three-row suggestion skeleton in empty chats while context-aware suggestions
+  load.
+- 5d6ef40: Add a "Plan Discipline" section to the exported Plans skills
+
+  `/visual-plan`, `/ui-plan`, and `/visualize-plan` now lead with plan-mode
+  process discipline drawn from best-in-class plan modes: right-size when to plan
+  (skip trivial work), research the codebase before drafting, keep planning
+  read-only, clarify only decision-changing ambiguity before finalizing (otherwise
+  state an assumption and proceed), write specific plans with non-goals and a
+  closing verification step, and treat the plan as an explicit approval gate before
+  any code is written.
+
 ## 0.36.0
 
 ### Minor Changes
