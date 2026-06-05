@@ -55,7 +55,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value }),
+      body: JSON.stringify(value),
     },
   );
 }
