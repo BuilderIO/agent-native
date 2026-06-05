@@ -147,6 +147,35 @@ describe("structured plan content", () => {
     expect(preview?.surface).toBeTruthy();
     expect(Array.isArray(preview?.screen)).toBe(true);
   });
+
+  it("rejects duplicate canvas element IDs", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      title: "Duplicate canvas IDs",
+      canvas: {
+        sections: [
+          { id: "section-1", title: "First" },
+          { id: "section-1", title: "Second" },
+        ],
+        frames: [
+          { id: "frame-1", label: "First" },
+          { id: "frame-1", label: "Second" },
+        ],
+        annotations: [
+          { id: "annotation-1", text: "First note." },
+          { id: "annotation-1", text: "Second note." },
+        ],
+      },
+      blocks: [],
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const messages = result.error.issues.map((issue) => issue.message);
+    expect(messages).toContain("Duplicate canvas section id: section-1");
+    expect(messages).toContain("Duplicate canvas frame id: frame-1");
+    expect(messages).toContain("Duplicate canvas annotation id: annotation-1");
+  });
 });
 
 describe("custom-html safety", () => {

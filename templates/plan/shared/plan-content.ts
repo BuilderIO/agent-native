@@ -1113,6 +1113,24 @@ export const planContentSchema: z.ZodType<PlanContent> = z
     blocks: z.array(planBlockSchema).max(200).default([]),
   })
   .superRefine((content, context) => {
+    const checkUniqueIds = (
+      items: Array<{ id: string }> | undefined,
+      label: string,
+      path: Array<string | number>,
+    ) => {
+      const seen = new Set<string>();
+      for (const [index, item] of (items ?? []).entries()) {
+        if (seen.has(item.id)) {
+          context.addIssue({
+            code: "custom",
+            path: [...path, index, "id"],
+            message: `Duplicate ${label} id: ${item.id}`,
+          });
+        }
+        seen.add(item.id);
+      }
+    };
+
     const seen = new Set<string>();
     const visit = (block: PlanBlock) => {
       if (seen.has(block.id)) {
@@ -1134,6 +1152,22 @@ export const planContentSchema: z.ZodType<PlanContent> = z
 
     for (const block of content.blocks) {
       visit(block);
+    }
+
+    if (content.canvas) {
+      checkUniqueIds(content.canvas.sections, "canvas section", [
+        "canvas",
+        "sections",
+      ]);
+      checkUniqueIds(content.canvas.frames, "canvas frame", [
+        "canvas",
+        "frames",
+      ]);
+      checkUniqueIds(content.canvas.annotations, "canvas annotation", [
+        "canvas",
+        "annotations",
+      ]);
+      checkUniqueIds(content.canvas.notes, "canvas note", ["canvas", "notes"]);
     }
   }) as unknown as z.ZodType<PlanContent>;
 
