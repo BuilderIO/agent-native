@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyPlanContentPatches,
   planContentSchema,
+  type PlanContent,
 } from "../shared/plan-content.js";
 import {
   buildPlanContentHtml,
@@ -9,11 +10,12 @@ import {
   createUiPlanContent,
   createVisualQuestionsContent,
   parsePlanContent,
+  sanitizeCustomHtml,
   serializePlanContent,
 } from "./plan-content.js";
 
 describe("structured plan content", () => {
-  it("builds UI plans as native content with a canvas and rich blocks", () => {
+  it("builds UI plans as native content with a canvas and legacy-wireframe blocks", () => {
     const content = createUiPlanContent({
       title: "Checkout flow",
       brief: "Review the checkout flow before implementation.",
@@ -33,12 +35,20 @@ describe("structured plan content", () => {
     });
 
     expect(content.canvas?.frames).toHaveLength(2);
-    expect(content.canvas?.frames[0]).not.toHaveProperty("x");
-    expect(content.canvas?.frames[0]?.wireframe?.viewport).toBe("desktop");
-    expect(content.canvas?.frames[1]?.wireframe?.viewport).toBe("phone");
+    expect(content.canvas?.frames[0]?.legacyWireframe?.viewport).toBe(
+      "desktop",
+    );
+    expect(content.canvas?.frames[1]?.legacyWireframe?.viewport).toBe("phone");
+    expect(content.canvas?.frames[0]?.label).toBe("Overview");
     expect(content.blocks.some((block) => block.type === "tabs")).toBe(true);
     expect(
       content.blocks.some((block) => block.type === "implementation-map"),
+    ).toBe(true);
+    // No region-based blocks should keep the deprecated discriminant.
+    expect(
+      content.blocks.every(
+        (block) => block.type !== ("sketch-wireframe" as never),
+      ),
     ).toBe(true);
 
     const html = buildPlanContentHtml({
@@ -101,12 +111,15 @@ describe("structured plan content", () => {
 
     expect(content.blocks.map((block) => block.type)).toEqual([
       "rich-text",
-      "sketch-wireframe",
+      "legacy-wireframe",
     ]);
     expect(content.canvas?.frames).toHaveLength(1);
+    expect(
+      content.canvas?.frames[0]?.legacyWireframe?.regions.length ?? 0,
+    ).toBeGreaterThan(0);
   });
 
-  it("creates visual questions with sketch previews instead of standalone HTML", () => {
+  it("creates visual questions with kit-tree previews instead of standalone HTML", () => {
     const content = createVisualQuestionsContent({
       title: "Quick questions",
       brief: "Choose a layout direction.",
@@ -128,12 +141,92 @@ describe("structured plan content", () => {
     );
     expect(questionsBlock?.type).toBe("visual-questions");
     if (questionsBlock?.type !== "visual-questions") return;
-    expect(
-      questionsBlock.data.questions[0]?.options?.[0]?.wireframe,
-    ).toBeTruthy();
+    const preview = questionsBlock.data.questions[0]?.options?.[0]?.wireframe;
+    expect(preview).toBeTruthy();
+    // Preview must be the lean kit tree (surface + screen), never regions.
+    expect(preview?.surface).toBeTruthy();
+    expect(Array.isArray(preview?.screen)).toBe(true);
   });
 
-  it("serializes, parses, and rejects full custom HTML documents", () => {
+  it("rejects duplicate canvas element IDs", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      title: "Duplicate canvas IDs",
+      canvas: {
+        sections: [
+          { id: "section-1", title: "First" },
+          { id: "section-1", title: "Second" },
+        ],
+        frames: [
+          { id: "frame-1", label: "First" },
+          { id: "frame-1", label: "Second" },
+        ],
+        annotations: [
+          { id: "annotation-1", text: "First note." },
+          { id: "annotation-1", text: "Second note." },
+        ],
+      },
+      blocks: [],
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const messages = result.error.issues.map((issue) => issue.message);
+    expect(messages).toContain("Duplicate canvas section id: section-1");
+    expect(messages).toContain("Duplicate canvas frame id: frame-1");
+    expect(messages).toContain("Duplicate canvas annotation id: annotation-1");
+  });
+
+  it("rejects duplicate wireframe node IDs", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      title: "Duplicate wireframe node IDs",
+      canvas: {
+        frames: [
+          {
+            id: "frame-1",
+            label: "Inline wireframe",
+            wireframe: {
+              surface: "desktop",
+              screen: [
+                {
+                  id: "inline-root",
+                  el: "screen",
+                  children: [
+                    { id: "inline-cta", el: "btn", text: "Save" },
+                    { id: "inline-cta", el: "btn", text: "Done" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+      blocks: [
+        {
+          id: "wf",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            screen: [
+              { id: "title-1", el: "title", text: "Today" },
+              { id: "title-1", el: "title", text: "Tomorrow" },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const messages = result.error.issues.map((issue) => issue.message);
+    expect(messages).toContain("Duplicate wireframe node id: title-1");
+    expect(messages).toContain("Duplicate wireframe node id: inline-cta");
+  });
+});
+
+describe("custom-html safety", () => {
+  it("serializes, parses, and rejects full custom HTML documents at validation", () => {
     const content = createUiPlanContent({
       title: "Source of truth",
       brief: "Use blocks.",
@@ -160,52 +253,43 @@ describe("structured plan content", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects custom HTML event handlers and dangerous URL attributes", () => {
-    const eventHandlerResult = planContentSchema.safeParse({
-      version: 1,
-      blocks: [
-        {
-          id: "bad-handler",
-          type: "custom-html",
-          data: {
-            html: '<img src="x" onerror="alert(1)">',
-          },
-        },
-      ],
-    });
-
-    const srcDocResult = planContentSchema.safeParse({
-      version: 1,
-      blocks: [
-        {
-          id: "bad-srcdoc",
-          type: "custom-html",
-          data: {
-            html: '<iframe srcdoc="<script>alert(1)</script>"></iframe>',
-          },
-        },
-      ],
-    });
-
-    const styleTagResult = planContentSchema.safeParse({
-      version: 1,
-      blocks: [
-        {
-          id: "bad-style",
-          type: "custom-html",
-          data: {
-            html: "<style>body { display: none; }</style>",
-          },
-        },
-      ],
-    });
-
-    expect(eventHandlerResult.success).toBe(false);
-    expect(srcDocResult.success).toBe(false);
-    expect(styleTagResult.success).toBe(false);
+  it("strips dangerous tags, handlers, and urls from stored custom html", () => {
+    expect(sanitizeCustomHtml("<div>ok<script>alert(1)</script></div>")).toBe(
+      "<div>ok</div>",
+    );
+    expect(sanitizeCustomHtml('<img src="x" onerror="alert(1)">')).toBe(
+      '<img src="x">',
+    );
+    expect(sanitizeCustomHtml('<a href="javascript:alert(1)">x</a>')).toBe(
+      "<a>x</a>",
+    );
+    expect(
+      sanitizeCustomHtml('<iframe srcdoc="<script>x</script>"></iframe>'),
+    ).toBe("");
   });
 
-  it("exports custom HTML blocks as inert source", () => {
+  it("sanitizes custom html when normalizing content for storage", () => {
+    // A bounded fragment that passes the schema regex but still carries a risky
+    // style tag should be cleaned by the action-boundary sanitizer.
+    const normalized = serializePlanContent({
+      version: 2,
+      title: "Sanitized",
+      brief: "Defense in depth.",
+      blocks: [
+        {
+          id: "fragment",
+          type: "custom-html",
+          title: "Fragment",
+          data: { html: "<button class='cta'>Open</button>" },
+        },
+      ],
+    } as PlanContent);
+    const parsed = parsePlanContent(normalized);
+    const block = parsed?.blocks.find((item) => item.id === "fragment");
+    expect(block?.type).toBe("custom-html");
+  });
+
+  it("exports custom HTML blocks as inert escaped source", () => {
     const content = planContentSchema.parse({
       version: 1,
       title: "Safe export",
@@ -234,134 +318,25 @@ describe("structured plan content", () => {
     expect(html).not.toContain('<button class="cta">Open</button>');
   });
 
-  it("deduplicates generated state, component tab, and frame IDs", () => {
+  it("exports the document with the light default theme tokens", () => {
     const content = createUiPlanContent({
-      title: "Checkout flow",
-      brief: "Compare repeated loading states.",
-      states: [
-        { name: "Loading", description: "Initial loading." },
-        { name: "Loading", description: "Payment loading." },
-      ],
-      components: [
-        { name: "Filter", description: "Primary filter." },
-        { name: "Filter", description: "Secondary filter." },
-      ],
+      title: "Light export",
+      brief: "Export uses the light palette by default.",
+      states: [],
+      components: [],
     });
-    const stateTabs = content.blocks.find(
-      (block) => block.type === "tabs" && block.title === "Screen States",
-    );
-    const componentTabs = content.blocks.find(
-      (block) => block.type === "tabs" && block.title === "Interaction Notes",
-    );
-
-    expect(content.canvas?.frames.map((frame) => frame.id)).toEqual([
-      "frame-loading",
-      "frame-loading-2",
-    ]);
-    expect(stateTabs?.type).toBe("tabs");
-    if (stateTabs?.type === "tabs") {
-      expect(stateTabs.data.tabs.map((tab) => tab.id)).toEqual([
-        "loading",
-        "loading-2",
-      ]);
-    }
-    expect(componentTabs?.type).toBe("tabs");
-    if (componentTabs?.type === "tabs") {
-      expect(componentTabs.data.tabs.map((tab) => tab.id)).toEqual([
-        "filter",
-        "filter-2",
-      ]);
-    }
-  });
-
-  it("uses product-specific compact regions for Context X-Ray component plans", () => {
-    const content = createUiPlanContent({
-      title: "Context X-Ray component cleanup",
-      brief:
-        "Plan a compact Context X-Ray popover in the agent sidebar, not a desktop/mobile app flow.",
-      states: [
-        {
-          name: "Default popover",
-          description:
-            "Context X-Ray popover with token meter, list/map toggle, conversation group, and row actions.",
-        },
-        {
-          name: "Expanded segment",
-          description:
-            "Segment detail with user/tool rows and pin/evict controls.",
-        },
-        {
-          name: "Map view",
-          description:
-            "Treemap mode with token distribution, legend, and selected summary.",
-        },
-        {
-          name: "Chat cleanup",
-          description:
-            "Chat messages and composer after removing visible step chrome.",
-        },
-      ],
-      components: [
-        {
-          name: "Token meter",
-          description:
-            "Small usage readout with compact meter, pinned count, and evicted count.",
-        },
-      ],
+    const html = buildPlanContentHtml({
+      content,
+      title: "Light export",
+      brief: "Export uses the light palette by default.",
     });
-
-    expect(content.canvas?.title).toBe("Component States");
-    expect(content.canvas?.flow).toBeUndefined();
-    expect(content.canvas?.frames[0]?.title).toBe("App context");
-    expect(content.canvas?.frames[0]?.width).toBe(660);
-    expect(content.canvas?.frames[1]?.width).toBe(360);
-    expect(content.canvas?.notes?.map((note) => note.arrowToFrameId)).toContain(
-      "frame-app-context",
-    );
-    expect(
-      content.canvas?.frames[0]?.wireframe?.regions.map(
-        (region) => region.label,
-      ),
-    ).toContain("Context X-Ray popover");
-    expect(
-      content.canvas?.frames[1]?.wireframe?.regions.map(
-        (region) => region.label,
-      ),
-    ).toContain("Context X-Ray");
-    expect(
-      content.canvas?.frames[1]?.wireframe?.regions.map(
-        (region) => region.label,
-      ),
-    ).toContain("2.0k used");
-    expect(
-      content.canvas?.frames[3]?.wireframe?.regions.map(
-        (region) => region.label,
-      ),
-    ).toContain("Token map");
-    expect(
-      content.canvas?.frames[4]?.wireframe?.regions.map(
-        (region) => region.label,
-      ),
-    ).toContain("Composer");
-    expect(
-      content.canvas?.frames[4]?.wireframe?.regions.map(
-        (region) => region.label,
-      ),
-    ).not.toContain("Step");
-
-    const componentTabs = content.blocks.find(
-      (block) => block.type === "tabs" && block.title === "Interaction Notes",
-    );
-    expect(componentTabs?.type).toBe("tabs");
-    if (componentTabs?.type === "tabs") {
-      expect(
-        componentTabs.data.tabs[0]?.blocks.some(
-          (block) => block.type === "sketch-wireframe",
-        ),
-      ).toBe(true);
-    }
+    // Light default token (warm paper background), not the hard-dark palette.
+    expect(html).toContain("--paper: #ffffff");
+    expect(html).toContain("color-scheme: light dark");
   });
+});
 
+describe("granular patch ops", () => {
   it("applies targeted content patches without replacing the whole plan", () => {
     const content = createUiPlanContent({
       title: "Patchable plan",
@@ -370,25 +345,23 @@ describe("structured plan content", () => {
       components: [],
     });
     const richText = content.blocks.find((block) => block.type === "rich-text");
-    const wireframe = content.blocks
-      .flatMap((block) =>
-        block.type === "tabs"
-          ? block.data.tabs.flatMap((tab) => tab.blocks)
-          : [],
-      )
-      .find((block) => block.type === "sketch-wireframe");
     const firstFrameId = content.canvas?.frames[0]?.id;
+    if (content.canvas) {
+      content.canvas.annotations = [
+        {
+          id: "ann-review",
+          targetId: firstFrameId,
+          title: "Review",
+          text: "Original note.",
+          x: 120,
+          y: 140,
+        },
+      ];
+    }
 
     expect(richText?.type).toBe("rich-text");
-    expect(wireframe?.type).toBe("sketch-wireframe");
     expect(firstFrameId).toBeTruthy();
-    if (
-      richText?.type !== "rich-text" ||
-      wireframe?.type !== "sketch-wireframe" ||
-      !firstFrameId
-    ) {
-      return;
-    }
+    if (richText?.type !== "rich-text" || !firstFrameId) return;
 
     const patched = applyPlanContentPatches(content, [
       {
@@ -397,15 +370,14 @@ describe("structured plan content", () => {
         markdown: "Updated copy only.",
       },
       {
-        op: "update-wireframe-region",
-        blockId: wireframe.id,
-        regionId: wireframe.data.regions[0]?.id ?? "missing",
-        patch: { width: 88, label: "Updated" },
-      },
-      {
         op: "update-canvas-frame",
         frameId: firstFrameId,
-        patch: { title: "Updated frame" },
+        patch: { label: "Updated frame" },
+      },
+      {
+        op: "update-canvas-annotation",
+        annotationId: "ann-review",
+        patch: { text: "Updated annotation only.", y: 220 },
       },
       {
         op: "append-block",
@@ -422,66 +394,165 @@ describe("structured plan content", () => {
     const nextRichText = patched.blocks.find(
       (block) => block.id === richText.id,
     );
-    const nextWireframe = patched.blocks
-      .flatMap((block) =>
-        block.type === "tabs"
-          ? block.data.tabs.flatMap((tab) => tab.blocks)
-          : [],
-      )
-      .find((block) => block.id === wireframe.id);
-
     expect(nextRichText?.type).toBe("rich-text");
     if (nextRichText?.type === "rich-text") {
       expect(nextRichText.data.markdown).toBe("Updated copy only.");
     }
-    expect(nextWireframe?.type).toBe("sketch-wireframe");
-    if (nextWireframe?.type === "sketch-wireframe") {
-      expect(nextWireframe.data.regions[0]?.label).toBe("Updated");
-      expect(nextWireframe.data.regions[0]?.width).toBe(88);
-    }
-    expect(patched.canvas?.frames[0]?.title).toBe("Updated frame");
-    expect(patched.canvas?.frames[0]?.wireframe?.regions[0]?.label).toBe(
-      "Updated",
+    expect(patched.canvas?.frames[0]?.label).toBe("Updated frame");
+    expect(patched.canvas?.annotations?.[0]?.text).toBe(
+      "Updated annotation only.",
     );
-    expect(patched.canvas?.frames[0]?.wireframe?.regions[0]?.width).toBe(88);
+    expect(patched.canvas?.annotations?.[0]?.y).toBe(220);
     expect(patched.blocks.some((block) => block.id === "new-note")).toBe(true);
   });
 
-  it("clears linked canvas wireframes when source blocks stop being wireframes", () => {
-    const content = createUiPlanContent({
-      title: "Patchable plan",
-      brief: "Keep canvas snapshots current.",
-      states: [{ name: "Default", description: "Original copy." }],
-      components: [],
+  it("patches and replaces a kit-tree wireframe node by id", () => {
+    const content: PlanContent = planContentSchema.parse({
+      version: 2,
+      title: "Kit tree",
+      brief: "Patch one node.",
+      blocks: [
+        {
+          id: "wf",
+          type: "wireframe",
+          title: "Today",
+          data: {
+            surface: "desktop",
+            screen: [
+              { id: "title-1", el: "title", text: "Today" },
+              {
+                id: "row-1",
+                el: "row",
+                children: [{ id: "btn-1", el: "btn", text: "Add" }],
+              },
+            ],
+          },
+        },
+      ],
     });
-    const wireframe = content.blocks
-      .flatMap((block) =>
-        block.type === "tabs"
-          ? block.data.tabs.flatMap((tab) => tab.blocks)
-          : [],
-      )
-      .find((block) => block.type === "sketch-wireframe");
 
-    expect(wireframe?.type).toBe("sketch-wireframe");
-    if (wireframe?.type !== "sketch-wireframe") return;
+    const patched = applyPlanContentPatches(content, [
+      {
+        op: "update-wireframe-node",
+        blockId: "wf",
+        nodeId: "btn-1",
+        patch: { text: "Create", tone: "accent" },
+      },
+    ]);
+    const wf = patched.blocks.find((block) => block.id === "wf");
+    expect(wf?.type).toBe("wireframe");
+    if (wf?.type !== "wireframe") return;
+    const row = wf.data.screen.find((node) => node.id === "row-1");
+    expect(row?.children?.[0]?.text).toBe("Create");
+    expect(row?.children?.[0]?.tone).toBe("accent");
+
+    const replaced = applyPlanContentPatches(content, [
+      {
+        op: "replace-wireframe-screen",
+        blockId: "wf",
+        screen: [{ el: "title", text: "Replaced" }],
+      },
+    ]);
+    const replacedWf = replaced.blocks.find((block) => block.id === "wf");
+    if (replacedWf?.type !== "wireframe") return;
+    expect(replacedWf.data.screen).toHaveLength(1);
+    // ensureNodeIds assigns ids on replace.
+    expect(replacedWf.data.screen[0]?.id).toBeTruthy();
+  });
+
+  it("clears linked canvas wireframes when source blocks stop being wireframes", () => {
+    const content: PlanContent = planContentSchema.parse({
+      version: 2,
+      title: "Linked",
+      brief: "Canvas references a block.",
+      canvas: {
+        title: "Board",
+        frames: [{ id: "frame-1", label: "Screen", blockId: "wf" }],
+      },
+      blocks: [
+        {
+          id: "wf",
+          type: "wireframe",
+          title: "Screen",
+          data: { surface: "desktop", screen: [{ el: "title", text: "Hi" }] },
+        },
+      ],
+    });
 
     const replaced = applyPlanContentPatches(content, [
       {
         op: "replace-block",
-        blockId: wireframe.id,
+        blockId: "wf",
         block: {
-          id: wireframe.id,
+          id: "wf",
           type: "rich-text",
-          title: "Wireframe notes",
-          data: { markdown: "This frame is no longer visual." },
+          title: "Notes",
+          data: { markdown: "No longer visual." },
         },
       },
     ]);
     expect(replaced.canvas?.frames[0]?.wireframe).toBeUndefined();
+    expect(replaced.canvas?.frames[0]?.legacyWireframe).toBeUndefined();
+  });
+});
 
-    const removed = applyPlanContentPatches(content, [
-      { op: "remove-block", blockId: wireframe.id },
-    ]);
-    expect(removed.canvas?.frames[0]?.wireframe).toBeUndefined();
+describe("back-compat parsing and migration", () => {
+  it("migrates old sketch-wireframe blocks to the legacy-wireframe fallback", () => {
+    const legacy = {
+      version: 1,
+      title: "Old plan",
+      brief: "Region wireframes from before the kit-tree refactor.",
+      blocks: [
+        {
+          id: "old-wire",
+          type: "sketch-wireframe",
+          title: "Old screen",
+          data: {
+            viewport: "desktop",
+            regions: [
+              { id: "r1", kind: "header", x: 5, y: 5, width: 90, height: 8 },
+            ],
+          },
+        },
+        {
+          id: "old-diagram",
+          type: "sketch-diagram",
+          title: "Old flow",
+          data: { nodes: [{ id: "n1", label: "Start" }], edges: [] },
+        },
+      ],
+    };
+    const parsed = parsePlanContent(JSON.stringify(legacy));
+    expect(parsed).not.toBeNull();
+    const wire = parsed?.blocks.find((block) => block.id === "old-wire");
+    const diagram = parsed?.blocks.find((block) => block.id === "old-diagram");
+    expect(wire?.type).toBe("legacy-wireframe");
+    expect(diagram?.type).toBe("diagram");
+    if (wire?.type === "legacy-wireframe") {
+      expect(wire.data.regions).toHaveLength(1);
+    }
+  });
+
+  it("accepts a v1 content version without erasing the body", () => {
+    const parsed = parsePlanContent(
+      JSON.stringify({
+        version: 1,
+        title: "V1",
+        brief: "Old version number, current shape.",
+        blocks: [
+          { id: "b1", type: "rich-text", data: { markdown: "Body kept." } },
+        ],
+      }),
+    );
+    expect(parsed?.blocks).toHaveLength(1);
+  });
+
+  it("returns null for non-content values (html-only / sections-only fallback)", () => {
+    // An html-only or sections-only plan has no `content` column; parse must
+    // return null so callers fall back to legacy html / section rendering.
+    expect(parsePlanContent(null)).toBeNull();
+    expect(parsePlanContent("")).toBeNull();
+    expect(parsePlanContent("<!doctype html><html></html>")).toBeNull();
+    expect(parsePlanContent("{not json")).toBeNull();
   });
 });

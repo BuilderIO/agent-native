@@ -1,6 +1,28 @@
 import { z } from "zod";
 
-export const PLAN_CONTENT_VERSION = 1;
+/**
+ * Plan content model.
+ *
+ * Design contract (read before editing):
+ * - The MODEL emits lean, semantic structured content. The RENDERER owns ALL
+ *   visual quality (flex layout, fonts, density, theme, spacing, the wobble).
+ * - "SEMANTIC wireframes, SPATIAL board." Wireframe INTERNALS (the kit tree)
+ *   carry NO geometry — they are pure flex laid out by the renderer. The BOARD
+ *   level (artboard placement, annotation placement, connector routing) KEEPS
+ *   geometry, because spatial composition legitimately needs positions.
+ * - Node/block names mirror component names (Artboard, Annotation, Connector,
+ *   Section, and the screen primitives) so the JSON round-trips cleanly to MDX
+ *   later. JSON stays the runtime model now; MDX export/import is a follow-on.
+ * - A LEGACY region-based wireframe shape is kept as a renderer FALLBACK for
+ *   old / imported plans. New generation never emits regions, but the renderer
+ *   must still render them. Do NOT delete it; do NOT lossily migrate old plans.
+ */
+
+/** Bumped to 2 for the kit-tree wireframe model. Parsing accepts version >= 1. */
+export const PLAN_CONTENT_VERSION = 2;
+
+/** Minimum content version the parser/migrator will attempt to read. */
+export const PLAN_CONTENT_MIN_VERSION = 1;
 
 export type PlanBlockType =
   | "rich-text"
@@ -9,12 +31,15 @@ export type PlanBlockType =
   | "table"
   | "code-tabs"
   | "implementation-map"
-  | "sketch-wireframe"
-  | "sketch-diagram"
+  | "wireframe"
+  | "diagram"
+  | "image"
   | "decision"
   | "tabs"
   | "custom-html"
-  | "visual-questions";
+  | "visual-questions"
+  // Deprecated: region-based wireframe kept for old/imported plans only.
+  | "legacy-wireframe";
 
 export type PlanBlockBase = {
   id: string;
@@ -86,6 +111,141 @@ export type PlanImplementationMapBlock = PlanBlockBase & {
   };
 };
 
+/* -------------------------------------------------------------------------- */
+/* Wireframe — declarative KIT TREE (no coordinates, no raw HTML)             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Surface preset. Drives the artboard footprint/aspect in the renderer.
+ * Kills the desktop/mobile default bias: a popover wireframe stays a popover.
+ */
+export type PlanWireframeSurface =
+  | "desktop"
+  | "mobile"
+  | "popover"
+  | "panel"
+  | "browser";
+
+/** Tone keyword reused across screen primitives. The renderer maps to color. */
+export type PlanWireframeTone = "default" | "accent" | "warn" | "ok" | "muted";
+
+/**
+ * Names of the kit primitives. These are component-like (MDX-friendly). The
+ * renderer maps each to a flex kit component. Layout is ALWAYS flex; row/col/
+ * sidebar/main set the flex direction. Real labels/dates live in props; pure
+ * placeholder text only via `lines` / valueless `text`.
+ */
+export type PlanWireframeElName =
+  | "screen"
+  | "browserBar"
+  | "statusBar"
+  | "row"
+  | "col"
+  | "sidebar"
+  | "navItem"
+  | "main"
+  | "title"
+  | "text"
+  | "lines"
+  | "section"
+  | "taskRow"
+  | "chips"
+  | "chip"
+  | "pill"
+  | "check"
+  | "field"
+  | "btn"
+  | "fab"
+  | "card"
+  | "column"
+  | "avatar"
+  | "iconSquare"
+  | "kv"
+  | "searchBar"
+  | "box"
+  | "divider";
+
+/**
+ * A single node in the wireframe kit tree. `el` is the primitive name; the
+ * remaining props are the union of every primitive's props (kept permissive so
+ * the model can compose freely). `children` nests other nodes. `id` is a stable
+ * node id used by node-addressable patch ops (auto-assigned on create).
+ *
+ * NOTE: there is intentionally NO x/y/width/height here — wireframe internals
+ * are geometry-free and laid out by the renderer with flex.
+ */
+export type PlanWireframeNode = {
+  /** Stable id for node-addressable patches; auto-assigned when absent. */
+  id?: string;
+  el: PlanWireframeElName;
+  children?: PlanWireframeNode[];
+
+  // Generic content props
+  /** Real text content (title/text/btn/chip/pill/navItem/section labels, etc.). */
+  text?: string;
+  value?: string;
+  label?: string;
+  placeholder?: string;
+  title?: string;
+
+  // Styling-by-intent (semantic only; renderer owns actual color/size)
+  tone?: PlanWireframeTone;
+  color?: PlanWireframeTone;
+  weight?: "normal" | "medium" | "bold";
+  active?: boolean;
+  done?: boolean;
+  emphasis?: boolean;
+  full?: boolean;
+  solid?: boolean;
+  dashed?: boolean;
+  dot?: boolean;
+  script?: boolean;
+  area?: boolean;
+  shape?: "square" | "circle";
+
+  // Numeric / structured props
+  count?: number;
+  prio?: number;
+  /** Number of placeholder lines for `lines`. */
+  n?: number;
+  /** Relative widths (0-100) for placeholder `lines`. */
+  widths?: number[];
+  /** Icon hint for `fab` / `iconSquare`. */
+  icon?: string;
+
+  // taskRow specifics
+  note?: string;
+  due?: string;
+  dueTone?: PlanWireframeTone;
+
+  // Collection props (chips, kv)
+  items?: Array<{
+    label: string;
+    active?: boolean;
+    count?: number;
+    dot?: boolean;
+  }>;
+  rows?: Array<{ k: string; v: string }>;
+};
+
+export type PlanWireframeBlock = PlanBlockBase & {
+  type: "wireframe";
+  data: {
+    surface: PlanWireframeSurface;
+    caption?: string;
+    screen: PlanWireframeNode[];
+  };
+};
+
+/* -------------------------------------------------------------------------- */
+/* Legacy region wireframe — renderer FALLBACK for old / imported plans only  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * @deprecated Region-based wireframe shape. New generation never emits this;
+ * the renderer keeps rendering it so old/imported plans are not lost. Do NOT
+ * lossily convert these to empty kit trees.
+ */
 export type PlanWireframeRegion = {
   id: string;
   kind:
@@ -106,14 +266,35 @@ export type PlanWireframeRegion = {
   emphasis?: boolean;
 };
 
-export type PlanSketchWireframeBlock = PlanBlockBase & {
-  type: "sketch-wireframe";
+export type PlanWireframeTemplate =
+  | "context-xray-app"
+  | "context-xray-default"
+  | "context-xray-expanded"
+  | "context-xray-map"
+  | "context-xray-chat-cleanup";
+
+/** @deprecated Legacy region-based wireframe block (renderer fallback only). */
+export type PlanLegacyWireframeBlock = PlanBlockBase & {
+  type: "legacy-wireframe";
   data: {
     viewport?: "desktop" | "tablet" | "phone";
+    template?: PlanWireframeTemplate;
     caption?: string;
     regions: PlanWireframeRegion[];
   };
 };
+
+/**
+ * @deprecated Back-compat alias. Out-of-scope code still references
+ * `PlanSketchWireframeBlock` and `PlanSketchWireframeBlock["data"]` (region
+ * shape). New code should use `PlanWireframeBlock` (kit tree) or, for the
+ * fallback, `PlanLegacyWireframeBlock`.
+ */
+export type PlanSketchWireframeBlock = PlanLegacyWireframeBlock;
+
+/* -------------------------------------------------------------------------- */
+/* Diagram                                                                    */
+/* -------------------------------------------------------------------------- */
 
 export type PlanDiagramNode = {
   id: string;
@@ -129,8 +310,8 @@ export type PlanDiagramEdge = {
   label?: string;
 };
 
-export type PlanSketchDiagramBlock = PlanBlockBase & {
-  type: "sketch-diagram";
+export type PlanDiagramBlock = PlanBlockBase & {
+  type: "diagram";
   data: {
     nodes: PlanDiagramNode[];
     edges: PlanDiagramEdge[];
@@ -143,6 +324,25 @@ export type PlanSketchDiagramBlock = PlanBlockBase & {
   };
 };
 
+/** @deprecated Back-compat alias for `PlanDiagramBlock`. */
+export type PlanSketchDiagramBlock = PlanDiagramBlock;
+
+/* -------------------------------------------------------------------------- */
+/* Image                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export type PlanImageBlock = PlanBlockBase & {
+  type: "image";
+  data: {
+    /** Prefer an asset id over a raw url so media stays portable. */
+    assetId?: string;
+    url?: string;
+    alt: string;
+    caption?: string;
+    fit?: "contain" | "cover";
+  };
+};
+
 export type PlanDecisionBlock = PlanBlockBase & {
   type: "decision";
   data: {
@@ -151,8 +351,12 @@ export type PlanDecisionBlock = PlanBlockBase & {
       id: string;
       label: string;
       detail?: string;
+      /**
+       * Authored recommendation only. A reviewer's actual selection does NOT
+       * live here — responses belong in plan_comments / events, never in the
+       * canonical plan body.
+       */
       recommended?: boolean;
-      selected?: boolean;
     }>;
   };
 };
@@ -186,12 +390,11 @@ export type PlanVisualQuestion = {
     id: string;
     label: string;
     detail?: string;
+    /** Authored recommendation only — see PlanDecisionBlock note. */
     recommended?: boolean;
-    selected?: boolean;
-    wireframe?: PlanSketchWireframeBlock["data"];
-    diagram?: PlanSketchDiagramBlock["data"];
+    wireframe?: PlanWireframeBlock["data"];
+    diagram?: PlanDiagramBlock["data"];
   }>;
-  value?: string;
 };
 
 export type PlanVisualQuestionsBlock = PlanBlockBase & {
@@ -209,24 +412,73 @@ export type PlanBlock =
   | PlanTableBlock
   | PlanCodeTabsBlock
   | PlanImplementationMapBlock
-  | PlanSketchWireframeBlock
-  | PlanSketchDiagramBlock
+  | PlanWireframeBlock
+  | PlanLegacyWireframeBlock
+  | PlanDiagramBlock
+  | PlanImageBlock
   | PlanDecisionBlock
   | PlanTabsBlock
   | PlanCustomHtmlBlock
   | PlanVisualQuestionsBlock;
 
-export type PlanCanvasFrame = {
+/* -------------------------------------------------------------------------- */
+/* Board / canvas — SPATIAL; geometry KEPT here on purpose                    */
+/* -------------------------------------------------------------------------- */
+
+/** Anchor side for an annotation arrow pointing at an artboard. */
+export type PlanAnnotationPlacement =
+  | "top"
+  | "right"
+  | "bottom"
+  | "left"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
+/**
+ * A wireframe placed on the spatial board. Geometry (position/order) is KEPT
+ * here — only the wireframe INTERNALS (its kit tree) are geometry-free.
+ */
+export type PlanArtboard = {
   id: string;
-  title: string;
+  label?: string;
+  surface?: PlanWireframeSurface;
+  /** Reference to a wireframe block rendered in this artboard. */
   blockId?: string;
-  wireframe?: PlanSketchWireframeBlock["data"];
+  /** Inline wireframe data (kit tree) when not referencing a block. */
+  wireframe?: PlanWireframeBlock["data"];
+  /** Legacy region data, for old/imported boards. */
+  legacyWireframe?: PlanLegacyWireframeBlock["data"];
+  /** Spatial placement on the board. */
   x?: number;
   y?: number;
   width?: number;
   height?: number;
+  /** Manual ordering hint for grip-reorder. */
+  order?: number;
 };
 
+/**
+ * @deprecated Back-compat alias for `PlanArtboard`. Out-of-scope code still
+ * imports `PlanCanvasFrame`.
+ */
+export type PlanCanvasFrame = PlanArtboard;
+
+/** A designer note placed on the board. Plain text layers, optional arrow. */
+export type PlanAnnotation = {
+  id: string;
+  title?: string;
+  text: string;
+  /** Artboard this annotation points at, if any. */
+  targetId?: string;
+  /** Which side of the target the arrow anchors to. */
+  placement?: PlanAnnotationPlacement;
+  x?: number;
+  y?: number;
+};
+
+/** @deprecated Back-compat alias for `PlanAnnotation`. */
 export type PlanCanvasNote = {
   id: string;
   title?: string;
@@ -236,24 +488,75 @@ export type PlanCanvasNote = {
   arrowToFrameId?: string;
 };
 
+/** A connector between two artboards (board-level routing keeps geometry). */
+export type PlanConnector = {
+  from: string;
+  to: string;
+  label?: string;
+};
+
+/** A grouping of artboards on the board, with a title/subtitle. */
+export type PlanBoardSection = {
+  id: string;
+  title?: string;
+  subtitle?: string;
+  artboardIds?: string[];
+};
+
+export type PlanCanvasViewport = {
+  zoom?: number;
+  pan?: {
+    x?: number;
+    y?: number;
+  };
+};
+
 export type PlanContent = {
-  version: typeof PLAN_CONTENT_VERSION;
+  version: number;
   title?: string;
   brief?: string;
   canvas?: {
     title?: string;
-    frames: PlanCanvasFrame[];
-    flow?: PlanDiagramEdge[];
+    /** Optional initial viewport persisted by source-sync exports. */
+    viewport?: PlanCanvasViewport;
+    sections?: PlanBoardSection[];
+    /** Artboards placed on the board (spatial). */
+    frames: PlanArtboard[];
+    /** Connectors between artboards. */
+    flow?: PlanConnector[];
+    /** Designer annotations on the board. */
+    annotations?: PlanAnnotation[];
+    /** @deprecated Legacy note shape; renderer fallback. */
     notes?: PlanCanvasNote[];
   };
   blocks: PlanBlock[];
 };
+
+/* -------------------------------------------------------------------------- */
+/* Patch ops                                                                  */
+/* -------------------------------------------------------------------------- */
 
 export type PlanContentPatch =
   | {
       op: "replace-block";
       blockId: string;
       block: PlanBlock;
+    }
+  | {
+      /** Generic shallow merge into a block (title/summary/data). */
+      op: "update-block";
+      blockId: string;
+      patch: {
+        title?: string | null;
+        summary?: string | null;
+        editable?: boolean;
+        data?: Record<string, unknown>;
+      };
+    }
+  | {
+      /** Replace the entire top-level block list. */
+      op: "replace-blocks";
+      blocks: PlanBlock[];
     }
   | {
       op: "update-rich-text";
@@ -271,22 +574,27 @@ export type PlanContentPatch =
       caption?: string | null;
     }
   | {
-      op: "update-wireframe-region";
+      /** Patch a single wireframe kit-tree node by its stable node id. */
+      op: "update-wireframe-node";
       blockId: string;
-      regionId: string;
-      patch: Partial<Omit<PlanWireframeRegion, "id" | "label">> & {
-        label?: string | null;
-      };
+      nodeId: string;
+      patch: Partial<Omit<PlanWireframeNode, "id" | "el" | "children">>;
     }
   | {
-      op: "replace-wireframe-regions";
+      /** Replace a wireframe block's full screen kit tree. */
+      op: "replace-wireframe-screen";
       blockId: string;
-      regions: PlanWireframeRegion[];
+      screen: PlanWireframeNode[];
     }
   | {
       op: "update-canvas-frame";
       frameId: string;
-      patch: Partial<Omit<PlanCanvasFrame, "id">>;
+      patch: Partial<Omit<PlanArtboard, "id">>;
+    }
+  | {
+      op: "update-canvas-annotation";
+      annotationId: string;
+      patch: Partial<Omit<PlanAnnotation, "id">>;
     }
   | {
       op: "append-block";
@@ -302,6 +610,10 @@ export type PlanContentPatch =
       blockId: string;
     };
 
+/* -------------------------------------------------------------------------- */
+/* Zod schemas                                                                */
+/* -------------------------------------------------------------------------- */
+
 const idSchema = z.string().trim().min(1).max(120);
 
 const baseBlockSchema = z.object({
@@ -316,6 +628,168 @@ const unsafeCustomHtmlPattern =
 
 const noFullHtmlDocument = (value: string) =>
   !unsafeCustomHtmlPattern.test(value);
+
+const toneSchema = z.enum(["default", "accent", "warn", "ok", "muted"]);
+
+const elNameSchema = z.enum([
+  "screen",
+  "browserBar",
+  "statusBar",
+  "row",
+  "col",
+  "sidebar",
+  "navItem",
+  "main",
+  "title",
+  "text",
+  "lines",
+  "section",
+  "taskRow",
+  "chips",
+  "chip",
+  "pill",
+  "check",
+  "field",
+  "btn",
+  "fab",
+  "card",
+  "column",
+  "avatar",
+  "iconSquare",
+  "kv",
+  "searchBar",
+  "box",
+  "divider",
+]);
+
+const WIREFRAME_MAX_DEPTH = 8;
+const WIREFRAME_MAX_NODES = 400;
+
+/**
+ * Recursive node schema, bounded in depth and total node count. Props are kept
+ * permissive so the model can compose primitives freely, but every string is a
+ * real-content field with a sane max length (no raw HTML / CSS smuggling).
+ */
+const wireframeNodeSchema: z.ZodType<PlanWireframeNode> = z.lazy(() =>
+  z
+    .object({
+      id: idSchema.optional(),
+      el: elNameSchema,
+      children: z.array(wireframeNodeSchema).max(60).optional(),
+
+      text: z.string().trim().max(400).optional(),
+      value: z.string().trim().max(400).optional(),
+      label: z.string().trim().max(200).optional(),
+      placeholder: z.string().trim().max(200).optional(),
+      title: z.string().trim().max(200).optional(),
+
+      tone: toneSchema.optional(),
+      color: toneSchema.optional(),
+      weight: z.enum(["normal", "medium", "bold"]).optional(),
+      active: z.boolean().optional(),
+      done: z.boolean().optional(),
+      emphasis: z.boolean().optional(),
+      full: z.boolean().optional(),
+      solid: z.boolean().optional(),
+      dashed: z.boolean().optional(),
+      dot: z.boolean().optional(),
+      script: z.boolean().optional(),
+      area: z.boolean().optional(),
+      shape: z.enum(["square", "circle"]).optional(),
+
+      count: z.number().int().min(0).max(9_999).optional(),
+      prio: z.number().int().min(0).max(9).optional(),
+      n: z.number().int().min(0).max(20).optional(),
+      widths: z.array(z.number().min(0).max(100)).max(20).optional(),
+      icon: z.string().trim().max(40).optional(),
+
+      note: z.string().trim().max(400).optional(),
+      due: z.string().trim().max(120).optional(),
+      dueTone: toneSchema.optional(),
+
+      items: z
+        .array(
+          z.object({
+            label: z.string().trim().min(1).max(200),
+            active: z.boolean().optional(),
+            count: z.number().int().min(0).max(9_999).optional(),
+            dot: z.boolean().optional(),
+          }),
+        )
+        .max(40)
+        .optional(),
+      rows: z
+        .array(
+          z.object({
+            k: z.string().trim().min(1).max(200),
+            v: z.string().trim().max(400),
+          }),
+        )
+        .max(40)
+        .optional(),
+    })
+    .passthrough(),
+) as z.ZodType<PlanWireframeNode>;
+
+const wireframeSurfaceSchema = z.enum([
+  "desktop",
+  "mobile",
+  "popover",
+  "panel",
+  "browser",
+]);
+
+const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
+  .object({
+    surface: wireframeSurfaceSchema,
+    caption: z.string().trim().max(400).optional(),
+    screen: z
+      .array(wireframeNodeSchema)
+      .max(WIREFRAME_MAX_NODES)
+      .superRefine((nodes, ctx) => {
+        let total = 0;
+        const seenNodeIds = new Set<string>();
+        const walk = (
+          list: PlanWireframeNode[],
+          depth: number,
+          path: Array<string | number>,
+        ) => {
+          if (depth > WIREFRAME_MAX_DEPTH) {
+            ctx.addIssue({
+              code: "custom",
+              message: `Wireframe tree exceeds max depth ${WIREFRAME_MAX_DEPTH}.`,
+            });
+            return;
+          }
+          for (const [index, node] of list.entries()) {
+            total += 1;
+            if (total > WIREFRAME_MAX_NODES) {
+              ctx.addIssue({
+                code: "custom",
+                message: `Wireframe tree exceeds max nodes ${WIREFRAME_MAX_NODES}.`,
+              });
+              return;
+            }
+            const nodePath = [...path, index];
+            if (node.id) {
+              if (seenNodeIds.has(node.id)) {
+                ctx.addIssue({
+                  code: "custom",
+                  path: [...nodePath, "id"],
+                  message: `Duplicate wireframe node id: ${node.id}`,
+                });
+              }
+              seenNodeIds.add(node.id);
+            }
+            if (node.children) {
+              walk(node.children, depth + 1, [...nodePath, "children"]);
+            }
+          }
+        };
+        walk(nodes, 1, []);
+      }),
+  })
+  .strict();
 
 const wireframeRegionSchema: z.ZodType<PlanWireframeRegion> = z.object({
   id: idSchema,
@@ -338,6 +812,22 @@ const wireframeRegionSchema: z.ZodType<PlanWireframeRegion> = z.object({
   emphasis: z.boolean().optional(),
 });
 
+const legacyWireframeDataSchema: z.ZodType<PlanLegacyWireframeBlock["data"]> =
+  z.object({
+    viewport: z.enum(["desktop", "tablet", "phone"]).optional(),
+    template: z
+      .enum([
+        "context-xray-app",
+        "context-xray-default",
+        "context-xray-expanded",
+        "context-xray-map",
+        "context-xray-chat-cleanup",
+      ])
+      .optional(),
+    caption: z.string().trim().max(400).optional(),
+    regions: z.array(wireframeRegionSchema).max(80).default([]),
+  });
+
 const diagramNodeSchema: z.ZodType<PlanDiagramNode> = z.object({
   id: idSchema,
   label: z.string().trim().min(1).max(160),
@@ -352,14 +842,7 @@ const diagramEdgeSchema: z.ZodType<PlanDiagramEdge> = z.object({
   label: z.string().trim().max(100).optional(),
 });
 
-const wireframeDataSchema: z.ZodType<PlanSketchWireframeBlock["data"]> =
-  z.object({
-    viewport: z.enum(["desktop", "tablet", "phone"]).optional(),
-    caption: z.string().trim().max(400).optional(),
-    regions: z.array(wireframeRegionSchema).max(80).default([]),
-  });
-
-const diagramDataSchema: z.ZodType<PlanSketchDiagramBlock["data"]> = z.object({
+const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z.object({
   nodes: z.array(diagramNodeSchema).min(1).max(80),
   edges: z.array(diagramEdgeSchema).max(120).default([]),
   notes: z
@@ -374,6 +857,18 @@ const diagramDataSchema: z.ZodType<PlanSketchDiagramBlock["data"]> = z.object({
     .max(40)
     .optional(),
 });
+
+const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
+  .object({
+    assetId: z.string().trim().min(1).max(200).optional(),
+    url: z.string().trim().max(2_000).url().optional(),
+    alt: z.string().trim().min(1).max(400),
+    caption: z.string().trim().max(400).optional(),
+    fit: z.enum(["contain", "cover"]).optional(),
+  })
+  .refine((value) => Boolean(value.assetId || value.url), {
+    message: "Image block requires an assetId or url.",
+  });
 
 export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   z.discriminatedUnion("type", [
@@ -450,12 +945,20 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       }),
     }),
     baseBlockSchema.extend({
-      type: z.literal("sketch-wireframe"),
+      type: z.literal("wireframe"),
       data: wireframeDataSchema,
     }),
     baseBlockSchema.extend({
-      type: z.literal("sketch-diagram"),
+      type: z.literal("legacy-wireframe"),
+      data: legacyWireframeDataSchema,
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("diagram"),
       data: diagramDataSchema,
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("image"),
+      data: imageDataSchema,
     }),
     baseBlockSchema.extend({
       type: z.literal("decision"),
@@ -468,7 +971,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               label: z.string().trim().min(1).max(200),
               detail: z.string().trim().max(800).optional(),
               recommended: z.boolean().optional(),
-              selected: z.boolean().optional(),
             }),
           )
           .min(1)
@@ -527,14 +1029,12 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
                     label: z.string().trim().min(1).max(220),
                     detail: z.string().trim().max(800).optional(),
                     recommended: z.boolean().optional(),
-                    selected: z.boolean().optional(),
                     wireframe: wireframeDataSchema.optional(),
                     diagram: diagramDataSchema.optional(),
                   }),
                 )
                 .max(40)
                 .optional(),
-              value: z.string().max(10_000).optional(),
             }),
           )
           .min(1)
@@ -545,18 +1045,42 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   ]),
 ) as z.ZodType<PlanBlock>;
 
-const canvasFrameSchema: z.ZodType<PlanCanvasFrame> = z.object({
+const annotationPlacementSchema = z.enum([
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+]);
+
+const artboardSchema: z.ZodType<PlanArtboard> = z.object({
   id: idSchema,
-  title: z.string().trim().min(1).max(180),
+  label: z.string().trim().max(180).optional(),
+  surface: wireframeSurfaceSchema.optional(),
   blockId: idSchema.optional(),
   wireframe: wireframeDataSchema.optional(),
+  legacyWireframe: legacyWireframeDataSchema.optional(),
   x: z.number().optional(),
   y: z.number().optional(),
   width: z.number().min(80).optional(),
   height: z.number().min(80).optional(),
+  order: z.number().optional(),
 });
 
-const canvasNoteSchema: z.ZodType<PlanCanvasNote> = z.object({
+const annotationSchema: z.ZodType<PlanAnnotation> = z.object({
+  id: idSchema,
+  title: z.string().trim().max(180).optional(),
+  text: z.string().trim().min(1).max(2_000),
+  targetId: idSchema.optional(),
+  placement: annotationPlacementSchema.optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+});
+
+const legacyNoteSchema: z.ZodType<PlanCanvasNote> = z.object({
   id: idSchema,
   title: z.string().trim().max(180).optional(),
   body: z.string().trim().min(1).max(2_000),
@@ -565,22 +1089,66 @@ const canvasNoteSchema: z.ZodType<PlanCanvasNote> = z.object({
   arrowToFrameId: idSchema.optional(),
 });
 
+const connectorSchema: z.ZodType<PlanConnector> = z.object({
+  from: idSchema,
+  to: idSchema,
+  label: z.string().trim().max(100).optional(),
+});
+
+const boardSectionSchema: z.ZodType<PlanBoardSection> = z.object({
+  id: idSchema,
+  title: z.string().trim().max(180).optional(),
+  subtitle: z.string().trim().max(400).optional(),
+  artboardIds: z.array(idSchema).max(80).optional(),
+});
+
 export const planContentSchema: z.ZodType<PlanContent> = z
   .object({
-    version: z.literal(PLAN_CONTENT_VERSION),
+    version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
     title: z.string().trim().max(240).optional(),
     brief: z.string().trim().max(4_000).optional(),
     canvas: z
       .object({
         title: z.string().trim().max(180).optional(),
-        frames: z.array(canvasFrameSchema).max(40).default([]),
-        flow: z.array(diagramEdgeSchema).max(80).optional(),
-        notes: z.array(canvasNoteSchema).max(80).optional(),
+        viewport: z
+          .object({
+            zoom: z.number().min(0.05).max(8).optional(),
+            pan: z
+              .object({
+                x: z.number().optional(),
+                y: z.number().optional(),
+              })
+              .optional(),
+          })
+          .optional(),
+        sections: z.array(boardSectionSchema).max(40).optional(),
+        frames: z.array(artboardSchema).max(40).default([]),
+        flow: z.array(connectorSchema).max(80).optional(),
+        annotations: z.array(annotationSchema).max(80).optional(),
+        notes: z.array(legacyNoteSchema).max(80).optional(),
       })
       .optional(),
     blocks: z.array(planBlockSchema).max(200).default([]),
   })
   .superRefine((content, context) => {
+    const checkUniqueIds = (
+      items: Array<{ id: string }> | undefined,
+      label: string,
+      path: Array<string | number>,
+    ) => {
+      const seen = new Set<string>();
+      for (const [index, item] of (items ?? []).entries()) {
+        if (seen.has(item.id)) {
+          context.addIssue({
+            code: "custom",
+            path: [...path, index, "id"],
+            message: `Duplicate ${label} id: ${item.id}`,
+          });
+        }
+        seen.add(item.id);
+      }
+    };
+
     const seen = new Set<string>();
     const visit = (block: PlanBlock) => {
       if (seen.has(block.id)) {
@@ -603,48 +1171,182 @@ export const planContentSchema: z.ZodType<PlanContent> = z
     for (const block of content.blocks) {
       visit(block);
     }
-  });
+
+    if (content.canvas) {
+      checkUniqueIds(content.canvas.sections, "canvas section", [
+        "canvas",
+        "sections",
+      ]);
+      checkUniqueIds(content.canvas.frames, "canvas frame", [
+        "canvas",
+        "frames",
+      ]);
+      checkUniqueIds(content.canvas.annotations, "canvas annotation", [
+        "canvas",
+        "annotations",
+      ]);
+      checkUniqueIds(content.canvas.notes, "canvas note", ["canvas", "notes"]);
+    }
+  }) as unknown as z.ZodType<PlanContent>;
 
 export type PlanContentInput = z.input<typeof planContentSchema>;
 
-const wireframeRegionPatchSchema = z
+/* -------------------------------------------------------------------------- */
+/* Migration / parsing                                                        */
+/* -------------------------------------------------------------------------- */
+
+const OLD_BLOCK_TYPE_ALIASES: Record<string, PlanBlockType> = {
+  // sketch-wireframe was the region-based shape → keep it as legacy-wireframe
+  // so the renderer fallback still draws old/imported plans (never lose data).
+  "sketch-wireframe": "legacy-wireframe",
+  "sketch-diagram": "diagram",
+};
+
+function migrateBlock(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const block = raw as Record<string, unknown>;
+  const type = typeof block.type === "string" ? block.type : undefined;
+  if (type && OLD_BLOCK_TYPE_ALIASES[type]) {
+    block.type = OLD_BLOCK_TYPE_ALIASES[type];
+  }
+  // Recurse into tabs children.
+  if (block.type === "tabs" && block.data && typeof block.data === "object") {
+    const data = block.data as Record<string, unknown>;
+    if (Array.isArray(data.tabs)) {
+      for (const tab of data.tabs) {
+        if (tab && typeof tab === "object") {
+          const tabObj = tab as Record<string, unknown>;
+          if (Array.isArray(tabObj.blocks)) {
+            tabObj.blocks = tabObj.blocks.map(migrateBlock);
+          }
+        }
+      }
+    }
+  }
+  return block;
+}
+
+/**
+ * Upgrade/normalize an old/raw plan content shape to the current model BEFORE
+ * validation. Old region-based wireframes are preserved as `legacy-wireframe`
+ * blocks (renderer fallback) — never lossily converted to empty kit trees.
+ * Returns a best-effort normalized object; callers still validate via zod.
+ */
+export function migratePlanContent(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const content = cloneJson(raw) as Record<string, unknown>;
+
+  // Version: missing/old → leave numeric and let the parser accept >= min.
+  if (typeof content.version !== "number") {
+    content.version = PLAN_CONTENT_MIN_VERSION;
+  }
+
+  if (Array.isArray(content.blocks)) {
+    content.blocks = content.blocks.map(migrateBlock);
+  }
+
+  // Visual-question option wireframes: nested old diagram/region data is left
+  // as-is for region wireframes (schema rejects them for the new `wireframe`
+  // field, which is acceptable — questions are transient intake, not the body).
+  return content;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Patch schemas                                                              */
+/* -------------------------------------------------------------------------- */
+
+const wireframeNodePatchSchema = z
   .object({
-    kind: z
-      .enum([
-        "nav",
-        "header",
-        "list",
-        "form",
-        "toolbar",
-        "content",
-        "button",
-        "input",
-        "custom",
-      ])
-      .optional(),
-    label: z.string().trim().max(120).nullable().optional(),
-    x: z.number().min(0).max(100).optional(),
-    y: z.number().min(0).max(100).optional(),
-    width: z.number().min(1).max(100).optional(),
-    height: z.number().min(1).max(100).optional(),
+    text: z.string().trim().max(400).optional(),
+    value: z.string().trim().max(400).optional(),
+    label: z.string().trim().max(200).optional(),
+    placeholder: z.string().trim().max(200).optional(),
+    title: z.string().trim().max(200).optional(),
+    tone: toneSchema.optional(),
+    color: toneSchema.optional(),
+    weight: z.enum(["normal", "medium", "bold"]).optional(),
+    active: z.boolean().optional(),
+    done: z.boolean().optional(),
     emphasis: z.boolean().optional(),
+    full: z.boolean().optional(),
+    solid: z.boolean().optional(),
+    dashed: z.boolean().optional(),
+    dot: z.boolean().optional(),
+    script: z.boolean().optional(),
+    area: z.boolean().optional(),
+    shape: z.enum(["square", "circle"]).optional(),
+    count: z.number().int().min(0).max(9_999).optional(),
+    prio: z.number().int().min(0).max(9).optional(),
+    n: z.number().int().min(0).max(20).optional(),
+    widths: z.array(z.number().min(0).max(100)).max(20).optional(),
+    icon: z.string().trim().max(40).optional(),
+    note: z.string().trim().max(400).optional(),
+    due: z.string().trim().max(120).optional(),
+    dueTone: toneSchema.optional(),
+    items: z
+      .array(
+        z.object({
+          label: z.string().trim().min(1).max(200),
+          active: z.boolean().optional(),
+          count: z.number().int().min(0).max(9_999).optional(),
+          dot: z.boolean().optional(),
+        }),
+      )
+      .max(40)
+      .optional(),
+    rows: z
+      .array(
+        z.object({
+          k: z.string().trim().min(1).max(200),
+          v: z.string().trim().max(400),
+        }),
+      )
+      .max(40)
+      .optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
-    message: "Patch must include at least one region field.",
+    message: "Patch must include at least one wireframe node field.",
   });
 
 const canvasFramePatchSchema = z
   .object({
-    title: z.string().trim().min(1).max(180).optional(),
+    label: z.string().trim().max(180).optional(),
+    surface: wireframeSurfaceSchema.optional(),
     blockId: idSchema.optional(),
     wireframe: wireframeDataSchema.optional(),
+    legacyWireframe: legacyWireframeDataSchema.optional(),
     x: z.number().optional(),
     y: z.number().optional(),
     width: z.number().min(80).optional(),
     height: z.number().min(80).optional(),
+    order: z.number().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "Patch must include at least one canvas frame field.",
+  });
+
+const canvasAnnotationPatchSchema = z
+  .object({
+    title: z.string().trim().max(180).optional(),
+    text: z.string().trim().min(1).max(2_000).optional(),
+    targetId: idSchema.optional(),
+    placement: annotationPlacementSchema.optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Patch must include at least one canvas annotation field.",
+  });
+
+const blockUpdatePatchSchema = z
+  .object({
+    title: z.string().trim().min(1).max(180).nullable().optional(),
+    summary: z.string().trim().max(600).nullable().optional(),
+    editable: z.boolean().optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Patch must include at least one block field.",
   });
 
 export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
@@ -653,6 +1355,15 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       op: z.literal("replace-block"),
       blockId: idSchema,
       block: planBlockSchema,
+    }),
+    z.object({
+      op: z.literal("update-block"),
+      blockId: idSchema,
+      patch: blockUpdatePatchSchema,
+    }),
+    z.object({
+      op: z.literal("replace-blocks"),
+      blocks: z.array(planBlockSchema).max(200),
     }),
     z.object({
       op: z.literal("update-rich-text"),
@@ -685,20 +1396,25 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       caption: z.string().trim().max(400).nullable().optional(),
     }),
     z.object({
-      op: z.literal("update-wireframe-region"),
+      op: z.literal("update-wireframe-node"),
       blockId: idSchema,
-      regionId: idSchema,
-      patch: wireframeRegionPatchSchema,
+      nodeId: idSchema,
+      patch: wireframeNodePatchSchema,
     }),
     z.object({
-      op: z.literal("replace-wireframe-regions"),
+      op: z.literal("replace-wireframe-screen"),
       blockId: idSchema,
-      regions: z.array(wireframeRegionSchema).max(80),
+      screen: z.array(wireframeNodeSchema).max(WIREFRAME_MAX_NODES),
     }),
     z.object({
       op: z.literal("update-canvas-frame"),
       frameId: idSchema,
       patch: canvasFramePatchSchema,
+    }),
+    z.object({
+      op: z.literal("update-canvas-annotation"),
+      annotationId: idSchema,
+      patch: canvasAnnotationPatchSchema,
     }),
     z.object({
       op: z.literal("append-block"),
@@ -732,6 +1448,36 @@ export function applyPlanContentPatches(
         patch.blockId,
         () => patch.block,
       ).blocks;
+      continue;
+    }
+    if (patch.op === "replace-blocks") {
+      next.blocks = patch.blocks.map((block) => planBlockSchema.parse(block));
+      continue;
+    }
+    if (patch.op === "update-block") {
+      next.blocks = updateBlock(next.blocks, patch.blockId, (block) => {
+        const merged: PlanBlock = { ...block };
+        if (patch.patch.title === null) {
+          delete merged.title;
+        } else if (patch.patch.title !== undefined) {
+          merged.title = patch.patch.title;
+        }
+        if (patch.patch.summary === null) {
+          delete merged.summary;
+        } else if (patch.patch.summary !== undefined) {
+          merged.summary = patch.patch.summary;
+        }
+        if (patch.patch.editable !== undefined) {
+          merged.editable = patch.patch.editable;
+        }
+        if (patch.patch.data !== undefined) {
+          (merged as { data: unknown }).data = {
+            ...(block as { data?: Record<string, unknown> }).data,
+            ...patch.patch.data,
+          };
+        }
+        return planBlockSchema.parse(merged);
+      }).blocks;
       continue;
     }
     if (patch.op === "update-rich-text") {
@@ -774,43 +1520,38 @@ export function applyPlanContentPatches(
       }).blocks;
       continue;
     }
-    if (patch.op === "update-wireframe-region") {
+    if (patch.op === "update-wireframe-node") {
       next.blocks = updateBlock(next.blocks, patch.blockId, (block) => {
-        if (block.type !== "sketch-wireframe") {
+        if (block.type !== "wireframe") {
           throw new Error(
-            `Block ${patch.blockId} is ${block.type}, not sketch-wireframe.`,
+            `Block ${patch.blockId} is ${block.type}, not wireframe.`,
           );
         }
-        let changed = false;
-        const regions = block.data.regions.map((region) => {
-          if (region.id !== patch.regionId) return region;
-          changed = true;
-          return {
-            ...region,
-            ...patch.patch,
-            label:
-              patch.patch.label === null
-                ? undefined
-                : (patch.patch.label ?? region.label),
-          };
-        });
-        if (!changed) {
+        const result = updateWireframeNode(
+          block.data.screen,
+          patch.nodeId,
+          (node) => ({ ...node, ...patch.patch }),
+        );
+        if (!result.changed) {
           throw new Error(
-            `Wireframe region ${patch.regionId} was not found in block ${patch.blockId}.`,
+            `Wireframe node ${patch.nodeId} was not found in block ${patch.blockId}.`,
           );
         }
-        return { ...block, data: { ...block.data, regions } };
+        return { ...block, data: { ...block.data, screen: result.nodes } };
       }).blocks;
       continue;
     }
-    if (patch.op === "replace-wireframe-regions") {
+    if (patch.op === "replace-wireframe-screen") {
       next.blocks = updateBlock(next.blocks, patch.blockId, (block) => {
-        if (block.type !== "sketch-wireframe") {
+        if (block.type !== "wireframe") {
           throw new Error(
-            `Block ${patch.blockId} is ${block.type}, not sketch-wireframe.`,
+            `Block ${patch.blockId} is ${block.type}, not wireframe.`,
           );
         }
-        return { ...block, data: { ...block.data, regions: patch.regions } };
+        return {
+          ...block,
+          data: { ...block.data, screen: ensureNodeIds(patch.screen) },
+        };
       }).blocks;
       continue;
     }
@@ -822,6 +1563,18 @@ export function applyPlanContentPatches(
         throw new Error(`Canvas frame ${patch.frameId} was not found.`);
       }
       Object.assign(frame, patch.patch);
+      continue;
+    }
+    if (patch.op === "update-canvas-annotation") {
+      const annotation = next.canvas?.annotations?.find(
+        (candidate) => candidate.id === patch.annotationId,
+      );
+      if (!annotation) {
+        throw new Error(
+          `Canvas annotation ${patch.annotationId} was not found.`,
+        );
+      }
+      Object.assign(annotation, patch.patch);
       continue;
     }
     if (patch.op === "append-block") {
@@ -917,6 +1670,27 @@ function updateBlockRecursive(
   return { blocks: nextBlocks, changed };
 }
 
+/** Walk a wireframe kit tree and update the node whose id matches. */
+function updateWireframeNode(
+  nodes: PlanWireframeNode[],
+  nodeId: string,
+  updater: (node: PlanWireframeNode) => PlanWireframeNode,
+): { nodes: PlanWireframeNode[]; changed: boolean } {
+  let changed = false;
+  const next = nodes.map((node) => {
+    if (node.id === nodeId) {
+      changed = true;
+      return updater(node);
+    }
+    if (!node.children) return node;
+    const childResult = updateWireframeNode(node.children, nodeId, updater);
+    if (!childResult.changed) return node;
+    changed = true;
+    return { ...node, children: childResult.nodes };
+  });
+  return { nodes: next, changed };
+}
+
 function insertBlock(
   blocks: PlanBlock[],
   block: PlanBlock,
@@ -976,10 +1750,15 @@ function syncCanvasWireframes(content: PlanContent) {
   for (const frame of content.canvas.frames) {
     if (!frame.blockId) continue;
     const block = blocks.get(frame.blockId);
-    if (block?.type === "sketch-wireframe") {
+    if (block?.type === "wireframe") {
       frame.wireframe = cloneJson(block.data);
+      delete frame.legacyWireframe;
+    } else if (block?.type === "legacy-wireframe") {
+      frame.legacyWireframe = cloneJson(block.data);
+      delete frame.wireframe;
     } else {
       delete frame.wireframe;
+      delete frame.legacyWireframe;
     }
   }
 }
@@ -995,4 +1774,21 @@ export function createPlanBlockId(prefix: string): string {
       ? crypto.randomUUID().slice(0, 8)
       : Math.random().toString(36).slice(2, 10);
   return `${safePrefix || "block"}-${random}`;
+}
+
+/** Stable id for a wireframe kit-tree node. */
+export function createWireframeNodeId(el: string): string {
+  return createPlanBlockId(`wf-${el}`);
+}
+
+/**
+ * Ensure every node in a wireframe kit tree has a stable id (auto-assign on
+ * create where absent). Returns a new tree; does not mutate the input.
+ */
+export function ensureNodeIds(nodes: PlanWireframeNode[]): PlanWireframeNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    id: node.id ?? createWireframeNodeId(node.el),
+    ...(node.children ? { children: ensureNodeIds(node.children) } : {}),
+  }));
 }

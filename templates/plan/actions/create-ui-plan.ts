@@ -43,7 +43,7 @@ const uiPlanComponentSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined Notion-like document with tabs, diagrams, code tabs, comments, share/export, and agent handoff.",
+    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined implementation document with file maps, contracts, snippets, validation, comments, share/export, and agent handoff.",
   schema: z
     .object({
       title: z.string().optional().describe("Short UI plan title"),
@@ -65,7 +65,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable UI plan content. Prefer this for top canvas wireframes, sketch diagrams, rich text, code tabs, implementation maps, and bounded custom HTML fragments.",
+          "Structured editable UI plan content. Prefer this for app-owned top canvas wireframes, sketch diagrams, rich text, code tabs, implementation maps, validation checklists, and bounded custom HTML fragments. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes.",
         ),
       markdown: z
         .string()
@@ -76,14 +76,14 @@ export default defineAction({
         .optional()
         .default([])
         .describe(
-          "Screens or states to show in the optional top pan/zoom canvas and in document tabs, such as Default, Empty, Loading, Error, Mobile, or Agent handoff. Omit when visual states would not help.",
+          "Screens or states to show primarily on the optional top pan/zoom canvas, such as Default, Empty, Loading, Error, Mobile, or Agent handoff. For component/widget work, prefer focused component variants and one real product-context frame over fake desktop/mobile journeys. Omit when visual states would not help.",
         ),
       components: z
         .array(uiPlanComponentSchema)
         .optional()
         .default([])
         .describe(
-          "Focused UI parts to show in rich component tabs and optional canvas notes.",
+          "Focused UI parts and constraints for canvas annotations and the implementation document. Do not use these to create redundant wireframe tabs when the top canvas already shows the UI.",
         ),
       sketchiness: z
         .number()
@@ -118,14 +118,14 @@ export default defineAction({
     isConsequential: true,
     title: "Create UI Plan",
     description:
-      "Create a UI-first visual plan with full-width mockups, states, annotations, and agent feedback handoff.",
+      "Create a UI-first visual plan with a review canvas, non-redundant implementation document, annotations, and agent feedback handoff.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
       title: "UI Plan",
       description:
-        "Open the Agent-Native Plans UI review surface for high-fidelity mockups, states, annotations, and implementation notes.",
+        "Open the Agent-Native Plans UI review surface for sketch mockups, state annotations, implementation maps, snippets, and validation notes.",
       iframeTitle: "Agent-Native Plans",
       openLabel: "Open UI Plan",
       height: 860,
@@ -155,7 +155,7 @@ export default defineAction({
             {
               type: "mockup" as const,
               title: "UI flow and rich document",
-              body: "The generated HTML uses a top pan/zoom visual canvas when states or diagrams are useful, then continues as a refined interactive document.",
+              body: "The generated plan uses a top pan/zoom visual canvas when states or diagrams are useful, then continues as a refined implementation document instead of restating the same mockups.",
               order: 1,
               createdBy: "agent" as const,
             },
@@ -261,7 +261,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native UI plan, review the top pan/zoom sketch canvas when present, continue through the editable document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
+        "Open the Agent-Native UI plan, review the top pan/zoom sketch canvas when present, continue through the implementation-focused document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

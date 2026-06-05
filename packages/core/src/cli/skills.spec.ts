@@ -556,7 +556,12 @@ describe("agent-native skills", () => {
           "30d",
         ],
         {
-          env: { ...process.env, HOME: home, CODEX_HOME: codexHome },
+          env: {
+            ...process.env,
+            HOME: home,
+            CODEX_HOME: codexHome,
+            CLAUDE_CODE_SESSION_ID: "",
+          },
           encoding: "utf-8",
         },
       );

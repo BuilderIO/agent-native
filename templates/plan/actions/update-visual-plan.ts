@@ -26,7 +26,7 @@ import {
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one wireframe region, one canvas frame, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
+    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one wireframe kit-tree node, a whole wireframe screen, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional(),
@@ -39,7 +39,7 @@ export default defineAction({
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits. Prefer these for small changes: update a rich-text block, replace a block, update a wireframe region, edit a canvas frame, append/remove a block, or update a custom HTML fragment.",
+        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, update-wireframe-node (one kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single node without regenerating the plan.",
       ),
     markdown: z.string().optional(),
     sections: z.array(sectionInputSchema).optional().default([]),

@@ -106,7 +106,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable visual-question content. Prefer this for rich intake questions, visual options, sketch wireframes, diagrams, and follow-up notes.",
+          "Structured editable visual-question content. Prefer this for rich intake questions, visual options, semantic kit-tree wireframe previews, diagrams, and follow-up notes.",
         ),
       markdown: z
         .string()
