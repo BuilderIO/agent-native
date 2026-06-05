@@ -1,6 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useState } from "react";
 import {
   IconCheck,
   IconCode,
@@ -18,6 +16,7 @@ import {
   Wireframe,
 } from "./wireframe/Wireframe";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
+import { PlanMarkdownReader } from "./PlanMarkdownReader";
 
 /**
  * Renders the document flow: dispatches a single plan block to its block
@@ -27,16 +26,33 @@ import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 export function PlanBlockView({
   block,
   onChange,
+  onRichTextChange,
   onVisualQuestionsSubmit,
   compactVisuals,
+  contentUpdatedAt,
+  editingDisabled = false,
 }: {
   block: PlanBlock;
   onChange?: (block: PlanBlock) => Promise<void> | void;
+  onRichTextChange?: (
+    blockId: string,
+    markdown: string,
+  ) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
   compactVisuals?: boolean;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
 }) {
   if (block.type === "rich-text") {
-    return <RichTextBlock block={block} onChange={onChange} />;
+    return (
+      <RichTextBlock
+        block={block}
+        onChange={onChange}
+        onRichTextChange={onRichTextChange}
+        contentUpdatedAt={contentUpdatedAt}
+        editingDisabled={editingDisabled}
+      />
+    );
   }
   if (block.type === "callout") {
     return (
@@ -207,7 +223,10 @@ export function PlanBlockView({
       <TabsBlock
         block={block}
         onChange={onChange}
+        onRichTextChange={onRichTextChange}
         onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+        contentUpdatedAt={contentUpdatedAt}
+        editingDisabled={editingDisabled}
       />
     );
   }
@@ -229,86 +248,45 @@ export function PlanBlockView({
 function RichTextBlock({
   block,
   onChange,
+  onRichTextChange,
+  contentUpdatedAt,
+  editingDisabled,
 }: {
   block: Extract<PlanBlock, { type: "rich-text" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
+  onRichTextChange?: (
+    blockId: string,
+    markdown: string,
+  ) => Promise<void> | void;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
 }) {
+  const editable = block.editable !== false && !!onChange && !editingDisabled;
   return (
     <section className="plan-block group" data-block-id={block.id}>
       {block.title && <h2>{block.title}</h2>}
-      <PlanMarkdownEditor
-        markdown={block.data.markdown}
-        editable={block.editable !== false && !!onChange}
-        renderPreview={() => <PlanMarkdown markdown={block.data.markdown} />}
-        onSave={(markdown) =>
-          onChange?.({
-            ...block,
-            data: { ...block.data, markdown },
-          })
-        }
-      />
+      {editable ? (
+        <PlanMarkdownEditor
+          markdown={block.data.markdown}
+          editable
+          contentUpdatedAt={contentUpdatedAt}
+          onSave={(markdown) =>
+            onRichTextChange
+              ? onRichTextChange(block.id, markdown)
+              : onChange?.({
+                  ...block,
+                  data: { ...block.data, markdown },
+                })
+          }
+        />
+      ) : (
+        // Read-only path (public / shared-reviewer / SSR): render markdown with
+        // react-markdown so the Tiptap editor never mounts when it can't be
+        // edited. See PlanMarkdownReader.
+        <PlanMarkdownReader markdown={block.data.markdown} />
+      )}
     </section>
   );
-}
-
-/**
- * Safe rich-text renderer. react-markdown does NOT render raw HTML by default
- * (no rehype-raw), so agent-authored markdown can never inject HTML/scripts.
- * Links are sanitized through react-markdown's defaultUrlTransform and forced
- * to open in a new tab. Fenced code blocks get the shared dark Shiki theme.
- */
-function PlanMarkdown({ markdown }: { markdown: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      urlTransform={defaultUrlTransform}
-      components={{
-        a({ children, href }) {
-          if (!href) return <span>{children}</span>;
-          return (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          );
-        },
-        pre({ children }) {
-          const codeProps = getCodeElementProps(children);
-          if (codeProps) {
-            const langMatch = (codeProps.className ?? "").match(
-              /\blanguage-([\w+-]+)\b/,
-            );
-            const code = extractCodeText(codeProps.children).replace(/\n$/, "");
-            return <CodeBlock code={code} language={langMatch?.[1]} />;
-          }
-          return <pre>{children}</pre>;
-        },
-      }}
-    >
-      {markdown}
-    </ReactMarkdown>
-  );
-}
-
-function getCodeElementProps(
-  node: ReactNode,
-): { className?: string; children?: ReactNode } | null {
-  if (typeof node === "object" && node !== null && "props" in node) {
-    return (
-      node as unknown as {
-        props: { className?: string; children?: ReactNode };
-      }
-    ).props;
-  }
-  return null;
-}
-
-function extractCodeText(node: ReactNode): string {
-  if (typeof node === "string") return node;
-  if (typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(extractCodeText).join("");
-  const props = getCodeElementProps(node);
-  if (props) return extractCodeText(props.children);
-  return "";
 }
 
 function CodeTabsBlock({
@@ -447,11 +425,20 @@ function ImplementationMapBlock({
 function TabsBlock({
   block,
   onChange,
+  onRichTextChange,
   onVisualQuestionsSubmit,
+  contentUpdatedAt,
+  editingDisabled,
 }: {
   block: Extract<PlanBlock, { type: "tabs" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
+  onRichTextChange?: (
+    blockId: string,
+    markdown: string,
+  ) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
 }) {
   const [activeId, setActiveId] = useState(block.data.tabs[0]?.id ?? "");
   const active =
@@ -494,8 +481,11 @@ function TabsBlock({
             <PlanBlockView
               key={child.id}
               block={child}
+              onRichTextChange={onRichTextChange}
               onVisualQuestionsSubmit={onVisualQuestionsSubmit}
               compactVisuals={compactTabVisuals}
+              contentUpdatedAt={contentUpdatedAt}
+              editingDisabled={editingDisabled}
               onChange={(nextChild) => {
                 onChange?.({
                   ...block,

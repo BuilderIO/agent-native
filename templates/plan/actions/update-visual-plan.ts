@@ -7,6 +7,7 @@ import {
   normalizePlanContent,
   serializePlanContent,
 } from "../server/plan-content.js";
+import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
@@ -21,6 +22,7 @@ import {
   loadPlanBundle,
   newId,
   nowIso,
+  planPath,
   planStatusSchema,
   sectionInputSchema,
   writeEvent,
@@ -116,8 +118,10 @@ export default defineAction({
     let nextContent =
       args.content !== undefined ? normalizePlanContent(args.content) : null;
     let versionAtLoad: string | null = null;
+    let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
     if (args.content === undefined && args.contentPatches.length > 0) {
       const bundle = await loadPlanBundle(args.planId);
+      bundleAtLoad = bundle;
       versionAtLoad = bundle.plan.updatedAt;
       if (!bundle.plan.content) {
         throw new Error(
@@ -129,6 +133,28 @@ export default defineAction({
         args.contentPatches,
       );
     }
+    const sourceBundleForMarkdown =
+      nextContent && args.markdown === undefined
+        ? (bundleAtLoad ?? (await loadPlanBundle(args.planId)))
+        : null;
+    const markdownFromContent =
+      nextContent && sourceBundleForMarkdown
+        ? (
+            await exportPlanContentToMdxFolder({
+              content: nextContent,
+              title:
+                args.title ??
+                nextContent.title ??
+                sourceBundleForMarkdown.plan.title,
+              brief:
+                args.brief ??
+                nextContent.brief ??
+                sourceBundleForMarkdown.plan.brief,
+              planId: args.planId,
+              url: planPath(args.planId),
+            })
+          )["plan.mdx"]
+        : null;
     const planPatch = {
       ...(args.title ? { title: args.title } : {}),
       ...(args.brief ? { brief: args.brief } : {}),
@@ -136,7 +162,11 @@ export default defineAction({
       ...(args.currentFocus ? { currentFocus: args.currentFocus } : {}),
       ...(args.html !== undefined ? { html: args.html } : {}),
       ...(nextContent ? { content: serializePlanContent(nextContent) } : {}),
-      ...(args.markdown !== undefined ? { markdown: args.markdown } : {}),
+      ...(args.markdown !== undefined
+        ? { markdown: args.markdown }
+        : markdownFromContent
+          ? { markdown: markdownFromContent }
+          : {}),
       ...(args.status === "approved" ? { approvedAt: now } : {}),
       updatedAt: now,
     };

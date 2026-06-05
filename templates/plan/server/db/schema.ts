@@ -85,3 +85,9 @@ export const planEvents = table("plan_events", {
 });
 
 export const planShares = createSharesTable("plan_shares");
+
+export const planGuestMints = table("plan_guest_mints", {
+  id: text("id").primaryKey(),
+  ipHash: text("ip_hash").notNull(),
+  createdAt: text("created_at").notNull(),
+});

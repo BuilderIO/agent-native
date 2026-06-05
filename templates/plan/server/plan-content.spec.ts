@@ -3,6 +3,7 @@ import {
   applyPlanContentPatches,
   planContentSchema,
   type PlanContent,
+  type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import {
   buildPlanContentHtml,
@@ -49,6 +50,24 @@ describe("structured plan content", () => {
         (block) => block.type !== ("sketch-wireframe" as never),
       ),
     ).toBe(true);
+    const desktopSidebar = findWireframeNode(
+      content.canvas?.frames[0]?.wireframe?.screen ?? [],
+      (node) => node.el === "sidebar",
+    );
+    expect(desktopSidebar?.children?.[0]).toMatchObject({
+      el: "col",
+      full: true,
+    });
+    const desktopSidebarChildren = desktopSidebar?.children ?? [];
+    expect(desktopSidebarChildren[desktopSidebarChildren.length - 1]?.el).toBe(
+      "box",
+    );
+    expect(
+      findWireframeNode(
+        desktopSidebar?.children ?? [],
+        (node) => node.el === "navItem" && node.label === "Handoff",
+      ),
+    ).toBeTruthy();
 
     const html = buildPlanContentHtml({
       content,
@@ -60,6 +79,45 @@ describe("structured plan content", () => {
     expect(html).toContain("canvas-export");
     expect(html).toContain("Checkout flow");
     expect(html).toContain("Implementation Map");
+  });
+
+  it("anchors component context sidebar actions after a flexible content stack", () => {
+    const content = createUiPlanContent({
+      title: "Context X-Ray cleanup",
+      brief: "Clean the agent sidebar context popover before implementation.",
+      states: [
+        {
+          name: "Default popover",
+          description: "Context X-Ray opens in the agent sidebar.",
+        },
+      ],
+      components: [
+        {
+          name: "Context X-Ray widget",
+          description: "A compact popover anchored in the agent sidebar.",
+        },
+      ],
+    });
+
+    const contextFrame = content.canvas?.frames.find(
+      (frame) => frame.id === "frame-app-context",
+    );
+    const sidebar = findWireframeNode(
+      contextFrame?.wireframe?.screen ?? [],
+      (node) => node.el === "sidebar",
+    );
+
+    expect(sidebar?.children?.[0]).toMatchObject({
+      el: "col",
+      full: true,
+    });
+    const sidebarChildren = sidebar?.children ?? [];
+    expect(sidebarChildren[sidebarChildren.length - 2]?.el).toBe("divider");
+    expect(sidebarChildren[sidebarChildren.length - 1]).toMatchObject({
+      el: "btn",
+      label: "X-Ray",
+      solid: true,
+    });
   });
 
   it("keeps UI plans document-only when no states or components are supplied", () => {
@@ -221,6 +279,18 @@ describe("structured plan content", () => {
     expect(messages).toContain("Duplicate wireframe node id: inline-cta");
   });
 });
+
+function findWireframeNode(
+  nodes: PlanWireframeNode[],
+  predicate: (node: PlanWireframeNode) => boolean,
+): PlanWireframeNode | null {
+  for (const node of nodes) {
+    if (predicate(node)) return node;
+    const childMatch = findWireframeNode(node.children ?? [], predicate);
+    if (childMatch) return childMatch;
+  }
+  return null;
+}
 
 describe("custom-html safety", () => {
   it("serializes, parses, and rejects full custom HTML documents at validation", () => {
@@ -418,6 +488,41 @@ describe("granular patch ops", () => {
     expect(patched.canvas?.annotations?.[1]?.type).toBe("callout");
     expect(patched.canvas?.annotations?.[1]?.points?.[1]?.x).toBe(420);
     expect(patched.blocks.some((block) => block.id === "new-note")).toBe(true);
+  });
+
+  it("drops any legacy doc on update-rich-text so markdown is the only source of truth", () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Doc drop",
+      brief: "Markdown only.",
+      blocks: [
+        {
+          id: "rt",
+          type: "rich-text",
+          // Simulate a legacy block that carried a stale Tiptap/ProseMirror doc.
+          data: {
+            markdown: "Old copy.",
+            doc: { type: "doc", content: [{ type: "paragraph" }] },
+          } as unknown as { markdown: string },
+        },
+      ],
+    };
+
+    const patched = applyPlanContentPatches(content, [
+      {
+        op: "update-rich-text",
+        blockId: "rt",
+        markdown: "New copy.",
+      },
+    ]);
+
+    const nextRichText = patched.blocks.find((block) => block.id === "rt");
+    expect(nextRichText?.type).toBe("rich-text");
+    if (nextRichText?.type !== "rich-text") return;
+    expect(nextRichText.data.markdown).toBe("New copy.");
+    expect(Object.keys(nextRichText.data)).toEqual(["markdown"]);
+    expect("doc" in nextRichText.data).toBe(false);
+    expect((nextRichText.data as Record<string, unknown>).doc).toBeUndefined();
   });
 
   it("patches and replaces a kit-tree wireframe node by id", () => {

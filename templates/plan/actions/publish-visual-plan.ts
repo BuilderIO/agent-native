@@ -173,6 +173,31 @@ export default defineAction({
       ? hostedPath
       : `${auth.url}${hostedPath.startsWith("/") ? "" : "/"}${hostedPath}`;
 
+    if (args.visibility) {
+      const visibilityResponse = await fetch(
+        `${auth.url}/_agent-native/actions/set-resource-visibility`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${auth.token}`,
+          },
+          body: JSON.stringify({
+            resourceType: "plan",
+            resourceId: hostedPlanId,
+            visibility: args.visibility,
+          }),
+        },
+      );
+
+      if (!visibilityResponse.ok) {
+        const detail = await visibilityResponse.text().catch(() => "");
+        throw new Error(
+          `Published the plan, but applying ${args.visibility} visibility failed (${visibilityResponse.status} ${visibilityResponse.statusText}). ${detail}`.trim(),
+        );
+      }
+    }
+
     await getDb()
       .update(schema.plans)
       .set({
@@ -187,7 +212,11 @@ export default defineAction({
       message: existingHostedPlanId
         ? "Updated the hosted shareable plan."
         : "Published the plan to a hosted shareable link.",
-      payload: { hostedPlanId, hostedPlanUrl: url },
+      payload: {
+        hostedPlanId,
+        hostedPlanUrl: url,
+        requestedVisibility: args.visibility ?? "private",
+      },
       createdBy: "agent",
     });
 
@@ -197,8 +226,8 @@ export default defineAction({
       hostedPlanUrl: url,
       planId: args.planId,
       hostedUrl: auth.url,
-      // The hosted copy starts private; sharing is set via the core sharing
-      // actions (set-resource-visibility / share-resource) on the hosted plan.
+      // The hosted copy starts private unless a visibility was requested above;
+      // invite-specific sharing is still managed on the hosted plan.
       requestedVisibility: args.visibility ?? "private",
     };
   },

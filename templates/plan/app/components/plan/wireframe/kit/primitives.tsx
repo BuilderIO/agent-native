@@ -781,6 +781,7 @@ export function Sidebar({
         flexDirection: "column",
         gap: V.gap,
         minHeight: 0,
+        alignSelf: "stretch",
         overflow: "hidden",
         ...style,
       }}
@@ -838,6 +839,7 @@ export function Row({
       style={{
         display: "flex",
         flexDirection: "row",
+        alignItems: "stretch",
         gap: V.gap,
         minWidth: 0,
         minHeight: 0,

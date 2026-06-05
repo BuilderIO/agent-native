@@ -1,39 +1,29 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { applyMarkdownFormat } from "./PlanMarkdownEditor";
 
-describe("PlanMarkdownEditor markdown formatting", () => {
-  it("prefixes the current line for block-level formats", () => {
-    const result = applyMarkdownFormat(
-      "Intro\nMake this a section",
-      "heading",
-      {
-        start: 8,
-        end: 12,
-      },
-    );
+function readSource(relativePath: string) {
+  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
+}
 
-    expect(result.markdown).toBe("Intro\n## Make this a section");
-    expect(result.selectionStart).toBe(11);
+describe("PlanMarkdownEditor inline editing", () => {
+  it("uses the shared rich markdown editor instead of a textarea/edit button", () => {
+    const source = readSource("./PlanMarkdownEditor.tsx");
+
+    expect(source).toContain("RichMarkdownEditor");
+    expect(source).toContain("SAVE_DEBOUNCE_MS");
+    expect(source).toContain('preset="plan"');
+    expect(source).not.toContain("Textarea");
+    expect(source).not.toContain("IconPencil");
   });
 
-  it("prefixes every selected line for lists", () => {
-    const result = applyMarkdownFormat("First\nSecond", "bullet", {
-      start: 0,
-      end: "First\nSecond".length,
-    });
+  it("threads review-mode edit disabling and source reconciliation metadata", () => {
+    const renderer = readSource("./PlanContentRenderer.tsx");
+    const documentArea = readSource("./DocumentArea.tsx");
 
-    expect(result.markdown).toBe("- First\n- Second");
-    expect(result.selectionEnd).toBe("First\nSecond".length + 4);
-  });
-
-  it("wraps inline selections without rewriting surrounding markdown", () => {
-    const result = applyMarkdownFormat("Keep exact source", "bold", {
-      start: 5,
-      end: 10,
-    });
-
-    expect(result.markdown).toBe("Keep **exact** source");
-    expect(result.selectionStart).toBe(7);
-    expect(result.selectionEnd).toBe(12);
+    expect(renderer).toContain("editingDisabled?: boolean");
+    expect(renderer).toContain("contentUpdatedAt?: string | null");
+    expect(renderer).toContain('op: "update-rich-text"');
+    expect(documentArea).toContain("editingDisabled={editingDisabled}");
+    expect(documentArea).toContain("contentUpdatedAt={contentUpdatedAt}");
   });
 });

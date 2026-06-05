@@ -78,6 +78,11 @@ import { isAgentActionStopError } from "../action.js";
 import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { applyContextDirectives } from "./context-xray/apply-directives.js";
+import {
+  completeRun as completeProgressRun,
+  startRun as startProgressRun,
+  updateRunProgress,
+} from "../progress/registry.js";
 import { loadContextDirectives } from "./context-xray/directives-store.js";
 import {
   buildManifest,
@@ -2147,6 +2152,77 @@ export async function runAgentLoop(opts: {
   return usage;
 }
 
+function backgroundChatProgressRunId(turnId: string): string {
+  const normalized = turnId
+    .trim()
+    .replace(/[^a-zA-Z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 160);
+  return `agent-chat-${normalized || "turn"}`;
+}
+
+function isRecoverableContinuationError(event: {
+  type: "error";
+  error: string;
+  errorCode?: string;
+  recoverable?: boolean;
+}): boolean {
+  const code = String(event.errorCode ?? "").toLowerCase();
+  const message = event.error.toLowerCase();
+  if (code === "builder_gateway_error") return false;
+  return (
+    event.recoverable === true ||
+    code === "builder_gateway_timeout" ||
+    code === "stale_run" ||
+    code === "timeout" ||
+    code === "timeout_error" ||
+    code === "http_408" ||
+    code === "http_429" ||
+    code === "http_529" ||
+    code === "run_timeout" ||
+    message.includes("timeout") ||
+    message.includes("temporarily unavailable")
+  );
+}
+
+function endsAtInternalContinuationBoundary(run: ActiveRun): boolean {
+  const last = run.events.at(-1)?.event;
+  if (!last) return false;
+  if (last.type === "auto_continue" || last.type === "loop_limit") {
+    return true;
+  }
+  return last.type === "error" && isRecoverableContinuationError(last);
+}
+
+function progressStepFromAgentChatEvent(event: AgentChatEvent): string | null {
+  switch (event.type) {
+    case "activity":
+      return event.label;
+    case "tool_start":
+      return `Using ${event.tool}.`;
+    case "tool_done":
+      return `Finished ${event.tool}.`;
+    case "agent_call":
+      return event.status === "start"
+        ? `Calling ${event.agent}.`
+        : event.status === "done"
+          ? `Finished ${event.agent}.`
+          : `${event.agent} failed.`;
+    case "agent_task":
+      return event.status === "running"
+        ? "Started background task."
+        : event.status === "completed"
+          ? "Background task completed."
+          : "Background task failed.";
+    case "agent_task_update":
+      return event.currentStep || event.preview || "Background task updated.";
+    case "text":
+      return "Agent is responding.";
+    default:
+      return null;
+  }
+}
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -2203,6 +2279,7 @@ export function createProductionAgentHandler(
       effort: requestEffort,
       browserTabId,
       scope,
+      trackInRunsTray,
     } = body;
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
@@ -2697,12 +2774,12 @@ export function createProductionAgentHandler(
       typeof requestTurnId === "string" && requestTurnId.trim()
         ? requestTurnId.trim()
         : runId;
+    const messageToPersist =
+      typeof requestDisplayMessage === "string" &&
+      requestDisplayMessage.trim().length > 0
+        ? requestDisplayMessage
+        : requestMessage;
     if (options.onRunPrepared && !internalContinuation) {
-      const messageToPersist =
-        typeof requestDisplayMessage === "string" &&
-        requestDisplayMessage.trim().length > 0
-          ? requestDisplayMessage
-          : requestMessage;
       await options.onRunPrepared({
         runId,
         threadId,
@@ -2710,10 +2787,104 @@ export function createProductionAgentHandler(
         attachments: requestAttachments,
       });
     }
+
+    const trackedProgressOwner =
+      trackInRunsTray === true && ownerEmail ? ownerEmail : null;
+    const trackedProgressRunId = trackedProgressOwner
+      ? backgroundChatProgressRunId(effectiveTurnId)
+      : null;
+    const trackedProgressMetadata = trackedProgressRunId
+      ? {
+          kind: "agent-chat-background",
+          threadId: effectiveThreadId,
+          surfaceUrl: `agent-native://threads/${encodeURIComponent(effectiveThreadId)}`,
+          turnId: effectiveTurnId,
+        }
+      : null;
+
+    const completeTrackedProgressRun = async (
+      run: ActiveRun,
+      completionError?: unknown,
+    ) => {
+      if (!trackedProgressRunId || !trackedProgressOwner) return;
+      if (!completionError && endsAtInternalContinuationBoundary(run)) {
+        return;
+      }
+      const terminalStatus =
+        run.status === "aborted"
+          ? "cancelled"
+          : run.status === "errored" || completionError
+            ? "failed"
+            : "succeeded";
+      const step =
+        terminalStatus === "succeeded"
+          ? "Agent finished."
+          : terminalStatus === "cancelled"
+            ? "Agent run was cancelled."
+            : "Agent stopped with an error.";
+      await completeProgressRun(
+        trackedProgressRunId,
+        trackedProgressOwner,
+        terminalStatus,
+        {
+          step,
+          metadata: {
+            ...(trackedProgressMetadata ?? {}),
+            runId: run.runId,
+          },
+        },
+      ).catch(() => {});
+    };
+
+    let lastTrackedProgressUpdateAt = 0;
+    const updateTrackedProgressFromEvent = (event: AgentChatEvent) => {
+      if (!trackedProgressRunId || !trackedProgressOwner) return;
+      const step = progressStepFromAgentChatEvent(event);
+      if (!step) return;
+      const now = Date.now();
+      if (now - lastTrackedProgressUpdateAt < 15_000) return;
+      lastTrackedProgressUpdateAt = now;
+      void updateRunProgress(trackedProgressRunId, trackedProgressOwner, {
+        step,
+        metadata: {
+          ...(trackedProgressMetadata ?? {}),
+          runId,
+        },
+      }).catch(() => {});
+    };
+
+    if (trackedProgressRunId && trackedProgressOwner && !internalContinuation) {
+      await startProgressRun({
+        id: trackedProgressRunId,
+        owner: trackedProgressOwner,
+        title: messageToPersist,
+        step: "Starting agent.",
+        metadata: trackedProgressMetadata ?? undefined,
+      }).catch(() => {});
+    }
+
+    const handleRunComplete =
+      options.onRunComplete || trackedProgressRunId
+        ? async (run: ActiveRun) => {
+            try {
+              await options.onRunComplete?.(run, threadId);
+            } catch (err) {
+              await completeTrackedProgressRun(run, err);
+              throw err;
+            }
+            await completeTrackedProgressRun(run);
+          }
+        : undefined;
+
     startRun(
       runId,
       effectiveThreadId,
-      async (send, signal) => {
+      async (rawSend, signal) => {
+        const send = (event: AgentChatEvent) => {
+          rawSend(event);
+          updateTrackedProgressFromEvent(event);
+        };
+
         send({ type: "activity", label: "Starting agent" });
 
         // Notify listeners that a run has started (used by agent teams)
@@ -3065,9 +3236,7 @@ export function createProductionAgentHandler(
           // Usage recording failed — don't break the run
         }
       },
-      options.onRunComplete
-        ? (run) => options.onRunComplete!(run, threadId)
-        : undefined,
+      handleRunComplete,
       {
         softTimeoutMs: options.runSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,

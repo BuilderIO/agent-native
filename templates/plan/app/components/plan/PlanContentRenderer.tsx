@@ -19,6 +19,8 @@ type PlanContentRendererProps = {
   onContentChange?: (content: PlanContent) => Promise<void> | void;
   onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
   canvasMarkupMode?: CanvasMarkupMode;
   onCanvasMarkupCreate?: (
     annotation: Omit<PlanAnnotation, "id">,
@@ -39,6 +41,8 @@ export function PlanContentRenderer({
   onContentChange,
   onContentPatch,
   onVisualQuestionsSubmit,
+  contentUpdatedAt,
+  editingDisabled = false,
   canvasMarkupMode,
   onCanvasMarkupCreate,
 }: PlanContentRendererProps) {
@@ -62,6 +66,23 @@ export function PlanContentRenderer({
       blocks: updateBlocks(content.blocks, id, () => nextBlock),
     };
     await onContentChange?.(next);
+  };
+
+  const updateRichTextBlock = async (blockId: string, markdown: string) => {
+    const block = findBlock(content.blocks, blockId);
+    if (!block || block.type !== "rich-text") return;
+    if (onContentPatch) {
+      await onContentPatch({
+        op: "update-rich-text",
+        blockId,
+        markdown,
+      });
+      return;
+    }
+    await updateBlock(blockId, {
+      ...block,
+      data: { ...block.data, markdown },
+    });
   };
 
   return (
@@ -95,7 +116,10 @@ export function PlanContentRenderer({
               key={block.id}
               block={block}
               onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
+              onRichTextChange={updateRichTextBlock}
               onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+              contentUpdatedAt={contentUpdatedAt}
+              editingDisabled={editingDisabled}
             />
           ))}
         </div>

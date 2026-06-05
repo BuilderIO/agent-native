@@ -99,6 +99,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
+import { GuestModeBanner } from "@/components/plan/GuestModeBanner";
 import type {
   CanvasMarkupCreateContext,
   CanvasMarkupMode,
@@ -411,6 +412,27 @@ export function PlansPage() {
   } | null>(null);
   const plansQuery = usePlans();
   const plans = plansQuery.data ?? [];
+  const { session, isLoading: sessionLoading } = useSession();
+  // Redirect to sign-in, returning to wherever the guest currently is.
+  const openSignIn = useCallback(() => {
+    const returnPath =
+      window.location.pathname + window.location.search + window.location.hash;
+    window.location.href = `${agentNativePath(
+      "/_agent-native/sign-in",
+    )}?return=${encodeURIComponent(returnPath)}`;
+  }, []);
+  // When a guest signs in, the server claims their guest-authored plans onto the
+  // new account (see server/middleware/claim-guest-plans.ts). Refetch once the
+  // session appears so the just-claimed plans show up immediately.
+  const wasSignedInRef = useRef(false);
+  useEffect(() => {
+    if (sessionLoading) return;
+    const signedIn = Boolean(session);
+    if (signedIn && !wasSignedInRef.current) {
+      void plansQuery.refetch();
+    }
+    wasSignedInRef.current = signedIn;
+  }, [session, sessionLoading, plansQuery]);
   const selectedId = params.id;
   const immersiveReader = Boolean(selectedId && planFullscreen);
   const planQuery = usePlan(selectedId);
@@ -858,9 +880,6 @@ export function PlansPage() {
           ? `Edited markdown block ${patch.blockId}.`
           : "Patched structured visual plan content.",
     });
-    if (patch.op === "update-rich-text") {
-      toast.success("Markdown block saved");
-    }
   };
 
   const appendCanvasMarkup = async (
@@ -1019,6 +1038,7 @@ export function PlansPage() {
 
   return (
     <div className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      {!sessionLoading && !session && <GuestModeBanner onSignIn={openSignIn} />}
       <div
         className="plans-grid grid min-h-0 flex-1"
         data-view={immersiveReader ? "immersive" : "app"}
@@ -1400,6 +1420,8 @@ export function PlansPage() {
                     fallbackBrief={bundle.plan.brief}
                     onContentChange={updateStructuredContent}
                     onContentPatch={patchStructuredContent}
+                    contentUpdatedAt={bundle.plan.updatedAt}
+                    editingDisabled={reviewMode !== "none"}
                     canvasMarkupMode={reviewMode}
                     onCanvasMarkupCreate={appendCanvasMarkup}
                     onVisualQuestionsSubmit={(summary) => {
@@ -1543,7 +1565,27 @@ function PlanShareControl({
     publishedPlan?.url ??
     (effectiveHostedPlanId ? hostedPlanUrl : null) ??
     null;
-  const canManageLocalShares = Boolean(session);
+  const hostedPlanOnCurrentOrigin = useMemo(() => {
+    if (!effectivePublishedUrl || typeof window === "undefined") return false;
+    try {
+      return (
+        new URL(effectivePublishedUrl, window.location.origin).origin ===
+        window.location.origin
+      );
+    } catch {
+      return false;
+    }
+  }, [effectivePublishedUrl]);
+  const canManageLocalShares =
+    Boolean(session) && (!effectivePublishedUrl || hostedPlanOnCurrentOrigin);
+  const managedShareResourceId =
+    effectivePublishedUrl && hostedPlanOnCurrentOrigin && effectiveHostedPlanId
+      ? effectiveHostedPlanId
+      : planId;
+  const managedShareUrl =
+    effectivePublishedUrl && hostedPlanOnCurrentOrigin
+      ? effectivePublishedUrl
+      : localShareUrl;
 
   useEffect(() => {
     setPublishedPlan(null);
@@ -1592,13 +1634,13 @@ function PlanShareControl({
 
   // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
-    if (!localShareUrl) return null;
+    if (!managedShareUrl) return null;
     return (
       <ShareButton
         resourceType="plan"
-        resourceId={planId}
+        resourceId={managedShareResourceId}
         resourceTitle={planTitle}
-        shareUrl={localShareUrl}
+        shareUrl={managedShareUrl}
         shareUrlLabel="Plan link"
         shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
         shareUrlPlacement="top"

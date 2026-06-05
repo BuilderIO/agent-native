@@ -26,6 +26,7 @@ import { getObject } from "../lib/storage.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
 import { IMAGE_CATEGORIES, MAX_ASSET_UPLOAD_FILES } from "../../shared/api.js";
 import type { ImageCategory, ImageRole } from "../../shared/api.js";
+import { serializeAsset } from "../../actions/_helpers.js";
 
 const MIME_BY_EXT: Record<string, string> = {
   png: "image/png",
@@ -306,6 +307,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
     const assets = uploadResults.flatMap((result) =>
       result.status === "fulfilled" ? [result.value.asset] : [],
     );
+    const serializedAssets = assets.map((asset) => serializeAsset(asset));
     const errors = uploadResults.flatMap((result, index) =>
       result.status === "rejected"
         ? [
@@ -324,14 +326,14 @@ export const uploadAssets = defineEventHandler(async (event) =>
       return {
         error: errors[0]?.message ?? "Upload failed",
         count: 0,
-        assets,
+        assets: serializedAssets,
         skippedDuplicates: deduped.skippedDuplicates,
         errors,
       };
     }
     return {
       count: assets.length,
-      assets,
+      assets: serializedAssets,
       skippedDuplicates: deduped.skippedDuplicates,
       errors,
     };
@@ -352,9 +354,19 @@ export const streamAsset = defineEventHandler(async (event) =>
       throw createError({ statusCode: 404, statusMessage: "Not found" });
     await assertAccess("asset-library", asset.libraryId, "viewer");
     const query = getQuery(event);
-    const useThumb = query.variant === "thumb" && asset.thumbnailObjectKey;
-    const key = useThumb ? asset.thumbnailObjectKey! : asset.objectKey;
-    const body = await getObject(key);
+    let useThumb = Boolean(
+      query.variant === "thumb" && asset.thumbnailObjectKey,
+    );
+    let body: Buffer;
+    try {
+      body = await getObject(
+        useThumb ? asset.thumbnailObjectKey! : asset.objectKey,
+      );
+    } catch (error) {
+      if (!useThumb) throw error;
+      useThumb = false;
+      body = await getObject(asset.objectKey);
+    }
     setHeader(event, "content-type", useThumb ? "image/webp" : asset.mimeType);
     setHeader(event, "cache-control", "private, max-age=300");
     if (query.download === "1") {

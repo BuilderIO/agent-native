@@ -1030,6 +1030,11 @@ export function createAgentChatAdapter(options?: {
         "requestMode" in runConfig.custom
           ? (runConfig.custom as { requestMode?: unknown }).requestMode
           : undefined;
+      const trackInRunsTray =
+        runConfig?.custom &&
+        typeof runConfig.custom === "object" &&
+        (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
+          true;
       const requestMode =
         runConfigRequestMode === "act" || runConfigRequestMode === "plan"
           ? runConfigRequestMode
@@ -1557,6 +1562,7 @@ export function createAgentChatAdapter(options?: {
                   history: currentHistory,
                   structuredHistory: currentStructuredHistory,
                   turnId,
+                  ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
                   ...(threadId ? { threadId } : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }

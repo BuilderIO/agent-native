@@ -52,7 +52,7 @@ type NodeRenderer = (node: PlanWireframeNode, children: ReactNode) => ReactNode;
 
 const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
   // --- Frame / structure -------------------------------------------------
-  screen: (n, children) => {
+  screen: (n) => {
     // Surface-aware safe area so content never touches a frame edge:
     // - browser/window screens are full-bleed (chrome + sidebar/main pad inside)
     // - mobile keeps the status bar full-bleed but pads the body below it
@@ -60,7 +60,12 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
     const kids = n.children ?? [];
     const lead = kids[0]?.el;
     if (lead === "browserBar") {
-      return <Screen pad={0}>{children}</Screen>;
+      return (
+        <Screen pad={0}>
+          {renderNode(kids[0], kids[0].id ?? "browserbar")}
+          {renderScreenBodyNodes(kids.slice(1))}
+        </Screen>
+      );
     }
     if (lead === "statusBar") {
       return (
@@ -76,12 +81,16 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
               padding: "calc(var(--pad) * 1.1)",
             }}
           >
-            {renderNodes(kids.slice(1))}
+            {renderScreenBodyNodes(kids.slice(1))}
           </div>
         </Screen>
       );
     }
-    return <Screen pad="calc(var(--pad) * 1.35)">{children}</Screen>;
+    return (
+      <Screen pad="calc(var(--pad) * 1.35)">
+        {renderScreenBodyNodes(kids)}
+      </Screen>
+    );
   },
   browserBar: (n, children) => (
     <BrowserBar title={n.title ?? n.text}>{children}</BrowserBar>
@@ -163,6 +172,22 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
   iconSquare: (n) => <IconSquare active={n.active} />,
   kv: (n) => <KV rows={n.rows ?? []} />,
 };
+
+function renderScreenBodyNode(
+  node: PlanWireframeNode,
+  key?: string | number,
+): ReactNode {
+  const shouldFill =
+    node.full !== false &&
+    (node.el === "row" || node.el === "col" || node.el === "main");
+  return renderNode(shouldFill ? { ...node, full: true } : node, key);
+}
+
+function renderScreenBodyNodes(nodes: PlanWireframeNode[]): ReactNode {
+  return nodes.map((node, i) =>
+    renderScreenBodyNode(node, node.id ?? `screen-body-${i}`),
+  );
+}
 
 /** Render a single kit-tree node (and its children, recursively). */
 export function renderNode(

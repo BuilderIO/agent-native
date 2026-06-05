@@ -135,6 +135,8 @@ export interface AgentChatRequest {
   browserTabId?: string;
   /** Resource scope for this chat thread, e.g. the deck currently bound to the tab. */
   scope?: AgentChatScope | null;
+  /** When true, expose this chat turn as a user-visible run in RunsTray. */
+  trackInRunsTray?: boolean;
 }
 
 export type AgentChatEvent =

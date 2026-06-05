@@ -53,7 +53,6 @@ export type PlanRichTextBlock = PlanBlockBase & {
   type: "rich-text";
   data: {
     markdown: string;
-    doc?: unknown;
   };
 };
 
@@ -583,7 +582,6 @@ export type PlanContentPatch =
       blockId: string;
       title?: string;
       markdown?: string;
-      doc?: unknown;
     }
   | {
       op: "update-custom-html";
@@ -901,7 +899,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       type: z.literal("rich-text"),
       data: z.object({
         markdown: z.string().max(100_000),
-        doc: z.unknown().optional(),
       }),
     }),
     baseBlockSchema.extend({
@@ -1414,7 +1411,6 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       blockId: idSchema,
       title: z.string().trim().min(1).max(180).optional(),
       markdown: z.string().max(100_000).optional(),
-      doc: z.unknown().optional(),
     }),
     z.object({
       op: z.literal("update-custom-html"),
@@ -1538,9 +1534,11 @@ export function applyPlanContentPatches(
         return {
           ...block,
           ...(patch.title ? { title: patch.title } : {}),
+          // markdown is the only source of truth for rich-text blocks; any
+          // legacy Tiptap/ProseMirror `doc` is intentionally dropped here so it
+          // can never become a second source of truth.
           data: {
             markdown: patch.markdown ?? block.data.markdown,
-            doc: patch.doc ?? block.data.doc,
           },
         };
       }).blocks;

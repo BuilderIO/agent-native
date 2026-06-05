@@ -51,6 +51,8 @@ People you share a plan with do not need to install anything. They open the Plan
 
 When a guest signs in, the plans they created as a guest are **claimed** into their account, so nothing they built is lost.
 
+Plan prose edits inline: click into any text section, type, format with the rich editor toolbar or slash menu, and Plans autosaves the underlying markdown. Review annotation mode temporarily turns text sections read-only so clicks can pin feedback; leave review mode to keep editing prose.
+
 ## Sharing and commenting {#sharing}
 
 Sharing and commenting are the workflows that need an account:

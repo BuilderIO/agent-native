@@ -14,6 +14,7 @@ import {
   isLocalPlanRuntime,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   buildPlanHtml,
@@ -141,6 +142,7 @@ export default defineAction({
       getRequestUserEmail(),
       "Creating a UI plan",
     );
+    await assertGuestCreateWithinLimits(ownerEmail);
 
     const id = newId("plan");
     const now = nowIso();

@@ -351,16 +351,21 @@ function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
   recoveryAction?: AgentRecoveryAction,
+  trackInRunsTray?: boolean,
 ) {
   const custom: {
     references?: Reference[];
     requestMode?: AgentRequestMode;
+    trackInRunsTray?: boolean;
   } = {};
   if (references && references.length > 0) {
     custom.references = references;
   }
   if (requestMode) {
     custom.requestMode = requestMode;
+  }
+  if (trackInRunsTray) {
+    custom.trackInRunsTray = true;
   }
   const options: {
     runConfig?: { custom: typeof custom };
@@ -3509,7 +3514,11 @@ function PlanModeCallout({
 
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
-  sendMessage(text: string, images?: string[]): void;
+  sendMessage(
+    text: string,
+    images?: string[],
+    options?: { trackInRunsTray?: boolean },
+  ): void;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
   /** Add or replace keyed context for the next composer submission. */
@@ -3927,6 +3936,7 @@ const AssistantChatInner = forwardRef<
       references?: Reference[];
       requestMode?: AgentRequestMode;
       recoveryAction?: AgentRecoveryAction;
+      trackInRunsTray?: boolean;
     }>
   >([]);
   const [composerContextItems, setComposerContextItems] = useState<
@@ -4792,6 +4802,7 @@ const AssistantChatInner = forwardRef<
               next.references,
               next.requestMode,
               next.recoveryAction,
+              next.trackInRunsTray,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         })();
@@ -4903,6 +4914,7 @@ const AssistantChatInner = forwardRef<
       intent: ComposerSubmitIntent = "queued",
       recoveryAction?: AgentRecoveryAction,
       includeComposerContext = false,
+      trackInRunsTray = false,
     ) => {
       materializeFrozenReconnectContent();
       setShowContinue(false);
@@ -4955,6 +4967,7 @@ const AssistantChatInner = forwardRef<
             references,
             requestMode: effectiveRequestMode,
             recoveryAction,
+            trackInRunsTray,
           },
         ]);
       } else {
@@ -4968,6 +4981,7 @@ const AssistantChatInner = forwardRef<
             references,
             effectiveRequestMode,
             recoveryAction,
+            trackInRunsTray,
           ),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
@@ -4989,8 +5003,22 @@ const AssistantChatInner = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      sendMessage(text: string, images?: string[]) {
-        addToQueue(text, images);
+      sendMessage(
+        text: string,
+        images?: string[],
+        options?: { trackInRunsTray?: boolean },
+      ) {
+        addToQueue(
+          text,
+          images,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          undefined,
+          false,
+          options?.trackInRunsTray === true,
+        );
       },
       prefillMessage(text: string) {
         tiptapRef.current?.setText(text);

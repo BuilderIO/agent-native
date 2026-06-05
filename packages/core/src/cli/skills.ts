@@ -461,12 +461,15 @@ frontmatter plus markdown/document blocks, \`canvas.mdx\` holds
 \`<DesignBoard>/<Section>/<Artboard>/<Screen>/<Annotation>/<Connector>\`, and the
 patch action normalizes the MDX back into the same JSON runtime model. JSON is
 the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
+In the browser, humans edit \`rich-text\` prose inline; agents should still use
+\`update-rich-text\` content patches or source patches for prose, and use
+comments/structured patches for canvas, artboard, wireframe, and diagram edits.
 
 **Legacy imports only.** Old or imported plans may carry coordinate-based
 regions or a full standalone HTML document; the renderer still displays them.
 Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
-**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, put the primary nav stack inside a \`col\` with \`full: true\`, then add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
 
 **Compose like the Claude-style wireframes.** Build from nested flex primitives,
 not visual guesses: a \`screen\` contains chrome and one main \`row\`/\`col\`; use
@@ -816,12 +819,15 @@ frontmatter plus markdown/document blocks, \`canvas.mdx\` holds
 \`<DesignBoard>/<Section>/<Artboard>/<Screen>/<Annotation>/<Connector>\`, and the
 patch action normalizes the MDX back into the same JSON runtime model. JSON is
 the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
+In the browser, humans edit \`rich-text\` prose inline; agents should still use
+\`update-rich-text\` content patches or source patches for prose, and use
+comments/structured patches for canvas, artboard, wireframe, and diagram edits.
 
 **Legacy imports only.** Old or imported plans may carry coordinate-based
 regions or a full standalone HTML document; the renderer still displays them.
 Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
-**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, put the primary nav stack inside a \`col\` with \`full: true\`, then add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
 
 **Compose like the Claude-style wireframes.** Build from nested flex primitives,
 not visual guesses: a \`screen\` contains chrome and one main \`row\`/\`col\`; use
@@ -1280,12 +1286,15 @@ frontmatter plus markdown/document blocks, \`canvas.mdx\` holds
 \`<DesignBoard>/<Section>/<Artboard>/<Screen>/<Annotation>/<Connector>\`, and the
 patch action normalizes the MDX back into the same JSON runtime model. JSON is
 the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
+In the browser, humans edit \`rich-text\` prose inline; agents should still use
+\`update-rich-text\` content patches or source patches for prose, and use
+comments/structured patches for canvas, artboard, wireframe, and diagram edits.
 
 **Legacy imports only.** Old or imported plans may carry coordinate-based
 regions or a full standalone HTML document; the renderer still displays them.
 Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
-**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, put the primary nav stack inside a \`col\` with \`full: true\`, then add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
 
 **Compose like the Claude-style wireframes.** Build from nested flex primitives,
 not visual guesses: a \`screen\` contains chrome and one main \`row\`/\`col\`; use

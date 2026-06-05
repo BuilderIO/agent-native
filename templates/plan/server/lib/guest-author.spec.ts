@@ -38,6 +38,21 @@ vi.mock("h3", () => ({
     name === "x-forwarded-proto" ? proto : undefined,
 }));
 
+const guestAbuseMock = vi.hoisted(() => ({
+  tryConsumeGuestMint: vi.fn(async () => true),
+}));
+
+vi.mock("./guest-abuse.js", () => ({
+  GuestAbuseLimitError: class GuestAbuseLimitError extends Error {
+    readonly statusCode = 429;
+    constructor(message: string) {
+      super(message);
+      this.name = "GuestAbuseLimitError";
+    }
+  },
+  tryConsumeGuestMint: guestAbuseMock.tryConsumeGuestMint,
+}));
+
 let proto: string | undefined;
 
 const {
@@ -56,6 +71,8 @@ describe("guest-author identity", () => {
     cookieStore.clear();
     setCookieSpy.mockClear();
     deleteCookieSpy.mockClear();
+    guestAbuseMock.tryConsumeGuestMint.mockClear();
+    guestAbuseMock.tryConsumeGuestMint.mockResolvedValue(true);
     proto = undefined;
   });
 
@@ -70,10 +87,13 @@ describe("guest-author identity", () => {
   });
 
   describe("resolvePlanGuestAuthorOwner", () => {
-    it("mints a guest identity + cookie for a first-time visitor", () => {
-      const email = resolvePlanGuestAuthorOwner(fakeEvent);
+    it("mints a guest identity + cookie for a first-time visitor", async () => {
+      const email = await resolvePlanGuestAuthorOwner(fakeEvent);
       expect(email).toMatch(GUEST_RE);
       expect(isGuestAuthorIdentity(email)).toBe(true);
+      expect(guestAbuseMock.tryConsumeGuestMint).toHaveBeenCalledWith(
+        fakeEvent,
+      );
       expect(setCookieSpy).toHaveBeenCalledTimes(1);
       const [name, value, opts] = setCookieSpy.mock.calls[0];
       expect(name).toBe(GUEST_AUTHOR_COOKIE);
@@ -87,37 +107,54 @@ describe("guest-author identity", () => {
       expect(opts.maxAge).toBeGreaterThan(60 * 60 * 24 * 300);
     });
 
-    it("reuses an existing valid cookie without re-minting", () => {
-      const first = resolvePlanGuestAuthorOwner(fakeEvent);
+    it("reuses an existing valid cookie without re-minting", async () => {
+      const first = await resolvePlanGuestAuthorOwner(fakeEvent);
       setCookieSpy.mockClear();
-      const second = resolvePlanGuestAuthorOwner(fakeEvent);
+      guestAbuseMock.tryConsumeGuestMint.mockClear();
+      const second = await resolvePlanGuestAuthorOwner(fakeEvent);
       expect(second).toBe(first);
       expect(setCookieSpy).not.toHaveBeenCalled();
+      expect(guestAbuseMock.tryConsumeGuestMint).not.toHaveBeenCalled();
     });
 
-    it("re-mints when the stored cookie is not a valid UUID", () => {
+    it("re-mints when the stored cookie is not a valid UUID", async () => {
       cookieStore.set(GUEST_AUTHOR_COOKIE, "not-a-uuid");
-      const email = resolvePlanGuestAuthorOwner(fakeEvent);
+      const email = await resolvePlanGuestAuthorOwner(fakeEvent);
       expect(email).toMatch(GUEST_RE);
+      expect(guestAbuseMock.tryConsumeGuestMint).toHaveBeenCalledWith(
+        fakeEvent,
+      );
       expect(setCookieSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("marks the cookie Secure on https requests", () => {
+    it("refuses to mint when the guest mint limiter is exhausted", async () => {
+      guestAbuseMock.tryConsumeGuestMint.mockResolvedValue(false);
+
+      await expect(
+        resolvePlanGuestAuthorOwner(fakeEvent),
+      ).rejects.toMatchObject({
+        name: "GuestAbuseLimitError",
+        statusCode: 429,
+      });
+      expect(setCookieSpy).not.toHaveBeenCalled();
+    });
+
+    it("marks the cookie Secure on https requests", async () => {
       proto = "https";
-      resolvePlanGuestAuthorOwner(fakeEvent);
+      await resolvePlanGuestAuthorOwner(fakeEvent);
       expect(setCookieSpy.mock.calls[0][2]).toMatchObject({ secure: true });
     });
 
-    it("does not mark the cookie Secure on http requests", () => {
+    it("does not mark the cookie Secure on http requests", async () => {
       proto = "http";
-      resolvePlanGuestAuthorOwner(fakeEvent);
+      await resolvePlanGuestAuthorOwner(fakeEvent);
       expect(setCookieSpy.mock.calls[0][2]).toMatchObject({ secure: false });
     });
 
-    it("keeps two different visitors on distinct identities", () => {
-      const visitorA = resolvePlanGuestAuthorOwner(fakeEvent);
+    it("keeps two different visitors on distinct identities", async () => {
+      const visitorA = await resolvePlanGuestAuthorOwner(fakeEvent);
       cookieStore.clear(); // simulate a second visitor with no cookie
-      const visitorB = resolvePlanGuestAuthorOwner(fakeEvent);
+      const visitorB = await resolvePlanGuestAuthorOwner(fakeEvent);
       expect(visitorA).not.toBe(visitorB);
       expect(visitorA).toMatch(GUEST_RE);
       expect(visitorB).toMatch(GUEST_RE);
@@ -130,8 +167,8 @@ describe("guest-author identity", () => {
       expect(setCookieSpy).not.toHaveBeenCalled();
     });
 
-    it("returns the guest email for a valid cookie without minting", () => {
-      const minted = resolvePlanGuestAuthorOwner(fakeEvent);
+    it("returns the guest email for a valid cookie without minting", async () => {
+      const minted = await resolvePlanGuestAuthorOwner(fakeEvent);
       setCookieSpy.mockClear();
       expect(readGuestAuthorEmail(fakeEvent)).toBe(minted);
       expect(setCookieSpy).not.toHaveBeenCalled();
@@ -144,8 +181,8 @@ describe("guest-author identity", () => {
   });
 
   describe("clearGuestAuthorCookie", () => {
-    it("deletes the guest cookie", () => {
-      resolvePlanGuestAuthorOwner(fakeEvent);
+    it("deletes the guest cookie", async () => {
+      await resolvePlanGuestAuthorOwner(fakeEvent);
       clearGuestAuthorCookie(fakeEvent);
       expect(deleteCookieSpy).toHaveBeenCalledWith(GUEST_AUTHOR_COOKIE, {
         path: "/",

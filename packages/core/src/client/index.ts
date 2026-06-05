@@ -160,6 +160,12 @@ export {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
+export {
+  RichMarkdownEditor,
+  type RichMarkdownDialect,
+  type RichMarkdownEditorPreset,
+  type RichMarkdownEditorProps,
+} from "./rich-markdown-editor/index.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
 export {

@@ -691,29 +691,46 @@ function createComponentContextKitWireframe(input: {
           {
             el: "sidebar",
             children: [
-              { el: "title", text: "Agent sidebar", script: true },
               {
-                el: "box",
+                el: "col",
+                full: true,
                 children: [
+                  { el: "title", text: "Agent sidebar", script: true },
                   {
-                    el: "text",
-                    value: "Context X-Ray popover",
-                    weight: "bold",
-                  },
-                  { el: "box", children: [{ el: "text", value: "2.0k used" }] },
-                  {
-                    el: "chips",
-                    items: [{ label: "List", active: true }, { label: "Map" }],
-                  },
-                  {
-                    el: "card",
+                    el: "box",
                     children: [
-                      { el: "text", value: "Conversation", weight: "medium" },
-                      { el: "text", value: "Protected context rows" },
+                      {
+                        el: "text",
+                        value: "Context X-Ray popover",
+                        weight: "bold",
+                      },
+                      {
+                        el: "box",
+                        children: [{ el: "text", value: "2.0k used" }],
+                      },
+                      {
+                        el: "chips",
+                        items: [
+                          { label: "List", active: true },
+                          { label: "Map" },
+                        ],
+                      },
+                      {
+                        el: "card",
+                        children: [
+                          {
+                            el: "text",
+                            value: "Conversation",
+                            weight: "medium",
+                          },
+                          { el: "text", value: "Protected context rows" },
+                        ],
+                      },
                     ],
                   },
                 ],
               },
+              { el: "divider" },
               { el: "btn", label: "X-Ray", solid: true },
             ],
           },
@@ -898,13 +915,30 @@ function createDesktopUiKitWireframe(input: {
           {
             el: "sidebar",
             children: [
-              { el: "title", text: "Workspace", script: true },
-              { el: "searchBar", placeholder: "Search" },
-              { el: "navItem", label: "Overview", active: true, count: 4 },
-              { el: "navItem", label: "Today", count: 2 },
-              { el: "navItem", label: "Done" },
-              { el: "divider" },
-              { el: "navItem", label: "Project", dot: true },
+              {
+                el: "col",
+                full: true,
+                children: [
+                  { el: "title", text: "Workspace", script: true },
+                  { el: "searchBar", placeholder: "Search" },
+                  { el: "navItem", label: "Overview", active: true, count: 4 },
+                  { el: "navItem", label: "Today", count: 2 },
+                  { el: "navItem", label: "Done" },
+                  { el: "divider" },
+                  { el: "section", label: "PROJECTS" },
+                  { el: "navItem", label: "Project", dot: true },
+                  { el: "navItem", label: "Review", dot: true },
+                  { el: "navItem", label: "Handoff", dot: true },
+                ],
+              },
+              {
+                el: "box",
+                children: [
+                  { el: "text", value: "Ready for review", weight: "bold" },
+                  { el: "text", value: "Canvas plus implementation notes" },
+                  { el: "btn", label: "Open plan", solid: true, full: true },
+                ],
+              },
             ],
           },
           {

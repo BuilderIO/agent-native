@@ -16,6 +16,7 @@ import {
   isLocalPlanRuntime,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   assertPlanEditor,
@@ -133,6 +134,7 @@ export default defineAction({
       getRequestUserEmail(),
       "Importing a visual plan",
     );
+    await assertGuestCreateWithinLimits(ownerEmail);
 
     const id = newId("plan");
     await db.insert(schema.plans).values({

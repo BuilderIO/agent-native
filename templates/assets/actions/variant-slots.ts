@@ -82,6 +82,7 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
     );
     const nextSlot = {
       slotId: input.slotId,
+      runId: input.runId,
       status: input.status,
       assetId: input.assetId,
       previewUrl: input.previewUrl,

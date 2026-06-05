@@ -524,8 +524,22 @@ export function CanvasArea({
             />
           ))}
 
-          {/* Frame-attached annotations stay as nearby text; explicit reviewer
-              markup below can draw arrows because users placed those points. */}
+          {Array.from(annsByFrame.byFrame.values())
+            .flat()
+            .map((note) => (
+              <CanvasAnnotationArrow
+                key={`annotation-arrow-${note.id}`}
+                note={note}
+                frameById={measuredFrameById}
+              />
+            ))}
+          {legacyNotes.map((note) => (
+            <CanvasLegacyNoteArrow
+              key={`legacy-note-arrow-${note.id}`}
+              note={note}
+              frameById={measuredFrameById}
+            />
+          ))}
 
           {frames.map((frame) => (
             <CanvasArtboard
@@ -552,12 +566,16 @@ export function CanvasArea({
           )}
 
           {annsByFrame.loose.map((note) => (
-            <CanvasAnnotation key={note.id} note={note} frameById={frameById} />
+            <CanvasAnnotation
+              key={note.id}
+              note={note}
+              frameById={measuredFrameById}
+            />
           ))}
           {legacyNotes.map((note) => (
             <CanvasAnnotation
               key={note.id}
-              frameById={frameById}
+              frameById={measuredFrameById}
               note={{
                 id: note.id,
                 title: note.title,

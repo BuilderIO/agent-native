@@ -202,6 +202,7 @@ export interface AssetVariantState {
   prompt: string;
   slots: Array<{
     slotId: string;
+    runId?: string;
     status: "pending" | "ready" | "failed";
     assetId?: string;
     previewUrl?: string;

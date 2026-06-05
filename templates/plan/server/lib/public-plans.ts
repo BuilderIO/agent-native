@@ -14,6 +14,7 @@ import {
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
 } from "./local-identity.js";
+import { GuestAbuseLimitError, tryConsumeGuestMint } from "./guest-abuse.js";
 
 const PUBLIC_PLAN_VIEWER_COOKIE = "plan_public_viewer";
 const PUBLIC_PLAN_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -180,9 +181,16 @@ export async function resolvePublicPlanViewerOwner(
  * called from the anonymous-owner resolution path (action/agent-chat request
  * handling), never from a pure read helper.
  */
-export function resolvePlanGuestAuthorOwner(event: H3Event): string {
+export async function resolvePlanGuestAuthorOwner(
+  event: H3Event,
+): Promise<string> {
   let guestId = getCookie(event, GUEST_AUTHOR_COOKIE);
   if (!isValidCookieUuid(guestId)) {
+    if (!(await tryConsumeGuestMint(event))) {
+      throw new GuestAbuseLimitError(
+        "Too many guest sessions are being created from this network. Please sign in, or try again shortly.",
+      );
+    }
     guestId = randomUUID();
     setCookie(event, GUEST_AUTHOR_COOKIE, guestId, {
       httpOnly: true,

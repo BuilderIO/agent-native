@@ -1,5 +1,6 @@
 import { useParams } from "react-router";
 import { useActionQuery } from "@agent-native/core/client";
+import { assetPreviewSources } from "@/lib/asset-preview-sources";
 
 export default function AssetEmbed() {
   const { id } = useParams();
@@ -8,18 +9,19 @@ export default function AssetEmbed() {
   if (!asset) return <div className="h-screen bg-background" />;
   const isVideo =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/");
+  const previewUrl = assetPreviewSources(asset)[0];
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-background p-2">
       {isVideo ? (
         <video
-          src={asset.previewUrl}
+          src={previewUrl}
           controls
           playsInline
           className="max-h-full max-w-full rounded-md bg-black object-contain"
         />
       ) : (
         <img
-          src={asset.previewUrl}
+          src={previewUrl}
           alt={asset.altText || asset.title || ""}
           className="max-h-full max-w-full rounded-md object-contain"
         />

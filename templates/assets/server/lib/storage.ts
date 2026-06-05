@@ -7,10 +7,10 @@
  * the local-fs fallback in dev.
  *
  * The "key" returned by `putObject` is opaque to callers — it's a URL when
- * uploaded via a real provider, or a relative path (`local:<file>`) when
- * we fall back to local fs in dev. `getObject` and `getPresignedObjectUrl`
- * dispatch on the shape of the key so all existing callers keep working
- * without changes.
+ * uploaded via a public provider, an `s3:<object-key>` handle for private S3/R2,
+ * or a relative path (`local:<file>`) when we fall back to local fs in dev.
+ * `getObject` and `getPresignedObjectUrl` dispatch on the shape of the key so
+ * all existing callers keep working without changes.
  */
 
 import fs from "node:fs/promises";
@@ -21,10 +21,16 @@ import {
   getActiveFileUploadProvider,
 } from "@agent-native/core/file-upload";
 import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import {
+  getPresignedS3ObjectUrl,
+  getS3Object,
+  isS3StorageKey,
+  s3StorageKey,
+} from "./s3-upload-provider.js";
 
 export interface StoredObject {
-  /** Opaque storage handle. URL when uploaded via a real provider, or
-   *  `local:<relative-path>` when falling back to local fs in dev. */
+  /** Opaque storage handle. URL when uploaded via a public provider,
+   *  `s3:<object-key>` for S3/R2, or `local:<relative-path>` in dev. */
   key: string;
   /** Public URL when available (always set for URL keys). */
   url?: string;
@@ -113,6 +119,9 @@ export async function putObject(input: {
     mimeType: input.contentType,
   }).catch(() => null);
 
+  if (result?.provider === "s3" && result.id) {
+    return { key: s3StorageKey(result.id), url: result.url };
+  }
   if (result?.url) {
     return { key: result.url, url: result.url };
   }
@@ -143,6 +152,9 @@ export async function getObject(key: string): Promise<Buffer> {
       );
     }
     return Buffer.from(await res.arrayBuffer());
+  }
+  if (isS3StorageKey(key)) {
+    return getS3Object(key);
   }
   if (isLocalKey(key)) {
     return fs
@@ -176,6 +188,9 @@ export async function getPresignedObjectUrl(
       url: key,
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
     };
+  }
+  if (isS3StorageKey(key)) {
+    return getPresignedS3ObjectUrl(key, expiresIn);
   }
   return null;
 }

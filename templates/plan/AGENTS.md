@@ -81,6 +81,17 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
   `DesignBoard`, `Section`, `Artboard`, `Screen`, `Annotation`, `Connector`, and
   the wireframe kit primitives from `shared/plan-content.ts`.
 
+## Browser Editing
+
+- Prose in `rich-text` blocks is edited inline with the shared
+  `RichMarkdownEditor`, autosaved through `update-visual-plan` with
+  `contentPatches: [{ op: "update-rich-text", blockId, markdown }]`.
+- Review annotation mode makes prose temporarily read-only so clicks can pin
+  feedback. Leaving review mode restores inline prose editing.
+- Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by
+  comments, source patches, or structured content patches rather than direct
+  rich-text editing.
+
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
 `frontend-design`, `shadcn-ui`, and `self-modifying-code`.

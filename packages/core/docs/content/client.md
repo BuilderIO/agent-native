@@ -108,14 +108,17 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option                | Type        | Description                                    |
-| --------------------- | ----------- | ---------------------------------------------- |
-| `message`             | `string`    | The visible prompt sent to the chat            |
-| `context`             | `string?`   | Hidden context appended (not shown in chat UI) |
-| `submit`              | `boolean?`  | true = auto-submit, false = prefill only       |
-| `projectSlug`         | `string?`   | Optional project slug for structured context   |
-| `preset`              | `string?`   | Optional preset name for downstream consumers  |
-| `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
+| Option                | Type        | Description                                                                |
+| --------------------- | ----------- | -------------------------------------------------------------------------- |
+| `message`             | `string`    | The visible prompt sent to the chat                                        |
+| `context`             | `string?`   | Hidden context appended (not shown in chat UI)                             |
+| `submit`              | `boolean?`  | true = auto-submit, false = prefill only                                   |
+| `newTab`              | `boolean?`  | Create a separate chat thread for this prompt                              |
+| `background`          | `boolean?`  | With `newTab`, run without focusing the tab and show the run in `RunsTray` |
+| `openSidebar`         | `boolean?`  | Set false to submit/prefill without opening the sidebar                    |
+| `projectSlug`         | `string?`   | Optional project slug for structured context                               |
+| `preset`              | `string?`   | Optional preset name for downstream consumers                              |
+| `referenceImagePaths` | `string[]?` | Optional reference image paths                                             |
 
 ## Agent Chat Context State (Advanced) {#agent-chat-context-state}
 

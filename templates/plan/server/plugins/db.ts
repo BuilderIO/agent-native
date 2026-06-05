@@ -121,6 +121,22 @@ export default runMigrations(
         sqlite: `ALTER TABLE plans ADD COLUMN hosted_plan_url TEXT`,
       },
     },
+    {
+      version: 12,
+      sql: `CREATE TABLE IF NOT EXISTS plan_guest_mints (
+  id TEXT PRIMARY KEY,
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)`,
+    },
+    {
+      version: 13,
+      sql: `CREATE INDEX IF NOT EXISTS plan_guest_mints_ip_created_idx ON plan_guest_mints(ip_hash, created_at)`,
+    },
+    {
+      version: 14,
+      sql: `CREATE INDEX IF NOT EXISTS plans_owner_created_idx ON plans(owner_email, created_at)`,
+    },
   ],
   { table: "plans_migrations" },
 );

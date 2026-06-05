@@ -1,4 +1,5 @@
 import { createAuthPlugin } from "@agent-native/core/server";
+import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
 export default createAuthPlugin({
   workspaceAppAudience: "internal",
@@ -6,11 +7,7 @@ export default createAuthPlugin({
   // Generated public review links still resolve data through the public-plan
   // owner gate.
   workspaceAppPublicPaths: ["/", "/plans", "/plans/plan_"],
-  publicPaths: [
-    "/_agent-native/actions/get-visual-plan",
-    "/_agent-native/actions/update-visual-plan",
-    "/_agent-native/actions/export-visual-plan",
-  ],
+  publicPaths: [...PUBLIC_PLAN_ACTION_PATHS],
   marketing: {
     appName: "Agent-Native Plans",
     tagline:
