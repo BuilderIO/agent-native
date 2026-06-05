@@ -549,8 +549,8 @@ export async function hideDashboard(
 
 /**
  * Unhide a dashboard. During cleanup, legacy org-shared dashboards can be left
- * unowned with the default local owner; the first user to unhide one becomes
- * the owner so future sharing/editing has a real person behind it.
+ * with a blank owner; the first user to unhide one becomes the owner so future
+ * sharing/editing has a real person behind it.
  */
 export async function unhideDashboard(
   id: string,
@@ -569,7 +569,7 @@ export async function unhideDashboard(
     hiddenBy: null,
     updatedAt: now,
   };
-  if (!existing.ownerEmail || existing.ownerEmail === "local@localhost") {
+  if (!existing.ownerEmail) {
     patch.ownerEmail = ctx.email;
   }
   await db
