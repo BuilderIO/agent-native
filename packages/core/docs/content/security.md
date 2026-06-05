@@ -125,7 +125,7 @@ The `db-query` / `db-exec` tools reject schema-qualified table references (`publ
 
 For multi-user apps where teams share data, add an `org_id` column. When both columns are present, queries are scoped by both: `WHERE owner_email = ? AND org_id = ?`.
 
-The `ownableColumns()` schema helper adds both `owner_email` and `org_id` in one call, so new tenant-aware tables get the full scoping contract by default:
+The `ownableColumns()` schema helper adds `owner_email`, `org_id`, and `visibility` in one call, so new tenant-aware tables get the full scoping contract by default:
 
 ```typescript
 import { table, text, ownableColumns } from "@agent-native/core/db/schema";
@@ -133,7 +133,7 @@ import { table, text, ownableColumns } from "@agent-native/core/db/schema";
 export const projects = table("projects", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  ...ownableColumns(), // adds owner_email + org_id
+  ...ownableColumns(), // adds owner_email + org_id + visibility
 });
 ```
 

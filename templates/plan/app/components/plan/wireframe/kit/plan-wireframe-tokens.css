@@ -12,8 +12,7 @@
  * or colors.
  */
 
-/* Hand-drawn fonts. Imported once; the kit references --font-hand/--font-script. */
-@import url("https://fonts.googleapis.com/css2?family=Gaegu:wght@300;400;700&family=Caveat:wght@400;500;600;700&display=swap");
+/* Hand-drawn fonts. Virgil is served by the app; no remote font dependency. */
 
 .plan-wf {
   /* ---- Light palette (default) ------------------------------------------ */
@@ -33,8 +32,10 @@
   --plan-wf-page-bg: #f0eee9;
 
   /* ---- Fonts ------------------------------------------------------------- */
-  --font-hand: "Gaegu", "Comic Sans MS", cursive;
-  --font-script: "Caveat", "Gaegu", cursive;
+  --font-hand:
+    "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  --font-script:
+    "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
 
   /* ---- Density (regular default) ----------------------------------------- */
   /* Density is selected via [data-density]; individual tokens below. */

@@ -74,7 +74,7 @@ _How it works under the hood (for developers)._
 
 - **Orchestrator agent.** The chat is set up as a router: it reads `AGENTS.md`, `LEARNINGS.md`, and routes to specialist sub-agents or remote A2A agents.
 - **Remote agent registry.** A2A agent manifests are workspace-runtime entries (not a checked-in template source folder): in a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers — no manual registration needed. Dispatch calls them using the `call-agent` action.
-- **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. See `server/db/schema.ts` in the template.
+- **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. These live in the `@agent-native/dispatch` package (`packages/dispatch/src/db/schema.ts`) and are re-exported into the template via `templates/dispatch/server/db/index.ts` — there is no template-local `server/db/schema.ts`. Dispatch's runtime ships in the package, not in template source (consistent with the note below that `@agent-native/dispatch` owns the shell, sidebar, and built-in pages).
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
 - **Workspace MCP resources.** Add HTTP MCP server definitions under `mcp-servers/*.json` in Resources, then scope them to All apps or selected app grants just like skills and context.
 - **MCP hub mode.** Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
@@ -117,7 +117,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 ## Scaffolding {#scaffolding}
 
 ```bash
-pnpm dlx @agent-native/core create my-platform
+npx @agent-native/core create my-platform
 # pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
 ```
 
@@ -140,7 +140,7 @@ You can click through the Dispatch UI after signing in. To use the chat composer
 2. In **LLM**, either connect Builder.io or add your own provider key such as `ANTHROPIC_API_KEY`.
 3. Return to **Overview** and try the composer.
 
-## Customize it {#customize}
+## Customizing it {#customize}
 
 Dispatch is a full template like any other — see [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the analytics agent" and it'll edit the routing config, add the webhook handler, and wire it up.
 

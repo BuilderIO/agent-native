@@ -20,6 +20,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Overview", to: "/docs/using-your-agent" as const },
       { label: "Context Awareness", to: "/docs/context-awareness" as const },
+      { label: "Visual Plans", to: "/docs/visual-plans" as const },
       { label: "Agent Mentions", to: "/docs/agent-mentions" as const },
       { label: "Voice Input", to: "/docs/voice-input" as const },
       { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },

@@ -484,6 +484,19 @@ function filterReadOnlyActions(
   );
 }
 
+/** Drop actions that opted out of agent exposure via `agentTool: false`. They
+ *  remain callable from the frontend / HTTP (mounted separately from this
+ *  agent tool surface — see `httpActions`) but never appear in any agent tool
+ *  list (in-app assistant, MCP, A2A, job/trigger runners) or actions prompt.
+ *  Default-allow: only an explicit `false` is excluded. */
+function filterAgentTools(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) => entry.agentTool !== false),
+  );
+}
+
 function filterPublicAgentActions(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -783,23 +796,29 @@ function createUrlTools(): Record<string, ActionEntry> {
           properties: {
             question: {
               type: "string",
-              description: "The question to ask the user.",
+              description:
+                "The complete question to ask the user. Clear, specific, ends with a question mark.",
+            },
+            header: {
+              type: "string",
+              description:
+                'Optional very short label (max ~12 chars) shown as a chip/heading above the question, e.g. "Date range", "Approach", "Library".',
             },
             options: {
               type: "string",
               description:
-                'A JSON array of options, each `{ "label": string, "value"?: string, "description"?: string, "recommended"?: boolean }`. `value` defaults to `label` when omitted. Provide 2-5 options and mark the most likely one `"recommended": true`.',
+                'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "description"?: string, "preview"?: string, "recommended"?: boolean }`. `label` is 1-5 words; `description` explains the trade-off; `preview` is optional content (mockup, code snippet, short comparison) rendered under the option. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
             },
             allowFreeText: {
               type: "string",
               description:
-                'Whether the user may also type a free-text answer. "true" (default) or "false".',
+                'Whether the user may also type a free-text "Other" answer. "true" (default) or "false".',
               enum: ["true", "false"],
             },
             allowMultiple: {
               type: "string",
               description:
-                'Whether the user may select more than one option. "true" or "false" (default).',
+                'Whether the user may select more than one option (multi-select). "true" or "false" (default).',
               enum: ["true", "false"],
             },
           },
@@ -809,6 +828,7 @@ function createUrlTools(): Record<string, ActionEntry> {
       run: async (args) => {
         const question = String(args?.question ?? "").trim();
         if (!question) return "Error: 'question' is required.";
+        const header = String(args?.header ?? "").trim();
         const allowMultiple = String(args?.allowMultiple ?? "") === "true";
         const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
 
@@ -826,6 +846,7 @@ function createUrlTools(): Record<string, ActionEntry> {
           label: string;
           value: string;
           description?: string;
+          preview?: string;
           recommended?: boolean;
         };
         const options = parsedOptions
@@ -846,6 +867,9 @@ function createUrlTools(): Record<string, ActionEntry> {
             if (typeof opt.description === "string" && opt.description.trim()) {
               option.description = opt.description.trim();
             }
+            if (typeof opt.preview === "string" && opt.preview.trim()) {
+              option.preview = opt.preview;
+            }
             if (opt.recommended === true) option.recommended = true;
             return option;
           })
@@ -865,6 +889,7 @@ function createUrlTools(): Record<string, ActionEntry> {
               id: "q1",
               type: "text-options" as const,
               question,
+              ...(header ? { header } : {}),
               required: !allowFreeText,
               multiSelect: allowMultiple,
               allowOther: allowFreeText,
@@ -2790,7 +2815,7 @@ export async function loadResourcesForPrompt(
 
   // 1. Workspace AGENTS.md + skills merged into the template bundle.
   try {
-    const { loadAgentsBundle, generateSkillsPromptBlock } =
+    const { loadAgentsBundle, generateSkillsPromptBlock, getRuntimeSkills } =
       await import("./agents-bundle.js");
     const bundle = await loadAgentsBundle();
 
@@ -2823,12 +2848,14 @@ export async function loadResourcesForPrompt(
     }
 
     // In compact mode, skip the full skills block — the agent can use
-    // `docs-search` to find skills when it needs them.
+    // `docs-search` to find skills when it needs them. Either way, `scope: dev`
+    // skills are excluded: they're for the human's coding agent, not runtime.
+    const runtimeSkills = getRuntimeSkills(bundle);
     if (!compact) {
       const skillsBlock = generateSkillsPromptBlock(bundle);
       if (skillsBlock) sections.push(skillsBlock);
-    } else if (Object.keys(bundle.skills).length > 0) {
-      const lines = Object.values(bundle.skills).map((s) => {
+    } else if (runtimeSkills.length > 0) {
+      const lines = runtimeSkills.map((s) => {
         const description = s.meta.description?.trim()
           ? ` - ${ensureSentence(s.meta.description)}`
           : "";
@@ -3348,14 +3375,19 @@ export function createAgentChatPlugin(
       // so templates that forget to pass `actions` still work in non-serverless
       // deployments (serverless bundles need explicit imports).
       const rawActions = options?.actions ?? options?.scripts;
-      let templateScripts: Record<string, ActionEntry> =
+      // `*All` holds every discovered action including those that opted out of
+      // agent exposure with `agentTool: false`. The agent-facing surfaces below
+      // use the `filterAgentTools`-filtered `templateScripts`/`discoveredActions`
+      // derived after discovery; `httpActions` keeps the full `*All` sets so
+      // agent-hidden actions stay callable from the frontend / HTTP.
+      let templateScriptsAll: Record<string, ActionEntry> =
         typeof rawActions === "function"
           ? await rawActions()
           : (rawActions ?? {});
-      if (!rawActions && Object.keys(templateScripts).length === 0) {
+      if (!rawActions && Object.keys(templateScriptsAll).length === 0) {
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
-          templateScripts = await autoDiscoverActions("auto");
+          templateScriptsAll = await autoDiscoverActions("auto");
         } catch {
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
@@ -3391,7 +3423,7 @@ export function createAgentChatPlugin(
       // In dev mode, include dev scripts (filesystem-discovered) so the A2A agent
       // has access to the same tools as the interactive agent.
       let devScriptsForA2A: Record<string, ActionEntry> = {};
-      let discoveredActions: Record<string, ActionEntry> = {};
+      let discoveredActionsAll: Record<string, ActionEntry> = {};
       if (canToggle) {
         try {
           const { createDevScriptRegistry } =
@@ -3429,7 +3461,7 @@ export function createAgentChatPlugin(
               );
             for (const file of files) {
               const name = file.replace(/\.ts$/, "");
-              if (templateScripts[name] || devScriptsForA2A[name]) continue;
+              if (templateScriptsAll[name] || devScriptsForA2A[name]) continue;
 
               // Try to load the action module directly so we get the real
               // run function (not a shell wrapper). This makes HTTP endpoints
@@ -3443,10 +3475,13 @@ export function createAgentChatPlugin(
                     ? mod.default
                     : mod;
                 if (def?.tool && typeof def.run === "function") {
-                  discoveredActions[name] = {
+                  discoveredActionsAll[name] = {
                     tool: def.tool,
                     run: def.run,
                     ...(def.http !== undefined ? { http: def.http } : {}),
+                    ...(typeof def.agentTool === "boolean"
+                      ? { agentTool: def.agentTool }
+                      : {}),
                   };
                   continue;
                 }
@@ -3462,8 +3497,14 @@ export function createAgentChatPlugin(
               // context, so this regex sniff is the best we can do until the
               // discovery is moved into a Vite-aware codepath.
               let httpConfig: ActionHttpConfig | false | undefined;
+              // Sniff `agentTool: false` the same way so a CLI-style action can
+              // opt out of agent exposure even on the shell-wrapper fallback path.
+              let agentToolFlag: boolean | undefined;
               try {
                 const src = _fs.readFileSync(filePath, "utf-8");
+                if (/\bagentTool\s*:\s*false\b/.test(src)) {
+                  agentToolFlag = false;
+                }
                 if (/\bhttp\s*:\s*false\b/.test(src)) {
                   httpConfig = false;
                 } else {
@@ -3491,7 +3532,7 @@ export function createAgentChatPlugin(
               }
 
               // Fallback: bash-based wrapper for CLI-style scripts
-              discoveredActions[name] = {
+              discoveredActionsAll[name] = {
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {
@@ -3514,15 +3555,26 @@ export function createAgentChatPlugin(
                   });
                 },
                 ...(httpConfig !== undefined ? { http: httpConfig } : {}),
+                ...(typeof agentToolFlag === "boolean"
+                  ? { agentTool: agentToolFlag }
+                  : {}),
               };
             }
           }
-          if (Object.keys(discoveredActions).length > 0 && process.env.DEBUG)
+          if (Object.keys(discoveredActionsAll).length > 0 && process.env.DEBUG)
             console.log(
-              `[agent-chat] Auto-discovered ${Object.keys(discoveredActions).length} action(s): ${Object.keys(discoveredActions).join(", ")}`,
+              `[agent-chat] Auto-discovered ${Object.keys(discoveredActionsAll).length} action(s): ${Object.keys(discoveredActionsAll).join(", ")}`,
             );
         } catch {}
       }
+
+      // Agent-facing views of the discovered actions: actions that opted out of
+      // agent exposure with `agentTool: false` are dropped from every tool
+      // surface, prompt, MCP/A2A list, and job/trigger runner below. The full
+      // `*All` sets are reserved for `httpActions`, which keeps agent-hidden
+      // actions reachable from the frontend / HTTP.
+      const templateScripts = filterAgentTools(templateScriptsAll);
+      const discoveredActions = filterAgentTools(discoveredActionsAll);
       // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
       // concurrent requests on a long-lived Node process — overlapping
@@ -4243,9 +4295,12 @@ export function createAgentChatPlugin(
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
       // Include engine management script so the UI can call manage-agent-engine.
+      // HTTP/frontend surface keeps the full `*All` sets so actions with
+      // `agentTool: false` (hidden from every agent tool list) remain callable
+      // via `useActionMutation` / `callAction` / `/_agent-native/actions/<name>`.
       const httpActions: Record<string, ActionEntry> = {
-        ...discoveredActions,
-        ...templateScripts,
+        ...discoveredActionsAll,
+        ...templateScriptsAll,
         ...engineScripts,
         ...loopSettingsScripts,
       };

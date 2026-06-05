@@ -60,8 +60,9 @@ The rest of this doc is for anyone forking the Slides template or extending it.
 Create a new Slides app from the CLI:
 
 ```bash
-npx @agent-native/core create my-slides --template slides
+npx @agent-native/core create my-slides --standalone --template slides
 cd my-slides
+pnpm install
 pnpm dev
 ```
 
@@ -73,9 +74,9 @@ Ask the agent for a deck and it builds one slide at a time. Slides stream into t
 
 Under the hood, this is powered by the `add-slide` and `create-deck` actions in `templates/slides/actions/`.
 
-### Eight slide layouts
+### Seven slide layouts
 
-Built-in layouts: title, section divider, content with bullets, two-column, image, statement or quote, full-bleed, and blank. Each layout is a pure HTML template with inline styles — the agent picks the right one based on slide purpose. Templates live inside `templates/slides/AGENTS.md` so the agent can reference them without exploring the codebase.
+Built-in layouts: title, section divider, content with bullets, two-column, statement or quote, metrics or stats, and closing or CTA. Each layout is a pure HTML template with inline styles — the agent picks the right one based on slide purpose. The exact templates live inside `templates/slides/.agents/skills/create-deck/SKILL.md` so the agent can reference them without exploring the codebase.
 
 ### Visual and code editing
 
@@ -233,7 +234,7 @@ Agent skills that explain patterns when the agent needs to modify code:
 
 ### AGENTS.md
 
-`templates/slides/AGENTS.md` is the single source of truth the agent reads on every conversation. It contains the full action list, every slide HTML template, the navigation state contract, and rules for delegating to sub-agents. Update this file whenever you add an action or a new slide layout pattern.
+`templates/slides/AGENTS.md` is the short router the agent reads on every conversation. It points at the skills under `.agents/skills/` and lays out the core rules, application-state contract, and skill index. The exact slide HTML templates for every layout live in `.agents/skills/create-deck/SKILL.md` — update that skill whenever you add or change a slide layout pattern.
 
 ### API routes
 

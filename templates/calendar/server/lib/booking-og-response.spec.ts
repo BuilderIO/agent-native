@@ -15,4 +15,15 @@ describe("booking OG response headers", () => {
       "Content-Length",
     );
   });
+
+  it("can return SVG fallback headers", () => {
+    expect(
+      bookingOgImageResponseHeaders(123, "image/svg+xml; charset=utf-8"),
+    ).toMatchObject({
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Content-Length": "123",
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    });
+  });
 });

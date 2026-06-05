@@ -1,5 +1,6 @@
 import { useParams } from "react-router";
 import { useActionQuery } from "@agent-native/core/client";
+import { assetPreviewSources } from "@/lib/asset-preview-sources";
 
 export default function RunEmbed() {
   const { id } = useParams();
@@ -10,7 +11,7 @@ export default function RunEmbed() {
       {assets.map((asset: any) => (
         <img
           key={asset.id}
-          src={asset.thumbnailUrl}
+          src={assetPreviewSources(asset, "thumbnail")[0]}
           alt=""
           className="h-full w-full rounded-md object-cover"
         />

@@ -17,7 +17,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 
 ![Clips library with recordings, folders, and spaces](/screenshots/clips.png)
 
-Think along the lines of Loom + Granola + Wisprflow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
 
 ## What you can do with it
 
@@ -64,7 +64,7 @@ The rest of this doc is for anyone forking the Clips template or extending it.
 ### Scaffolding
 
 ```bash
-pnpm dlx @agent-native/core create my-clips --template clips --standalone
+npx @agent-native/core create my-clips --standalone --template clips
 ```
 
 Clips is a larger template with a native recorder (it ships a desktop companion for local capture). See the template `README.md` for setup specifics around screen-capture permissions and storage configuration.
@@ -109,7 +109,7 @@ Every agent-callable operation is a TypeScript file in `templates/clips/actions/
 - **Search, insights & export** — `search-recordings` (matches titles, descriptions, transcript text, and comments, with timestamps), `get-recording-insights`, `get-organization-insights`, `export-insights-csv`, `export-to-brain`.
 - **Context & navigation** — `view-screen` (current clip, playhead, selected transcript range) and `navigate`; `refresh-list` after mutations.
 
-### Customize it
+### Customizing it
 
 Clips is a complete, cloneable template — fork it and ask the agent to extend it. Some examples:
 

@@ -120,6 +120,8 @@ agentChat.submit("Generate something");
 
 Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
 
+Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
+
 When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Do not import dialect-specific schema helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`, and do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
 
 | Variable              | Required                        | Description                                                                |

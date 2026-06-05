@@ -16,6 +16,15 @@ Complex operations the agent needs to perform are implemented as actions in `act
 
 Actions give the agent callable tools with structured input/output. They keep the agent's chat context clean (no massive code blocks), they're reusable, and they can be tested independently.
 
+## Keep the Action Surface Small and Orthogonal
+
+Every agent-exposed action is a tool in the model's context window, and there is a real cost to each one — more tools means more for the model to read and choose between, which degrades tool-selection quality. Keep the action surface small and orthogonal:
+
+- **Prefer one CRUD-style `update`** that takes a patch of optional fields over N per-field actions (`update-name`, `update-order`, `update-color`, …). The caller sends only what changed. Same for `create`/`delete` — one orthogonal action per resource.
+- **Reach for a generic query / escape hatch before minting a new read action.** Use the shared `provider-api-catalog` / `provider-api-docs` / `provider-api-request` trio for provider data and the dev `db-query` tool for app data instead of adding `get-x-by-y` / `list-x-filtered` actions per query.
+- **Hide UI-only or programmatic actions from the model with `agentTool: false`.** It stays callable from `useActionMutation` / `callAction` / `/_agent-native/actions/<name>` but is removed from every agent tool surface. This is distinct from `toolCallable: false`, which only blocks the sandboxed extension ("tools") iframe bridge and leaves the action fully visible to the model.
+- **Delete or hide stale actions.** When the UI stops using an action, remove it or set `agentTool: false` instead of leaving it as dead tool weight. Run `pnpm actions:audit <template>` for advisory hints on likely UI-dead actions and redundant per-field clusters.
+
 ## How to Create an Action
 
 Create `actions/my-action.ts`:

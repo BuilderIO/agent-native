@@ -321,6 +321,7 @@ export default defineAction({
     const dismissibleSlot = args.dismissible !== false && Boolean(slotId);
     const baseMetadata = {
       slotId,
+      variantBatchId: args.variantBatchId ?? null,
       dismissible: dismissibleSlot,
       sourceAssetId: args.sourceAssetId,
       subjectAssetId: args.subjectAssetId,

@@ -3,6 +3,7 @@ import {
   applyPlanContentPatches,
   planContentSchema,
   type PlanContent,
+  type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import {
   buildPlanContentHtml,
@@ -15,7 +16,7 @@ import {
 } from "./plan-content.js";
 
 describe("structured plan content", () => {
-  it("builds UI plans as native content with a canvas and legacy-wireframe blocks", () => {
+  it("builds UI plans as native content with a canvas and kit-tree wireframes", () => {
     const content = createUiPlanContent({
       title: "Checkout flow",
       brief: "Review the checkout flow before implementation.",
@@ -35,11 +36,10 @@ describe("structured plan content", () => {
     });
 
     expect(content.canvas?.frames).toHaveLength(2);
-    expect(content.canvas?.frames[0]?.legacyWireframe?.viewport).toBe(
-      "desktop",
-    );
-    expect(content.canvas?.frames[1]?.legacyWireframe?.viewport).toBe("phone");
+    expect(content.canvas?.frames[0]?.wireframe?.surface).toBe("desktop");
+    expect(content.canvas?.frames[1]?.wireframe?.surface).toBe("mobile");
     expect(content.canvas?.frames[0]?.label).toBe("Overview");
+    expect(content.canvas?.frames[0]?.legacyWireframe).toBeUndefined();
     expect(content.blocks.some((block) => block.type === "tabs")).toBe(true);
     expect(
       content.blocks.some((block) => block.type === "implementation-map"),
@@ -50,6 +50,24 @@ describe("structured plan content", () => {
         (block) => block.type !== ("sketch-wireframe" as never),
       ),
     ).toBe(true);
+    const desktopSidebar = findWireframeNode(
+      content.canvas?.frames[0]?.wireframe?.screen ?? [],
+      (node) => node.el === "sidebar",
+    );
+    expect(desktopSidebar?.children?.[0]).toMatchObject({
+      el: "col",
+      full: true,
+    });
+    const desktopSidebarChildren = desktopSidebar?.children ?? [];
+    expect(desktopSidebarChildren[desktopSidebarChildren.length - 1]?.el).toBe(
+      "box",
+    );
+    expect(
+      findWireframeNode(
+        desktopSidebar?.children ?? [],
+        (node) => node.el === "navItem" && node.label === "Handoff",
+      ),
+    ).toBeTruthy();
 
     const html = buildPlanContentHtml({
       content,
@@ -61,6 +79,45 @@ describe("structured plan content", () => {
     expect(html).toContain("canvas-export");
     expect(html).toContain("Checkout flow");
     expect(html).toContain("Implementation Map");
+  });
+
+  it("anchors component context sidebar actions after a flexible content stack", () => {
+    const content = createUiPlanContent({
+      title: "Context X-Ray cleanup",
+      brief: "Clean the agent sidebar context popover before implementation.",
+      states: [
+        {
+          name: "Default popover",
+          description: "Context X-Ray opens in the agent sidebar.",
+        },
+      ],
+      components: [
+        {
+          name: "Context X-Ray widget",
+          description: "A compact popover anchored in the agent sidebar.",
+        },
+      ],
+    });
+
+    const contextFrame = content.canvas?.frames.find(
+      (frame) => frame.id === "frame-app-context",
+    );
+    const sidebar = findWireframeNode(
+      contextFrame?.wireframe?.screen ?? [],
+      (node) => node.el === "sidebar",
+    );
+
+    expect(sidebar?.children?.[0]).toMatchObject({
+      el: "col",
+      full: true,
+    });
+    const sidebarChildren = sidebar?.children ?? [];
+    expect(sidebarChildren[sidebarChildren.length - 2]?.el).toBe("divider");
+    expect(sidebarChildren[sidebarChildren.length - 1]).toMatchObject({
+      el: "btn",
+      label: "X-Ray",
+      solid: true,
+    });
   });
 
   it("keeps UI plans document-only when no states or components are supplied", () => {
@@ -111,12 +168,10 @@ describe("structured plan content", () => {
 
     expect(content.blocks.map((block) => block.type)).toEqual([
       "rich-text",
-      "legacy-wireframe",
+      "wireframe",
     ]);
     expect(content.canvas?.frames).toHaveLength(1);
-    expect(
-      content.canvas?.frames[0]?.legacyWireframe?.regions.length ?? 0,
-    ).toBeGreaterThan(0);
+    expect(content.canvas?.frames[0]?.wireframe?.screen.length ?? 0).toBe(1);
   });
 
   it("creates visual questions with kit-tree previews instead of standalone HTML", () => {
@@ -224,6 +279,18 @@ describe("structured plan content", () => {
     expect(messages).toContain("Duplicate wireframe node id: inline-cta");
   });
 });
+
+function findWireframeNode(
+  nodes: PlanWireframeNode[],
+  predicate: (node: PlanWireframeNode) => boolean,
+): PlanWireframeNode | null {
+  for (const node of nodes) {
+    if (predicate(node)) return node;
+    const childMatch = findWireframeNode(node.children ?? [], predicate);
+    if (childMatch) return childMatch;
+  }
+  return null;
+}
 
 describe("custom-html safety", () => {
   it("serializes, parses, and rejects full custom HTML documents at validation", () => {
@@ -380,6 +447,21 @@ describe("granular patch ops", () => {
         patch: { text: "Updated annotation only.", y: 220 },
       },
       {
+        op: "append-canvas-annotation",
+        annotation: {
+          id: "ann-callout",
+          type: "callout",
+          text: "Point this at the primary action.",
+          x: 180,
+          y: 260,
+          points: [
+            { x: 180, y: 260 },
+            { x: 420, y: 310 },
+          ],
+          style: { tone: "accent", stroke: "dashed", width: 2 },
+        },
+      },
+      {
         op: "append-block",
         afterBlockId: richText.id,
         block: {
@@ -403,7 +485,44 @@ describe("granular patch ops", () => {
       "Updated annotation only.",
     );
     expect(patched.canvas?.annotations?.[0]?.y).toBe(220);
+    expect(patched.canvas?.annotations?.[1]?.type).toBe("callout");
+    expect(patched.canvas?.annotations?.[1]?.points?.[1]?.x).toBe(420);
     expect(patched.blocks.some((block) => block.id === "new-note")).toBe(true);
+  });
+
+  it("drops any legacy doc on update-rich-text so markdown is the only source of truth", () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Doc drop",
+      brief: "Markdown only.",
+      blocks: [
+        {
+          id: "rt",
+          type: "rich-text",
+          // Simulate a legacy block that carried a stale Tiptap/ProseMirror doc.
+          data: {
+            markdown: "Old copy.",
+            doc: { type: "doc", content: [{ type: "paragraph" }] },
+          } as unknown as { markdown: string },
+        },
+      ],
+    };
+
+    const patched = applyPlanContentPatches(content, [
+      {
+        op: "update-rich-text",
+        blockId: "rt",
+        markdown: "New copy.",
+      },
+    ]);
+
+    const nextRichText = patched.blocks.find((block) => block.id === "rt");
+    expect(nextRichText?.type).toBe("rich-text");
+    if (nextRichText?.type !== "rich-text") return;
+    expect(nextRichText.data.markdown).toBe("New copy.");
+    expect(Object.keys(nextRichText.data)).toEqual(["markdown"]);
+    expect("doc" in nextRichText.data).toBe(false);
+    expect((nextRichText.data as Record<string, unknown>).doc).toBeUndefined();
   });
 
   it("patches and replaces a kit-tree wireframe node by id", () => {

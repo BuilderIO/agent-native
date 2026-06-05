@@ -40,8 +40,9 @@ When a message containing an `@`-mention is sent, the following happens on the s
 3. The agent's response is wrapped in an `<agent-response>` XML block and injected into the conversation context
 4. The main agent processes the enriched message, seeing both the user's text and the mentioned agent's response
 
+What the main agent sees in its context:
+
 ```text
-// What the main agent sees in its context:
 User: Draft an email with the latest signup numbers. @analytics
 
 <agent-response agent="analytics">

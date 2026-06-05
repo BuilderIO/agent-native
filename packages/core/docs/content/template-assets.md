@@ -94,8 +94,24 @@ The rest of this doc is for anyone forking the Assets template or extending it.
 ### Scaffolding
 
 ```bash
-pnpm dlx @agent-native/core create my-assets --template assets --standalone
+npx @agent-native/core create my-assets --standalone --template assets
 ```
+
+### Data model
+
+All data lives in SQL via Drizzle ORM (binary media lives in object storage, or the local file-upload fallback during development). Schema: `templates/assets/server/db/schema.ts`. Libraries carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model. The SQL table names keep the legacy `image_*` prefix from when the app was called Images.
+
+| Table                            | What it holds                                                                                                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image_libraries`                | A library — the top-level container grouped by brand, campaign, product, or category. Holds `custom_instructions`, `style_brief`, canonical logo and cover asset refs, and archive state |
+| `image_library_shares`           | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per library                                                                                   |
+| `image_collections`              | Style/category groupings inside a library — `style_brief`, `prompt_template`, default aspect ratio and image size                                                                        |
+| `asset_folders`                  | Nestable folders inside a library (`parent_id` for hierarchy)                                                                                                                            |
+| `image_generation_presets`       | Saved generation recipes — media type, prompt template, aspect ratio, model, and text/reference policy                                                                                   |
+| `image_generation_sessions`      | An iterative generate-and-choose session with a brief, status, active asset, and feedback summary                                                                                        |
+| `image_generation_session_items` | Candidate assets within a session, each with a role and note                                                                                                                             |
+| `image_assets`                   | The asset record — media type, role, status, title/description/alt text, prompt, model, dimensions, MIME type, object/thumbnail keys, and lineage                                        |
+| `image_generation_runs`          | The generation audit log — prompt, compiled prompt, model, references, status, errors, and the `source` (`chat` / `ui` / `a2a`) that triggered it                                        |
 
 ### Customizing it
 

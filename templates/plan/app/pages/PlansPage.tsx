@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
+  IconArrowRight,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconAlertTriangle,
@@ -17,6 +18,8 @@ import {
   IconClipboardText,
   IconCopy,
   IconDownload,
+  IconExternalLink,
+  IconFileZip,
   IconDotsVertical,
   IconLayoutSidebarRight,
   IconLoader2,
@@ -24,6 +27,9 @@ import {
   IconMessageCircle,
   IconMoon,
   IconPlus,
+  IconShare3,
+  IconLink,
+  IconWorld,
   IconSparkles,
   IconSun,
   IconX,
@@ -32,13 +38,16 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
   ShareButton,
   appPath,
+  agentNativePath,
   sendToAgentChat,
   setAgentChatContextItem,
+  useSession,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +66,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -64,6 +76,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -74,6 +91,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
@@ -81,19 +99,30 @@ import {
 } from "@/components/ui/tooltip";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
+import { GuestModeBanner } from "@/components/plan/GuestModeBanner";
+import type {
+  CanvasMarkupCreateContext,
+  CanvasMarkupMode,
+} from "@/components/plan/CanvasArea";
 import {
   useCreatePlan,
   useCreateUiPlan,
   useCreateVisualQuestions,
   usePlan,
   usePlans,
+  usePublishVisualPlan,
   useUpdatePlan,
   useExportPlan,
   useVisualizePlan,
+  type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
 import type { PlanBundle, PlanSource } from "@shared/types";
-import type { PlanContent } from "@shared/plan-content";
+import type {
+  PlanAnnotation,
+  PlanContent,
+  PlanContentPatch,
+} from "@shared/plan-content";
 
 const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "codex", label: "Codex" },
@@ -167,6 +196,10 @@ type PlanAnnotationAnchor = {
   visualLabel?: string;
   visualX?: number;
   visualY?: number;
+  canvasX?: number;
+  canvasY?: number;
+  markupType?: "text" | "callout";
+  planAnnotationId?: string;
 };
 
 type RuntimeAnnotation = {
@@ -212,7 +245,7 @@ function statusLabel(status: string) {
 
 function planExportFilename(
   title: string | undefined,
-  extension: "html" | "md",
+  extension: "html" | "md" | "zip",
 ) {
   const slug =
     (title || "visual-plan")
@@ -229,6 +262,18 @@ function downloadTextFile(
   type = "text/html;charset=utf-8",
 ) {
   const blob = new Blob([contents], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -309,7 +354,7 @@ function buildPlanAgentContext(input: {
     "",
     "Fast iteration workflow:",
     "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
-    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, update-wireframe-region for one wireframe rectangle, update-canvas-frame for frame layout, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
+    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
     "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
     "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
     "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
@@ -322,6 +367,20 @@ function buildPlanAgentContext(input: {
 
 function buildApplyFeedbackMessage(openCommentCount: number) {
   return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update structured content blocks and any related implementation details as needed. Use HTML only for legacy imported artifacts.`;
+}
+
+function newCanvasMarkupId() {
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `ann_${id.replace(/-/g, "").slice(0, 16)}`;
+}
+
+function buildCanvasMarkupFeedbackMessage(annotation: PlanAnnotation) {
+  const prefix =
+    annotation.type === "callout" ? "Canvas callout" : "Canvas note";
+  return `${prefix}: ${annotation.text}`;
 }
 
 export function PlansPage() {
@@ -337,6 +396,8 @@ export function PlansPage() {
   const [railCollapsed, setRailCollapsed] = useState(true);
   const [planFullscreen, setPlanFullscreen] = useState(true);
   const [annotateMode, setAnnotateMode] = useState(false);
+  const [canvasMarkupMode, setCanvasMarkupMode] =
+    useState<CanvasMarkupMode>("none");
   const [preferredEditor, setPreferredEditor] = useState<PreferredEditor>(() =>
     readPreferredEditor(),
   );
@@ -351,6 +412,27 @@ export function PlansPage() {
   } | null>(null);
   const plansQuery = usePlans();
   const plans = plansQuery.data ?? [];
+  const { session, isLoading: sessionLoading } = useSession();
+  // Redirect to sign-in, returning to wherever the guest currently is.
+  const openSignIn = useCallback(() => {
+    const returnPath =
+      window.location.pathname + window.location.search + window.location.hash;
+    window.location.href = `${agentNativePath(
+      "/_agent-native/sign-in",
+    )}?return=${encodeURIComponent(returnPath)}`;
+  }, []);
+  // When a guest signs in, the server claims their guest-authored plans onto the
+  // new account (see server/middleware/claim-guest-plans.ts). Refetch once the
+  // session appears so the just-claimed plans show up immediately.
+  const wasSignedInRef = useRef(false);
+  useEffect(() => {
+    if (sessionLoading) return;
+    const signedIn = Boolean(session);
+    if (signedIn && !wasSignedInRef.current) {
+      void plansQuery.refetch();
+    }
+    wasSignedInRef.current = signedIn;
+  }, [session, sessionLoading, plansQuery]);
   const selectedId = params.id;
   const immersiveReader = Boolean(selectedId && planFullscreen);
   const planQuery = usePlan(selectedId);
@@ -364,6 +446,9 @@ export function PlansPage() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkTheme = resolvedTheme !== "light";
   const planTheme = isDarkTheme ? "dark" : "light";
+  const reviewMode: CanvasMarkupMode = annotateMode
+    ? "comment"
+    : canvasMarkupMode;
 
   useSetPageTitle(bundle?.plan.title || "Plans");
 
@@ -615,6 +700,7 @@ export function PlansPage() {
 
   const closeInlineComment = () => {
     setAnnotateMode(false);
+    setCanvasMarkupMode("none");
     setPendingAnnotation(null);
     setInlineCommentPosition(null);
   };
@@ -665,6 +751,27 @@ export function PlansPage() {
     );
   };
 
+  const downloadPlanSource = async () => {
+    const data = await readPlanExport();
+    const files = (data as { mdx?: Record<string, unknown> }).mdx;
+    if (!files || Object.keys(files).length === 0) {
+      throw new Error("Plan source files were not available yet.");
+    }
+    const zip = new JSZip();
+    for (const [name, content] of Object.entries(files)) {
+      if (name.endsWith("/")) {
+        zip.folder(name.replace(/\/+$/, ""));
+        continue;
+      }
+      if (typeof content === "string") {
+        zip.file(name, content);
+      }
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(planExportFilename(bundle?.plan.title, "zip"), blob);
+    toast.success("Plan source downloaded");
+  };
+
   const runPlanExportAction = (action: () => Promise<void>) => {
     void action().catch((error) => {
       toast.error(
@@ -676,9 +783,26 @@ export function PlansPage() {
   };
 
   const startCommenting = () => {
+    setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setAnnotateMode(true);
+  };
+
+  const selectReviewMode = (mode: CanvasMarkupMode) => {
+    if (mode === "none") {
+      closeInlineComment();
+      return;
+    }
+    if (mode === "comment") {
+      startCommenting();
+      return;
+    }
+    setActiveAnnotation(null);
+    setAnnotationsOpen(false);
+    clearInlineCommentDraft();
+    setAnnotateMode(false);
+    setCanvasMarkupMode(mode);
   };
 
   const handleNativeReaderScroll = () => {
@@ -744,6 +868,56 @@ export function PlansPage() {
       content,
       note: "Updated structured visual plan content.",
     });
+  };
+
+  const patchStructuredContent = async (patch: PlanContentPatch) => {
+    if (!bundle) return;
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      contentPatches: [patch],
+      note:
+        patch.op === "update-rich-text"
+          ? `Edited markdown block ${patch.blockId}.`
+          : "Patched structured visual plan content.",
+    });
+  };
+
+  const appendCanvasMarkup = async (
+    annotation: Omit<PlanAnnotation, "id">,
+    context: CanvasMarkupCreateContext,
+  ) => {
+    if (!bundle?.plan.content?.canvas) return;
+    const nextAnnotation: PlanAnnotation = {
+      id: newCanvasMarkupId(),
+      ...annotation,
+    };
+    const anchor: PlanAnnotationAnchor = {
+      ...context.anchor,
+      planAnnotationId: nextAnnotation.id,
+      markupType: context.anchor.markupType,
+    };
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      contentPatches: [
+        {
+          op: "append-canvas-annotation",
+          annotation: nextAnnotation,
+        },
+      ],
+      comments: [
+        {
+          kind: "annotation",
+          status: "open",
+          message: buildCanvasMarkupFeedbackMessage(nextAnnotation),
+          anchor: JSON.stringify(anchor),
+          createdBy: "human",
+        },
+      ],
+      note: "Human added canvas review markup.",
+    });
+    toast.success(
+      nextAnnotation.type === "callout" ? "Callout added" : "Note added",
+    );
   };
 
   const togglePlansAgent = () => {
@@ -864,6 +1038,7 @@ export function PlansPage() {
 
   return (
     <div className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      {!sessionLoading && !session && <GuestModeBanner onSignIn={openSignIn} />}
       <div
         className="plans-grid grid min-h-0 flex-1"
         data-view={immersiveReader ? "immersive" : "app"}
@@ -1007,131 +1182,70 @@ export function PlansPage() {
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
               <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
-                {planShareUrl && (
-                  <ShareButton
-                    resourceType="plan"
-                    resourceId={bundle.plan.id}
-                    resourceTitle={bundle.plan.title}
-                    shareUrl={planShareUrl}
-                    shareUrlLabel="Plan link"
-                    shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
-                    shareUrlPlacement="top"
-                    peopleAccessLabel="People with plan access"
-                    generalAccessLabel="General plan access"
-                    accessNote="Use Export when you want a durable HTML or Markdown snapshot to check into source."
-                    visibilityCopy={{
-                      private: {
-                        label: "Private",
-                        description: "Only invited people can open this plan",
-                      },
-                      org: {
-                        label: "Organization",
-                        description:
-                          "Anyone in your organization with the link can view",
-                      },
-                      public: {
-                        label: "Public",
-                        description: "Anyone with the link can view",
-                      },
-                    }}
-                    trigger="icon"
-                    triggerClassName="pointer-events-auto size-8"
-                    onOpenChange={(open) => {
-                      if (open) closeInlineComment();
-                    }}
-                  />
-                )}
-                {annotateMode || bundle.summary.openCommentCount === 0 ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                <PlanShareControl
+                  planId={bundle.plan.id}
+                  planTitle={bundle.plan.title}
+                  localShareUrl={planShareUrl}
+                  hostedPlanId={bundle.plan.hostedPlanId}
+                  hostedPlanUrl={bundle.plan.hostedPlanUrl}
+                  onOpenChange={(open) => {
+                    if (open) closeInlineComment();
+                  }}
+                />
+                <ReviewMarkupToolbar
+                  mode={reviewMode}
+                  hasCanvas={Boolean(bundle.plan.content?.canvas)}
+                  onModeChange={selectReviewMode}
+                />
+                {bundle.summary.openCommentCount > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
-                        variant={annotateMode ? "secondary" : "default"}
+                        variant="default"
                         size="sm"
-                        className="pointer-events-auto"
-                        onClick={() => {
-                          if (annotateMode) {
-                            closeInlineComment();
-                          } else {
-                            startCommenting();
-                          }
-                        }}
+                        className="pointer-events-auto gap-1.5"
                       >
-                        {annotateMode ? "Cancel" : "Comment"}
+                        Send to agent
+                        <span className="flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
+                          {bundle.summary.openCommentCount}
+                        </span>
+                        <IconChevronDown className="size-3.5 opacity-70" />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {annotateMode
-                        ? "Stop commenting"
-                        : "Click anywhere in the plan to pin feedback"}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="pointer-events-auto size-8"
-                          onClick={startCommenting}
-                          aria-label="Add another comment"
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-64 rounded-xl"
+                    >
+                      <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          onClick={sendPlanFeedbackToInlineAgent}
+                          className="items-start gap-2"
                         >
-                          <IconMessageCircle className="size-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Add another comment</TooltipContent>
-                    </Tooltip>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="default"
-                          size="sm"
-                          className="pointer-events-auto gap-1.5"
-                        >
-                          Send to agent
-                          <span className="flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
-                            {bundle.summary.openCommentCount}
+                          <IconSend className="mt-0.5 size-4" />
+                          <span className="grid gap-0.5">
+                            <span>Send to inline agent</span>
+                            <span className="text-xs font-normal leading-4 text-muted-foreground">
+                              Posts open comments into the app side agent.
+                            </span>
                           </span>
-                          <IconChevronDown className="size-3.5 opacity-70" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="w-64 rounded-xl"
-                      >
-                        <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem
-                            onClick={sendPlanFeedbackToInlineAgent}
-                            className="items-start gap-2"
-                          >
-                            <IconSend className="mt-0.5 size-4" />
-                            <span className="grid gap-0.5">
-                              <span>Send to inline agent</span>
-                              <span className="text-xs font-normal leading-4 text-muted-foreground">
-                                Posts open comments into the app side agent.
-                              </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={copyPlanFeedbackForAgent}
+                          className="items-start gap-2"
+                        >
+                          <IconClipboardText className="mt-0.5 size-4" />
+                          <span className="grid gap-0.5">
+                            <span>Copy for your agent</span>
+                            <span className="text-xs font-normal leading-4 text-muted-foreground">
+                              Copies a prompt you can paste into chat.
                             </span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={copyPlanFeedbackForAgent}
-                            className="items-start gap-2"
-                          >
-                            <IconClipboardText className="mt-0.5 size-4" />
-                            <span className="grid gap-0.5">
-                              <span>Copy for your agent</span>
-                              <span className="text-xs font-normal leading-4 text-muted-foreground">
-                                Copies a prompt you can paste into chat.
-                              </span>
-                            </span>
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
+                          </span>
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -1204,35 +1318,54 @@ export function PlansPage() {
                         Copy link
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => runPlanExportAction(copyPlanMarkdown)}
+                        onClick={() => runPlanExportAction(downloadPlanSource)}
                         className="gap-2"
                       >
-                        <IconClipboardText className="size-4" />
-                        Copy Markdown
+                        <IconFileZip className="size-4" />
+                        Download source (.zip)
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          runPlanExportAction(downloadPlanMarkdown)
-                        }
-                        className="gap-2"
-                      >
-                        <IconDownload className="size-4" />
-                        Download Markdown
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => runPlanExportAction(copyPlanHtml)}
-                        className="gap-2"
-                      >
-                        <IconCopy className="size-4" />
-                        Copy HTML
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => runPlanExportAction(downloadPlanHtml)}
-                        className="gap-2"
-                      >
-                        <IconDownload className="size-4" />
-                        Download HTML
-                      </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="gap-2">
+                          <IconDownload className="size-4" />
+                          Export
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-56 rounded-xl">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(copyPlanMarkdown)
+                            }
+                            className="gap-2"
+                          >
+                            <IconClipboardText className="size-4" />
+                            Copy Markdown
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(downloadPlanMarkdown)
+                            }
+                            className="gap-2"
+                          >
+                            <IconDownload className="size-4" />
+                            Download Markdown
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => runPlanExportAction(copyPlanHtml)}
+                            className="gap-2"
+                          >
+                            <IconCopy className="size-4" />
+                            Copy HTML
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(downloadPlanHtml)
+                            }
+                            className="gap-2"
+                          >
+                            <IconDownload className="size-4" />
+                            Download HTML
+                          </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                       {bundle.summary.openCommentCount > 0 && (
                         <DropdownMenuItem
                           onClick={copyPlanFeedbackForAgent}
@@ -1261,9 +1394,13 @@ export function PlansPage() {
                   <TooltipContent>Toggle side chat</TooltipContent>
                 </Tooltip>
               </div>
-              {annotateMode && (
+              {reviewMode !== "none" && (
                 <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
-                  Click the plan to pin feedback
+                  {reviewMode === "comment"
+                    ? "Click the plan to pin feedback"
+                    : reviewMode === "text"
+                      ? "Click the canvas to place a note"
+                      : "Drag on the canvas to draw a callout"}
                 </div>
               )}
               {bundle.plan.content ? (
@@ -1271,7 +1408,8 @@ export function PlansPage() {
                   ref={nativeReaderRef}
                   className={cn(
                     "h-full min-h-full w-full overflow-auto bg-background",
-                    annotateMode && "ring-1 ring-inset ring-primary/35",
+                    reviewMode !== "none" &&
+                      "ring-1 ring-inset ring-primary/35",
                   )}
                   onScroll={handleNativeReaderScroll}
                   onPointerDown={handleNativeReaderPointerDown}
@@ -1281,6 +1419,11 @@ export function PlansPage() {
                     fallbackTitle={bundle.plan.title}
                     fallbackBrief={bundle.plan.brief}
                     onContentChange={updateStructuredContent}
+                    onContentPatch={patchStructuredContent}
+                    contentUpdatedAt={bundle.plan.updatedAt}
+                    editingDisabled={reviewMode !== "none"}
+                    canvasMarkupMode={reviewMode}
+                    onCanvasMarkupCreate={appendCanvasMarkup}
                     onVisualQuestionsSubmit={(summary) => {
                       sendToAgentChat({
                         type: "content",
@@ -1360,6 +1503,310 @@ export function PlansPage() {
   );
 }
 
+// Shared copy for the rich access-management share popover. The public note
+// makes clear that anyone-with-link can view, but commenting on a public plan
+// still needs an agent-native account (comments are attributed + scoped).
+const PLAN_SHARE_VISIBILITY_COPY = {
+  private: {
+    label: "Private",
+    description: "Only invited people can open this plan",
+  },
+  org: {
+    label: "Organization",
+    description: "Anyone in your organization with the link can view",
+  },
+  public: {
+    label: "Public",
+    description: "Anyone with the link can view",
+  },
+} as const;
+
+const PLAN_SHARE_ACCESS_NOTE =
+  "Anyone with edit access can change the plan. Viewing a public plan needs no account, but commenting on it requires an agent-native account.";
+
+/**
+ * Share affordance for a plan. People with a session (logged in, or local dev
+ * identity) get the full access-management popover immediately. People in
+ * local/no-account mode get a "Create shareable link" step first: clicking it
+ * publishes the plan to a hosted, shareable URL — creating a lazy account /
+ * signing in along the way when the server reports `needsAuth` — and then
+ * swaps in the same rich sharing menu.
+ */
+function PlanShareControl({
+  planId,
+  planTitle,
+  localShareUrl,
+  hostedPlanId,
+  hostedPlanUrl,
+  onOpenChange,
+}: {
+  planId: string;
+  planTitle: string;
+  localShareUrl?: string;
+  hostedPlanId?: string | null;
+  hostedPlanUrl?: string | null;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const { session, isLoading: sessionLoading } = useSession();
+  const publishPlan = usePublishVisualPlan();
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishedPlan, setPublishedPlan] = useState<{
+    url: string;
+    hostedPlanId: string;
+  } | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<{
+    authUrl?: string;
+    connectCommand?: string;
+  } | null>(null);
+
+  const effectiveHostedPlanId =
+    publishedPlan?.hostedPlanId ?? hostedPlanId ?? null;
+  const effectivePublishedUrl =
+    publishedPlan?.url ??
+    (effectiveHostedPlanId ? hostedPlanUrl : null) ??
+    null;
+  const hostedPlanOnCurrentOrigin = useMemo(() => {
+    if (!effectivePublishedUrl || typeof window === "undefined") return false;
+    try {
+      return (
+        new URL(effectivePublishedUrl, window.location.origin).origin ===
+        window.location.origin
+      );
+    } catch {
+      return false;
+    }
+  }, [effectivePublishedUrl]);
+  const canManageLocalShares =
+    Boolean(session) && (!effectivePublishedUrl || hostedPlanOnCurrentOrigin);
+  const managedShareResourceId =
+    effectivePublishedUrl && hostedPlanOnCurrentOrigin && effectiveHostedPlanId
+      ? effectiveHostedPlanId
+      : planId;
+  const managedShareUrl =
+    effectivePublishedUrl && hostedPlanOnCurrentOrigin
+      ? effectivePublishedUrl
+      : localShareUrl;
+
+  useEffect(() => {
+    setPublishedPlan(null);
+    setAuthPrompt(null);
+    setPublishOpen(false);
+  }, [planId]);
+
+  const openAuthFlow = useCallback((authUrl?: string) => {
+    const returnPath = `${window.location.pathname}${window.location.search}`;
+    const target =
+      authUrl ||
+      `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`;
+    window.location.href = target;
+  }, []);
+
+  const copyPublishedUrl = useCallback((url: string) => {
+    void navigator.clipboard.writeText(url).then(
+      () => toast.success("Shareable link copied"),
+      () => toast.error("Could not copy link"),
+    );
+  }, []);
+
+  const handlePublish = useCallback(() => {
+    publishPlan.mutate(
+      { planId },
+      {
+        onSuccess: (result: PublishVisualPlanResult) => {
+          if (result.needsAuth) {
+            setAuthPrompt({
+              authUrl: result.authUrl,
+              connectCommand: result.connectCommand,
+            });
+            toast.message("Create a free account to publish this plan");
+            return;
+          }
+          setPublishedPlan({
+            url: result.hostedPlanUrl ?? result.url,
+            hostedPlanId: result.hostedPlanId,
+          });
+          setAuthPrompt(null);
+          copyPublishedUrl(result.hostedPlanUrl ?? result.url);
+        },
+      },
+    );
+  }, [copyPublishedUrl, planId, publishPlan]);
+
+  // Logged-in / local-dev: manage shares for the plan in this app instance.
+  if (canManageLocalShares) {
+    if (!managedShareUrl) return null;
+    return (
+      <ShareButton
+        resourceType="plan"
+        resourceId={managedShareResourceId}
+        resourceTitle={planTitle}
+        shareUrl={managedShareUrl}
+        shareUrlLabel="Plan link"
+        shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
+        shareUrlPlacement="top"
+        peopleAccessLabel="People with plan access"
+        generalAccessLabel="General plan access"
+        accessNote={PLAN_SHARE_ACCESS_NOTE}
+        visibilityCopy={PLAN_SHARE_VISIBILITY_COPY}
+        trigger="icon"
+        triggerClassName="pointer-events-auto size-8"
+        onOpenChange={onOpenChange}
+      />
+    );
+  }
+
+  // No account yet: publish-to-share step, anchored to the Share button.
+  return (
+    <Popover
+      open={publishOpen}
+      onOpenChange={(open) => {
+        setPublishOpen(open);
+        onOpenChange?.(open);
+        if (!open) setAuthPrompt(null);
+      }}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="pointer-events-auto size-8"
+              aria-label="Share plan"
+            >
+              <IconShare3 className="size-4" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Share plan</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="pointer-events-auto z-[2000] w-[min(360px,92vw)] rounded-lg p-4"
+      >
+        <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
+          <IconWorld className="size-4 text-muted-foreground" />
+          Share this plan
+        </div>
+        <p className="mb-3 text-xs leading-5 text-muted-foreground">
+          {effectivePublishedUrl
+            ? "This local plan has a hosted copy for sharing. Open the hosted plan to manage access."
+            : "Create a free account to publish this plan to a shareable link. You can keep editing locally with your coding agent until you do."}
+        </p>
+
+        {authPrompt ? (
+          <div className="space-y-3">
+            <div className="rounded-md border border-border bg-muted/35 p-3 text-xs leading-5 text-muted-foreground">
+              Finish creating your account, then come back and we will generate
+              the link.
+            </div>
+            {authPrompt.connectCommand ? (
+              <code className="block overflow-x-auto rounded-md border border-border bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-foreground">
+                {authPrompt.connectCommand}
+              </code>
+            ) : null}
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handlePublish}
+                disabled={publishPlan.isPending}
+              >
+                {publishPlan.isPending ? (
+                  <>
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                    Checking
+                  </>
+                ) : (
+                  "I'm signed in — retry"
+                )}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => openAuthFlow(authPrompt.authUrl)}
+              >
+                Create account
+              </Button>
+            </div>
+          </div>
+        ) : effectivePublishedUrl ? (
+          <div className="space-y-3">
+            <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/35 px-2.5 py-2">
+              <IconLink className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate text-xs text-muted-foreground">
+                {effectivePublishedUrl}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => copyPublishedUrl(effectivePublishedUrl)}
+              >
+                <IconCopy className="size-3.5" />
+                Copy
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handlePublish}
+                disabled={publishPlan.isPending}
+              >
+                {publishPlan.isPending ? (
+                  <>
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                    Updating
+                  </>
+                ) : (
+                  <>
+                    <IconRefresh className="size-3.5" />
+                    Update link
+                  </>
+                )}
+              </Button>
+              <Button type="button" size="sm" asChild>
+                <a
+                  href={effectivePublishedUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <IconExternalLink className="size-3.5" />
+                  Open hosted plan
+                </a>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            className="w-full"
+            onClick={handlePublish}
+            disabled={publishPlan.isPending || sessionLoading}
+          >
+            {publishPlan.isPending ? (
+              <>
+                <IconLoader2 className="size-4 animate-spin" />
+                Creating link
+              </>
+            ) : (
+              <>
+                <IconLink className="size-4" />
+                Create shareable link
+              </>
+            )}
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function PlanSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background p-4 sm:p-6">
@@ -1411,6 +1858,77 @@ function PlanSkeleton() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ReviewMarkupToolbar({
+  mode,
+  hasCanvas,
+  onModeChange,
+}: {
+  mode: CanvasMarkupMode;
+  hasCanvas: boolean;
+  onModeChange: (mode: CanvasMarkupMode) => void;
+}) {
+  const value = mode === "none" ? "" : mode;
+  const setValue = (next: string) => {
+    onModeChange((next || "none") as CanvasMarkupMode);
+  };
+  return (
+    <ToggleGroup
+      type="single"
+      value={value}
+      onValueChange={setValue}
+      variant="default"
+      size="sm"
+      className="pointer-events-auto gap-0.5 rounded-md border border-border/60 bg-background/55 p-0.5"
+      aria-label="Review markup tools"
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ToggleGroupItem
+            value="comment"
+            className="size-7 px-0"
+            aria-label={mode === "comment" ? "Stop commenting" : "Comment"}
+          >
+            <IconMessageCircle className="size-4" />
+          </ToggleGroupItem>
+        </TooltipTrigger>
+        <TooltipContent>
+          {mode === "comment" ? "Stop commenting" : "Pin a comment"}
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ToggleGroupItem
+            value="text"
+            className="size-7 px-0"
+            disabled={!hasCanvas}
+            aria-label="Text note"
+          >
+            <IconPencil className="size-4" />
+          </ToggleGroupItem>
+        </TooltipTrigger>
+        <TooltipContent>
+          {hasCanvas ? "Place a text note" : "Canvas required"}
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ToggleGroupItem
+            value="callout"
+            className="size-7 px-0"
+            disabled={!hasCanvas}
+            aria-label="Arrow callout"
+          >
+            <IconArrowRight className="size-4" />
+          </ToggleGroupItem>
+        </TooltipTrigger>
+        <TooltipContent>
+          {hasCanvas ? "Draw an arrow callout" : "Canvas required"}
+        </TooltipContent>
+      </Tooltip>
+    </ToggleGroup>
   );
 }
 
@@ -2332,6 +2850,20 @@ function formatAnchorForAgent(anchor: PlanAnnotationAnchor | null) {
   const tab = anchor.tabLabel ? `${anchor.tabLabel} tab / ` : "";
   const quote = anchor.textQuote || anchor.snippet;
   if (quote) return `${tab}${section}"${quote}"`;
+  if (anchor.planAnnotationId || anchor.canvasX !== undefined) {
+    const label = anchor.visualLabel || "canvas";
+    const kind =
+      anchor.markupType === "callout"
+        ? "callout"
+        : anchor.markupType === "text"
+          ? "note"
+          : "markup";
+    const canvasPoint =
+      anchor.canvasX !== undefined && anchor.canvasY !== undefined
+        ? ` at canvas ${Math.round(anchor.canvasX)}, ${Math.round(anchor.canvasY)}`
+        : "";
+    return `${tab}${section}${label} ${kind}${canvasPoint}`;
+  }
   if (anchor.anchorKind === "visual") {
     const label = anchor.visualLabel || anchor.sectionTitle || "visual";
     const x = Math.round(anchor.visualX ?? anchor.x);

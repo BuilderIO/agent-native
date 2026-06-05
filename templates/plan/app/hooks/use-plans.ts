@@ -195,6 +195,42 @@ export function useUpdatePlan() {
   );
 }
 
+/**
+ * Result of the `publish-visual-plan` action (owned by the plan server stream).
+ * Either the plan is hosted and we get a shareable URL, or the user is in
+ * local/no-account mode and must create an account / sign in first.
+ */
+export type PublishVisualPlanResult =
+  | {
+      needsAuth?: false | undefined;
+      url: string;
+      hostedPlanId: string;
+      hostedPlanUrl?: string;
+      hostedUrl?: string;
+    }
+  | {
+      needsAuth: true;
+      url?: undefined;
+      hostedPlanId?: undefined;
+      hostedPlanUrl?: undefined;
+      hostedUrl?: undefined;
+      /** CLI command that connects an account (shown for terminal users). */
+      connectCommand?: string;
+      /** Browser sign-in / account-creation URL to open and then retry. */
+      authUrl?: string;
+    };
+
+export function usePublishVisualPlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<PublishVisualPlanResult, { planId: string }>(
+    "publish-visual-plan",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to publish plan"),
+    },
+  );
+}
+
 export function useExportPlan(planId?: string) {
   return useActionQuery<{
     markdown: string;

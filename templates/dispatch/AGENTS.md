@@ -8,6 +8,7 @@ specific essentials.
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Treat Dispatch as workspace infrastructure. Prefer actions over raw SQL for
   vault, integrations, resource grants, messaging, routing, and approvals.
 - Do not expose secret values. Vault stores references and encrypted values; apps

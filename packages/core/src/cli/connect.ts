@@ -42,6 +42,10 @@ import {
   writeHttpEntryForClient,
   writeJsonMcpEntry,
 } from "./mcp-config-writers.js";
+import {
+  isFirstPartyPlanHost,
+  writePlanPublishAuth,
+} from "./plan-publish-store.js";
 import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
@@ -1505,6 +1509,23 @@ async function connectOne(
         undefined,
       ),
     );
+  }
+
+  // Canonical publish-token write: when we have a real minted bearer token for
+  // a first-party Plans app, also persist `{ url, token }` to
+  // `~/.agent-native/plan-publish.json` so the local Plans server can read the
+  // same token for a server-to-server publish (publish-on-share). This is an
+  // ADDITIONAL write alongside the per-client MCP config; OAuth-only clients
+  // mint no local token, so this no-ops for them. Best-effort and merge-not-
+  // clobber — never fails the connect.
+  if (token && isFirstPartyPlanHost(baseUrl)) {
+    const canonicalPath = writePlanPublishAuth({ url: baseUrl, token });
+    if (canonicalPath) {
+      logOut("");
+      logOut(
+        `  Saved publish token for the local Plans server → ${canonicalPath}`,
+      );
+    }
   }
 
   logOut("");

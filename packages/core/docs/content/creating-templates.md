@@ -138,7 +138,7 @@ Actions are the single source of truth for app behavior. The agent calls them as
 ```ts
 // actions/create-project.ts
 import { defineAction } from "@agent-native/core";
-import { getDb } from "@agent-native/core/db";
+import { getDb } from "../server/db/index.js"; // getDb is created per app via createGetDb(schema) in server/db/index.ts
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import * as schema from "../server/db/schema";

@@ -4,6 +4,8 @@ description: >-
   Server-side analytics tracking with pluggable providers. Use when adding
   analytics events, registering custom tracking providers, or configuring
   built-in providers (PostHog, Mixpanel, Amplitude, Webhook).
+metadata:
+  internal: true
 ---
 
 # Tracking
@@ -28,7 +30,7 @@ Fire an analytics event.
 ```ts
 import { track } from "@agent-native/core/tracking";
 
-track("meal.logged", { mealName: "Salad", calories: 350 }, { userId: "owner@example.com" });
+track("meal.logged", { mealName: "Salad", calories: 350 }, { userId: "user@example.com" });
 ```
 
 ### `identify(userId, traits?)`
@@ -38,7 +40,7 @@ Identify a user with traits. Forwarded to providers that support it.
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("owner@example.com", { plan: "pro", company: "Example Co" });
+identify("user@example.com", { plan: "pro", company: "ExampleCo" });
 ```
 
 ### `registerTrackingProvider(provider)`
@@ -90,6 +92,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
 - Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `app`, and inferred `template`
+- Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 
 ### Visitor identity (`anonymousId` + `sessionId`)
@@ -106,7 +109,8 @@ Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
 - `signup` from Better Auth user creation, with `auth_provider` and `auth_user_id`
-- `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes
+- `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
+- `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
 

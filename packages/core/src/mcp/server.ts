@@ -20,7 +20,12 @@ import {
   type MCPCallerIdentity,
   type MCPRequestMeta,
 } from "./build-server.js";
-import { buildMcpOAuthChallenge, getMcpOAuthResource } from "./oauth-route.js";
+import {
+  buildMcpOAuthChallenge,
+  getMcpOAuthIssuer,
+  getMcpOAuthProtectedResourceMetadataUrl,
+  getMcpOAuthResource,
+} from "./oauth-route.js";
 
 // Re-export the shared MCP server builder + types so the stdio transport and
 // any (future) external importer of `@agent-native/core/mcp` keep resolving
@@ -175,6 +180,49 @@ function buildWebRequest(event: H3Event, method: string): Request {
   return new Request(url, { method, headers });
 }
 
+/**
+ * Build an actionable JSON body for the 401 response. OAuth-capable clients
+ * follow the `WWW-Authenticate` header automatically, but the JSON body is what
+ * a human or a coding agent reads when a tool call comes back unauthorized — so
+ * spell out the exact remediation: the `agent-native connect <url>` command and
+ * the authorize/metadata URL. Keeping the legacy `error: "Unauthorized"` field
+ * means existing clients that only check that field still work.
+ */
+function buildUnauthorizedBody(event: H3Event): {
+  error: string;
+  message: string;
+  authenticate: {
+    command?: string;
+    authorizeUrl?: string;
+    resourceMetadataUrl?: string;
+    mcpUrl?: string;
+  };
+} {
+  const issuer = getMcpOAuthIssuer(event);
+  const mcpUrl = getMcpOAuthResource(event);
+  const resourceMetadataUrl = getMcpOAuthProtectedResourceMetadataUrl(event);
+  const command = issuer ? `agent-native connect ${issuer}` : undefined;
+  const authorizeUrl = issuer
+    ? `${issuer}/_agent-native/mcp/oauth/authorize`
+    : undefined;
+  const message = command
+    ? `Authentication required. Run \`${command}\` to authenticate this MCP ` +
+      `connector (or, in an OAuth-capable host, re-run /mcp and choose ` +
+      `Authenticate), then retry.`
+    : "Authentication required. Authenticate the MCP connector in your host, " +
+      "then retry.";
+  return {
+    error: "Unauthorized",
+    message,
+    authenticate: {
+      ...(command ? { command } : {}),
+      ...(authorizeUrl ? { authorizeUrl } : {}),
+      ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
+      ...(mcpUrl ? { mcpUrl } : {}),
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // handleMcpRequest — runtime-agnostic MCP request handler
 // ---------------------------------------------------------------------------
@@ -209,7 +257,9 @@ function buildWebRequest(event: H3Event, method: string): Request {
 export async function handleMcpRequest(
   event: H3Event,
   config: MCPConfig,
-): Promise<Response | string | { error: string } | undefined> {
+): Promise<
+  Response | string | { error: string } | Record<string, unknown> | undefined
+> {
   const pathname = event.url?.pathname || "/";
   const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
   if (subpath) {
@@ -244,7 +294,7 @@ export async function handleMcpRequest(
   if (!authResult.authed) {
     setResponseStatus(event, 401);
     setResponseHeader(event, "WWW-Authenticate", buildMcpOAuthChallenge(event));
-    return { error: "Unauthorized" };
+    return buildUnauthorizedBody(event);
   }
 
   // Stateless mode: only POST is meaningful. A stateless, per-request transport

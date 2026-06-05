@@ -17,6 +17,7 @@ import { getPrimaryAccountPhotoUrl } from "../../../../../lib/google-calendar.js
 import { bookingOgImageResponseHeaders } from "../../../../../lib/booking-og-response.js";
 import {
   renderBookingOgImagePng,
+  renderBookingOgImageSvg,
   type BookingOgImageInput,
 } from "../../../../../lib/booking-og-image.js";
 import type { Settings } from "../../../../../../shared/api.js";
@@ -25,6 +26,20 @@ function pngBody(bytes: Uint8Array): ArrayBuffer {
   const body = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(body).set(bytes);
   return body;
+}
+
+function textByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function isResvgRuntimeUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    /@resvg\/resvg-js|resvgjs\.[\w-]+\.node|native binding/i.test(message) &&
+    /cannot find|err_module_not_found|dlopen|invalid elf|wrong architecture|not a valid win32|native binding/i.test(
+      message,
+    )
+  );
 }
 
 function parseDurations(value: string | null): number[] | undefined {
@@ -129,10 +144,22 @@ export default defineEventHandler(async (event: H3Event) => {
     profileImageDataUrl,
   };
   const fontFiles = await loadBundledOgFontFiles(serverAssets);
-  const png = await renderBookingOgImagePng(
-    imageInput,
-    fontFiles ? { fontFiles } : {},
-  );
+  let png: Uint8Array;
+  try {
+    png = await renderBookingOgImagePng(
+      imageInput,
+      fontFiles ? { fontFiles } : {},
+    );
+  } catch (error) {
+    if (!isResvgRuntimeUnavailableError(error)) throw error;
+    const svg = renderBookingOgImageSvg(imageInput);
+    return new Response(svg, {
+      headers: bookingOgImageResponseHeaders(
+        textByteLength(svg),
+        "image/svg+xml; charset=utf-8",
+      ),
+    });
+  }
 
   setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
   return new Response(pngBody(png), {

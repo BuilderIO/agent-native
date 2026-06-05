@@ -186,6 +186,34 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 
+  it("starts background new-tab sends without focusing the new tab", async () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Run quietly",
+        submit: true,
+        newTab: true,
+        background: true,
+        tabId: "thread-bg",
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledWith("thread-bg");
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-1");
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Run quietly",
+      undefined,
+      { trackInRunsTray: true },
+    );
+  });
+
   it("adds keyed context to the active composer without prefill or submit", () => {
     act(() => {
       window.dispatchEvent(

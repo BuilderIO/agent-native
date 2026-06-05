@@ -5,6 +5,8 @@ description: >-
   apps end-to-end, finding and fixing bugs, or running a QA sweep. Invoke as
   /qa with optional --apps and --focus args.
 user-invocable: true
+metadata:
+  internal: true
 ---
 
 # QA Testing
@@ -18,6 +20,15 @@ Autonomous QA testing that spins up template apps, tests them with Playwright in
 /qa --apps mail,forms                          # test specific apps
 /qa --focus "test form submission and compose"  # prioritize specific flows
 ```
+
+## Browser MCP Readiness
+
+QA can use the framework's built-in browser MCP capabilities instead of a hand-written `mcp.config.json`. The built-ins are off by default and are toggled through `/_agent-native/mcp/builtin`.
+
+- Prefer `browser-playwright` for automated QA sweeps: it runs `npx -y @playwright/mcp@0.0.75`.
+- Use `browser-chrome-devtools` only when the test specifically needs to attach to a live Chrome session. It runs `npx -y chrome-devtools-mcp@0.26.0 --autoConnect --no-usage-statistics` and requires Chrome 144+ with remote debugging enabled. Do not assume it signs into the user's Chrome profile.
+- Browser built-ins are exclusive per scope: enabling Chrome disables Playwright and enabling Playwright disables Chrome.
+- `computer-use` runs `npx -y computer-use-mcp@1.8.0` and is macOS-only.
 
 **Args:**
 
@@ -39,14 +50,16 @@ Parse the user's invocation to determine:
 
 For each app, check if required credentials exist:
 
-| App      | Check                                          | Can test without? |
-|----------|-------------------------------------------------|-------------------|
-| forms    | No credentials needed                          | Yes               |
-| content  | No credentials needed (Notion is opt-in)       | Yes               |
-| calendar | `templates/calendar/.env` has GOOGLE_CLIENT_ID | Partially — local events work, Google sync won't |
-| mail     | `templates/mail/.env` has GOOGLE_CLIENT_ID     | Partially — UI renders, Gmail features won't |
+| App      | Check                                                    | Can test without? |
+| -------- | -------------------------------------------------------- | ----------------- |
+| forms    | No credentials needed                                    | Yes               |
+| content  | No credentials needed (Notion is opt-in)                 | Yes               |
+| calendar | `templates/calendar/.env` has `GOOGLE_CLIENT_ID` present | Partially — local events work, Google sync won't |
+| mail     | `templates/mail/.env` has `GOOGLE_CLIENT_ID` present     | Partially — UI renders, Gmail features won't |
 
-Read each app's `.env` file (if it exists) to check. If credentials are missing:
+Read each app's `.env` file (if it exists) only to check whether required names
+are present. Never print, copy, summarize, paste, or pass `.env` values into
+tester prompts, reports, screenshots, logs, or chat. If credentials are missing:
 
 - Still test the app — many features work without external APIs
 - Include in the tester's instructions: "No Google credentials found. Test local features. Flag any feature that crashes without credentials as 'needs credentials' rather than a bug."
@@ -79,7 +92,8 @@ For each app, read these files to understand what to test:
 
 1. `templates/<app>/app/routes/` or `templates/<app>/app/routes.ts` — discover all pages
 2. `templates/<app>/CLAUDE.md` — features, API routes, data model
-3. `templates/<app>/server/routes/api/` — API endpoints
+3. `templates/<app>/actions/` — domain operations the UI and agent share
+4. `templates/<app>/server/routes/api/` — route-only endpoints such as uploads, streaming, webhooks, and OAuth callbacks
 
 Combine with any `--focus` guidance to produce a test plan. The test plan is a numbered list of user-facing flows to verify. Example:
 
@@ -311,3 +325,5 @@ This is a known issue. The tester should:
 3. Check the server plugin that loads credentials
 4. Try to fix the credential detection logic
 5. If unfixable, report as "needs review" with details about what the app expects vs. what's configured
+
+Only report variable names and presence/absence. Do not include secret values.

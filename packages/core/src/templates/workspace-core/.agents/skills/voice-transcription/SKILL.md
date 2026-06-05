@@ -6,6 +6,8 @@ description: >-
   Voice Transcription settings section. Covers transcription-source routing,
   cleanup routing, Google realtime gating, and the voice transcription
   application-state keys.
+metadata:
+  internal: true
 ---
 
 # Voice Transcription
@@ -36,8 +38,8 @@ that renders `TiptapComposer`.
 Settings must keep these as separate choices:
 
 - **Live transcription source**: `mac-native`, `google-realtime`, or `batch`.
-- **AI cleanup**: independent off/on toggle. Cleanup uses Builder Gemini first
-  when hosted Gemini is configured, then BYOK Gemini (`GEMINI_API_KEY`).
+- **AI cleanup**: independent off/on toggle. Cleanup uses managed Gemini first
+  when a managed AI services connection is configured, then BYOK Gemini (`GEMINI_API_KEY`).
   Gemini cleanup/title/summary generation is not a live STT source.
 
 `application_state["voice-transcription-prefs"]` stores
@@ -49,8 +51,8 @@ is still written for old clients and batch provider preferences:
 | `mac-native`      | Native macOS/Tauri speech path; web clients normalize to browser-native where needed | No                           |
 | `google-realtime` | Dedicated WebSocket → Google Speech-to-Text gRPC `StreamingRecognize` path | `GOOGLE_APPLICATION_CREDENTIALS` |
 | `batch`           | Upload audio after stop through the existing batch route       | Builder/Gemini/Groq/OpenAI depending on fallback |
-| `auto` provider   | Existing batch fallback chain                                  | Any configured batch provider |
-| `builder-gemini`  | Builder Gemini Flash-Lite batch/cleanup preference             | hosted Gemini provider connected |
+| `auto` provider   | Browser SpeechRecognition when supported; server batch fallback chain otherwise | No key needed in browsers that support SpeechRecognition |
+| `builder-gemini`  | Managed Gemini Flash-Lite batch/cleanup preference             | Managed AI services account connected |
 | `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GEMINI_API_KEY`             |
 | `groq`            | Groq Whisper batch preference                                  | `GROQ_API_KEY`               |
 | `openai`          | OpenAI Whisper batch preference                                | `OPENAI_API_KEY`             |
@@ -58,13 +60,18 @@ is still written for old clients and batch provider preferences:
 
 Default behavior:
 
-- The shared web settings/composer default to Batch / `auto`.
+- The shared web settings/composer default to Batch / `auto`. In `auto` mode,
+  `useVoiceDictation` uses `startBrowser()` (Web Speech API, no key required,
+  incremental streaming) when the browser supports `SpeechRecognition`. It only
+  falls back to the MediaRecorder → server upload path when `SpeechRecognition`
+  is not available (e.g. Firefox). This means dictation works out of the box in
+  Chrome, Edge, and Safari without any API key configuration.
 - Dedicated macOS Tauri-native surfaces may save `mac-native`, but do not
   assume the shared React settings default to it.
 - Old stored `builder` values are treated as `builder-gemini`.
 - Old stored `browser` values are treated as `mac-native`.
 - Saved `google-realtime` preferences must never hit `/_agent-native/transcribe-voice`. They go through the dedicated session bridge `POST /_agent-native/transcribe-stream/session`, which mints an opaque ai-services websocket session and keeps the Google service-account JSON off the client.
-- In the current bridge, the Google option is only actually ready when both the user's `GOOGLE_APPLICATION_CREDENTIALS` secret exists and Builder is connected, because the framework mints the managed ai-services session with Builder auth before streaming begins.
+- In the current bridge, the Google option is only actually ready when both the user's `GOOGLE_APPLICATION_CREDENTIALS` secret exists and a managed AI services connection is configured, because the framework mints the managed ai-services session before streaming begins.
 
 ## Where the pieces live
 

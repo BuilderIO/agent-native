@@ -1030,6 +1030,11 @@ export function createAgentChatAdapter(options?: {
         "requestMode" in runConfig.custom
           ? (runConfig.custom as { requestMode?: unknown }).requestMode
           : undefined;
+      const trackInRunsTray =
+        runConfig?.custom &&
+        typeof runConfig.custom === "object" &&
+        (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
+          true;
       const requestMode =
         runConfigRequestMode === "act" || runConfigRequestMode === "plan"
           ? runConfigRequestMode
@@ -1264,6 +1269,10 @@ export function createAgentChatAdapter(options?: {
                 { signal: abortSignal },
               );
               if (!reconnectRes.ok || !reconnectRes.body) {
+                if (reconnectRes.status === 404) {
+                  clearActiveRun();
+                  return false;
+                }
                 lastReconnectError = new Error(
                   `Reconnect failed: ${reconnectRes.status}`,
                 );
@@ -1353,6 +1362,9 @@ export function createAgentChatAdapter(options?: {
                 { signal: abortSignal },
               );
               if (!activeRes.ok) {
+                if (activeRes.status === 404) {
+                  return false;
+                }
                 lastActiveRunError = new Error(
                   `Active run lookup failed: ${activeRes.status}`,
                 );
@@ -1550,6 +1562,7 @@ export function createAgentChatAdapter(options?: {
                   history: currentHistory,
                   structuredHistory: currentStructuredHistory,
                   turnId,
+                  ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
                   ...(threadId ? { threadId } : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }

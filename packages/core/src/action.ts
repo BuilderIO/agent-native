@@ -1,5 +1,50 @@
-import type { ActionTool } from "./agent/types.js";
+import type { ActionTool, AgentChatEvent } from "./agent/types.js";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+/**
+ * How an action's `run` was invoked. Tagged at each dispatch site so the action
+ * (and tracking) can branch on the surface that called it.
+ *
+ * - `"tool"` — the in-app agent loop, sub-agents/agent-teams, or A2A (which
+ *   drives the same agent loop). All agent tool calls are `"tool"`.
+ * - `"http"` — a programmatic HTTP POST/GET to `/_agent-native/actions/<name>`
+ *   without the frontend request marker.
+ * - `"frontend"` — a browser call via `useActionQuery` / `useActionMutation` /
+ *   `callAction` (tagged with the `X-Request-Source` header).
+ * - `"cli"` — `pnpm action <name>` (the CLI runner).
+ * - `"mcp"` — an external agent over the MCP `tools/call` endpoint.
+ * - `"a2a"` — a direct A2A action dispatch (currently unused: A2A runs through
+ *   the agent loop, so those calls are `"tool"`). Reserved for completeness.
+ */
+export type ActionCaller = "tool" | "http" | "frontend" | "cli" | "mcp" | "a2a";
+
+/**
+ * Context passed as the optional second argument to an action's `run`.
+ * Carries the resolved request identity and the invocation source so actions
+ * can read `ctx.userEmail` / `ctx.orgId` / `ctx.caller` directly instead of
+ * calling `getRequestUserEmail()` / `getRequestOrgId()` by hand.
+ *
+ * Backward compatible: existing 1-arg `run(args)` functions keep working, and
+ * callers that only need `send` (the agent loop) can still destructure it.
+ */
+export interface ActionRunContext {
+  /**
+   * Emit an SSE event to the client. Only meaningful inside the agent tool
+   * loop (e.g. `agent_call_text` streaming); `undefined` on every other
+   * surface.
+   */
+  send?: (event: AgentChatEvent) => void;
+  /**
+   * Resolved request user email, or `undefined` when there is no authenticated
+   * identity. NEVER defaulted to a dev identity — actions that need a fallback
+   * must apply their own.
+   */
+  userEmail?: string;
+  /** Resolved org id, or `null` when the request has no org. */
+  orgId?: string | null;
+  /** How this action was invoked. */
+  caller: ActionCaller;
+}
 
 export interface AgentActionStopOptions {
   /** Optional stable code surfaced in run metadata and tests. */
@@ -194,8 +239,19 @@ interface DefineActionWithSchema<
   parameters?: never;
   run: (
     args: StandardSchemaV1.InferOutput<TSchema>,
+    ctx?: ActionRunContext,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** Whether this action is exposed to the agent — the in-app assistant and the
+   *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
+   *  `undefined` / `true` expose it; only an explicit `false` hides it from every
+   *  agent tool list while keeping it callable from the frontend / HTTP
+   *  (`useActionMutation`, `callAction`, `/_agent-native/actions/<name>`). Use
+   *  this for UI-only or purely programmatic actions you want behind the
+   *  framework's auth + action surface WITHOUT spending a slot in the model's
+   *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
+   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.md`. */
+  agentTool?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
@@ -249,8 +305,15 @@ interface DefineActionWithParams<
   parameters?: TParams;
   /** Standard Schema — not used in this overload. */
   schema?: never;
-  run: (args: InferParams<TParams>) => Promise<TReturn> | TReturn;
+  run: (
+    args: InferParams<TParams>,
+    ctx?: ActionRunContext,
+  ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** Whether this action is exposed to the agent as a callable tool. Only an
+   *  explicit `false` hides it from every agent tool list while keeping it
+   *  frontend/HTTP-callable. See the schema overload above and actions.md. */
+  agentTool?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
@@ -370,6 +433,10 @@ export function defineAction(options: any) {
     typeof options.toolCallable === "boolean"
       ? options.toolCallable
       : undefined;
+  // agentTool: default-allow opt-out. Only an explicit `false` hides the action
+  // from the agent tool surfaces; undefined is preserved (treated as exposed).
+  const agentTool: boolean | undefined =
+    typeof options.agentTool === "boolean" ? options.agentTool : undefined;
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
@@ -402,6 +469,7 @@ export function defineAction(options: any) {
     run,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
+    ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
@@ -610,8 +678,8 @@ function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
   toolParameters?: ActionTool["parameters"],
-): (args: any) => any {
-  return async (args: any) => {
+): (args: any, ctx?: ActionRunContext) => any {
+  return async (args: any, ctx?: ActionRunContext) => {
     const result = await schema["~standard"].validate(args);
     if (result.issues) {
       // Split issues into "missing required field" vs other validation errors
@@ -678,6 +746,6 @@ function wrapWithValidation(
         `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
       );
     }
-    return run((result as StandardSchemaV1.SuccessResult<any>).value);
+    return run((result as StandardSchemaV1.SuccessResult<any>).value, ctx);
   };
 }

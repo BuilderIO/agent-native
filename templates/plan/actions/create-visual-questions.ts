@@ -12,6 +12,12 @@ import {
   type VisualQuestionBuilderInput,
 } from "../server/plan-content.js";
 import {
+  isLocalPlanRuntime,
+  requirePlanOwnerEmailForWrite,
+} from "../server/lib/local-identity.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
   buildPlanHtml,
   commentInputSchema,
   loadPlanBundle,
@@ -147,12 +153,11 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) {
-      throw new Error(
-        "Creating visual questions requires an authenticated user.",
-      );
-    }
+    const ownerEmail = requirePlanOwnerEmailForWrite(
+      getRequestUserEmail(),
+      "Creating visual questions",
+    );
+    await assertGuestCreateWithinLimits(ownerEmail);
 
     const id = newId("plan");
     const now = nowIso();
@@ -264,12 +269,22 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: id,
+          title: bundle.plan.title,
+          brief: bundle.plan.brief,
+          content: bundle.plan.content,
+          url: planPath(id),
+        })
+      : null;
     return {
       ...bundle,
       planId: id,
       html: buildPlanHtml(bundle),
       path: planPath(id),
       url: planPath(id),
+      ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
         "Open the visual questions plan, answer the chips, freeform fields, mockup choices, and diagram options, then use Copy prompt or Send to agent to feed the summary into a UI/visual plan. The live link is private until shared.",
     };

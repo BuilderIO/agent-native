@@ -122,6 +122,18 @@ function sampleContent(): PlanContent {
           x: 140,
           y: 620,
         },
+        {
+          id: "overview-callout",
+          type: "callout",
+          text: "Point reviewers to the save action.",
+          x: 220,
+          y: 300,
+          points: [
+            { x: 220, y: 300 },
+            { x: 520, y: 360 },
+          ],
+          style: { tone: "accent", stroke: "dashed", width: 2 },
+        },
       ],
       notes: [
         {
@@ -180,6 +192,8 @@ describe("plan MDX source adapter", () => {
     expect(folder["canvas.mdx"]).toContain("<Artboard");
     expect(folder["canvas.mdx"]).toContain("<FrameScreen");
     expect(folder["canvas.mdx"]).toContain("<Annotation");
+    expect(folder["canvas.mdx"]).toContain('type="callout"');
+    expect(folder["canvas.mdx"]).toContain("points={");
     expect(folder["canvas.mdx"]).toContain("<Connector");
     expect(folder[".plan-state.json"]).toContain('"canvas"');
     expect(folder[".plan-state.json"]).toContain('"zoom": 0.81');
@@ -210,6 +224,12 @@ describe("plan MDX source adapter", () => {
     expect(parsed.canvas?.annotations?.map((note) => note.id)).toContain(
       "legacy-review-note",
     );
+    const callout = parsed.canvas?.annotations?.find(
+      (annotation) => annotation.id === "overview-callout",
+    );
+    expect(callout?.type).toBe("callout");
+    expect(callout?.points?.[1]?.x).toBe(520);
+    expect(callout?.style?.stroke).toBe("dashed");
   });
 
   it("applies small source patches by stable semantic ids", async () => {

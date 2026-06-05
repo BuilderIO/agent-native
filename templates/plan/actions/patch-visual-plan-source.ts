@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -9,6 +9,8 @@ import {
   planMdxSourcePatchesSchema,
 } from "../server/plan-mdx.js";
 import { serializePlanContent } from "../server/plan-content.js";
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -41,6 +43,7 @@ export default defineAction({
   run: async (args) => {
     await assertPlanEditor(args.planId);
     const bundle = await loadPlanBundle(args.planId);
+    const versionAtLoad = bundle.plan.updatedAt;
     const currentMdx = await exportPlanContentToMdxFolder({
       content: bundle.plan.content,
       title: bundle.plan.title,
@@ -52,7 +55,7 @@ export default defineAction({
     const nextContent = await parsePlanMdxFolder(nextMdx);
     const now = nowIso();
 
-    await getDb()
+    const updatedRows = await getDb()
       .update(schema.plans)
       .set({
         title: nextContent.title ?? bundle.plan.title,
@@ -61,7 +64,19 @@ export default defineAction({
         content: serializePlanContent(nextContent),
         updatedAt: now,
       })
-      .where(eq(schema.plans.id, args.planId));
+      .where(
+        and(
+          eq(schema.plans.id, args.planId),
+          eq(schema.plans.updatedAt, versionAtLoad),
+        ),
+      )
+      .returning({ id: schema.plans.id });
+
+    if (updatedRows.length === 0) {
+      throw new Error(
+        "Plan changed while source patches were being applied. Reload the plan and retry your patch.",
+      );
+    }
 
     await writeEvent({
       planId: args.planId,
@@ -76,6 +91,15 @@ export default defineAction({
     });
 
     const updated = await loadPlanBundle(args.planId);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: updated.plan.id,
+          title: updated.plan.title,
+          brief: updated.plan.brief,
+          content: updated.plan.content,
+          url: planPath(updated.plan.id),
+        })
+      : null;
     return {
       ...updated,
       planId: updated.plan.id,
@@ -83,6 +107,7 @@ export default defineAction({
       mdx: nextMdx,
       path: planPath(updated.plan.id),
       url: planPath(updated.plan.id),
+      ...(local?.written ? { localFiles: local } : {}),
     };
   },
   link: ({ args }) => ({

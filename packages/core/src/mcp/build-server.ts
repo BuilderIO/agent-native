@@ -30,6 +30,8 @@ import {
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import {
   getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
 import {
@@ -1383,7 +1385,14 @@ export async function createMCPServerForRequest(
       }
 
       try {
-        const result = await entry.run((args as Record<string, string>) ?? {});
+        // We're inside `withCallerContext`, so the request-context getters
+        // resolve the verified MCP caller's identity (do NOT inject a dev
+        // fallback). Tag the call as an external-agent MCP dispatch.
+        const result = await entry.run((args as Record<string, string>) ?? {}, {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId() ?? null,
+          caller: "mcp",
+        });
         const mcpResult = isMcpActionResult(result) ? result : null;
         const rawResult = mcpResult ? mcpResult.raw : result;
         const resultForClient = mcpResult ? mcpResult.text : result;

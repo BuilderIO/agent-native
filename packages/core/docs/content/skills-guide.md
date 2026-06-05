@@ -182,6 +182,36 @@ The frontmatter `name` and `description` are used by the agent's tool system for
 
 Save the file at `.agents/skills/my-skill/SKILL.md`. The directory name should match the `name` in frontmatter.
 
+## Skill scope: runtime vs dev {#skill-scope}
+
+An optional `scope` frontmatter field controls which agent a skill is for:
+
+| `scope`   | Loaded by the runtime agent? | Use for                                                                         |
+| --------- | ---------------------------- | ------------------------------------------------------------------------------- |
+| `both`    | Yes (default)                | Skills useful to the in-app agent. This is the default when `scope` is omitted. |
+| `runtime` | Yes                          | Skills meant only for the in-app runtime agent.                                 |
+| `dev`     | No                           | Skills meant only for the human's coding agent (e.g. Claude Code).              |
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+When `scope` is absent (or set to an unrecognized value) it defaults to `both`, so every existing skill keeps loading at runtime — this field is fully backward compatible. A `scope: dev` skill is invisible to the runtime agent everywhere: it is excluded from the skills block injected into the system prompt and from `docs-search` results.
+
+### Exposing a dev-only skill to your coding agent {#dev-only-skills}
+
+The agent-native runtime reads skills from `.agents/skills/`. Claude Code reads skills from `.claude/skills/` independently. To make a skill available to your coding agent but hidden from the runtime agent:
+
+- Mark it `scope: dev` in `.agents/skills/<name>/SKILL.md` so the runtime agent never loads it, and/or
+- Place or mirror the skill under `.claude/skills/<name>/SKILL.md` so Claude Code picks it up.
+
+This replaces the old hack of relying on Claude Code only reading `.claude/skills` — `scope: dev` makes the dev-vs-runtime split a first-class, explicit choice.
+
 > **See also:** [Writing Agent Instructions](/docs/writing-agent-instructions) for how to word skill descriptions, apply progressive disclosure, and keep `AGENTS.md` lean.
 
 ## Skills vs AGENTS.md {#skills-vs-agents-md}

@@ -289,6 +289,55 @@ describe("browser analytics pageviews", () => {
     expect(result).toBeNull();
   });
 
+  it("drops bare browser auth noise from Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [{ type: "Error", value: "Unauthorized" }],
+      },
+      request: {
+        url: "https://mail.agent-native.com/inbox/message-1",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("drops user-aborted browser requests from Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: "AbortError: The user aborted a request.",
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/docs",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("captures browser errors through the generic captureError helper", async () => {
     installBrowser();
     vi.stubEnv(

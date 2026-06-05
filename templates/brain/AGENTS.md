@@ -9,6 +9,7 @@ Detailed retrieval, capture, connector, and feature rules live in
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use Brain actions for ingestion, search, retrieval, distillation, capture,
   review, and connector work. Do not bypass access checks or ownable scopes.
 - Retrieval answers must be evidence-backed. Cite or summarize source context and

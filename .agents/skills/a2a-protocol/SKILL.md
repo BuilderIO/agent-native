@@ -177,9 +177,14 @@ submitted → working → completed
 
 A2A uses bearer token auth. The server reads the token from the environment variable specified by `apiKeyEnv`:
 
-- Set `A2A_API_KEY=my-secret-token` in the server's environment
-- Callers pass it as `Authorization: Bearer my-secret-token`
+- Set `A2A_API_KEY=<A2A_API_KEY_VALUE>` in the server's deployment environment
+- Callers pass it as `Authorization: Bearer <A2A_API_KEY_VALUE>`
 - The agent card endpoint (`/.well-known/agent-card.json`) is public — no auth needed for discovery
+
+Never hardcode the bearer token in source, docs, prompts, app state, action
+descriptions, client bundles, or examples. A2A tokens are deploy-level secrets
+unless a specific app designs a scoped credential flow; read them from secure
+runtime configuration and never log or return them.
 
 ## Message Parts
 

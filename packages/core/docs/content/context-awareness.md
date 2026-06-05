@@ -288,7 +288,7 @@ That gives the user the magic "this is what I meant" behavior without stuffing e
 
 ## The navigate action {#navigate-action}
 
-The agent writes a one-shot `navigate` command to application-state. The UI reads it, performs the navigation, and deletes the entry.
+`navigate` is the mirror image of `navigation`. Where `navigation` is the UI telling the agent where the user is, `navigate` is the agent telling the UI where to go. The agent writes a one-shot `navigate` command to application-state; the UI reads it, performs the navigation, then deletes the entry.
 
 ```ts
 // Agent side -- write a navigate command
@@ -297,9 +297,21 @@ import { writeAppState } from "@agent-native/core/application-state";
 await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 ```
 
-The UI should consume these commands through `useAgentRouteState`, which handles command polling, tab-scoped fallback keys, duplicate-command protection, and delete-after-read:
+On the UI side you never poll or delete this key by hand. Both directions -- writing `navigation` on every route change and consuming the agent's `navigate` command -- are handled by a single hook, [`useNavigationState`](#use-navigation-state), covered in the next section.
+
+The `navigation` key belongs to the UI; the agent must never write to it directly. The agent writes `navigate`, the UI performs the move, and that move is what updates `navigation`.
+
+## The useNavigationState hook {#use-navigation-state}
+
+`useNavigationState` is **your app's hook, not a framework import.** Every template ships one at `app/hooks/use-navigation-state.ts` and calls it once from the app shell (`root.tsx`). It is the single place that wires navigation in both directions:
+
+- **Outbound (UI → agent):** writes the `navigation` key whenever the route changes, so the agent always knows the current view.
+- **Inbound (agent → UI):** polls the `navigate` command, runs the navigation, and deletes the command.
+
+It stays short because it is a thin wrapper around the real framework primitive, `useAgentRouteState` (exported from `@agent-native/core/client`). You supply two app-specific functions and the framework does the rest:
 
 ```tsx
+// app/hooks/use-navigation-state.ts -- this file lives in YOUR app
 import { useAgentRouteState } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -312,10 +324,14 @@ export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
+
+    // UI → agent: derive semantic state from the current URL.
     getNavigationState: ({ pathname }) => {
       const match = pathname.match(/^\/thread\/([^/]+)/);
       return match ? { view: "thread", threadId: match[1] } : { view: "inbox" };
     },
+
+    // agent → UI: turn a `navigate` command into a route to push.
     getCommandPath: (command) =>
       command.view === "thread" && command.threadId
         ? `/thread/${command.threadId}`
@@ -324,33 +340,12 @@ export function useNavigationState() {
 }
 ```
 
-The `navigation` key belongs to the UI -- the agent should never write to it directly. Instead, the agent writes to `navigate`, and the UI performs the actual navigation, which then updates `navigation`.
+| You write                                              | The framework handles                                                                    |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `getNavigationState` — map the URL to semantic state   | `navigation` writes, tab-scoped plus a global fallback key                               |
+| `getCommandPath` — map a `navigate` command to a route | command polling, delete-after-read, duplicate-command protection, request-source tagging |
 
-## useNavigationState hook {#use-navigation-state}
-
-The `use-navigation-state.ts` hook is usually a thin wrapper around `useAgentRouteState`. Template code supplies the app-specific route mapping; core owns application-state writes, command reads/deletes, request-source headers, and duplicate-command prevention.
-
-```tsx
-// app/hooks/use-navigation-state.ts
-import { useAgentRouteState } from "@agent-native/core/client";
-import { TAB_ID } from "@/lib/tab-id";
-
-export function useNavigationState() {
-  useAgentRouteState({
-    browserTabId: TAB_ID,
-    requestSource: TAB_ID,
-    getNavigationState: ({ pathname, searchParams }) => ({
-      view: pathname === "/" ? "home" : pathname.slice(1),
-      // Optional semantic alias. Raw query params are still visible in
-      // <current-url> and controllable with set-search-params.
-      label: searchParams.get("label"),
-    }),
-    getCommandPath: (command: any) => command.path ?? "/",
-  });
-}
-```
-
-For non-router state channels, use the lower-level `useSemanticNavigationState`. It takes a ready-made `state`, an ordered list of `navigationKeys`/`commandKeys`, and an `onCommand` callback, but does not import or assume React Router.
+`useAgentRouteState` assumes React Router. When navigation does not live in the URL -- a wizard step, a canvas selection, a non-router shell -- drop down to the lower-level `useSemanticNavigationState` instead: you hand it a ready-made `state` value plus `navigationKeys`/`commandKeys` and an `onCommand` callback, and it stays completely agnostic about React Router.
 
 ## Jitter prevention {#jitter-prevention}
 

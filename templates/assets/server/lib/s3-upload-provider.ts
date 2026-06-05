@@ -26,6 +26,20 @@ interface S3Config {
   publicBaseUrl: string | null;
 }
 
+const S3_STORAGE_PREFIX = "s3:";
+
+export function s3StorageKey(objectKey: string): string {
+  return `${S3_STORAGE_PREFIX}${objectKey}`;
+}
+
+export function isS3StorageKey(key: string): boolean {
+  return key.startsWith(S3_STORAGE_PREFIX);
+}
+
+function objectKeyFromStorageKey(key: string): string {
+  return isS3StorageKey(key) ? key.slice(S3_STORAGE_PREFIX.length) : key;
+}
+
 function readS3Config(): S3Config | null {
   const env = process.env;
   const bucket =
@@ -193,9 +207,174 @@ async function putObject(
     );
   }
 
-  return cfg.publicBaseUrl
-    ? `${cfg.publicBaseUrl}/${key}`
-    : `${cfg.endpoint}/${cfg.bucket}/${key}`;
+  return key;
+}
+
+function publicObjectUrl(cfg: S3Config, key: string): string | null {
+  if (!cfg.publicBaseUrl) return null;
+  return `${cfg.publicBaseUrl}/${key.split("/").map(rfc3986).join("/")}`;
+}
+
+function canonicalObjectUri(cfg: S3Config, key: string): string {
+  return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+}
+
+function s3Timestamp() {
+  const amzDate =
+    new Date()
+      .toISOString()
+      .replace(/[:-]|\.\d{3}/g, "")
+      .slice(0, 15) + "Z";
+  return {
+    amzDate,
+    dateStamp: amzDate.slice(0, 8),
+  };
+}
+
+async function authorizationHeader(input: {
+  cfg: S3Config;
+  method: "GET" | "PUT";
+  key: string;
+  headers: Record<string, string>;
+  payloadHash: string;
+  query?: string;
+  dateStamp: string;
+  amzDate: string;
+}): Promise<string> {
+  const credentialScope = `${input.dateStamp}/${input.cfg.region}/s3/aws4_request`;
+  const signedHeaderKeys = Object.keys(input.headers).sort();
+  const signedHeaders = signedHeaderKeys.join(";");
+  const canonicalHeaders =
+    signedHeaderKeys.map((k) => `${k}:${input.headers[k]}`).join("\n") + "\n";
+  const canonicalRequest = [
+    input.method,
+    canonicalObjectUri(input.cfg, input.key),
+    input.query ?? "",
+    canonicalHeaders,
+    signedHeaders,
+    input.payloadHash,
+  ].join("\n");
+  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    input.amzDate,
+    credentialScope,
+    crHash,
+  ].join("\n");
+  const signingKey = await deriveSigningKey(
+    input.cfg.secretAccessKey,
+    input.dateStamp,
+    input.cfg.region,
+  );
+  const signature = toHex(await hmac(signingKey, stringToSign));
+  return (
+    `AWS4-HMAC-SHA256 Credential=${input.cfg.accessKeyId}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`
+  );
+}
+
+function canonicalQuery(params: URLSearchParams): string {
+  return [...params.entries()]
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey
+        ? leftValue.localeCompare(rightValue)
+        : leftKey.localeCompare(rightKey),
+    )
+    .map(([key, value]) => `${rfc3986(key)}=${rfc3986(value)}`)
+    .join("&");
+}
+
+export async function getS3Object(key: string): Promise<Buffer> {
+  const cfg = readS3Config();
+  if (!cfg) throw new Error("S3 env vars not configured");
+  const objectKey = objectKeyFromStorageKey(key);
+  const { amzDate, dateStamp } = s3Timestamp();
+  const hostUrl = new URL(cfg.endpoint);
+  const headers: Record<string, string> = {
+    host: hostUrl.host,
+    "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+    "x-amz-date": amzDate,
+  };
+  const authorization = await authorizationHeader({
+    cfg,
+    method: "GET",
+    key: objectKey,
+    headers,
+    payloadHash: "UNSIGNED-PAYLOAD",
+    dateStamp,
+    amzDate,
+  });
+  const res = await fetch(
+    `${cfg.endpoint}${canonicalObjectUri(cfg, objectKey)}`,
+    {
+      headers: {
+        ...headers,
+        Authorization: authorization,
+      },
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `S3 GetObject failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
+export async function getPresignedS3ObjectUrl(
+  key: string,
+  expiresIn = 60 * 30,
+): Promise<{ url: string; expiresAt: string }> {
+  const cfg = readS3Config();
+  if (!cfg) throw new Error("S3 env vars not configured");
+  const objectKey = objectKeyFromStorageKey(key);
+  const publicUrl = publicObjectUrl(cfg, objectKey);
+  if (publicUrl) {
+    return {
+      url: publicUrl,
+      expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+    };
+  }
+
+  const { amzDate, dateStamp } = s3Timestamp();
+  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
+  const params = new URLSearchParams({
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": `${cfg.accessKeyId}/${credentialScope}`,
+    "X-Amz-Date": amzDate,
+    "X-Amz-Expires": String(expiresIn),
+    "X-Amz-SignedHeaders": "host",
+  });
+  const query = canonicalQuery(params);
+  const hostUrl = new URL(cfg.endpoint);
+  const canonicalRequest = [
+    "GET",
+    canonicalObjectUri(cfg, objectKey),
+    query,
+    `host:${hostUrl.host}\n`,
+    "host",
+    "UNSIGNED-PAYLOAD",
+  ].join("\n");
+  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    crHash,
+  ].join("\n");
+  const signingKey = await deriveSigningKey(
+    cfg.secretAccessKey,
+    dateStamp,
+    cfg.region,
+  );
+  params.set("X-Amz-Signature", toHex(await hmac(signingKey, stringToSign)));
+  return {
+    url: `${cfg.endpoint}${canonicalObjectUri(cfg, objectKey)}?${canonicalQuery(
+      params,
+    )}`,
+    expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+  };
 }
 
 // ── Provider ──────────────────────────────────────────────────────────
@@ -219,7 +398,10 @@ export const s3FileUploadProvider: FileUploadProvider = {
         ? data
         : new Uint8Array(data as unknown as ArrayBuffer);
 
-    const publicUrl = await putObject(cfg, objectKey, bytes, contentType);
-    return { url: publicUrl, provider: "s3" };
+    await putObject(cfg, objectKey, bytes, contentType);
+    const publicUrl =
+      publicObjectUrl(cfg, objectKey) ??
+      (await getPresignedS3ObjectUrl(objectKey)).url;
+    return { url: publicUrl, id: objectKey, provider: "s3" };
   },
 };

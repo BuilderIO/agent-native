@@ -12,6 +12,10 @@ type FeedbackAnchor = {
   visualLabel?: string;
   visualX?: number;
   visualY?: number;
+  canvasX?: number;
+  canvasY?: number;
+  markupType?: "text" | "callout";
+  planAnnotationId?: string;
 };
 
 function parseFeedbackAnchor(anchor: unknown): FeedbackAnchor | null {
@@ -35,6 +39,20 @@ function summarizeFeedbackAnchor(anchor: unknown) {
       : "";
   const quote = parsed.textQuote || parsed.snippet;
   if (quote) return `${section}"${quote}"`;
+  if (parsed.planAnnotationId || parsed.canvasX !== undefined) {
+    const label = parsed.visualLabel || "canvas";
+    const kind =
+      parsed.markupType === "callout"
+        ? "callout"
+        : parsed.markupType === "text"
+          ? "note"
+          : "markup";
+    const canvasPoint =
+      parsed.canvasX !== undefined && parsed.canvasY !== undefined
+        ? ` at canvas ${Math.round(parsed.canvasX)}, ${Math.round(parsed.canvasY)}`
+        : "";
+    return `${section}${label} ${kind}${canvasPoint}`;
+  }
   if (parsed.anchorKind === "visual") {
     const label = parsed.visualLabel || parsed.sectionTitle || "visual";
     const x = Math.round(parsed.visualX ?? parsed.x ?? 0);

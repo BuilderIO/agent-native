@@ -75,7 +75,8 @@ function slugifyDocId(value: string): string {
 
 async function loadAgentBundleDocs(): Promise<DocFull[]> {
   try {
-    const { loadAgentsBundle } = await import("../../server/agents-bundle.js");
+    const { loadAgentsBundle, getRuntimeSkills } =
+      await import("../../server/agents-bundle.js");
     const bundle = await loadAgentsBundle();
     const docs: DocFull[] = [];
     if (bundle.workspaceAgentsMd?.trim()) {
@@ -94,7 +95,10 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
         body: bundle.agentsMd,
       });
     }
-    for (const skill of Object.values(bundle.skills)) {
+    // Only runtime-visible skills are searchable/readable here — `scope: dev`
+    // skills are meant for the human's coding agent (Claude Code), not the
+    // in-app runtime agent, so they must not appear in docs-search results.
+    for (const skill of getRuntimeSkills(bundle)) {
       const slug = `skill-${slugifyDocId(skill.meta.name)}`;
       docs.push({
         slug,

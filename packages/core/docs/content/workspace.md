@@ -290,15 +290,15 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 
 **Where it fits.**
 
-| Surface            | Scope              | Written by                           | Read when                              |
-| ------------------ | ------------------ | ------------------------------------ | -------------------------------------- |
-| `AGENTS.md`        | Shared             | Humans / agent on request            | Every turn                             |
-| `LEARNINGS.md`     | Shared             | Humans / agent on request            | Every turn                             |
-| `memory/MEMORY.md` | Personal           | Agent / humans                       | Every turn                             |
-| `instructions/…`   | Shared             | Humans / agent on request            | Every turn                             |
-| `skills/…`         | Shared             | Humans / agent on request            | On demand (`/slash` command)           |
-| `context/…`        | Shared             | Humans / agent on request            | Indexed every turn, read when relevant |
-| `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app workspace | MCP config refresh                     |
+| Surface            | Scope              | Written by                           | Read when                                                                                                                                           |
+| ------------------ | ------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENTS.md`        | Shared             | Humans / agent on request            | Every turn                                                                                                                                          |
+| `LEARNINGS.md`     | Shared             | Humans / agent on request            | Every turn (Shared copy only — a personal `LEARNINGS.md` is seeded for back-compat but isn't preloaded; put personal context in `memory/MEMORY.md`) |
+| `memory/MEMORY.md` | Personal           | Agent / humans                       | Every turn                                                                                                                                          |
+| `instructions/…`   | Shared             | Humans / agent on request            | Every turn                                                                                                                                          |
+| `skills/…`         | Shared             | Humans / agent on request            | On demand (`/slash` command)                                                                                                                        |
+| `context/…`        | Shared             | Humans / agent on request            | Indexed every turn, read when relevant                                                                                                              |
+| `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app workspace | MCP config refresh                                                                                                                                  |
 
 Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
 
