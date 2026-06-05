@@ -5,11 +5,7 @@
       "name": "dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev:lazy", "--", "--all"],
-      "port": 8080,
-      "startPath": "/analytics",
-      "env": {
-        "DEV_DEFAULT_APP": "analytics"
-      }
+      "port": 8080
     }
   ]
 }

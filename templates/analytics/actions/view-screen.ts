@@ -104,6 +104,8 @@ export default defineAction({
       }
     } else if (nav?.view === "overview" || nav?.view === "home" || !nav?.view) {
       screen.page = "overview";
+    } else if (nav?.view === "ask") {
+      screen.page = "ask";
     } else if (nav?.view === "query") {
       screen.page = "query";
     } else if (nav?.view === "data-sources") {

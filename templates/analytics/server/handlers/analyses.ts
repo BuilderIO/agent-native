@@ -26,7 +26,6 @@ export const listAnalyses = defineEventHandler(async (event) => {
         author: a.author,
         ownerEmail: a.ownerEmail,
         visibility: a.visibility,
-        keptAt: a.keptAt,
       }))
       .sort(
         (a, b) =>

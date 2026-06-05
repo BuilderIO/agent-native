@@ -27,8 +27,9 @@ export const dashboards = table("dashboards", {
   /** Archive timestamp. Null = active. Archived rows are hidden from
    *  default list responses but remain accessible by id and can be restored. */
   archivedAt: text("archived_at"),
-  /** Set when a user clicks "Keep" during the one-time cleanup pass. Null = unclaimed. */
-  keptAt: text("kept_at"),
+  /** Hidden dashboards are omitted from default navigation but remain openable. */
+  hiddenAt: text("hidden_at"),
+  hiddenBy: text("hidden_by"),
   ...ownableColumns(),
 });
 
@@ -70,8 +71,6 @@ export const analyses = table("analyses", {
   author: text("author"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
-  /** Set when a user clicks "Keep" during the one-time cleanup pass. Null = unclaimed. */
-  keptAt: text("kept_at"),
   ...ownableColumns(),
 });
 
@@ -105,22 +104,6 @@ export const analyticsPublicKeys = table("analytics_public_keys", {
   revokedAt: text("revoked_at"),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
-});
-
-/**
- * Knowledge Q&A sessions — each row is one user question with its answer,
- * sources, and lifecycle status tracked as the agent processes it.
- */
-export const askSessions = table("ask_sessions", {
-  id: text("id").primaryKey(),
-  question: text("question").notNull(),
-  answer: text("answer"),
-  sourcesJson: text("sources_json").notNull().default("[]"),
-  // "searching" | "generating" | "done" | "error"
-  status: text("status").notNull().default("searching"),
-  createdAt: text("created_at").notNull().default(now()),
-  userEmail: text("user_email"),
-  updatedAt: text("updated_at"),
 });
 
 /**

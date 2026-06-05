@@ -174,47 +174,16 @@ export default runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS dashboards_archived_at_idx ON dashboards (archived_at)`,
     },
     {
-      version: 21,
-      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS kept_at TEXT`,
+      version: 29,
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS hidden_at TEXT`,
     },
     {
-      version: 22,
-      sql: `ALTER TABLE analyses ADD COLUMN IF NOT EXISTS kept_at TEXT`,
+      version: 30,
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS hidden_by TEXT`,
     },
     {
-      // One-time pass: make all pre-existing private dashboards org-visible so
-      // teammates can open them and decide whether to keep them.
-      // guard:allow-unscoped — schema migration: intentional bulk visibility backfill, not a runtime query
-      version: 23,
-      sql: `UPDATE dashboards SET visibility = 'org' WHERE visibility = 'private'`,
-    },
-    {
-      // guard:allow-unscoped — schema migration: intentional bulk visibility backfill, not a runtime query
-      version: 24,
-      sql: `UPDATE analyses SET visibility = 'org' WHERE visibility = 'private'`,
-    },
-    {
-      version: 25,
-      sql: `CREATE TABLE IF NOT EXISTS ask_sessions (
-        id TEXT PRIMARY KEY,
-        question TEXT NOT NULL,
-        answer TEXT,
-        sources_json TEXT NOT NULL DEFAULT '[]',
-        status TEXT NOT NULL DEFAULT 'searching',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )`,
-    },
-    {
-      version: 26,
-      sql: `ALTER TABLE ask_sessions ADD COLUMN user_email TEXT`,
-    },
-    {
-      version: 27,
-      sql: `ALTER TABLE ask_sessions ADD COLUMN updated_at TEXT`,
-    },
-    {
-      version: 28,
-      sql: `CREATE INDEX IF NOT EXISTS ask_sessions_user_idx ON ask_sessions (user_email, created_at)`,
+      version: 31,
+      sql: `CREATE INDEX IF NOT EXISTS dashboards_hidden_at_idx ON dashboards (hidden_at)`,
     },
   ],
   { table: "analytics_migrations" },

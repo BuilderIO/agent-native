@@ -32,10 +32,10 @@ import {
   IconArchive,
   IconHome,
   IconFilter,
-  IconBookmark,
   IconBuilding,
   IconLock,
   IconLink,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -906,7 +906,6 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
-  keptAt?: string | null;
 };
 
 async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
@@ -928,12 +927,11 @@ async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
         d.visibility === "org" || d.visibility === "public"
           ? (d.visibility as Visibility)
           : ("private" as Visibility),
-      keptAt: typeof d.keptAt === "string" ? d.keptAt : null,
     }));
 }
 
 async function fetchSidebarAnalyses(): Promise<
-  { id: string; name: string; keptAt: string | null; visibility: Visibility }[]
+  { id: string; name: string; visibility: Visibility }[]
 > {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/analyses"), {
@@ -950,7 +948,6 @@ async function fetchSidebarAnalyses(): Promise<
         typeof a.name === "string" && a.name.trim().length > 0
           ? a.name
           : "Untitled analysis",
-      keptAt: typeof a.keptAt === "string" ? a.keptAt : null,
       visibility:
         a.visibility === "org" || a.visibility === "public"
           ? a.visibility
@@ -969,6 +966,7 @@ type PrefetchedSqlDashboard = {
     panels: unknown[];
   };
   archivedAt: string | null;
+  hiddenAt: string | null;
 } & ResourceAccess;
 
 async function fetchSqlDashboardForPrefetch(
@@ -1002,6 +1000,7 @@ async function fetchSqlDashboardForPrefetch(
       panels: Array.isArray(data.panels) ? data.panels : [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
     role: typeof data.role === "string" ? data.role : undefined,
     canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
     canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
@@ -1225,15 +1224,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         ? filteredAnalyses
         : filteredAnalyses.slice(0, SIDEBAR_PREVIEW_COUNT),
     [filteredAnalyses, analysesShowAll],
-  );
-
-  const unclaimedDashboardCount = useMemo(
-    () => sqlDashboards.filter((d) => d.keptAt === null).length,
-    [sqlDashboards],
-  );
-  const unclaimedAnalysisCount = useMemo(
-    () => analysesList.filter((a) => a.keptAt === null).length,
-    [analysesList],
   );
 
   const activeDashboardId = useMemo(() => {
@@ -1780,18 +1770,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             Data Dictionary
           </Link>
 
-          {/* Knowledge Assistant link */}
+          {/* Ask link */}
           <Link
-            to="/knowledge"
+            to="/ask"
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname.startsWith("/knowledge")
+              location.pathname === "/ask"
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconSearch className="h-4 w-4" />
-            Knowledge
+            <IconMessageCircle className="h-4 w-4" />
+            Ask
           </Link>
 
           {/* Dashboards section */}
@@ -1811,19 +1801,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             >
               <IconChartBar className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Dashboards</span>
-              {unclaimedDashboardCount > 0 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                      <IconBookmark className="h-2.5 w-2.5" />
-                      {unclaimedDashboardCount}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {unclaimedDashboardCount} unclaimed
-                  </TooltipContent>
-                </Tooltip>
-              )}
             </button>
             <SidebarSectionSortMenu
               label="Dashboards"
@@ -1949,19 +1926,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             >
               <IconReportAnalytics className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Analyses</span>
-              {unclaimedAnalysisCount > 0 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                      <IconBookmark className="h-2.5 w-2.5" />
-                      {unclaimedAnalysisCount}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {unclaimedAnalysisCount} unclaimed
-                  </TooltipContent>
-                </Tooltip>
-              )}
             </button>
             <SidebarSectionSortMenu
               label="Analyses"

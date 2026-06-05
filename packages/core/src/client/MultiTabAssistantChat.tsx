@@ -1837,20 +1837,6 @@ export function MultiTabAssistantChat({
     [openTabIds, switchThread],
   );
 
-  // Listen for history panel thread selection (from AgentPanel history mode)
-  const openFromHistoryRef = useRef(openFromHistory);
-  openFromHistoryRef.current = openFromHistory;
-  useEffect(() => {
-    function handleOpenThread(e: Event) {
-      const threadId = (e as CustomEvent<{ threadId: string }>).detail
-        ?.threadId;
-      if (threadId) openFromHistoryRef.current(threadId);
-    }
-    window.addEventListener("agent-panel:open-thread", handleOpenThread);
-    return () =>
-      window.removeEventListener("agent-panel:open-thread", handleOpenThread);
-  }, []);
-
   // Listen for agent-task-open events (from AgentTaskCard "Open" button)
   useEffect(() => {
     function handleOpenTask(e: Event) {
