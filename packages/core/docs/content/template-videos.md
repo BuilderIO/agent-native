@@ -24,7 +24,7 @@ When you open the studio, you'll see a list of compositions on the home screen. 
 - **Generate animations from a prompt.** "Add a title card that fades in at 2 seconds and holds until 5." The agent edits the composition.
 - **Tune timing on a timeline.** Drag and resize animation tracks, scrub through frames, set easing curves visually.
 - **Animate the camera.** Pan, zoom, and tilt with on-screen tools. Click the tool, drag in the preview, and a keyframe is auto-created.
-- **Built-in compositions to start from.** Twelve examples ship: kinetic text, logo reveals, particle bursts, interactive UI demos, slideshows.
+- **Start from a blank composition or an example.** The template ships one in-code composition (`BlankComposition`) to start from; example compositions — kinetic text, logo reveals, particle bursts, interactive UI demos, slideshows — load from the database, and you can add your own.
 - **Edit easing curves visually.** 30+ curves shipped — power, back, bounce, circ, elastic, expo, sine, plus spring physics.
 - **Render to MP4 or WebM** at 1x, 2x, or 3x supersampling for crisp text and vectors during camera zoom.
 
@@ -64,21 +64,16 @@ The studio runs on Remotion's `<Player>` for preview and the Remotion CLI for fi
 
 ### Quick start
 
-Create a workspace with the Video app scaffolded:
+Scaffold a new Video app from the CLI:
 
 ```bash
-npx @agent-native/core create my-video-app
-```
-
-During the picker, select **Video**. Then:
-
-```bash
+npx @agent-native/core create my-video-app --template videos --standalone
 cd my-video-app
 pnpm install
 pnpm dev
 ```
 
-Open the studio in your browser and pick a composition from the home screen. Ask the agent something like "add a logo reveal that fades in at 2 seconds" and it will edit the registry and the composition for you.
+Open the studio in your browser, create a composition, and start from blank. Ask the agent something like "add a logo reveal that fades in at 2 seconds" and it will edit the composition for you.
 
 Live demo: [videos.agent-native.com](https://videos.agent-native.com).
 
@@ -86,7 +81,7 @@ Live demo: [videos.agent-native.com](https://videos.agent-native.com).
 
 ### React-based compositions
 
-Every video is a React component built on Remotion primitives (`AbsoluteFill`, `useCurrentFrame`, `useVideoConfig`). Twelve example compositions ship by default — kinetic text, logo reveals, particle bursts, interactive UI demos, slideshows. Add new ones by dropping a `.tsx` file in `app/remotion/compositions/` and registering it in `app/remotion/registry.ts`.
+Every video is a React component built on Remotion primitives (`AbsoluteFill`, `useCurrentFrame`, `useVideoConfig`). The template ships one in-code composition — `BlankComposition` in `app/remotion/compositions/BlankComposition.tsx` — and `app/remotion/registry.ts` exports an empty `compositions` array by default. User and example compositions (kinetic text, logo reveals, particle bursts, interactive UI demos, slideshows) live in SQL and load through `app/hooks/use-database-compositions.ts`. You can still add a code composition by dropping a `.tsx` file in `app/remotion/compositions/` and registering it in `app/remotion/registry.ts`.
 
 ### Timeline tracks
 
@@ -128,7 +123,7 @@ Composition size, fps, and render quality are per-composition in the Properties 
 
 ### Composition persistence
 
-User edits (track values, parameter values, prop overrides, composition settings) persist to localStorage per composition. The **Save** button in the top-right of the composition view writes the current state back to `app/remotion/registry.ts` as TypeScript — so new users and sessions pick up the changes.
+User edits (track values, parameter values, prop overrides, composition settings) persist to localStorage per composition. The **Save** button in the top-right of the composition view can write the current state back to `app/remotion/registry.ts` as TypeScript — so new users and sessions pick up the changes. That source-write path runs through `POST /api/save-composition-defaults`, which is gated to local development only; in production it returns a 403, and durable composition state lives in SQL instead.
 
 ### Working with the agent
 

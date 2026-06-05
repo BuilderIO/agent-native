@@ -157,6 +157,8 @@ the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
 regions or a full standalone HTML document; the renderer still displays them.
 Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+
 <!-- SHARED-CORE:wireframe-canvas END -->
 
 <!-- SHARED-CORE:document-quality START -->
@@ -255,4 +257,25 @@ props that just restates what the canvas already shows. Never produce this.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`.
+## Setup & Authentication
+
+Install once with the Agent-Native CLI — it installs the Plans skills, registers
+the Plans MCP connector, and authenticates it in the same step, so the first
+tool call does not hit an OAuth wall:
+
+```bash
+agent-native skills add visual-plan
+```
+
+After that, `/visual-plan` runs locally with no login by default: it generates
+the plan and opens the local editor. An account is only needed later, to share a
+plan link.
+
+If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
+do not keep retrying the tool. Authenticate the connector with
+`agent-native connect https://plan.agent-native.com` (OAuth-capable hosts can
+instead re-run /mcp and choose Authenticate), then continue once the connector
+is available.
+
+Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
+not put shared secrets in skill files.

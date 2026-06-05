@@ -13,6 +13,11 @@ import {
 } from "../server/plan-mdx.js";
 import { serializePlanContent } from "../server/plan-content.js";
 import {
+  isLocalPlanRuntime,
+  requirePlanOwnerEmail,
+} from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
   assertPlanEditor,
   buildPlanHtml,
   loadPlanBundle,
@@ -98,6 +103,15 @@ export default defineAction({
       });
 
       const bundle = await loadPlanBundle(args.planId);
+      const local = isLocalPlanRuntime()
+        ? await writePlanLocalFiles({
+            planId: bundle.plan.id,
+            title: bundle.plan.title,
+            brief: bundle.plan.brief,
+            content: bundle.plan.content,
+            url: planPath(bundle.plan.id),
+          })
+        : null;
       return {
         ...bundle,
         planId: bundle.plan.id,
@@ -111,15 +125,14 @@ export default defineAction({
         }),
         path: planPath(bundle.plan.id),
         url: planPath(bundle.plan.id),
+        ...(local?.written ? { localFiles: local } : {}),
       };
     }
 
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) {
-      throw new Error(
-        "Importing a visual plan requires an authenticated user.",
-      );
-    }
+    const ownerEmail = requirePlanOwnerEmail(
+      getRequestUserEmail(),
+      "Importing a visual plan",
+    );
 
     const id = newId("plan");
     await db.insert(schema.plans).values({
@@ -149,6 +162,15 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: bundle.plan.id,
+          title: bundle.plan.title,
+          brief: bundle.plan.brief,
+          content: bundle.plan.content,
+          url: planPath(bundle.plan.id),
+        })
+      : null;
     return {
       ...bundle,
       planId: id,
@@ -162,6 +184,7 @@ export default defineAction({
       }),
       path: planPath(id),
       url: planPath(id),
+      ...(local?.written ? { localFiles: local } : {}),
     };
   },
   link: ({ result }) => {

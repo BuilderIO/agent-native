@@ -17,6 +17,7 @@ import {
   SketchDiagram,
   Wireframe,
 } from "./wireframe/Wireframe";
+import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 
 /**
  * Renders the document flow: dispatches a single plan block to its block
@@ -30,7 +31,7 @@ export function PlanBlockView({
   compactVisuals,
 }: {
   block: PlanBlock;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
   compactVisuals?: boolean;
 }) {
@@ -230,95 +231,22 @@ function RichTextBlock({
   onChange,
 }: {
   block: Extract<PlanBlock, { type: "rich-text" }>;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(block.data.markdown);
   return (
     <section className="plan-block group" data-block-id={block.id}>
-      <div className="flex items-start justify-between gap-4">
-        {block.title && <h2>{block.title}</h2>}
-        {block.editable && onChange && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="opacity-70 transition-opacity group-hover:opacity-100"
-            data-plan-interactive
-            onClick={() => {
-              setDraft(block.data.markdown);
-              setEditing((value) => !value);
-            }}
-          >
-            {editing ? (
-              <IconX className="size-4" />
-            ) : (
-              <IconEdit className="size-4" />
-            )}
-            {editing ? "Cancel" : "Edit"}
-          </Button>
-        )}
-      </div>
-      {editing ? (
-        <div className="mt-4 space-y-3" data-plan-interactive>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDraft((value) => `## ${value}`)}
-            >
-              Heading
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDraft((value) => appendLine(value, "- "))}
-            >
-              Bullet
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDraft((value) => appendLine(value, "> "))}
-            >
-              Quote
-            </Button>
-          </div>
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            className="min-h-48 resize-y rounded-xl border-plan-line bg-plan-block font-mono text-sm"
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setEditing(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                onChange?.({
-                  ...block,
-                  data: { ...block.data, markdown: draft },
-                });
-                setEditing(false);
-              }}
-            >
-              Save
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="plan-prose mt-4">
-          <PlanMarkdown markdown={block.data.markdown} />
-        </div>
-      )}
+      {block.title && <h2>{block.title}</h2>}
+      <PlanMarkdownEditor
+        markdown={block.data.markdown}
+        editable={block.editable !== false && !!onChange}
+        renderPreview={() => <PlanMarkdown markdown={block.data.markdown} />}
+        onSave={(markdown) =>
+          onChange?.({
+            ...block,
+            data: { ...block.data, markdown },
+          })
+        }
+      />
     </section>
   );
 }
@@ -522,7 +450,7 @@ function TabsBlock({
   onVisualQuestionsSubmit,
 }: {
   block: Extract<PlanBlock, { type: "tabs" }>;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
 }) {
   const [activeId, setActiveId] = useState(block.data.tabs[0]?.id ?? "");
@@ -600,7 +528,7 @@ function CustomHtmlBlock({
   onChange,
 }: {
   block: Extract<PlanBlock, { type: "custom-html" }>;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState(block.data.html);
@@ -700,7 +628,7 @@ function VisualQuestionsBlock({
   onSubmit,
 }: {
   block: Extract<PlanBlock, { type: "visual-questions" }>;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
   onSubmit?: (summary: string) => void;
 }) {
   const questions = block.data.questions;
@@ -1051,9 +979,4 @@ function updateBlocks(
       },
     };
   });
-}
-
-function appendLine(value: string, prefix: string) {
-  const suffix = value.endsWith("\n") || value.length === 0 ? "" : "\n";
-  return `${value}${suffix}${prefix}`;
 }

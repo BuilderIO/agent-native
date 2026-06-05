@@ -91,7 +91,6 @@ export function Screen({
       style={{
         position: "relative",
         width: "100%",
-        height: "100%",
         background: V.paper,
         color: V.ink,
         fontFamily: V.hand,
@@ -138,6 +137,8 @@ export function Hand({
         fontSize: size ?? V.fs,
         fontWeight: weight,
         color,
+        minWidth: 0,
+        overflowWrap: "break-word",
         ...style,
       }}
     >

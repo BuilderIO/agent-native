@@ -79,4 +79,25 @@ desktop/mobile pair for a popover, panel, or component.
 - `read-visual-plan-source` / `patch-visual-plan-source`: inspect or patch the
   MDX source if another agent is operating from checked-in plan files.
 
-Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`.
+## Setup & Authentication
+
+Install once with the Agent-Native CLI — it installs the Plans skills, registers
+the Plans MCP connector, and authenticates it in the same step, so the first
+tool call does not hit an OAuth wall:
+
+```bash
+agent-native skills add visual-plan
+```
+
+After that, `/visual-plan` runs locally with no login by default: it generates
+the plan and opens the local editor. An account is only needed later, to share a
+plan link.
+
+If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
+do not keep retrying the tool. Authenticate the connector with
+`agent-native connect https://plan.agent-native.com` (OAuth-capable hosts can
+instead re-run /mcp and choose Authenticate), then continue once the connector
+is available.
+
+Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
+not put shared secrets in skill files.

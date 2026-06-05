@@ -24,6 +24,11 @@ export {
   type AgentChatContextState,
   type AgentChatMessage,
 } from "./agent-chat.js";
+export {
+  saveAgentEngineApiKey,
+  type AgentEngineProvider,
+  type SaveAgentEngineApiKeyOptions,
+} from "./agent-engine-key.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export {
   useAgentChatContext,
@@ -349,6 +354,7 @@ export type { TiptapComposerHandle } from "./composer/TiptapComposer.js";
 export {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
+  askUserQuestion,
   formatGuidedAnswerValue,
   formatGuidedAnswersForAgent,
   getOtherGuidedAnswerText,
@@ -356,6 +362,8 @@ export {
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
+  type AskUserQuestionInput,
+  type AskUserQuestionOption,
   type GuidedQuestion,
   type GuidedQuestionAnswers,
   type GuidedQuestionFlowProps,
@@ -456,6 +464,7 @@ export {
   captureClientException,
   type ClientCaptureContext,
 } from "./analytics.js";
+export { track } from "./track.js";
 export {
   useCollaborativeDoc,
   isReconcileLeadClient,

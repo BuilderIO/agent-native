@@ -234,7 +234,6 @@ function KitWireframe({
           width: compact ? preset.width * scale : "100%",
           maxWidth: preset.width,
           height: compact ? height * scale : undefined,
-          aspectRatio: compact ? undefined : `${preset.width} / ${height}`,
           marginInline: "auto",
         }}
       >
@@ -246,7 +245,11 @@ function KitWireframe({
             ...(scale !== 1
               ? { transform: `scale(${scale})`, transformOrigin: "top left" }
               : {}),
-            ...(compact ? {} : { width: "100%", height: "100%" }),
+            // Canvas path: size to content (no forced aspect ratio) so frames
+            // never leave an empty band; cap at the surface preset height.
+            ...(compact
+              ? {}
+              : { width: "100%", height: "auto", maxHeight: height }),
             ...KIT_VAR_FALLBACKS,
           }}
         >

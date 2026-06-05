@@ -638,10 +638,25 @@ describe("hostedApps", () => {
 describe("runConnect", () => {
   const originalExitCode = process.exitCode;
   const originalCwd = process.cwd();
+  const originalPlanPublishPath = process.env.PLAN_PUBLISH_CONFIG_PATH;
+  let planPublishPath: string;
+
+  beforeEach(() => {
+    // Isolate the canonical publish-token write to a temp file so tests never
+    // touch the real ~/.agent-native/plan-publish.json. This is also the env
+    // override the local Plans server reads.
+    planPublishPath = path.join(tmpDir(), "plan-publish.json");
+    process.env.PLAN_PUBLISH_CONFIG_PATH = planPublishPath;
+  });
 
   afterEach(() => {
     process.exitCode = originalExitCode;
     process.chdir(originalCwd);
+    if (originalPlanPublishPath === undefined) {
+      delete process.env.PLAN_PUBLISH_CONFIG_PATH;
+    } else {
+      process.env.PLAN_PUBLISH_CONFIG_PATH = originalPlanPublishPath;
+    }
   });
 
   it("token fallback skips the device flow and writes the entry", async () => {
@@ -671,6 +686,123 @@ describe("runConnect", () => {
         "X-Agent-Native-MCP-Full-Catalog": "1",
       },
     });
+  });
+
+  it("persists a canonical { url, token } for a first-party Plans app", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+
+    await runConnect([
+      "https://plan.agent-native.com",
+      "--client",
+      "codex",
+      "--scope",
+      "project",
+      "--token",
+      "tok-plan-publish",
+    ]);
+
+    expect(process.exitCode).toBeFalsy();
+    const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
+    // Shape consumed by templates/plan/server/lib/plan-publish.ts.
+    expect(canonical).toMatchObject({
+      url: "https://plan.agent-native.com",
+      token: "tok-plan-publish",
+    });
+    expect(typeof canonical.updatedAt).toBe("string");
+  });
+
+  it("also persists the canonical token for other *.agent-native.com apps", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+
+    await runConnect([
+      "https://mail.agent-native.com",
+      "--client",
+      "codex",
+      "--scope",
+      "project",
+      "--token",
+      "tok-mail",
+    ]);
+
+    const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
+    expect(canonical).toMatchObject({
+      url: "https://mail.agent-native.com",
+      token: "tok-mail",
+    });
+  });
+
+  it("merges into an existing canonical file without clobbering other keys", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    fs.mkdirSync(path.dirname(planPublishPath), { recursive: true });
+    fs.writeFileSync(
+      planPublishPath,
+      JSON.stringify({ keepMe: "yes", token: "stale", url: "https://old" }),
+    );
+
+    await runConnect([
+      "https://plan.agent-native.com",
+      "--client",
+      "codex",
+      "--scope",
+      "project",
+      "--token",
+      "tok-new",
+    ]);
+
+    const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
+    expect(canonical.keepMe).toBe("yes");
+    expect(canonical.url).toBe("https://plan.agent-native.com");
+    expect(canonical.token).toBe("tok-new");
+  });
+
+  it("does NOT write the canonical token for a non-first-party host", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+
+    await runConnect([
+      "https://my-app.ngrok-free.dev",
+      "--client",
+      "codex",
+      "--scope",
+      "project",
+      "--token",
+      "tok-custom",
+    ]);
+
+    expect(fs.existsSync(planPublishPath)).toBe(false);
+  });
+
+  it("does NOT write a canonical token for OAuth-only Claude Code (no minted token)", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            resource: "https://plan.agent-native.com/_agent-native/mcp",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://plan.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    // Claude Code authenticates in-host via /mcp; connect mints no local token,
+    // so there is nothing to mirror to the canonical publish file.
+    expect(fs.existsSync(planPublishPath)).toBe(false);
   });
 
   it("writes OAuth-native Claude Code entries after validating metadata", async () => {

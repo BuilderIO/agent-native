@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { agentNativePath } from "./api-path.js";
 import { sendToAgentChat } from "./agent-chat.js";
+import { setClientAppState } from "./application-state.js";
 import { cn } from "./utils.js";
 
 export type GuidedQuestionType =
@@ -25,6 +26,10 @@ export interface GuidedQuestionOption {
   icon?: string;
   description?: string;
   recommended?: boolean;
+  /** Optional preview content (mockup, code snippet, or short comparison)
+   *  shown beneath the option to help the user compare choices. Mirrors the
+   *  `preview` field of Claude Code's AskUserQuestion options. */
+  preview?: string;
 }
 
 export interface GuidedQuestion {
@@ -133,6 +138,124 @@ export function formatGuidedAnswersForAgent(
       return `${id}: ${String(value)}`;
     })
     .join("\n");
+}
+
+/** A single option for {@link askUserQuestion}. Mirrors the agent `ask-question`
+ *  tool and Claude Code's AskUserQuestion option shape. */
+export interface AskUserQuestionOption {
+  /** Display text the user picks (1-5 words). */
+  label: string;
+  /** Value reported back. Defaults to `label` when omitted. */
+  value?: string;
+  /** Short explanation of the trade-off. */
+  description?: string;
+  /** Optional preview (mockup, code snippet, short comparison) shown under the option. */
+  preview?: string;
+  /** Mark the most likely option so the UI highlights it. */
+  recommended?: boolean;
+}
+
+/** Input for {@link askUserQuestion}. */
+export interface AskUserQuestionInput {
+  /** The complete question. Clear, specific, ends with a question mark. */
+  question: string;
+  /** Optional very short chip/heading (≈12 chars), e.g. "Date range". */
+  header?: string;
+  /** 2-4 distinct options (mutually exclusive unless `allowMultiple`). */
+  options: AskUserQuestionOption[];
+  /** Allow a free-text "Other" answer. Default `true`. */
+  allowFreeText?: boolean;
+  /** Allow selecting more than one option (multi-select). Default `false`. */
+  allowMultiple?: boolean;
+  /** Application-state key the agent panel polls. Default `"guided-questions"`. */
+  stateKey?: string;
+}
+
+const GUIDED_QUESTIONS_STATE_KEY = "guided-questions";
+
+/**
+ * Ask the user a multiple-choice question from app code and render it inline in
+ * the agent panel — the client-side twin of the agent's `ask-question` tool.
+ *
+ * The question is written to application state (`"guided-questions"` by
+ * default), where the mounted `GuidedQuestionFlow` (driven by
+ * {@link useGuidedQuestionFlow}) renders it. The user's answer is delivered to
+ * the agent chat, so the agent picks up the choice and continues — consistent
+ * with the agent-native model where the agent is the consumer of user intent.
+ * Use it for app-triggered clarifications (e.g. a "Generate" button that needs
+ * one decision before kicking off agent work).
+ *
+ * Resolves once the question has been shown; it does not resolve with the
+ * answer (the answer flows to the agent, not back to the caller).
+ */
+export async function askUserQuestion(
+  input: AskUserQuestionInput,
+): Promise<void> {
+  const question = String(input?.question ?? "").trim();
+  if (!question) {
+    throw new TypeError("askUserQuestion: `question` is required.");
+  }
+  const header =
+    typeof input.header === "string" && input.header.trim()
+      ? input.header.trim()
+      : undefined;
+  const allowMultiple = input.allowMultiple === true;
+  const allowFreeText = input.allowFreeText !== false;
+
+  const options: GuidedQuestionOption[] = (
+    Array.isArray(input.options) ? input.options : []
+  )
+    .map((raw): GuidedQuestionOption | null => {
+      const label =
+        typeof raw?.label === "string" && raw.label.trim()
+          ? raw.label.trim()
+          : typeof raw?.value === "string"
+            ? String(raw.value).trim()
+            : "";
+      if (!label) return null;
+      const value =
+        typeof raw?.value === "string" && raw.value.trim()
+          ? raw.value.trim()
+          : label;
+      const option: GuidedQuestionOption = { label, value };
+      if (typeof raw.description === "string" && raw.description.trim()) {
+        option.description = raw.description.trim();
+      }
+      if (typeof raw.preview === "string" && raw.preview.trim()) {
+        option.preview = raw.preview;
+      }
+      if (raw.recommended === true) option.recommended = true;
+      return option;
+    })
+    .filter((opt): opt is GuidedQuestionOption => opt !== null);
+
+  if (options.length === 0) {
+    throw new TypeError(
+      "askUserQuestion: `options` must contain at least one option with a label.",
+    );
+  }
+
+  const payload: GuidedQuestionPayload = {
+    questions: [
+      {
+        id: "q1",
+        type: "text-options",
+        question,
+        ...(header ? { header } : {}),
+        required: !allowFreeText,
+        multiSelect: allowMultiple,
+        allowOther: allowFreeText,
+        includeExplore: false,
+        includeDecide: false,
+        options,
+      },
+    ],
+  };
+
+  await setClientAppState(
+    input.stateKey ?? GUIDED_QUESTIONS_STATE_KEY,
+    payload,
+  );
 }
 
 function optionKey(option: GuidedQuestionOption): string {
@@ -474,6 +597,11 @@ function OptionButton({
         {option.description && (
           <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
             {option.description}
+          </span>
+        )}
+        {option.preview && (
+          <span className="mt-1.5 block max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border/60 bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-4 text-muted-foreground">
+            {option.preview}
           </span>
         )}
       </span>

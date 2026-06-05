@@ -87,11 +87,17 @@ The card endpoint is public, so the framework redacts skills whose IDs reveal pe
     }
   ],
   "securitySchemes": {
+    "jwtBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
     "apiKey": { "type": "http", "scheme": "bearer" }
   },
-  "security": [{ "apiKey": [] }]
+  "security": [{ "jwtBearer": [] }, { "apiKey": [] }]
 }
 ```
+
+When `A2A_SECRET` is set (the recommended path), the card advertises a
+`jwtBearer` scheme as above. The `apiKey` scheme is only added when a legacy
+`apiKeyEnv` is also configured, so a card with just `A2A_SECRET` set publishes
+`jwtBearer` alone.
 
 ## JSON-RPC methods {#json-rpc-methods}
 
@@ -145,7 +151,13 @@ const task = await client.send({
   parts: [{ type: "text", text: "Show signups by source this month" }],
 });
 console.log(task.status.state); // "completed"
-console.log(task.status.message); // agent's response
+// task.status.message is a Message object ({ role, parts }), not a string.
+// Pull text out of its parts:
+const reply = task.status.message?.parts
+  .filter((p) => p.type === "text")
+  .map((p) => p.text)
+  .join("");
+console.log(reply); // agent's response text
 
 // Stream responses for long-running work
 for await (const update of client.stream({
@@ -176,7 +188,9 @@ console.log(response); // "There were 1,247 signups last week..."
 
 Each message creates a task that moves through these states:
 
-`submitted` → `working` → `completed` | `failed` | `canceled`
+`submitted` → `working` → `completed` | `failed` | `canceled` | `input-required`
+
+`input-required` is non-terminal: the handler is waiting for more information from the caller, and the task can move back to `working` once that input arrives.
 
 | State            | Meaning                                        |
 | ---------------- | ---------------------------------------------- |

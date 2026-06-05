@@ -8,6 +8,12 @@ import {
   serializePlanContent,
 } from "../server/plan-content.js";
 import {
+  isAnonymousPublicViewer,
+  isLocalPlanRuntime,
+} from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
   assertPlanEditor,
   buildPlanHtml,
   commentInputSchema,
@@ -39,7 +45,7 @@ export default defineAction({
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, update-wireframe-node (one kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single node without regenerating the plan.",
+        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, update-wireframe-node (one kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single node without regenerating the plan.",
       ),
     markdown: z.string().optional(),
     sections: z.array(sectionInputSchema).optional().default([]),
@@ -77,6 +83,17 @@ export default defineAction({
       );
 
     if (onlyAddsNewComments) {
+      // Commenting on a plan (including a public-link plan) requires an
+      // agent-native account. Anonymous public-link viewers
+      // (`public-*@agent-native.local`, minted by resolvePublicPlanViewerOwner)
+      // can read a public plan but must NOT be able to comment — only a real
+      // account (or the local single-user identity in local mode) can. This
+      // keeps "anyone with the link can view, accounts can comment".
+      if (isAnonymousPublicViewer(getRequestUserEmail())) {
+        throw new Error(
+          "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
+        );
+      }
       const access = await resolveAccess("plan", args.planId);
       if (!access) throw new Error(`Plan ${args.planId} not found`);
     } else {
@@ -231,6 +248,20 @@ export default defineAction({
       createdBy: onlyAddsNewComments ? "human" : "agent",
     });
     const bundle = await loadPlanBundle(args.planId);
-    return { ...bundle, planId: bundle.plan.id, html: buildPlanHtml(bundle) };
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: bundle.plan.id,
+          title: bundle.plan.title,
+          brief: bundle.plan.brief,
+          content: bundle.plan.content,
+          url: `/plans/${encodeURIComponent(bundle.plan.id)}`,
+        })
+      : null;
+    return {
+      ...bundle,
+      planId: bundle.plan.id,
+      html: buildPlanHtml(bundle),
+      ...(local?.written ? { localFiles: local } : {}),
+    };
   },
 });

@@ -117,6 +117,8 @@ const ANNOTATION_PLACEMENTS = [
   "bottom-right",
 ] as const satisfies readonly PlanAnnotationPlacement[];
 
+const ANNOTATION_TYPES = ["note", "text", "callout", "arrow"] as const;
+
 export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-file"),
@@ -145,8 +147,21 @@ export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
     op: z.literal("update-annotation"),
     annotationId: z.string().min(1),
     patch: z.object({
+      type: z.enum(ANNOTATION_TYPES).optional(),
       title: z.string().optional(),
       text: z.string().optional(),
+      points: z
+        .array(z.object({ x: z.number(), y: z.number() }))
+        .min(1)
+        .max(12)
+        .optional(),
+      style: z
+        .object({
+          tone: z.enum(["default", "accent", "warn", "ok", "muted"]).optional(),
+          stroke: z.enum(["solid", "dashed"]).optional(),
+          width: z.number().min(1).max(12).optional(),
+        })
+        .optional(),
       targetId: z.string().optional(),
       placement: z.enum(ANNOTATION_PLACEMENTS).optional(),
       x: z.number().optional(),
@@ -450,7 +465,7 @@ function serializeCanvas(content: PlanContent): string {
   const annotations = annotationsSource
     .map(
       (annotation) =>
-        `<Annotation${prop("id", annotation.id)}${prop("title", annotation.title)}${prop("targetId", annotation.targetId)}${prop("placement", annotation.placement)}${prop("x", annotation.x)}${prop("y", annotation.y)}>\n\n${annotation.text.trim()}\n\n</Annotation>`,
+        `<Annotation${prop("id", annotation.id)}${prop("type", annotation.type)}${prop("title", annotation.title)}${prop("points", annotation.points)}${prop("style", annotation.style)}${prop("targetId", annotation.targetId)}${prop("placement", annotation.placement)}${prop("x", annotation.x)}${prop("y", annotation.y)}>\n\n${annotation.text.trim()}\n\n</Annotation>`,
     )
     .join("\n\n");
   const connectors = (canvas.flow ?? [])
@@ -911,12 +926,18 @@ function parseCanvas(source: string): PlanContent["canvas"] {
     if (name === "Annotation") {
       annotations.push({
         id: stringAttr(child, "id") ?? createPlanBlockId("annotation"),
+        type: stringAttr(child, "type") as PlanAnnotation["type"],
         title: stringAttr(child, "title"),
         text:
           stringifyChildren(child.children) ||
           stringAttr(child, "text") ||
           stringAttr(child, "body") ||
           "",
+        points: arrayAttr<NonNullable<PlanAnnotation["points"]>[number]>(
+          child,
+          "points",
+        ),
+        style: dataAttr<PlanAnnotation["style"]>(child, "style"),
         targetId: stringAttr(child, "targetId"),
         placement: stringAttr(
           child,

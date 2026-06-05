@@ -21,6 +21,27 @@ Before creating any custom REST/API route for app data, inspect `actions/` and t
 
 Actions give the agent callable tools with structured input/output, AND they give the frontend a typed client contract through hooks. One implementation serves both the agent and the UI. They keep the agent's chat context clean, they're reusable, and they can be tested independently.
 
+## Keep the Action Surface Small and Orthogonal
+
+Every agent-exposed action is a tool in the model's context window. There is a real cost to each one: more tools means more for the model to read, disambiguate, and choose between, which degrades tool-selection quality. Treat the action list like an API you have to maintain — add the fewest, most orthogonal actions that cover the capability, not one per UI affordance.
+
+- **Prefer one CRUD-style `update` over N per-field actions.** A single `update-<thing>` that takes a patch of optional fields beats `update-<thing>-name`, `update-<thing>-order`, `update-<thing>-color`, … The agent (and the UI) pass only the fields that change. Same for `create`/`delete` — one orthogonal action per resource, not one per code path.
+- **Reach for a generic query / escape hatch before minting a new read action.** If the agent needs more or different data, do not add `get-<thing>-by-x`, `list-<thing>-filtered-by-y`, etc. For provider data, expose the shared `provider-api-catalog` / `provider-api-docs` / `provider-api-request` trio (see `templates/dispatch/actions/`) so the agent can hit any endpoint or filter without a new action each time. For app data in dev, the `db-query` tool already answers arbitrary read questions.
+- **Hide UI-only or purely programmatic actions from the model with `agentTool: false`.** An action that only the frontend or an HTTP/cron caller needs should not spend a slot in the model's tool list. `agentTool: false` keeps it callable from `useActionMutation` / `callAction` / `/_agent-native/actions/<name>` while removing it from every agent tool surface (in-app assistant, MCP, A2A).
+- **`agentTool: false` is NOT `toolCallable: false`.** They are different switches:
+  - `agentTool: false` → hidden from the **model entirely** (it is no longer a tool the agent can see or call). Still frontend/HTTP-callable.
+  - `toolCallable: false` → only blocks the **sandboxed extension ("tools") iframe bridge** (`appAction(...)`). The action stays fully visible to the model, the UI, the CLI, MCP, and A2A. Use it for high-blast-radius operations (account/org/auth changes), not for trimming the tool list.
+- **Remove or hide stale actions.** When the UI stops using an action, delete it or set `agentTool: false` — do not leave it exposed to the model as dead tool weight. The advisory audit below helps you spot these.
+
+### Audit Script (Advisory)
+
+`pnpm actions:audit [template ...]` (or `node scripts/audit-template-actions.mjs`) statically scans a template's `actions/` and prints two kinds of suggestions:
+
+1. **Likely UI-dead** — HTTP-exposed mutating actions whose name is never referenced under `app/` (candidates to delete or mark `agentTool: false`).
+2. **Likely redundant clusters** — groups like `update-foo-name` / `update-foo-order` that could collapse into one orthogonal `update-foo`.
+
+It is **advisory only**: it always exits 0, never fails CI, and uses conservative heuristics, so expect some false positives (e.g. an action the agent calls but the UI doesn't). Use it as a prompt to review, not a gate.
+
 ## How to Create an Action
 
 Use `defineAction` with a Zod schema (required for new actions):
@@ -238,6 +259,7 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
 - **Return structured data.** Return objects/arrays, not `JSON.stringify()`.
 - **Use `http: { method: "GET" }`** for read-only actions. Default is POST.
 - **Use `http: false`** for agent-only actions (`navigate`, `view-screen`).
+- **Use `agentTool: false`** for UI-only / programmatic actions that should NOT be a tool in the model's context window. It stays frontend/HTTP-callable but is hidden from the agent. Distinct from `toolCallable: false`, which only blocks the sandboxed extension iframe bridge.
 - **Document reusable actions.** If a new action should be called by agents outside one narrow screen, update `AGENTS.md` with when to use it, important args, and which return fields to preserve.
 - **Promote workflow-heavy actions to skills.** If the action is part of a provider-backed, cross-app, MCP/A2A, or multi-step workflow, create or update a skill in `.agents/skills/` and add app-skill visibility (`internal`, `exported`, or `both`) when it should ship through a marketplace.
 - **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).

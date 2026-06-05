@@ -181,6 +181,43 @@ current staged items once. `clearAgentChatContext()` is intentionally broad; use
 | `context`     | `string`   | Hidden context included with the next submitted prompt |
 | `openSidebar` | `boolean?` | Defaults to true; pass false to stage context silently |
 
+## askUserQuestion(opts) {#ask-user-question}
+
+Ask the user a multiple-choice question and render it inline in the agent panel.
+This is the client-side twin of the agent's built-in `ask-question` tool — both
+write a `GuidedQuestionPayload` to the `"guided-questions"` application-state
+key, which the mounted `GuidedQuestionFlow` renders. The user's answer is
+delivered to the agent chat, so the agent continues with the choice (consistent
+with the agent-native model where the agent is the consumer of user intent).
+
+Use it for app-triggered clarifications — e.g. a "Generate" button that needs
+one decision before kicking off agent work — instead of building a custom modal.
+
+```tsx
+import { askUserQuestion } from "@agent-native/core/client";
+
+await askUserQuestion({
+  question: "Which time range should the report cover?",
+  header: "Date range", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Last 7 days", recommended: true },
+    { label: "Last 30 days" },
+    { label: "Quarter to date", description: "Jan 1 → today" },
+  ],
+  allowFreeText: true, // adds an "Other" free-text option (default true)
+  allowMultiple: false, // single-select (default)
+});
+```
+
+Each option is `{ label, value?, description?, preview?, recommended? }`; `value`
+defaults to `label`, and `preview` renders a small mockup/code snippet under the
+option. `askUserQuestion()` resolves once the question is shown — it does not
+return the answer (the answer flows to the agent).
+
+The agent reaches the same UI through its `ask-question` tool: prefer letting the
+agent ask when it hits a genuine fork it can't resolve from context; use
+`askUserQuestion()` when the UI itself needs to gate an action on a choice.
+
 ## MCP App Host Bridge {#mcp-app-host-bridge}
 
 Routes embedded as MCP Apps should be URL-first: load the current artifact from

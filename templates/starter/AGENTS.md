@@ -9,6 +9,14 @@ app grows.
 - Follow the root framework contract: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Use actions for app operations and keep frontend/API parity.
+- Keep the action surface small and orthogonal: every action is a tool in the
+  model's context window, so prefer one CRUD-style `update` (patch of fields)
+  over many per-field actions, reach for an existing generic query / escape
+  hatch (`provider-api-*`, dev `db-query`) before minting a new read action,
+  mark UI-only or programmatic actions `agentTool: false` to hide them from the
+  model (distinct from `toolCallable: false`, which only gates the extension
+  iframe), and delete or hide actions the UI no longer uses. See the `actions`
+  skill.
 - Keep database code provider-agnostic and additive.
 - Use `view-screen` or application state when the active page/selection is
   unclear.

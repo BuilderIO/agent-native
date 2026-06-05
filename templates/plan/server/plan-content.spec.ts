@@ -380,6 +380,21 @@ describe("granular patch ops", () => {
         patch: { text: "Updated annotation only.", y: 220 },
       },
       {
+        op: "append-canvas-annotation",
+        annotation: {
+          id: "ann-callout",
+          type: "callout",
+          text: "Point this at the primary action.",
+          x: 180,
+          y: 260,
+          points: [
+            { x: 180, y: 260 },
+            { x: 420, y: 310 },
+          ],
+          style: { tone: "accent", stroke: "dashed", width: 2 },
+        },
+      },
+      {
         op: "append-block",
         afterBlockId: richText.id,
         block: {
@@ -403,6 +418,8 @@ describe("granular patch ops", () => {
       "Updated annotation only.",
     );
     expect(patched.canvas?.annotations?.[0]?.y).toBe(220);
+    expect(patched.canvas?.annotations?.[1]?.type).toBe("callout");
+    expect(patched.canvas?.annotations?.[1]?.points?.[1]?.x).toBe(420);
     expect(patched.blocks.some((block) => block.id === "new-note")).toBe(true);
   });
 

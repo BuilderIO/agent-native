@@ -17,7 +17,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 
 ![Clips library with recordings, folders, and spaces](/screenshots/clips.png)
 
-Think along the lines of Loom + Granola + Wisprflow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
 
 ## What you can do with it
 

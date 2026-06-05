@@ -16,6 +16,13 @@ const mocks = vi.hoisted(() => ({
   generateSkillsPromptBlock: vi.fn(() => ""),
 }));
 
+// Mirror the real `getRuntimeSkills`: drop `scope: dev` skills, keep the rest.
+function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
+  return Object.values(bundle.skills ?? {}).filter(
+    (skill: any) => skill?.meta?.scope !== "dev",
+  );
+}
+
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
@@ -37,6 +44,7 @@ vi.mock("./agents-bundle.js", () => ({
   loadAgentsBundle: (...args: any[]) => mocks.loadAgentsBundle(...args),
   generateSkillsPromptBlock: (...args: any[]) =>
     mocks.generateSkillsPromptBlock(...args),
+  getRuntimeSkills: (bundle: any) => runtimeSkillsFromBundle(bundle),
 }));
 
 import { loadResourcesForPrompt } from "./agent-chat-plugin.js";
@@ -333,6 +341,7 @@ describe("loadResourcesForPrompt", () => {
           meta: {
             name: "deep-review",
             description: "Use when reviewing risky changes.",
+            scope: "both",
           },
           content: "---\nname: deep-review\n---\n# Deep Review",
           dir: ".agents/skills/deep-review",
@@ -349,5 +358,40 @@ describe("loadResourcesForPrompt", () => {
     );
     expect(prompt).toContain("Do not use MCP resource reads for these skills.");
     expect(prompt).not.toContain("Use `docs-search` to read a skill");
+  });
+
+  it("excludes scope: dev skills from the compact skills summary", async () => {
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: "",
+      agentsMd: "",
+      skills: {
+        "runtime-skill": {
+          meta: {
+            name: "runtime-skill",
+            description: "Visible at runtime.",
+            scope: "both",
+          },
+          content: "---\nname: runtime-skill\n---\n# Runtime",
+          dir: ".agents/skills/runtime-skill",
+          extraFiles: [],
+        },
+        "dev-only-skill": {
+          meta: {
+            name: "dev-only-skill",
+            description: "For the human coding agent only.",
+            scope: "dev",
+          },
+          content: "---\nname: dev-only-skill\n---\n# Dev only",
+          dir: ".agents/skills/dev-only-skill",
+          extraFiles: [],
+        },
+      },
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain("<skills-summary>");
+    expect(prompt).toContain("`runtime-skill`");
+    expect(prompt).not.toContain("dev-only-skill");
   });
 });

@@ -9,6 +9,8 @@ import {
   planMdxSourcePatchesSchema,
 } from "../server/plan-mdx.js";
 import { serializePlanContent } from "../server/plan-content.js";
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -76,6 +78,15 @@ export default defineAction({
     });
 
     const updated = await loadPlanBundle(args.planId);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: updated.plan.id,
+          title: updated.plan.title,
+          brief: updated.plan.brief,
+          content: updated.plan.content,
+          url: planPath(updated.plan.id),
+        })
+      : null;
     return {
       ...updated,
       planId: updated.plan.id,
@@ -83,6 +94,7 @@ export default defineAction({
       mdx: nextMdx,
       path: planPath(updated.plan.id),
       url: planPath(updated.plan.id),
+      ...(local?.written ? { localFiles: local } : {}),
     };
   },
   link: ({ args }) => ({

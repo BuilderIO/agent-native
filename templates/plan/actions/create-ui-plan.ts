@@ -11,6 +11,11 @@ import {
   serializePlanContent,
 } from "../server/plan-content.js";
 import {
+  isLocalPlanRuntime,
+  requirePlanOwnerEmail,
+} from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
   buildPlanHtml,
   commentInputSchema,
   loadPlanBundle,
@@ -132,10 +137,10 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) {
-      throw new Error("Creating a UI plan requires an authenticated user.");
-    }
+    const ownerEmail = requirePlanOwnerEmail(
+      getRequestUserEmail(),
+      "Creating a UI plan",
+    );
 
     const id = newId("plan");
     const now = nowIso();
@@ -254,12 +259,22 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: id,
+          title: bundle.plan.title,
+          brief: bundle.plan.brief,
+          content: bundle.plan.content,
+          url: planPath(id),
+        })
+      : null;
     return {
       ...bundle,
       planId: id,
       html: buildPlanHtml(bundle),
       path: planPath(id),
       url: planPath(id),
+      ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
         "Open the Agent-Native UI plan, review the top pan/zoom sketch canvas when present, continue through the implementation-focused document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };

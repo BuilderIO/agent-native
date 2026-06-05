@@ -93,6 +93,30 @@ description: >-
 - Be slightly pushy — over-triggering beats a skill that never loads.
 - Keep it under ~40 words; it is loaded into context on every conversation.
 
+### Scope a skill to runtime vs dev
+
+An optional `scope` field decides which agent loads the skill:
+
+- `both` (default when omitted) and `runtime` — loaded by the in-app runtime
+  agent.
+- `dev` — for the human's coding agent (e.g. Claude Code) only. A `scope: dev`
+  skill is invisible to the runtime agent everywhere (system-prompt skills block
+  and `docs-search`).
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+Omit `scope` for normal skills (the default `both` keeps them loading at
+runtime — fully backward compatible). For a dev-only skill, mark it `scope: dev`
+and optionally mirror it under `.claude/skills/<name>/SKILL.md` so Claude Code
+picks it up while the runtime agent skips it.
+
 ## Progressive disclosure: lean SKILL.md, depth in references/
 
 Write the SKILL.md as the lean, must-know layer: the rule, how to do it, the

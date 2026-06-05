@@ -261,20 +261,26 @@ export async function getOwnerAnthropicApiKey(
   return getOwnerApiKey("anthropic", ownerEmail);
 }
 
-/** Context passed to action run() for emitting intermediate events */
-export interface ActionRunContext {
-  /** Emit an SSE event to the client (e.g., agent_call_text for streaming) */
-  send: (event: AgentChatEvent) => void;
-}
+/**
+ * Context passed as the optional second argument to an action's `run`.
+ * Defined in `../action.js` (cycle-free home) and re-exported here so existing
+ * importers (e.g. `scripts/call-agent.ts`) keep their import path.
+ */
+export type { ActionRunContext, ActionCaller } from "../action.js";
 
 export interface ActionEntry {
   tool: ActionTool;
   run: (
     args: Record<string, string>,
-    context?: ActionRunContext,
+    context?: import("../action.js").ActionRunContext,
   ) => Promise<any>;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
+  /** Whether the action is exposed to the agent as a callable tool. Only an
+   *  explicit `false` hides it from every agent tool surface (in-app assistant,
+   *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
+   *  Set by `defineAction`'s `agentTool` option. */
+  agentTool?: boolean;
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;
@@ -1952,7 +1958,12 @@ export async function runAgentLoop(opts: {
       try {
         const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
         const raw = await Promise.race([
-          actionEntry.run(toolCall.input as Record<string, string>, { send }),
+          actionEntry.run(toolCall.input as Record<string, string>, {
+            send,
+            userEmail: getRequestUserEmail(),
+            orgId: getRequestOrgId() ?? null,
+            caller: "tool",
+          }),
           new Promise<never>((_, reject) => {
             timeoutSignal.addEventListener("abort", () =>
               reject(new Error("Tool call timed out after 60 seconds")),
@@ -2387,7 +2398,14 @@ export function createProductionAgentHandler(
       try {
         const viewScreenAction = resolvedActions["view-screen"];
         if (viewScreenAction) {
-          const result = await viewScreenAction.run({});
+          const result = await viewScreenAction.run(
+            {},
+            {
+              userEmail: getRequestUserEmail(),
+              orgId: getRequestOrgId() ?? null,
+              caller: "tool",
+            },
+          );
           if (result && result !== "(no output)") {
             const screenText =
               typeof result === "string"

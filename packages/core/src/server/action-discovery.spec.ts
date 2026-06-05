@@ -47,6 +47,20 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves agentTool:false so discovery keeps it hidden from the agent", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "ui-sync": {
+        default: {
+          tool: { description: "Sync UI selection", parameters: {} },
+          agentTool: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["ui-sync"].agentTool).toBe(false);
+  });
+
   it("preserves publicAgent metadata from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "public-search": {

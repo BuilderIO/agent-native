@@ -20,6 +20,7 @@ import {
 import {
   readConnectClientPreferences,
   resolveClients,
+  runConnect,
   writeConnectClientPreferences,
 } from "./connect.js";
 import {
@@ -32,23 +33,32 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
   agent-native skills add visual-plan
+  agent-native skills add visual-plan --no-connect
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
   agent-native skills add ./dist/assets-skill --client codex
 
-The add command wraps the Vercel Labs/open skills CLI for SKILL.md
-installation, then registers the app-backed MCP connector. Running
-"npx skills add ..." directly installs instructions only; use this Agent Native
-CLI path when you want MCP setup too. Pass --mcp-url to register that connector
-against a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
+The add command installs the SKILL.md instructions, registers the app-backed
+MCP connector, and then authenticates it in one step so you do not hit an OAuth
+wall on the first tool call. Authentication reuses "agent-native connect":
+OAuth-capable clients (Claude Code) get a URL-only entry and a /mcp authenticate
+prompt, while Codex / Cowork run the browser device-code flow. In a
+non-interactive shell or CI the auth step is skipped and the exact
+"agent-native connect <url>" command is printed instead.
+
+Running "npx skills add ..." directly installs instructions only; use this Agent
+Native CLI path when you want MCP setup and auth too. Pass --no-connect to
+register the connector without authenticating (leave auth to the host or run
+"agent-native connect" later). Pass --mcp-url to register that connector against
+a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
 bundles and custom adapter output.`;
@@ -204,6 +214,36 @@ iteration, or a human-in-the-loop choice among design directions.
 - If you inspect local MCP config, redact \`Authorization\`, \`http_headers\`,
   and token values. Never paste bearer tokens into chat or logs.
 `;
+
+/**
+ * Shared setup/auth block for every Plans skill (`/visual-plan`, `/ui-plan`,
+ * `/visual-questions`, `/visualize-plan`). Interpolated into each skill markdown
+ * so the install + one-step authenticate instructions never drift between them.
+ * Keep this in sync with the copies under `templates/plan/.agents/skills/*` and
+ * top-level `skills/*` (this skill's SKILL.md is triplicated with no sync test).
+ */
+const PLAN_SETUP_AUTH_MD = `## Setup & Authentication
+
+Install once with the Agent-Native CLI — it installs the Plans skills, registers
+the Plans MCP connector, and authenticates it in the same step, so the first
+tool call does not hit an OAuth wall:
+
+\`\`\`bash
+agent-native skills add visual-plan
+\`\`\`
+
+After that, \`/visual-plan\` runs locally with no login by default: it generates
+the plan and opens the local editor. An account is only needed later, to share a
+plan link.
+
+If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
+do not keep retrying the tool. Authenticate the connector with
+\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
+instead re-run /mcp and choose Authenticate), then continue once the connector
+is available.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+not put shared secrets in skill files.`;
 
 export const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
@@ -385,6 +425,8 @@ the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
 regions or a full standalone HTML document; the renderer still displays them.
 Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+
 <!-- SHARED-CORE:wireframe-canvas END -->
 
 <!-- SHARED-CORE:document-quality START -->
@@ -486,8 +528,7 @@ props that just restates what the canvas already shows. Never produce this.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
-not put shared secrets in skill files.
+${PLAN_SETUP_AUTH_MD}
 `;
 
 export const UI_PLAN_SKILL_MD = `---
@@ -658,6 +699,8 @@ the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
 regions or a full standalone HTML document; the renderer still displays them.
 Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+
 <!-- SHARED-CORE:wireframe-canvas END -->
 
 <!-- SHARED-CORE:document-quality START -->
@@ -757,7 +800,7 @@ props that just restates what the canvas already shows. Never produce this.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
+${PLAN_SETUP_AUTH_MD}
 `;
 
 export const VISUAL_QUESTIONS_SKILL_MD = `---
@@ -841,7 +884,7 @@ desktop/mobile pair for a popover, panel, or component.
 - \`read-visual-plan-source\` / \`patch-visual-plan-source\`: inspect or patch the
   MDX source if another agent is operating from checked-in plan files.
 
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
+${PLAN_SETUP_AUTH_MD}
 `;
 
 export const VISUALIZE_PLAN_SKILL_MD = `---
@@ -1003,6 +1046,8 @@ the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
 regions or a full standalone HTML document; the renderer still displays them.
 Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+
 <!-- SHARED-CORE:wireframe-canvas END -->
 
 <!-- SHARED-CORE:document-quality START -->
@@ -1101,7 +1146,7 @@ props that just restates what the canvas already shows. Never produce this.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
+${PLAN_SETUP_AUTH_MD}
 `;
 
 const BUILT_IN_APP_SKILLS = {
@@ -1407,6 +1452,13 @@ export interface ParsedSkillsArgs {
   instructions: boolean;
   mcp: boolean;
   /**
+   * Run the browser/device auth flow after registering a hosted MCP connector
+   * so the user does not hit an OAuth wall on the first tool call. Default true;
+   * `--no-connect` opts out and leaves authentication for the host/`agent-native
+   * connect`.
+   */
+  connect: boolean;
+  /**
    * Optional MCP URL override. When set, the skill's hosted MCP connector is
    * registered against this URL instead of the built-in hosted default — e.g.
    * an ngrok tunnel, a local dev origin, or a self-hosted deployment.
@@ -1427,6 +1479,18 @@ export interface SkillsAddResult {
   local?: boolean;
   scriptPath?: string;
   written?: string[];
+  /**
+   * True when the install also kicked off (or prepared) the browser/device auth
+   * flow for the hosted MCP connector. False when connect was skipped
+   * (`--no-connect`, no-auth skills, or non-interactive without a connect step).
+   */
+  connected?: boolean;
+  /**
+   * The exact `agent-native connect <url>` command to run when interactive auth
+   * was skipped (non-interactive shell / CI). Empty when connect ran inline or
+   * was not needed.
+   */
+  connectCommand?: string;
 }
 
 interface SkillInstallTarget {
@@ -1457,6 +1521,12 @@ interface RunSkillsOptions {
     args: string[],
     options?: RunCommandOptions,
   ) => Promise<number>;
+  /**
+   * Injectable connect/auth entrypoint (defaults to the real `agent-native
+   * connect`). Tests stub this so the install flow does not perform a real
+   * browser/device OAuth round-trip.
+   */
+  runConnect?: (args: string[]) => Promise<void>;
 }
 
 interface SkillsClientPromptContext {
@@ -1643,6 +1713,7 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     printJson: false,
     instructions: true,
     mcp: true,
+    connect: true,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -1674,6 +1745,8 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     else if (arg === "--mcp-only") out.instructions = false;
     else if (arg === "--instructions-only" || arg === "--no-mcp")
       out.mcp = false;
+    else if (arg === "--no-connect" || arg === "--skip-connect")
+      out.connect = false;
     else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     else if (!out.target) out.target = arg;
     else throw new Error(`Unexpected argument: ${arg}`);
@@ -1817,6 +1890,7 @@ function dryRunInstallCommand(
   if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
   if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
+  if (!parsed.connect) args.push("--no-connect");
   if (parsed.yes || isKnownSkill(target)) args.push("--yes");
   return commandString("agent-native", args);
 }
@@ -1898,6 +1972,87 @@ function withMcpUrlOverride(
       manifest: { ...target.loaded.manifest, hosted: { url, mcpUrl } },
     },
   };
+}
+
+/**
+ * Whether we can run the interactive browser/device auth flow. CI and
+ * non-TTY shells must not block on a browser approval, so we skip the inline
+ * flow there and surface the exact `agent-native connect` command instead.
+ */
+function canRunInteractiveConnect(options: RunSkillsOptions): boolean {
+  if (options.isInteractive) return options.isInteractive();
+  if (process.env.AGENT_NATIVE_NO_PROMPT === "1") return false;
+  if (process.env.CI === "true") return false;
+  return !!process.stdin.isTTY && !!process.stdout.isTTY;
+}
+
+/** Build the `agent-native connect <url> --client … --scope …` command. */
+function connectCommandFor(
+  hostedUrl: string,
+  clients: ClientId[],
+  scope: string,
+): string {
+  const args = [
+    "connect",
+    hostedUrl,
+    "--client",
+    clientArgForClients(clients),
+    "--scope",
+    scope,
+  ];
+  return commandString("agent-native", args);
+}
+
+/**
+ * Authenticate the freshly-registered hosted MCP connector so the user does not
+ * hit the OAuth wall on their first tool call. Reuses the existing
+ * `agent-native connect` flow (OAuth-capable clients get URL-only config plus a
+ * `/mcp` authenticate prompt; Codex / Cowork run the browser device-code flow).
+ * In non-interactive shells we skip the inline flow and return the command to
+ * run instead. Failures here are non-fatal: the connector is already registered,
+ * so the user can authenticate later.
+ */
+async function connectAfterEnsure(
+  installTarget: SkillInstallTarget,
+  clients: ClientId[],
+  parsed: ParsedSkillsArgs,
+  options: RunSkillsOptions,
+): Promise<{ connected: boolean; connectCommand: string }> {
+  const hostedUrl = installTarget.loaded.manifest.hosted.url;
+  const authMode = installTarget.loaded.manifest.auth?.mode ?? "oauth";
+  const connectCommand = connectCommandFor(hostedUrl, clients, parsed.scope);
+
+  // Skills whose connector needs no auth (e.g. open/local-only) never need the
+  // connect step.
+  if (authMode === "none") {
+    return { connected: false, connectCommand: "" };
+  }
+
+  if (!canRunInteractiveConnect(options)) {
+    options.log?.(
+      `Authentication skipped (non-interactive). To finish auth, run: ${connectCommand}`,
+    );
+    return { connected: false, connectCommand };
+  }
+
+  options.log?.(`Authenticating ${installTarget.displayName}…`);
+  try {
+    await (options.runConnect ?? runConnect)([
+      hostedUrl,
+      "--client",
+      clientArgForClients(clients),
+      "--scope",
+      parsed.scope,
+    ]);
+    return { connected: true, connectCommand: "" };
+  } catch (err: any) {
+    // Non-fatal: the MCP connector is registered. Surface the manual command.
+    options.log?.(
+      `Could not finish authentication automatically (${err?.message ?? err}). ` +
+        `Run it later with: ${connectCommand}`,
+    );
+    return { connected: false, connectCommand };
+  }
 }
 
 export async function addAgentNativeSkill(
@@ -1984,6 +2139,8 @@ export async function addAgentNativeSkill(
   const commands: string[] = [];
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-add-"));
   let instructionSource: string | undefined;
+  let connected = false;
+  let connectCommand: string | undefined;
 
   try {
     if (parsed.instructions) {
@@ -2030,6 +2187,22 @@ export async function addAgentNativeSkill(
           confirm: true,
           log: options.log,
         });
+
+        // One-step install + authenticate: after registering a hosted MCP
+        // connector, kick off the existing connect/device-code flow so the user
+        // does not hit an OAuth wall on the first tool call. `--no-connect`
+        // opts out; non-interactive shells get the exact command to run.
+        if (parsed.connect) {
+          const result = await connectAfterEnsure(
+            installTarget,
+            clients,
+            parsed,
+            options,
+          );
+          connected = result.connected;
+          connectCommand = result.connectCommand || undefined;
+          if (connectCommand) commands.push(connectCommand);
+        }
       }
     }
 
@@ -2043,6 +2216,8 @@ export async function addAgentNativeSkill(
       mcpClients: clients,
       dryRun: parsed.dryRun,
       commands,
+      connected,
+      connectCommand,
     };
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -2151,6 +2326,19 @@ export async function runSkills(
         .flatMap((result) => result.commands),
     ),
   ];
+  const authConnected = results.some((result) => result.connected);
+  const pendingConnectCommands = [
+    ...new Set(
+      results
+        .map((result) => result.connectCommand)
+        .filter((command): command is string => Boolean(command)),
+    ),
+  ];
+  const authLine = authConnected
+    ? "Authentication: completed."
+    : pendingConnectCommands.length
+      ? `Authentication: pending — run ${pendingConnectCommands.join(" && ")}`
+      : "";
   process.stdout.write(
     [
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}.`,
@@ -2163,6 +2351,7 @@ export async function runSkills(
       mcpUrls.length
         ? `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`
         : "",
+      authLine,
       localCommands.length ? `Local command: ${localCommands.join(", ")}.` : "",
       "Restart or reload selected agent clients if the skill is not visible yet.",
       parsed.clientExplicit

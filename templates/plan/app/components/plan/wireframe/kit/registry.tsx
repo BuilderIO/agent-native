@@ -51,7 +51,37 @@ type NodeRenderer = (node: PlanWireframeNode, children: ReactNode) => ReactNode;
 
 const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
   // --- Frame / structure -------------------------------------------------
-  screen: (_n, children) => <Screen>{children}</Screen>,
+  screen: (n, children) => {
+    // Surface-aware safe area so content never touches a frame edge:
+    // - browser/window screens are full-bleed (chrome + sidebar/main pad inside)
+    // - mobile keeps the status bar full-bleed but pads the body below it
+    // - bare card/panel/popover screens inset all their content uniformly
+    const kids = n.children ?? [];
+    const lead = kids[0]?.el;
+    if (lead === "browserBar") {
+      return <Screen pad={0}>{children}</Screen>;
+    }
+    if (lead === "statusBar") {
+      return (
+        <Screen pad={0}>
+          {renderNode(kids[0], kids[0].id ?? "statusbar")}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--gap)",
+              padding: "calc(var(--pad) * 1.1)",
+            }}
+          >
+            {renderNodes(kids.slice(1))}
+          </div>
+        </Screen>
+      );
+    }
+    return <Screen pad="calc(var(--pad) * 1.35)">{children}</Screen>;
+  },
   browserBar: (n, children) => (
     <BrowserBar title={n.title ?? n.text}>{children}</BrowserBar>
   ),

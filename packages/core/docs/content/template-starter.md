@@ -25,10 +25,10 @@ Pick Starter when you're not sure which domain template fits, or when you want t
 - **Agent chat plugin** pre-configured so the chat actually talks to Claude (once `ANTHROPIC_API_KEY` is set).
 - **Auth** via Better Auth — login, signup, sessions, organizations. The same flow runs locally and in production; in development email verification is skipped so signup is just an email + password.
 - **Actions directory** with one example (`actions/hello.ts`) and the `view-screen` / `navigate` standard actions wired up.
-- **Drizzle schema** with the framework's core tables (application_state, settings, oauth_tokens, sessions, resources).
+- **The framework's core tables** (application_state, settings, oauth_tokens, sessions, resources) provided by `@agent-native/core` at runtime — there's no template-local schema file to maintain. Add your own Drizzle schema when you define domain tables.
 - **Live sync** (`useDbSync`) already wired so UI auto-refreshes when the agent writes to the database.
 - **AGENTS.md** with the framework-wide rules the agent reads on every turn.
-- **One route** at `/` that says hi and renders the sidebar toggle. That's it.
+- **One example domain route** at `/` that says hi and renders the sidebar toggle, plus the framework-shared admin routes (Database, Team, Observability, Extensions).
 
 ## What's _not_ in it {#not-in-it}
 

@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { getCookie, getHeader, setCookie, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
+import {
+  LOCAL_PLAN_OWNER_EMAIL,
+  isLocalPlanRuntime,
+} from "./local-identity.js";
 
 const PUBLIC_PLAN_VIEWER_COOKIE = "plan_public_viewer";
 const PUBLIC_PLAN_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -62,6 +66,34 @@ async function getPublicPlanForEvent(event: H3Event) {
     .limit(1);
 
   return plan?.visibility === "public" ? plan : null;
+}
+
+/**
+ * Anonymous-owner resolver for the plan app.
+ *
+ * Called by the core auth / core-routes / agent-chat plugins ONLY when there is
+ * no authenticated user. Resolution order:
+ *
+ *   1. Anonymous public-plan viewer — when the request targets a public plan,
+ *      mint/return a stable `public-<uuid>@agent-native.local` identity so the
+ *      viewer can read (but, per the comment gate, not comment) without an
+ *      account. Honored in every environment, hosted and local.
+ *   2. Local single-user identity — in local mode only (`isLocalPlanRuntime()`),
+ *      fall back to `LOCAL_PLAN_OWNER_EMAIL` so the no-login local workflow can
+ *      create, read, list, and edit its own plans without signing in. This MUST
+ *      NOT fire on a hosted/production deploy; `isLocalPlanRuntime()` enforces
+ *      the production refusal.
+ *
+ * Returns `null` when neither applies (hosted + unauthenticated + not a public
+ * plan), so the caller rejects exactly as before.
+ */
+export async function resolvePlanAnonymousOwner(
+  event: H3Event,
+): Promise<string | null> {
+  const publicViewer = await resolvePublicPlanViewerOwner(event);
+  if (publicViewer) return publicViewer;
+  if (isLocalPlanRuntime()) return LOCAL_PLAN_OWNER_EMAIL;
+  return null;
 }
 
 export async function resolvePublicPlanViewerOwner(

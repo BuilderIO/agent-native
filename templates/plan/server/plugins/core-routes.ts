@@ -1,8 +1,8 @@
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
-import { resolvePublicPlanViewerOwner } from "../lib/public-plans.js";
+import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 
 export default createCoreRoutesPlugin({
-  anonymousOwner: resolvePublicPlanViewerOwner,
+  anonymousOwner: resolvePlanAnonymousOwner,
   envKeys: [
     { key: "DATABASE_URL", label: "Database URL", required: false },
     {

@@ -33,6 +33,7 @@ method gives the UI, docs, and future agents one stable contract.
    | Browser application state | `readClientAppState`, `writeClientAppState`, `setClientAppState`, `deleteClientAppState` |
    | Navigation/app-state sync | `useAgentRouteState` / `useSemanticNavigationState` from `@agent-native/core/client` |
    | Agent chat context | Agent chat client helpers from `@agent-native/core/client` |
+   | Ask the user a multiple-choice question from app code | `askUserQuestion` from `@agent-native/core/client` (renders inline in the agent panel; answer goes to the agent — do not build a custom modal) |
    | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` |
    | Extension iframe calls | `appAction`, `appFetch`, `extensionFetch` from the extension runtime |
 

@@ -332,7 +332,14 @@ function createMessageAwareActions(
       {
         ...entry,
         run: async (args, context) => {
-          const result = await entry.run(args, context);
+          // Sub-agents / agent-teams run through the production-agent loop, so
+          // the loop already passes a full ctx with caller "tool". Forward it,
+          // defaulting caller to "tool" if a caller invokes this wrapper without
+          // a context object.
+          const result = await entry.run(args, {
+            ...context,
+            caller: context?.caller ?? "tool",
+          });
           const queuedMessages = await drainQueuedTaskMessages(taskId);
           if (queuedMessages.length === 0) return result;
 

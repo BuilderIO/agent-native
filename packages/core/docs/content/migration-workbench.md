@@ -118,7 +118,7 @@ Drive the session with the standard run controls (`status`/`list`/`attach`/`logs
 
 ## Long-Running Goals
 
-The `/migrate` goal has an action named `run-migration-goal`. It advances a run in bounded iterations:
+The `/migrate` goal advances a run in bounded iterations:
 
 - before approval, it can assess and plan but cannot write generated output
 - after approval, it scaffolds once, advances pending tasks, verifies, and records verifier results
