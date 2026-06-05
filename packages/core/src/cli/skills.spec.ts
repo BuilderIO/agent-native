@@ -7,6 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { addAgentNativeSkill, parseSkillsArgs, runSkills } from "./skills.js";
 
 const tmpRoots: string[] = [];
+const PLANS_SKILL_NAMES = [
+  "visual-plan",
+  "visual-questions",
+  "ui-plan",
+  "visualize-plan",
+];
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -19,6 +25,17 @@ function tmpDir(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-"));
   tmpRoots.push(root);
   return root;
+}
+
+function workspaceRoot(): string {
+  let current = process.cwd();
+  while (current !== path.dirname(current)) {
+    if (fs.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  throw new Error("Could not locate workspace root.");
 }
 
 describe("agent-native skills", () => {
@@ -115,6 +132,7 @@ describe("agent-native skills", () => {
     fs.mkdirSync(codexHome, { recursive: true });
     const previousCodexHome = process.env.CODEX_HOME;
     const commands: { cmd: string; args: string[] }[] = [];
+    let materializedVisualPlan = "";
 
     process.env.CODEX_HOME = codexHome;
     try {
@@ -131,21 +149,28 @@ describe("agent-native skills", () => {
           baseDir: root,
           runCommand: async (cmd, args) => {
             commands.push({ cmd, args });
+            if (cmd === "npx" && args.includes("skills@latest")) {
+              const source = args[3];
+              if (source) {
+                materializedVisualPlan = fs.readFileSync(
+                  path.join(source, "skills", "visual-plan", "SKILL.md"),
+                  "utf-8",
+                );
+              }
+            }
             return 0;
           },
         },
       );
 
       expect(result.id).toBe("visual-plans");
-      expect(result.skillNames).toEqual([
-        "visual-plans",
-        "ui-plan",
-        "visualize-plan",
-      ]);
+      expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
       expect(commands[0].args).toEqual(
         expect.arrayContaining([
           "--skill",
-          "visual-plans",
+          "visual-plan",
+          "--skill",
+          "visual-questions",
           "--skill",
           "ui-plan",
           "--skill",
@@ -161,6 +186,9 @@ describe("agent-native skills", () => {
       expect(
         fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
       ).toContain('url = "https://plan.agent-native.com/_agent-native/mcp"');
+      expect(materializedVisualPlan).toContain("structured `content`");
+      expect(materializedVisualPlan).toContain("contentPatches");
+      expect(materializedVisualPlan).not.toContain("data-plan-tabs");
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
@@ -190,15 +218,13 @@ describe("agent-native skills", () => {
     );
 
     expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual([
-      "visual-plans",
-      "ui-plan",
-      "visualize-plan",
-    ]);
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
     expect(commands[0].args).toEqual(
       expect.arrayContaining([
         "--skill",
-        "visual-plans",
+        "visual-plan",
+        "--skill",
+        "visual-questions",
         "--skill",
         "ui-plan",
         "--skill",
@@ -233,15 +259,13 @@ describe("agent-native skills", () => {
     );
 
     expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual([
-      "visual-plans",
-      "ui-plan",
-      "visualize-plan",
-    ]);
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
     expect(commands[0].args).toEqual(
       expect.arrayContaining([
         "--skill",
-        "visual-plans",
+        "visual-plan",
+        "--skill",
+        "visual-questions",
         "--skill",
         "ui-plan",
         "--skill",
@@ -251,6 +275,77 @@ describe("agent-native skills", () => {
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
     );
+  });
+
+  it("accepts visual-questions as a Plans intake alias", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "visual-questions",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("visual-plans");
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "--skill",
+        "visual-plan",
+        "--skill",
+        "visual-questions",
+        "--skill",
+        "ui-plan",
+        "--skill",
+        "visualize-plan",
+      ]),
+    );
+    expect(result.mcpUrl).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
+  });
+
+  it("keeps exported Plans skill copies aligned with template skills", () => {
+    const root = workspaceRoot();
+    const pairs = [
+      ["visual-plan", "visual-plans"],
+      ["visual-questions", "visual-questions"],
+      ["ui-plan", "ui-plan"],
+      ["visualize-plan", "visualize-plan"],
+    ];
+
+    for (const [templateName, exportedName] of pairs) {
+      const templateSkill = fs.readFileSync(
+        path.join(
+          root,
+          "templates",
+          "plan",
+          ".agents",
+          "skills",
+          templateName,
+          "SKILL.md",
+        ),
+        "utf-8",
+      );
+      const exportedSkill = fs.readFileSync(
+        path.join(root, "skills", exportedName, "SKILL.md"),
+        "utf-8",
+      );
+      expect(exportedSkill).toBe(templateSkill);
+    }
   });
 
   it("installs project-scoped local Context X-Ray artifacts without global agent instructions", async () => {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadFile = vi.hoisted(() => vi.fn());
 const mockPdfText = vi.hoisted(() => vi.fn());
+const mockParseSlidesFigDesignSystem = vi.hoisted(() => vi.fn());
 
 vi.mock("fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("fs")>();
@@ -38,6 +39,11 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: vi.fn(),
 }));
 
+vi.mock("../server/lib/fig-design-system.js", () => ({
+  parseSlidesFigDesignSystem: (...args: unknown[]) =>
+    mockParseSlidesFigDesignSystem(...args),
+}));
+
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
 }));
@@ -51,6 +57,7 @@ import action from "./import-file";
 beforeEach(() => {
   vi.clearAllMocks();
   mockReadFile.mockResolvedValue(Buffer.from("%PDF-1.7\n"));
+  mockParseSlidesFigDesignSystem.mockReset();
 });
 
 describe("import-file PDF source extraction", () => {
@@ -86,5 +93,41 @@ describe("import-file PDF source extraction", () => {
         format: "pdf",
       }),
     ).rejects.toThrow("No importable text found in this PDF");
+  });
+
+  it("parses .fig files into slide design-system data", async () => {
+    const figBuffer = Buffer.from("fig-kiwi\0\0\0\0");
+    const designSystem = {
+      colors: { accent: "#ff00aa" },
+      typography: {},
+      spacing: {},
+      borders: {},
+      slideDefaults: {},
+      logos: [],
+    };
+    mockReadFile.mockResolvedValue(figBuffer);
+    mockParseSlidesFigDesignSystem.mockReturnValue({
+      ok: true,
+      suggestedTitle: "Brand Kit",
+      data: designSystem,
+      customInstructions: "Use the brand gradient.",
+      preview: { gradients: [], palette: [], namedColors: {} },
+    });
+
+    const result = (await action.run({
+      filePath: "brand.fig",
+      format: "auto",
+    })) as any;
+
+    expect(mockParseSlidesFigDesignSystem).toHaveBeenCalledWith({
+      data: figBuffer,
+      filename: "brand.fig",
+    });
+    expect(result).toMatchObject({
+      format: "fig",
+      title: "Brand Kit",
+      designSystem,
+      customInstructions: "Use the brand gradient.",
+    });
   });
 });

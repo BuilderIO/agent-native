@@ -100,6 +100,13 @@ export default runMigrations(
       version: 8,
       sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_status_idx ON plan_comments(plan_id, status, consumed_at)`,
     },
+    {
+      version: 9,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS content TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN content TEXT`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

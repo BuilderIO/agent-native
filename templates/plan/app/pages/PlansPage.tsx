@@ -1,13 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconAlertTriangle,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconClipboardText,
   IconCopy,
+  IconDownload,
   IconDotsVertical,
   IconLayoutSidebarRight,
   IconLoader2,
@@ -15,17 +24,19 @@ import {
   IconMessageCircle,
   IconMoon,
   IconPlus,
-  IconShare3,
   IconSparkles,
   IconSun,
   IconX,
   IconSend,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
+  ShareButton,
+  appPath,
   sendToAgentChat,
   setAgentChatContextItem,
   type AgentSidebarStateChangeDetail,
@@ -69,6 +80,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
 import {
   useCreatePlan,
   useCreateUiPlan,
@@ -76,10 +88,12 @@ import {
   usePlan,
   usePlans,
   useUpdatePlan,
+  useExportPlan,
   useVisualizePlan,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
 import type { PlanBundle, PlanSource } from "@shared/types";
+import type { PlanContent } from "@shared/plan-content";
 
 const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "codex", label: "Codex" },
@@ -196,6 +210,36 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function planExportFilename(
+  title: string | undefined,
+  extension: "html" | "md",
+) {
+  const slug =
+    (title || "visual-plan")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 72) || "visual-plan";
+  return `${slug}.${extension}`;
+}
+
+function downloadTextFile(
+  filename: string,
+  contents: string,
+  type = "text/html;charset=utf-8",
+) {
+  const blob = new Blob([contents], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -236,6 +280,14 @@ function buildPlanAgentContext(input: {
   documentHtml: string;
   url: string;
 }) {
+  const contentBlockCount = input.bundle.plan.content?.blocks.length ?? 0;
+  const contentBlocks = input.bundle.plan.content?.blocks
+    .slice(0, 12)
+    .map(
+      (block) =>
+        `- ${block.id}: ${block.type}${block.title ? `, "${block.title}"` : ""}`,
+    )
+    .join("\n");
   const openComments = input.bundle.comments
     .filter((comment) => comment.status === "open")
     .slice(0, 6)
@@ -251,14 +303,17 @@ function buildPlanAgentContext(input: {
     `Title: ${input.bundle.plan.title}`,
     `Status: ${input.bundle.plan.status}`,
     `URL: ${input.url}`,
-    `Rendered HTML length: ${input.documentHtml.length} characters`,
+    input.bundle.plan.content
+      ? `Structured content blocks: ${contentBlockCount}`
+      : `Legacy rendered HTML length: ${input.documentHtml.length} characters`,
     "",
     "Fast iteration workflow:",
-    "1. Call get-visual-plan with this plan ID to read the full current HTML, sections, comments, and activity.",
-    "2. Patch the document with update-visual-plan by passing the revised full html string.",
+    "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
+    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, update-wireframe-region for one wireframe rectangle, update-canvas-frame for frame layout, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
     "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
-    "4. Keep the output as a polished HTML plan document: prose, tables, diagrams, implementation maps, high-fidelity mockups, and minimal app chrome.",
-    "5. After applying feedback, keep the plan scannable and visually reactive instead of turning it into a dashboard.",
+    "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+    "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
+    contentBlocks ? `\nStructured content blocks:\n${contentBlocks}` : "",
     openComments ? `\nOpen comments:\n${openComments}` : "",
   ]
     .filter(Boolean)
@@ -266,13 +321,14 @@ function buildPlanAgentContext(input: {
 }
 
 function buildApplyFeedbackMessage(openCommentCount: number) {
-  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update the HTML plan and any related implementation details as needed.`;
+  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update structured content blocks and any related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
 export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const nativeReaderRef = useRef<HTMLDivElement>(null);
   const documentStateRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
@@ -304,6 +360,7 @@ export function PlansPage() {
   const createVisualQuestions = useCreateVisualQuestions();
   const visualizePlan = useVisualizePlan();
   const updatePlan = useUpdatePlan();
+  const exportPlan = useExportPlan(selectedId);
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkTheme = resolvedTheme !== "light";
   const planTheme = isDarkTheme ? "dark" : "light";
@@ -347,12 +404,16 @@ export function PlansPage() {
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
+    const path = appPath(`/plans/${selectedId ?? bundle.plan.id}`);
     const url =
-      typeof window === "undefined" || !selectedId
-        ? `/plans/${selectedId ?? bundle.plan.id}`
-        : `${window.location.origin}/plans/${selectedId}`;
+      typeof window === "undefined" ? path : `${window.location.origin}${path}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
   }, [bundle, documentHtml, selectedId]);
+
+  const planShareUrl = useMemo(() => {
+    if (!selectedId || typeof window === "undefined") return undefined;
+    return `${window.location.origin}${appPath(`/plans/${selectedId}`)}`;
+  }, [selectedId]);
 
   useEffect(() => {
     const onSidebarState = (event: Event) => {
@@ -424,6 +485,20 @@ export function PlansPage() {
   }, [annotatedDocumentHtml, postRuntimeState]);
 
   const getPositionFromAnchor = useCallback((anchor: PlanAnnotationAnchor) => {
+    const nativeReader = nativeReaderRef.current;
+    if (nativeReader) {
+      const rect = nativeReader.getBoundingClientRect();
+      const pointX =
+        (anchor.x / 100) * nativeReader.scrollWidth - nativeReader.scrollLeft;
+      const pointY =
+        (anchor.y / 100) * nativeReader.scrollHeight - nativeReader.scrollTop;
+      return resolveInlineCommentPosition({
+        pointX,
+        pointY,
+        viewportWidth: rect.width,
+        viewportHeight: rect.height,
+      });
+    }
     const rect = iframeRef.current?.getBoundingClientRect();
     if (!rect) return null;
     const doc = documentStateRef.current;
@@ -549,23 +624,126 @@ export function PlansPage() {
     setInlineCommentPosition(null);
   };
 
-  const copyShareLink = async () => {
-    if (!selectedId) return;
-    const url = `${window.location.origin}/plans/${selectedId}`;
-    await navigator.clipboard.writeText(url);
+  const copyPlanLink = async () => {
+    if (!planShareUrl) return;
+    await navigator.clipboard.writeText(planShareUrl);
     toast.success("Plan link copied");
   };
 
+  const readPlanExport = async () => {
+    const result = await exportPlan.refetch();
+    const data = result.data ?? exportPlan.data;
+    if (!data) {
+      throw new Error("Plan export was not available yet.");
+    }
+    return data;
+  };
+
   const copyPlanHtml = async () => {
-    if (!documentHtml) return;
-    await navigator.clipboard.writeText(documentHtml);
+    const data = await readPlanExport();
+    await navigator.clipboard.writeText(data.html);
     toast.success("Plan HTML copied");
+  };
+
+  const copyPlanMarkdown = async () => {
+    const data = await readPlanExport();
+    await navigator.clipboard.writeText(data.markdown);
+    toast.success("Plan Markdown copied");
+  };
+
+  const downloadPlanHtml = async () => {
+    const data = await readPlanExport();
+    downloadTextFile(planExportFilename(bundle?.plan.title, "html"), data.html);
+  };
+
+  const downloadPlanMarkdown = async () => {
+    const data = await readPlanExport();
+    downloadTextFile(
+      planExportFilename(bundle?.plan.title, "md"),
+      data.markdown,
+      "text/markdown;charset=utf-8",
+    );
+  };
+
+  const runPlanExportAction = (action: () => Promise<void>) => {
+    void action().catch((error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Plan export was not available.",
+      );
+    });
   };
 
   const startCommenting = () => {
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setAnnotateMode(true);
+  };
+
+  const handleNativeReaderScroll = () => {
+    const reader = nativeReaderRef.current;
+    if (!reader) return;
+    documentStateRef.current = {
+      scrollX: reader.scrollLeft,
+      scrollY: reader.scrollTop,
+      scrollWidth: reader.scrollWidth,
+      scrollHeight: reader.scrollHeight,
+      clientWidth: reader.clientWidth,
+      clientHeight: reader.clientHeight,
+    };
+    setActiveAnnotation((current) => {
+      if (!current) return current;
+      const position = getPositionFromAnchor(current.annotation.anchor);
+      return position ? { ...current, position } : current;
+    });
+  };
+
+  const handleNativeReaderPointerDown = (
+    event: PointerEvent<HTMLDivElement>,
+  ) => {
+    if (!annotateMode || event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-plan-interactive]")) return;
+    const reader = nativeReaderRef.current;
+    if (!reader) return;
+    event.preventDefault();
+    const rect = reader.getBoundingClientRect();
+    const pointX = event.clientX - rect.left;
+    const pointY = event.clientY - rect.top;
+    const anchor: PlanAnnotationAnchor = {
+      x: ((pointX + reader.scrollLeft) / Math.max(reader.scrollWidth, 1)) * 100,
+      y: ((pointY + reader.scrollTop) / Math.max(reader.scrollHeight, 1)) * 100,
+      anchorKind: "point",
+      visualLabel: bundle?.plan.title,
+    };
+    documentStateRef.current = {
+      scrollX: reader.scrollLeft,
+      scrollY: reader.scrollTop,
+      scrollWidth: reader.scrollWidth,
+      scrollHeight: reader.scrollHeight,
+      clientWidth: reader.clientWidth,
+      clientHeight: reader.clientHeight,
+    };
+    setActiveAnnotation(null);
+    setPendingAnnotation(anchor);
+    setInlineCommentPosition(
+      resolveInlineCommentPosition({
+        pointX,
+        pointY,
+        viewportWidth: rect.width,
+        viewportHeight: rect.height,
+      }),
+    );
+  };
+
+  const updateStructuredContent = async (content: PlanContent) => {
+    if (!bundle) return;
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      content,
+      note: "Updated structured visual plan content.",
+    });
   };
 
   const togglePlansAgent = () => {
@@ -760,10 +938,7 @@ export function PlansPage() {
               <ScrollArea className="min-h-0 flex-1">
                 <div className="space-y-2 p-3">
                   {plansQuery.isLoading ? (
-                    <>
-                      <Skeleton className="h-24 rounded-lg" />
-                      <Skeleton className="h-24 rounded-lg" />
-                    </>
+                    <PlanListSkeleton />
                   ) : plans.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
                       Create a plan to see the visual plan surface.
@@ -814,28 +989,58 @@ export function PlansPage() {
               isLoading={plansQuery.isLoading}
               onCreate={() => setCreateOpen(true)}
             />
+          ) : !bundle && planQuery.isError ? (
+            <PlanLoadError
+              planId={params.id}
+              error={planQuery.error}
+              onRetry={() => void planQuery.refetch()}
+              onCreate={() => setCreateOpen(true)}
+            />
           ) : !bundle && planQuery.isLoading ? (
             <PlanSkeleton />
           ) : !bundle ? (
-            <EmptyPlan onCreate={() => setCreateOpen(true)} />
+            <PlanLoadError
+              planId={params.id}
+              onRetry={() => void planQuery.refetch()}
+              onCreate={() => setCreateOpen(true)}
+            />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
               <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/82 p-1 shadow-2xl backdrop-blur-xl">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
-                      onClick={copyShareLink}
-                      aria-label="Share plan"
-                    >
-                      <IconShare3 className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy plan link</TooltipContent>
-                </Tooltip>
+                {planShareUrl && (
+                  <ShareButton
+                    resourceType="plan"
+                    resourceId={bundle.plan.id}
+                    resourceTitle={bundle.plan.title}
+                    shareUrl={planShareUrl}
+                    shareUrlLabel="Plan link"
+                    shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
+                    shareUrlPlacement="top"
+                    peopleAccessLabel="People with plan access"
+                    generalAccessLabel="General plan access"
+                    accessNote="Use Export when you want a durable HTML or Markdown snapshot to check into source."
+                    visibilityCopy={{
+                      private: {
+                        label: "Private",
+                        description: "Only invited people can open this plan",
+                      },
+                      org: {
+                        label: "Organization",
+                        description:
+                          "Anyone in your organization with the link can view",
+                      },
+                      public: {
+                        label: "Public",
+                        description: "Anyone with the link can view",
+                      },
+                    }}
+                    trigger="icon"
+                    triggerClassName="pointer-events-auto size-8"
+                    onOpenChange={(open) => {
+                      if (open) closeInlineComment();
+                    }}
+                  />
+                )}
                 {annotateMode || bundle.summary.openCommentCount === 0 ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -992,11 +1197,41 @@ export function PlansPage() {
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
                       <DropdownMenuItem
-                        onClick={copyPlanHtml}
+                        onClick={() => runPlanExportAction(copyPlanLink)}
+                        className="gap-2"
+                      >
+                        <IconCopy className="size-4" />
+                        Copy link
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => runPlanExportAction(copyPlanMarkdown)}
+                        className="gap-2"
+                      >
+                        <IconClipboardText className="size-4" />
+                        Copy Markdown
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          runPlanExportAction(downloadPlanMarkdown)
+                        }
+                        className="gap-2"
+                      >
+                        <IconDownload className="size-4" />
+                        Download Markdown
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => runPlanExportAction(copyPlanHtml)}
                         className="gap-2"
                       >
                         <IconCopy className="size-4" />
                         Copy HTML
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => runPlanExportAction(downloadPlanHtml)}
+                        className="gap-2"
+                      >
+                        <IconDownload className="size-4" />
+                        Download HTML
                       </DropdownMenuItem>
                       {bundle.summary.openCommentCount > 0 && (
                         <DropdownMenuItem
@@ -1031,17 +1266,45 @@ export function PlansPage() {
                   Click the plan to pin feedback
                 </div>
               )}
-              <iframe
-                ref={iframeRef}
-                title={`${bundle.plan.title} plan`}
-                srcDoc={annotatedDocumentHtml}
-                onLoad={handleIframeLoad}
-                sandbox="allow-forms allow-scripts"
-                className={cn(
-                  "h-full min-h-full w-full border-0 bg-background",
-                  annotateMode && "ring-1 ring-inset ring-primary/35",
-                )}
-              />
+              {bundle.plan.content ? (
+                <div
+                  ref={nativeReaderRef}
+                  className={cn(
+                    "h-full min-h-full w-full overflow-auto bg-background",
+                    annotateMode && "ring-1 ring-inset ring-primary/35",
+                  )}
+                  onScroll={handleNativeReaderScroll}
+                  onPointerDown={handleNativeReaderPointerDown}
+                >
+                  <PlanContentRenderer
+                    content={bundle.plan.content}
+                    fallbackTitle={bundle.plan.title}
+                    fallbackBrief={bundle.plan.brief}
+                    onContentChange={updateStructuredContent}
+                    onVisualQuestionsSubmit={(summary) => {
+                      sendToAgentChat({
+                        type: "content",
+                        submit: false,
+                        context: planAgentContext,
+                        message: summary,
+                      });
+                      toast.success("Visual answers added to the agent draft");
+                    }}
+                  />
+                </div>
+              ) : (
+                <iframe
+                  ref={iframeRef}
+                  title={`${bundle.plan.title} plan`}
+                  srcDoc={annotatedDocumentHtml}
+                  onLoad={handleIframeLoad}
+                  sandbox="allow-forms allow-scripts"
+                  className={cn(
+                    "h-full min-h-full w-full border-0 bg-background",
+                    annotateMode && "ring-1 ring-inset ring-primary/35",
+                  )}
+                />
+              )}
               {pendingAnnotation && inlineCommentPosition && (
                 <>
                   <div
@@ -1099,10 +1362,132 @@ export function PlansPage() {
 
 function PlanSkeleton() {
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
-      <Skeleton className="h-12 w-1/2" />
-      <Skeleton className="h-24 w-full rounded-xl" />
-      <Skeleton className="min-h-[560px] flex-1 rounded-xl" />
+    <div className="flex h-full min-h-0 flex-col bg-background p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5">
+        <div className="flex items-start justify-between gap-4 border-b border-border/60 pb-4">
+          <div className="min-w-0 flex-1 space-y-3">
+            <Skeleton className="h-3 w-24 rounded-full bg-muted/50" />
+            <Skeleton className="h-7 w-full max-w-[520px] rounded-md bg-muted/60" />
+            <Skeleton className="h-4 w-full max-w-[680px] rounded-full bg-muted/45" />
+          </div>
+          <div className="hidden items-center gap-2 sm:flex">
+            <Skeleton className="size-8 rounded-md bg-muted/45" />
+            <Skeleton className="size-8 rounded-md bg-muted/45" />
+            <Skeleton className="size-8 rounded-md bg-muted/45" />
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <Skeleton className="h-5 w-40 rounded-md bg-muted/50" />
+              <Skeleton className="h-8 w-24 rounded-md bg-muted/45" />
+            </div>
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-11/12 rounded-full bg-muted/55" />
+              <Skeleton className="h-4 w-9/12 rounded-full bg-muted/45" />
+              <Skeleton className="h-4 w-10/12 rounded-full bg-muted/45" />
+            </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <Skeleton className="h-32 rounded-lg bg-muted/35" />
+              <Skeleton className="h-32 rounded-lg bg-muted/35" />
+              <Skeleton className="h-32 rounded-lg bg-muted/35" />
+            </div>
+            <div className="mt-6 space-y-2">
+              <Skeleton className="h-4 w-full rounded-full bg-muted/40" />
+              <Skeleton className="h-4 w-10/12 rounded-full bg-muted/40" />
+              <Skeleton className="h-4 w-8/12 rounded-full bg-muted/35" />
+            </div>
+          </div>
+
+          <div className="hidden rounded-xl border border-border/60 bg-muted/15 p-3 lg:block">
+            <Skeleton className="mb-4 h-4 w-24 rounded-full bg-muted/45" />
+            <div className="space-y-2">
+              <Skeleton className="h-9 rounded-md bg-muted/35" />
+              <Skeleton className="h-9 rounded-md bg-muted/35" />
+              <Skeleton className="h-9 rounded-md bg-muted/30" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanListSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[0, 1, 2].map((item) => (
+        <div
+          key={item}
+          className="rounded-lg border border-border/60 bg-background/35 p-3"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-3/4 rounded-full bg-muted/50" />
+              <Skeleton className="h-3 w-full rounded-full bg-muted/35" />
+              <Skeleton className="h-3 w-2/3 rounded-full bg-muted/30" />
+            </div>
+            <Skeleton className="size-5 shrink-0 rounded-full bg-muted/35" />
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Skeleton className="h-3 w-12 rounded-full bg-muted/30" />
+            <Skeleton className="h-3 w-16 rounded-full bg-muted/30" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlanLoadError({
+  planId,
+  error,
+  onRetry,
+  onCreate,
+}: {
+  planId?: string;
+  error?: unknown;
+  onRetry: () => void;
+  onCreate: () => void;
+}) {
+  const message =
+    error instanceof Error && error.message
+      ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
+      : "This plan could not be loaded from the current session.";
+
+  return (
+    <div className="flex h-full items-center justify-center bg-background p-8">
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 text-left shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
+            <IconAlertTriangle className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight">
+              Plan did not load
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {message}
+            </p>
+            {planId && (
+              <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+                {planId}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button type="button" onClick={onRetry}>
+            <IconRefresh className="size-4" />
+            Retry
+          </Button>
+          <Button type="button" variant="outline" onClick={onCreate}>
+            <IconPlus className="size-4" />
+            New Plan
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1115,11 +1500,11 @@ function EmptyPlan({ onCreate }: { onCreate: () => void }) {
           <IconSparkles className="size-5 text-muted-foreground" />
         </div>
         <h2 className="mt-4 text-xl font-semibold tracking-tight">
-          Start with an HTML plan
+          Start with a visual plan
         </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Create a polished plan with diagrams, wireframes, prototypes, and
-          comments before implementation starts.
+          Create a polished plan with editable document blocks, diagrams,
+          wireframes, and comments before implementation starts.
         </p>
         <Button className="mt-5" onClick={onCreate}>
           <IconPlus className="size-4" />
@@ -1220,7 +1605,8 @@ const CREATE_PLAN_PROMPTS = [
   },
 ] as const;
 
-type CreatePlanKind = "ui" | "questions" | "visual";
+type CreatePlanKind = "auto" | "ui" | "questions" | "visual";
+type ResolvedPlanKind = Exclude<CreatePlanKind, "auto">;
 
 function cleanPlanTitleLine(line: string) {
   return line
@@ -1271,6 +1657,81 @@ function isProbablyImportedPlan(prompt: string) {
     (hasHeading && (taskCount >= 3 || hasPlanLanguage)) ||
     (checklistCount >= 2 && trimmed.length > 220)
   );
+}
+
+function assessPlanPrompt(prompt: string): {
+  kind: ResolvedPlanKind;
+  label: string;
+  reason: string;
+} {
+  let score = 0;
+  let ambiguitySignals = 0;
+
+  const explicitQuestions =
+    /\b(ask questions|questions first|intake first|show me options|explore options|help me choose|not sure|unsure|which direction|compare)\b/i.test(
+      prompt,
+    );
+  const exactOrTrivial =
+    /\b(typo|copy tweak|one line|single file|exactly|no questions|don't ask|dont ask|just implement)\b/i.test(
+      prompt,
+    );
+  const uiDirection =
+    /\b(ui|screen|screens|layout|wireframe|mockup|form factor|mobile|desktop|responsive|nav|sidebar|flow|redesign|empty state|loading state|error state)\b/i.test(
+      prompt,
+    );
+  const multipleApproaches =
+    /\b(option|variant|alternative|tradeoff|approach|architecture|data model|permission|auth|integration|migration|state machine)\b/i.test(
+      prompt,
+    );
+  const newSurface =
+    /\b(new surface|multi-screen|workflow|journey|end-to-end|dashboard|settings|checkout|onboarding|review flow)\b/i.test(
+      prompt,
+    );
+  const risky =
+    /\b(auth|permission|billing|migration|schema|integration|oauth|webhook|security|role|privacy|external)\b/i.test(
+      prompt,
+    );
+
+  if (uiDirection) {
+    score += 2;
+    ambiguitySignals += 1;
+  }
+  if (multipleApproaches) {
+    score += 2;
+    ambiguitySignals += 1;
+  }
+  if (newSurface) score += 1;
+  if (risky) score += 1;
+  if (/\b(best|better|improve|explore|direction|choose)\b/i.test(prompt)) {
+    score += 1;
+    ambiguitySignals += 1;
+  }
+  if (exactOrTrivial) score -= 3;
+
+  if (explicitQuestions || (score >= 4 && ambiguitySignals >= 2)) {
+    return {
+      kind: "questions",
+      label: "Visual questions",
+      reason:
+        "Auto detected choices that could change the plan; start with visual intake.",
+    };
+  }
+
+  if (uiDirection) {
+    return {
+      kind: "ui",
+      label: "UI flow",
+      reason:
+        "Auto detected UI states or flows; create a wireframe-first plan.",
+    };
+  }
+
+  return {
+    kind: "visual",
+    label: "General visual",
+    reason:
+      "Auto will create a rich technical plan with diagrams and implementation detail.",
+  };
 }
 
 function buildUiPlanStates(prompt: string) {
@@ -1340,7 +1801,7 @@ function CreatePlanDialog({
   onCreated: (id: string) => void;
 }) {
   const [source, setSource] = useState<PlanSource>("codex");
-  const [planKind, setPlanKind] = useState<CreatePlanKind>("ui");
+  const [planKind, setPlanKind] = useState<CreatePlanKind>("auto");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [promptSeed, setPromptSeed] = useState("");
@@ -1358,6 +1819,9 @@ function CreatePlanDialog({
     createUiPlan.isPending ||
     createVisualQuestions.isPending ||
     visualizePlan.isPending;
+  const promptAssessment = promptText.trim()
+    ? assessPlanPrompt(promptText)
+    : null;
   const submit = (value: string) => {
     const prompt = value.trim();
     if (!prompt) {
@@ -1381,7 +1845,9 @@ function CreatePlanDialog({
       );
       return;
     }
-    if (planKind === "ui") {
+    const resolvedPlanKind =
+      planKind === "auto" ? assessPlanPrompt(prompt).kind : planKind;
+    if (resolvedPlanKind === "ui") {
       createUiPlan.mutate(
         {
           title,
@@ -1397,7 +1863,7 @@ function CreatePlanDialog({
       );
       return;
     }
-    if (planKind === "questions") {
+    if (resolvedPlanKind === "questions") {
       createVisualQuestions.mutate(
         {
           title: `${title} questions`,
@@ -1490,11 +1956,15 @@ function CreatePlanDialog({
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="truncate">
                     {sourceOptionLabel(source)} ·{" "}
-                    {planKind === "ui"
-                      ? "UI flow"
-                      : planKind === "questions"
-                        ? "Visual questions"
-                        : "General visual"}
+                    {planKind === "auto"
+                      ? promptAssessment
+                        ? `Auto: ${promptAssessment.label}`
+                        : "Auto"
+                      : planKind === "ui"
+                        ? "UI flow"
+                        : planKind === "questions"
+                          ? "Visual questions"
+                          : "General visual"}
                   </span>
                   <IconChevronDown
                     className={cn(
@@ -1538,11 +2008,13 @@ function CreatePlanDialog({
                     value={planKind}
                     onValueChange={(value) =>
                       setPlanKind(
-                        value === "visual"
-                          ? "visual"
-                          : value === "questions"
-                            ? "questions"
-                            : "ui",
+                        value === "auto"
+                          ? "auto"
+                          : value === "visual"
+                            ? "visual"
+                            : value === "questions"
+                              ? "questions"
+                              : "ui",
                       )
                     }
                   >
@@ -1550,6 +2022,9 @@ function CreatePlanDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="auto">
+                        Auto - choose the right planning path
+                      </SelectItem>
                       <SelectItem value="ui">
                         UI flow - wireframes and states
                       </SelectItem>
@@ -1562,12 +2037,19 @@ function CreatePlanDialog({
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Pasted plans are detected and imported automatically.
+                    Pasted plans are detected and imported automatically. Auto
+                    asks visual questions only when choices would change the
+                    plan.
                   </p>
                 </div>
               </div>
             </CollapsibleContent>
           </Collapsible>
+          {promptAssessment && planKind === "auto" ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              {promptAssessment.reason}
+            </p>
+          ) : null}
           {promptText.trim() && isProbablyImportedPlan(promptText) ? (
             <p className="px-1 text-xs text-muted-foreground">
               Looks like an existing plan. It will be imported and visualized.

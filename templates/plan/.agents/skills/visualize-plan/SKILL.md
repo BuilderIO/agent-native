@@ -2,7 +2,7 @@
 name: visualize-plan
 description: >-
   Convert an existing Codex, Claude Code, Markdown, or pasted plan into an
-  Agent-Native Plans HTML companion with diagrams, wireframes, annotations, and
+  Agent-Native Plans visual companion with diagrams, wireframes, annotations, and
   feedback.
 ---
 
@@ -10,7 +10,8 @@ description: >-
 
 Use this when a plan already exists and the user wants it to become easier to
 review. The native Codex or Claude Code plan can stay where it is; Agent-Native
-Plans creates an HTML companion with richer visual sections.
+Plans creates a structured visual companion with richer visual sections and an
+HTML export.
 
 This is for people who need something to react to quickly: diagrams, UI mocks,
 state sketches, option cards, and comment prompts instead of a wall of text. It
@@ -43,10 +44,13 @@ should still read like a plan, not a marketing page.
    - two or three option cards when there are real tradeoffs;
    - small prototype sketches for interactions, states, or animation choices;
    - explicit open questions or assumptions that need reaction.
+   Prefer targeted `contentPatches` for small edits to one imported block,
+   wireframe region, diagram, or implementation map instead of replacing the
+   whole plan content.
 5. Ask the user to react in the visual plan. Then call `get-plan-feedback`
    before implementing, after review, and before final response.
-6. Treat imported text as source material. The HTML plan and comments are the
-   review surface.
+6. Treat imported text as source material. The structured visual plan and
+   comments are the review surface; HTML is the export receipt.
 
 If there is no existing plan text and the work is UI-heavy, use `/ui-plan`
 instead so an optional top pan/zoom wireframe canvas, rich document blocks,

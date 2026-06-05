@@ -138,11 +138,11 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen={false}
-          emptyStateText="Ask the Plans agent to revise this HTML plan, apply comments, add diagrams, or patch the document in place."
+          emptyStateText="Ask the Plans agent to revise this visual plan, apply comments, add diagrams, or update document blocks."
           suggestions={[
             "Patch this plan based on the open comments",
             "Add a concrete diagram and higher-fidelity wireframe",
-            "Turn this Markdown plan into a richer HTML plan",
+            "Turn this Markdown plan into a richer visual plan",
           ]}
         >
           {pageContent}

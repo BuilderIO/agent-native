@@ -154,7 +154,7 @@ export function ContextMeter({
           align="end"
           side="top"
           sideOffset={8}
-          className="w-[min(92vw,420px)] overflow-hidden p-0"
+          className="w-[min(92vw,380px)] overflow-hidden border-border/70 p-0"
         >
           <ContextXRayPanel
             manifest={manifest}

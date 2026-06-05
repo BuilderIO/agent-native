@@ -6,6 +6,11 @@ import {
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  createPlanContentFromSections,
+  normalizePlanContent,
+  serializePlanContent,
+} from "../server/plan-content.js";
+import {
   buildPlanHtml,
   commentInputSchema,
   loadPlanBundle,
@@ -18,10 +23,11 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
+import { planContentSchema } from "../shared/plan-content.js";
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a bespoke visual plan with tabbed diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, and annotations.",
+    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a durable visual spec with diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, annotations, and a share/export workflow.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -38,7 +44,12 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Full bespoke HTML document to render in the plan iframe. Use data-plan-tabs for multiple diagrams, wireframes, mockups, or design options.",
+          "Legacy standalone HTML document. Prefer content blocks for new plans; use HTML only when importing an existing artifact.",
+        ),
+      content: planContentSchema
+        .optional()
+        .describe(
+          "Structured editable plan content. Prefer this for rich text, top canvas wireframes, sketch diagrams, code tabs, implementation maps, custom HTML fragments, and visual questions.",
         ),
       markdown: z
         .string()
@@ -87,6 +98,7 @@ export default defineAction({
     const id = newId("plan");
     const now = nowIso();
     const brief = args.brief || args.goal || "";
+    const title = args.title || "Untitled visual plan";
     const sections =
       args.sections.length > 0
         ? args.sections
@@ -113,12 +125,27 @@ export default defineAction({
               createdBy: "agent" as const,
             },
           ];
+    const content = args.content
+      ? normalizePlanContent(args.content)
+      : args.html
+        ? null
+        : createPlanContentFromSections({
+            title,
+            brief,
+            sections: sections.map((section, index) => ({
+              id: section.id ?? `section-${index + 1}`,
+              type: section.type,
+              title: section.title,
+              body: section.body,
+              html: section.html,
+            })),
+          });
 
     await getDb()
       .insert(schema.plans)
       .values({
         id,
-        title: args.title || "Untitled visual plan",
+        title,
         brief,
         status: args.status,
         source: args.source,
@@ -126,6 +153,7 @@ export default defineAction({
         currentFocus: args.currentFocus ?? "visual review",
         html: args.html ?? null,
         markdown: args.markdown ?? null,
+        content: content ? serializePlanContent(content) : null,
         createdAt: now,
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,
@@ -186,7 +214,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the Agent-Native Plans link, scan the HTML plan, add comments or corrections, then I will call get-plan-feedback before continuing. If this host cannot read live feedback, paste the feedback summary back into chat.",
+        "Open the Agent-Native Plans link, scan the editable rich plan blocks and any sketch canvas, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

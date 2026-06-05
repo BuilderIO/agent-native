@@ -6,6 +6,12 @@ import {
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  createVisualQuestionsContent,
+  normalizePlanContent,
+  serializePlanContent,
+  type VisualQuestionBuilderInput,
+} from "../server/plan-content.js";
+import {
   buildPlanHtml,
   commentInputSchema,
   loadPlanBundle,
@@ -18,10 +24,7 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import {
-  buildVisualQuestionsHtml,
-  type VisualQuestion,
-} from "../server/visual-questions-html.js";
+import { planContentSchema } from "../shared/plan-content.js";
 
 const visualQuestionOptionSchema = z.object({
   value: z.string().optional(),
@@ -51,9 +54,25 @@ const visualQuestionSchema = z.object({
   required: z.boolean().optional().describe("Whether the answer matters"),
 });
 
+const visualQuestionsSchema = z
+  .array(visualQuestionSchema)
+  .superRefine((questions, ctx) => {
+    const seen = new Set<string>();
+    questions.forEach((question, index) => {
+      if (seen.has(question.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Question IDs must be unique: ${question.id}`,
+          path: [index, "id"],
+        });
+      }
+      seen.add(question.id);
+    });
+  });
+
 export default defineAction({
   description:
-    "Create a visual intake questionnaire as an Agent-Native Plan. Use this before /ui-plan or /visual-plan when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes.",
+    "Create a visual intake questionnaire as an Agent-Native Plan. Use this as the /visual-plan preflight or /visual-questions manual override when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before the final plan.",
   schema: z
     .object({
       title: z.string().optional().describe("Short questionnaire title"),
@@ -72,8 +91,7 @@ export default defineAction({
         .optional()
         .describe("Current visual-question focus"),
       status: planStatusSchema.optional().default("review"),
-      questions: z
-        .array(visualQuestionSchema)
+      questions: visualQuestionsSchema
         .optional()
         .default([])
         .describe(
@@ -83,7 +101,12 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Optional full bespoke questionnaire HTML. If omitted, Plans generates the interactive visual question form.",
+          "Legacy standalone questionnaire HTML. Prefer content blocks for new visual question plans.",
+        ),
+      content: planContentSchema
+        .optional()
+        .describe(
+          "Structured editable visual-question content. Prefer this for rich intake questions, visual options, sketch wireframes, diagrams, and follow-up notes.",
         ),
       markdown: z
         .string()
@@ -135,16 +158,7 @@ export default defineAction({
     const now = nowIso();
     const brief = args.brief || args.goal || "";
     const title = args.title || "Visual questions";
-    const questions = args.questions as VisualQuestion[];
-    const html =
-      args.html ??
-      buildVisualQuestionsHtml({
-        title,
-        brief,
-        source: args.source,
-        repoPath: args.repoPath,
-        questions,
-      });
+    const questions = args.questions as VisualQuestionBuilderInput[];
     const sections =
       args.sections.length > 0
         ? args.sections
@@ -171,6 +185,15 @@ export default defineAction({
               createdBy: "agent" as const,
             },
           ];
+    const content = args.content
+      ? normalizePlanContent(args.content)
+      : args.html
+        ? null
+        : createVisualQuestionsContent({
+            title,
+            brief,
+            questions,
+          });
 
     await getDb()
       .insert(schema.plans)
@@ -182,8 +205,9 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "visual questions",
-        html,
+        html: args.html ?? null,
         markdown: args.markdown ?? null,
+        content: content ? serializePlanContent(content) : null,
         createdAt: now,
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,
@@ -247,7 +271,7 @@ export default defineAction({
       path: planPath(id),
       url: planPath(id),
       fallbackInstructions:
-        "Open the visual questions plan, answer the chips, freeform fields, mockup tabs, and diagram choices, then use Copy prompt or Send to agent to feed the summary into a UI/visual plan.",
+        "Open the visual questions plan, answer the chips, freeform fields, mockup choices, and diagram options, then use Copy prompt or Send to agent to feed the summary into a UI/visual plan. The live link is private until shared.",
     };
   },
   link: ({ result }) => {

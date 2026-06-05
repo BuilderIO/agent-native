@@ -1,8 +1,9 @@
 # Agent-Native Plans — Agent Guide
 
-Agent-Native Plans is a local-first HTML plan mode for coding agents. Its job is
-to turn agent plans into diagrams, wireframes, prototype options, annotations,
-and comments that a person can review before code changes happen.
+Agent-Native Plans is a local-first structured visual plan mode for coding
+agents. Its job is to turn agent plans into editable rich blocks, diagrams,
+wireframes, prototype options, annotations, and comments that a person can
+review before code changes happen.
 
 ## Core Rules
 
@@ -14,7 +15,8 @@ and comments that a person can review before code changes happen.
   unclear.
 - For new features, update UI, actions, skills/instructions, and application
   state when applicable.
-- Default to visual artifacts over long Markdown. Text is a fallback layer.
+- Default to structured visual artifacts over long Markdown. Text is one block
+  type, not the whole plan.
 - Current app actions require a real user session so plans stay scoped and
   shareable. Local development can use the framework's auto-created dev account;
   hosted persistence, private sharing, reviewer links, and cross-device/team
@@ -30,9 +32,21 @@ and comments that a person can review before code changes happen.
 - `navigation.planId` identifies the active visual plan when present.
 - `navigate` moves the UI to the plan list or a specific visual plan.
 
+## Visual-Question Preflight
+
+`/visual-plan` is the main command. Before creating a plan, automatically use
+`create-visual-questions` when 2-6 visual answers would materially change the
+plan: fuzzy UI direction, form factor, layout model, feature scope, visual
+style, architecture shape, flow depth, or multiple plausible visual options.
+
+Skip preflight for tiny or unambiguous work, when the codebase makes the answer
+clear, or when the missing detail can be safely stated as an assumption in the
+plan. If the user types `/visual-questions`, treat it as a manual override and
+start visual intake first.
+
 ## Skills
 
-Use `.agents/skills/visual-plans/SKILL.md` for Agent-Native Plans behavior. Use
+Use `.agents/skills/visual-plan/SKILL.md` for Agent-Native Plans behavior. Use
 `.agents/skills/ui-plan/SKILL.md` for UI-first visual plans where an optional
 top pan/zoom wireframe or diagram canvas comes before a refined Notion-like
 document with rich tabs, tables, sketchy diagrams, code tabs, comments/drawing
@@ -42,12 +56,13 @@ visual intake questions before creating a plan. Use
 `.agents/skills/visualize-plan/SKILL.md` when the agent already has a Codex,
 Claude Code, Markdown, or pasted text plan and should create a visual companion.
 The exported install flow is simple:
-`agent-native skills add plans` installs the `/visual-plan`, `/ui-plan`,
-`/visual-questions`, and `/visualize-plan` skills plus the MCP connector. In
+`agent-native skills add visual-plan` installs the `/visual-plan`,
+`/visual-questions`, `/ui-plan`, and `/visualize-plan` skills plus the MCP
+connector. In
 Claude Code, Codex, and other supported hosts, users can then type
-`/visual-plan` for a fresh general plan, `/ui-plan` for a UI-first plan,
-`/visual-questions` for visual intake before a plan, or `/visualize-plan` to
-enrich an existing text plan.
+`/visual-plan` for a fresh general plan, `/visual-questions` for visual intake
+before a plan, `/ui-plan` for a UI-first plan, or `/visualize-plan` to enrich
+an existing text plan.
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
 `frontend-design`, `shadcn-ui`, and `self-modifying-code`.

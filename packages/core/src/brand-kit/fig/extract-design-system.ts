@@ -17,7 +17,7 @@
  * lightness, contrast, and area. The result is reviewable before saving.
  */
 
-import type { DesignSystemData } from "../../../shared/api.js";
+import type { BrandKitData, BrandKitDefaults } from "../types.js";
 import { guidKey, type FigNode } from "./fig-to-html.js";
 
 interface Color {
@@ -316,7 +316,10 @@ function resolveTextStyleName(
 
 // --- result type ----------------------------------------------------------
 
-export interface ExtractedFigTokens extends Partial<DesignSystemData> {
+export interface ExtractedFigTokens extends Partial<BrandKitData> {
+  /** Surface defaults inferred from the file. Templates map this to their
+   * persisted defaults key, e.g. `defaults` or `slideDefaults`. */
+  defaults?: BrandKitDefaults;
   /** Raw, de-duplicated color palette (most frequent first) for reference. */
   palette?: { hex: string; name?: string; count: number }[];
   /** Named color styles found in the file (key = style name). */
@@ -534,7 +537,7 @@ export function extractDesignSystemFromFig(
   );
 
   const result: ExtractedFigTokens = { nodeCount: nodes.length };
-  let roles: DesignSystemData["colors"] | null = null;
+  let roles: BrandKitData["colors"] | null = null;
 
   if (palette.length > 0) {
     const byArea = [...palette].sort((a, b) => b.area - a.area);
@@ -757,7 +760,7 @@ export function extractDesignSystemFromFig(
 
   const bgHex = roles?.background;
   const isDark = bgHex ? luminance(bgHex) < 0.4 : false;
-  const labelStyle: DesignSystemData["defaults"]["labelStyle"] =
+  const labelStyle: BrandKitDefaults["labelStyle"] =
     smallTextSamples >= 3 && upperLabelHits / smallTextSamples > 0.4
       ? "uppercase"
       : "none";
@@ -798,7 +801,7 @@ export function extractDesignSystemFromFig(
 // --- brand brief synthesis ------------------------------------------------
 
 function synthesizeBrandBrief(input: {
-  roles: DesignSystemData["colors"] | null;
+  roles: BrandKitData["colors"] | null;
   isDark: boolean;
   saturatedCount: number;
   gradients: string[];

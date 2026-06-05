@@ -6,6 +6,7 @@ import {
 } from "./plans.js";
 import { buildUiPlanHtml } from "./ui-plan-html.js";
 import { buildVisualQuestionsHtml } from "./visual-questions-html.js";
+import createVisualQuestionsAction from "../actions/create-visual-questions.js";
 import type { PlanBundle, PlanComment, PlanSection } from "../shared/types.js";
 
 function section(
@@ -60,7 +61,7 @@ describe("Plans helpers", () => {
       "# Checkout plan\n\n- Build the new flow\n\n## UI mockup\n\nShow two states.",
     );
 
-    expect(sections.some((item) => item.type === "wireframe")).toBe(true);
+    expect(sections.some((item) => item.type === "mockup")).toBe(true);
     expect(sections.some((item) => item.type === "diagram")).toBe(true);
   });
 
@@ -156,7 +157,7 @@ describe("Plans helpers", () => {
     expect(html).toContain('data-tab-panel="state-ui-error-1"');
     expect(html).toContain("sketch-flow-diagram");
     expect(html).toContain("doc-component-tabs");
-    expect(html).toContain("Implementation map");
+    expect(html).toContain("Implementation Map");
     expect(html).toContain("file-map-preview");
     expect(html).toContain('data-tab-target="ui-file-create-action"');
     expect(html).toContain('data-tab-panel="ui-file-create-action"');
@@ -177,9 +178,9 @@ describe("Plans helpers", () => {
     expect(html).not.toContain('data-has-top-canvas="true"');
     expect(html).not.toContain('<div class="canvas-viewport"');
     expect(html).not.toContain('<div class="flow-connector"');
-    expect(html).toContain("Document only");
+    expect(html).toContain("What Matters Most");
     expect(html).toContain("No dedicated top wireframes were supplied");
-    expect(html).toContain("Implementation map");
+    expect(html).toContain("Implementation Map");
   });
 
   it("builds an interactive visual questions intake form", () => {
@@ -198,7 +199,9 @@ describe("Plans helpers", () => {
     expect(html).toContain('data-question-type="freeform"');
     expect(html).toContain('data-question-type="visual"');
     expect(html).toContain("vq-chip");
-    expect(html).toContain("vq-visual-tabs");
+    expect(html).toContain("vq-visual-options");
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('role="radio"');
     expect(html).toContain("vq-preview-diagram");
     expect(html).toContain("visual-questions-summary");
     expect(html).toContain("data-vq-copy");
@@ -206,6 +209,8 @@ describe("Plans helpers", () => {
     expect(html).toContain("agent-native-visual-questions-copy");
     expect(html).toContain("agent-native-visual-questions-send-to-agent");
     expect(html).toContain("function parentOrigin()");
+    expect(html).toContain("window.__agentNativePlanParentOrigin");
+    expect(html).toContain("const targetOrigin = parentOrigin();");
     expect(html).not.toContain('}, "*");');
     expect(html).not.toContain("Answer with visuals first.");
     expect(html).not.toContain("Visual question previews");
@@ -251,6 +256,32 @@ describe("Plans helpers", () => {
     expect(html).toContain("Stepper");
     expect(html).toContain("vq-preview-flow");
     expect(html).toContain("Payment, tax, inventory...");
+  });
+
+  it("rejects duplicate custom visual question ids", () => {
+    const result = createVisualQuestionsAction.schema.safeParse({
+      brief: "Clarify the UI before planning.",
+      questions: [
+        {
+          id: "audience",
+          type: "single",
+          title: "Who is this for?",
+        },
+        {
+          id: "audience",
+          type: "freeform",
+          title: "Any audience notes?",
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain(
+        "Question IDs must be unique: audience",
+      );
+      expect(result.error.issues[0]?.path).toEqual(["questions", 1, "id"]);
+    }
   });
 
   it("renders a complete iframe-safe visual plan", () => {

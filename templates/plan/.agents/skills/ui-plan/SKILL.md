@@ -19,7 +19,7 @@ react to.
 `/visual-plan` remains the general rich planning command for architecture,
 backend, refactors, migrations, and mixed work. Use `/visual-questions` first
 when the user should answer visual intake questions before a UI plan. Use
-`/visualize-plan` when a text plan already exists and should become an HTML
+`/visualize-plan` when a text plan already exists and should become a visual
 companion.
 
 ## Plan Discipline
@@ -48,16 +48,21 @@ companion.
 ## UI-First Workflow
 
 1. Call `create-ui-plan` with a UI-specific title, brief, source, repo path,
-   and a complete bespoke `html` document whenever possible.
+   and structured `content` when you need custom blocks. Otherwise provide
+   `states`, `components`, and `implementationNotes` so Plans can generate the
+   native editable canvas and document.
 2. When the plan has meaningful UI flows, screens, or diagrams, make the top
    of the document a bounded pan/zoom sketch canvas with the key artboards,
    connectors, margin notes, and commentable visual anchors.
+   Use the app-owned Rough.js/sketch renderer: subtle grid field, deliberately
+   imperfect lines, Virgil-style wireframe labels, and Figma-like annotation
+   text/arrows on the top canvas. Labels must sit clear of rough lines,
+   connectors, controls, and neighboring notes.
    Treat notes like Figma text layers: sprinkle headings, supporting text,
    bullets, arrows, and labels around the artboards, but do not overlap the
    wireframes or wrap the artboards in explanatory cards.
-   In dark mode, keep the canvas field slightly darker than the document with a
-   very subtle moving grid, and keep wireframe artboards flat rather than
-   shadowed.
+   In dark mode, keep the canvas field slightly darker than the document, and
+   keep wireframe artboards flat rather than shadowed.
 3. Continue below the canvas as a restrained, Notion-like interactive document:
    clear prose, horizontal state tabs, inline wireframes, sketchy diagrams,
    tables, vertical code tabs, and concise implementation notes.
@@ -67,7 +72,8 @@ companion.
    the document after the visual review area.
 6. Call `get-plan-feedback` before implementation, after review, after a long
    pause, and before the final response. Apply changes with
-   `update-visual-plan`.
+   `update-visual-plan`. Prefer targeted `contentPatches` for small changes to
+   one state tab, wireframe region, canvas frame, code tab, or document block.
 
 ## Mockup Quality Bar
 
@@ -80,19 +86,57 @@ companion.
   change. Put them in tabs or adjacent panels rather than burying them in prose.
 - Use concrete labels and copy placeholders that expose content length,
   truncation, disabled states, and destructive actions.
+- Buttons and primary actions must look actionable: visible affordance,
+  readable label/icon, and enabled/disabled treatment when relevant.
 - Make state tabs span the plan content width. Small cards are fine for repeated
   items, but the primary UI preview should not be trapped in a tiny thumbnail.
 - Keep visuals review-focused, not decorative. Do not make a marketing page,
   hero section, brand deck, or abstract mood board unless the user asks.
 
+## Component And Widget Plans
+
+When the work is a component, popover, sidebar widget, toolbar, card, modal, or
+other small surface, do not generate a full app flow. Use compact component
+states instead.
+
+- Prefer square or vertical frames that match the component's real footprint.
+  A sidebar popover should look like a sidebar popover, not a desktop page or
+  phone screen.
+- When placement matters, include one broader app-context frame showing the
+  surrounding page, sidebar, or toolbar, then focused component states.
+- Layered surfaces such as popovers, menus, and floating inspectors need an
+  opaque sketch surface so they read as overlays instead of transparent boxes.
+- Use state tabs such as `Default`, `Expanded`, `Map`, `Loading`, `Empty`, and
+  `Error`. Do not add `Desktop`, `Mobile`, or responsive states unless the
+  component actually changes layout across breakpoints.
+- Draw only connectors for real sequences. Do not connect independent states
+  with fake "Step 1" lines.
+- Ground every frame in the real product hierarchy: visible title, controls,
+  content groups, state labels, actions, empty/error copy, and realistic
+  density. If you have seen a screenshot or component code, reflect it.
+- Keep labels outside collision zones. Text must never overlap wireframes,
+  connectors, toolbar controls, or neighboring notes.
+- Placeholder text strokes should be sparse, aligned, and below labels; avoid
+  random-looking gray bars that collide with copy or make the sketch messy. In
+  compact cards, use one or two thin strokes or omit strokes rather than filling
+  the card with bars.
+- Keep every sketch region padded. Labels, placeholder strokes, and buttons need
+  visible breathing room from rough borders; avoid edge-hugging component
+  layouts.
+- Use the app-owned Rough.js/sketch renderer for wireframes and diagrams. The
+  result should look deliberately hand-drawn/scribbly with Virgil-style labels,
+  not like crisp bordered boxes on a grid. If the rendered plan does not read as
+  sketchy, fix the renderer or block data before handing it off.
+
 ## State Tabs
 
-When showing multiple UI states, use the Plans tab attributes so the iframe
-runtime wires up the interaction:
-
-- Put `data-plan-tabs` on the tab group.
-- Put `data-tab-target` on each tab button.
-- Put matching `data-tab-panel` values on panels.
+When showing multiple UI states, prefer the structured `tabs` block. Each tab
+can contain rich text, sketch wireframes, diagrams, code tabs, or bounded custom
+HTML fragments. Raw HTML tab attributes are only for legacy imported artifacts.
+For UI-first plans, tabs named like component notes, interaction notes, screen
+states, or review states should include a relevant visual block unless they are
+intentionally document-only; prose-only tabs are usually a sign the plan is
+under-specified.
 
 Good state tab sets include:
 
@@ -107,8 +151,8 @@ Generated `/ui-plan` documents use one default shape: an optional Figma-style
 pan/zoom visual preface followed by a refined Notion-like document. There is no
 mode boolean. Provide `states` and `components` when the top canvas will help
 the reviewer understand the flow; omit them when the plan should be
-document-only. You may pass `sketchiness` from `0` to `100`; omit it for the
-default hand-drawn strength.
+document-only. Use structured blocks for custom states, diagrams, and code
+detail instead of full standalone HTML.
 
 The document below the canvas should still include the same planning substance:
 screen states, component notes, implementation map, review prompts, comments,
@@ -117,10 +161,32 @@ a Figma file plus a crisp product spec: the reviewer should understand the UI
 flow from a bird's-eye view, then keep scrolling into a clean interactive
 document with notes explaining how the screens work together.
 
+## Blocks That Must Not Mislead
+
+- `decision` blocks are static decision records. Do not make them look like
+  clickable choices unless the renderer truly supports changing the selected
+  option.
+- `sketch-diagram` blocks must be readable at a glance: no overlapping node
+  labels, no tiny text in oversized empty boxes, and no diagram when a checklist
+  or state tabs would communicate better.
+- `custom-html` is an escape hatch for bounded fragments only. It must contain
+  a complete, useful visual or interaction; never use it as a placeholder,
+  empty demo, density ladder, or proof that custom HTML is possible.
+- Implementation maps need concrete files and concise snippets. Include
+  language metadata so code can be syntax-highlighted; avoid giant prose-only
+  file lists.
+- Review the rendered plan in the browser before handing it off. Fix overlap,
+  excessive whitespace, nonfunctional-looking controls, bad contrast, and
+  clipped custom fragments before asking for approval.
+
 ## Comments, Drawing, And Handoff
 
 - Add visible annotation prompts beside the mockups: "Comment on layout",
-  "Circle unclear copy", "Mark missing state", or "Pick this option".
+  "Circle unclear copy", "Mark missing state", or "Pick this option". Canvas
+  annotations should feel like Figma callouts: plain text plus arrows, without
+  card borders, shadows, or background panels unless editing UI is required.
+  Place notes close to the frame they explain, aligned with that target frame
+  when possible, instead of parking notes in unrelated canvas gaps.
 - Leave enough whitespace around key UI regions for drawing and callouts.
 - Label important regions so comments can reference them without ambiguity.
 - Include an "Agent Handoff" section after the mockups that summarizes the
@@ -147,11 +213,12 @@ starts editing.
 
 ## Tool Guidance
 
-- `create-ui-plan`: create the UI-first HTML plan.
+- `create-ui-plan`: create the UI-first structured visual plan.
 - `create-visual-questions`: ask a rich visual intake form before the UI plan
   when direction-changing answers are needed.
-- `update-visual-plan`: revise mockups, state tabs, comments, or handoff notes.
-- `get-visual-plan`: inspect the current plan and annotations.
+- `update-visual-plan`: revise content blocks, mockups, comments, or handoff notes.
+  Prefer targeted `contentPatches` over regenerating the whole UI plan.
+- `get-visual-plan`: inspect the current structured plan, exported HTML, and annotations.
 - `get-plan-feedback`: read unconsumed reviewer comments before coding.
 - `export-visual-plan`: export a review receipt when needed.
 

@@ -266,6 +266,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
+      fzstd:
+        specifier: ^0.1.1
+        version: 0.1.1
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.5(srvx@0.11.15))
@@ -278,6 +281,9 @@ importers:
       jose:
         specifier: ^6.2.2
         version: 6.2.2
+      kiwi-schema:
+        specifier: ^0.5.0
+        version: 0.5.0
       minimatch:
         specifier: '>=9.0.7'
         version: 10.2.5
@@ -290,6 +296,9 @@ importers:
       p-limit:
         specifier: ^7.3.0
         version: 7.3.0
+      pako:
+        specifier: ^2.1.0
+        version: 2.1.0
       postgres:
         specifier: '>=3'
         version: 3.4.9
@@ -363,6 +372,9 @@ importers:
       '@types/node':
         specifier: ^24.2.1
         version: 24.12.2
+      '@types/pako':
+        specifier: ^2.0.4
+        version: 2.0.4
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
@@ -2337,9 +2349,6 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
-      fzstd:
-        specifier: ^0.1.1
-        version: 0.1.1
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.5(srvx@0.11.15))
@@ -2355,15 +2364,9 @@ importers:
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
-      kiwi-schema:
-        specifier: ^0.5.0
-        version: 0.5.0
       nanoid:
         specifier: ^5.1.9
         version: 5.1.9
-      pako:
-        specifier: ^2.1.0
-        version: 2.1.0
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
@@ -2467,9 +2470,6 @@ importers:
       '@types/node':
         specifier: ^24.2.1
         version: 24.12.2
-      '@types/pako':
-        specifier: ^2.0.4
-        version: 2.0.4
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
@@ -3344,6 +3344,9 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      roughjs:
+        specifier: 4.6.6
+        version: 4.6.6
       zod:
         specifier: ^4.4.3
         version: 4.4.3

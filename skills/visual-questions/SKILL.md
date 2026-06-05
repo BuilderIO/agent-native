@@ -4,15 +4,15 @@ description: >-
   Use Agent-Native Plans to ask rich visual intake questions before creating a
   UI plan or visual plan.
 metadata:
-  visibility: exported
+  visibility: both
 ---
 
 # Visual Questions
 
 Use `/visual-questions` when the next best step is not a plan yet, but a
 reviewable visual intake: single-choice chips, multi-select chips, freeform
-notes, mockup option tabs, sketch diagrams, and a generated answer summary that
-feeds the next planning prompt.
+notes, sketchy mockup choices, sketch diagrams, and a generated answer summary
+that feeds the next planning prompt.
 
 This is a temporary, conservative command name for the first testable flow. It
 is designed to compose with `/ui-plan`, `/visual-plan`, and `/visualize-plan`.
@@ -43,7 +43,8 @@ answer, prefer `/ui-plan` directly and put assumptions in the plan.
    - call `create-ui-plan` for UI flow plans;
    - call `create-visual-plan` for general visual plans;
    - call `visualize-plan` when the user already has a text plan;
-   - call `update-visual-plan` when the active plan should absorb answers.
+   - call `update-visual-plan` with targeted `contentPatches` when the active
+     plan should absorb answers.
 5. If the user leaves comments on the visual questionnaire, call
    `get-plan-feedback` before using the answers.
 
@@ -54,7 +55,7 @@ Supported `questions` entries:
 - `single`: chip group where one option wins.
 - `multi`: chip group where multiple options can be selected.
 - `freeform`: textarea for constraints, inspirations, or things to avoid.
-- `visual`: tabbed visual options with cards and sketch previews. Use this for
+- `visual`: visual options with sketch previews. Use this for
   layout direction, flow depth, mobile/desktop choices, or diagram choices.
 
 Each option can include `label`, `value`, `description`, `recommended`,
@@ -68,6 +69,8 @@ Each option can include `label`, `value`, `description`, `recommended`,
 - Prefer visible, answerable options over abstract prose.
 - Use visual tabs when users need to compare layout/flow shapes.
 - Keep the output calm and document-like, not a landing page.
+- Use native visual-question content. Do not provide a full standalone HTML form
+  unless importing a legacy artifact.
 - The generated answer summary is not the final plan; it is the intake prompt
   for the next agent step.
 

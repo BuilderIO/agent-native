@@ -3,6 +3,14 @@
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
 
+@font-face {
+  font-family: "Virgil";
+  src: url("/fonts/Virgil-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @source "./**/*.{ts,tsx}";
 
 :root {
@@ -73,6 +81,302 @@
     font-family: "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+}
+
+@layer utilities {
+  .plan-content-surface {
+    --plan-document: hsl(42 18% 97%);
+    --plan-canvas: hsl(42 10% 91%);
+    --plan-block: hsl(42 16% 94%);
+    --plan-chrome: hsl(42 15% 96% / 0.92);
+    --plan-line: hsl(36 9% 82%);
+    --plan-grid-line: hsl(36 9% 70% / 0.14);
+    --plan-text: hsl(30 5% 11%);
+    --plan-muted: hsl(30 5% 45%);
+    --plan-wireframe: hsl(42 16% 98%);
+    --plan-sketch-line: hsl(28 4% 20%);
+    --plan-muted-line: hsl(36 6% 78%);
+    --plan-placeholder-line: hsl(36 5% 72% / 0.72);
+    --plan-code: hsl(40 12% 96%);
+    --plan-code-text: hsl(28 5% 14%);
+  }
+
+  .dark .plan-content-surface {
+    --plan-document: hsl(32 3% 13%);
+    --plan-canvas: hsl(32 3% 11.2%);
+    --plan-block: hsl(32 3% 15.5%);
+    --plan-chrome: hsl(32 3% 15.5% / 0.92);
+    --plan-line: hsl(34 4% 24%);
+    --plan-grid-line: hsl(34 4% 36% / 0.14);
+    --plan-text: hsl(40 8% 94%);
+    --plan-muted: hsl(36 5% 65%);
+    --plan-wireframe: hsl(34 3% 13.4%);
+    --plan-sketch-line: hsl(38 5% 84%);
+    --plan-muted-line: hsl(36 4% 44%);
+    --plan-placeholder-line: hsl(36 4% 54% / 0.62);
+    --plan-code: hsl(32 4% 9.8%);
+    --plan-code-text: hsl(40 9% 92%);
+  }
+
+  .bg-plan-document {
+    background-color: var(--plan-document);
+  }
+
+  .bg-plan-block {
+    background-color: var(--plan-block);
+  }
+
+  .bg-plan-chrome {
+    background-color: var(--plan-chrome);
+  }
+
+  .bg-plan-code {
+    background-color: var(--plan-code);
+  }
+
+  .bg-plan-wireframe {
+    background-color: var(--plan-wireframe);
+  }
+
+  .bg-plan-muted-line {
+    background-color: var(--plan-muted-line);
+  }
+
+  .text-plan-text {
+    color: var(--plan-text);
+  }
+
+  .text-plan-muted {
+    color: var(--plan-muted);
+  }
+
+  .text-plan-code-text {
+    color: var(--plan-code-text);
+  }
+
+  .text-plan-canvas-text {
+    color: var(--plan-text);
+  }
+
+  .text-plan-sketch-line {
+    color: var(--plan-sketch-line);
+  }
+
+  .border-plan-line {
+    border-color: var(--plan-line);
+  }
+
+  .border-plan-sketch-line {
+    border-color: var(--plan-sketch-line);
+  }
+
+  .fill-plan-wireframe {
+    fill: var(--plan-wireframe);
+  }
+
+  .fill-plan-sketch-line {
+    fill: var(--plan-sketch-line);
+  }
+
+  .stroke-plan-sketch-line {
+    stroke: var(--plan-sketch-line);
+  }
+}
+
+.plan-canvas {
+  background-color: var(--plan-canvas);
+  background-image:
+    linear-gradient(var(--plan-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--plan-grid-line) 1px, transparent 1px);
+  touch-action: none;
+}
+
+.plan-document-flow > .plan-block,
+.plan-document-flow > .plan-callout,
+.plan-document-flow > .plan-questions-block {
+  margin-top: 3.5rem;
+  padding-top: 2.25rem;
+  border-top: 1px solid var(--plan-line);
+}
+
+.plan-block h2,
+.plan-callout h2,
+.plan-questions-block h2 {
+  margin: 0 0 1.25rem;
+  color: var(--plan-text);
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  font-weight: 650;
+}
+
+.plan-block .plan-block {
+  margin-top: 1.75rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.plan-block .plan-block h2 {
+  margin-bottom: 0.9rem;
+  font-size: clamp(1.25rem, 2vw, 1.9rem);
+  line-height: 1.15;
+}
+
+.plan-copy {
+  max-width: 860px;
+  color: var(--plan-muted);
+  font-size: 1.125rem;
+  line-height: 1.8;
+}
+
+.plan-copy h3,
+.plan-copy blockquote {
+  color: var(--plan-text);
+}
+
+.plan-callout {
+  max-width: 860px;
+  border-left: 3px solid hsl(var(--ring));
+  padding-left: 1.25rem;
+}
+
+.plan-sketch-region {
+  border-radius: 10px;
+}
+
+.plan-sketch {
+  font-family:
+    "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  letter-spacing: 0;
+}
+
+.plan-sketch-label {
+  color: currentColor;
+  background: var(--plan-wireframe);
+  border-radius: 4px;
+  text-shadow: 0 1px 0 var(--plan-wireframe);
+}
+
+.plan-region-scaffold {
+  position: absolute;
+  inset: 18% 14%;
+  pointer-events: none;
+}
+
+.plan-region-scaffold i {
+  display: block;
+  border-radius: 999px;
+  background: var(--plan-placeholder-line);
+}
+
+.plan-region-scaffold-lines {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+}
+
+.plan-region-scaffold-lines i {
+  height: 4px;
+}
+
+.plan-region-scaffold-lines i:nth-child(1) {
+  width: 76%;
+}
+
+.plan-region-scaffold-lines i:nth-child(2) {
+  width: 56%;
+}
+
+.plan-region-scaffold-lines i:nth-child(3) {
+  width: 34%;
+}
+
+.plan-region-scaffold-lines.plan-region-scaffold-with-label {
+  inset: auto 15% 16%;
+  top: clamp(30px, 50%, 44px);
+  align-content: start;
+  gap: 6px;
+}
+
+.plan-region-scaffold-lines.plan-region-scaffold-compact {
+  gap: 5px;
+}
+
+.plan-region-scaffold-lines.plan-region-scaffold-with-label.plan-region-scaffold-compact {
+  top: clamp(28px, 54%, 36px);
+}
+
+.plan-region-scaffold-input {
+  inset: auto 15% 22%;
+  display: flex;
+  align-items: center;
+  height: 5px;
+}
+
+.plan-region-scaffold-input i {
+  width: 72%;
+  height: 4px;
+}
+
+.plan-region-scaffold-input.plan-region-scaffold-with-label {
+  bottom: 22%;
+}
+
+.plan-region-scaffold-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7%;
+}
+
+.plan-region-scaffold-toolbar i {
+  height: 54%;
+  flex: 1 1 0;
+  border: 1px solid currentColor;
+  background: transparent;
+  opacity: 0.7;
+}
+
+.plan-region-scaffold-nav {
+  display: grid;
+  align-content: start;
+  gap: 9%;
+  padding-top: 18%;
+}
+
+.plan-region-scaffold-nav i {
+  height: 10px;
+  opacity: 0.62;
+}
+
+.plan-region-scaffold-nav i:first-child {
+  background: hsl(var(--ring) / 0.2);
+  outline: 1px solid hsl(var(--ring) / 0.75);
+}
+
+.plan-region-popover {
+  background: var(--plan-wireframe);
+}
+
+.plan-region-button {
+  color: currentColor;
+  background: transparent;
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+.plan-region-button-emphasis {
+  color: white;
+  background: hsl(var(--ring));
+  box-shadow: 0 0 0 1px hsl(var(--ring) / 0.8);
+}
+
+.plan-region-button .plan-sketch-label {
+  color: inherit;
+  background: transparent;
+  text-shadow: none;
+}
+
+.plan-region-button .plan-rough-svg {
+  opacity: 0.58;
 }
 
 ::-webkit-scrollbar {

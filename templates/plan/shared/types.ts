@@ -1,3 +1,5 @@
+import type { PlanContent } from "./plan-content.js";
+
 export const PLAN_STATUSES = [
   "draft",
   "review",
@@ -76,6 +78,7 @@ export interface Plan {
   currentFocus?: string | null;
   html?: string | null;
   markdown?: string | null;
+  content?: PlanContent | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;

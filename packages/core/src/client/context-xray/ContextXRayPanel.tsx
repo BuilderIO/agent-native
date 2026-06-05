@@ -1,10 +1,8 @@
 import {
-  IconAdjustmentsHorizontal,
   IconChartTreemap,
   IconChevronDown,
   IconChevronRight,
   IconListDetails,
-  IconPin,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import type {
@@ -77,35 +75,6 @@ function groupedSegments(segments: ContextManifestSegment[]): Group[] {
   });
 }
 
-function StatusLine({ manifest }: { manifest: ContextManifest }) {
-  const pinned = manifest.segments.filter((s) => s.status === "pinned").length;
-  const evicted = manifest.segments.filter(
-    (s) => s.status === "evicted",
-  ).length;
-  const estimate = manifest.tokenCountMethod === "estimate";
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-      <span>Pinned {pinned}</span>
-      <span>·</span>
-      <span>Evicted {evicted}</span>
-      {estimate && (
-        <>
-          <span>·</span>
-          <span>token counts estimated</span>
-        </>
-      )}
-      {!manifest.enforceable && (
-        <>
-          <span>·</span>
-          <span className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
-            Advisory
-          </span>
-        </>
-      )}
-    </div>
-  );
-}
-
 export function ContextXRayPanel({
   manifest,
   optimistic,
@@ -131,53 +100,48 @@ export function ContextXRayPanel({
     Math.round((manifest.totalTokens / CONTEXT_XRAY_MODEL_LIMIT) * 100),
   );
   const headroom = Math.max(0, CONTEXT_XRAY_MODEL_LIMIT - manifest.totalTokens);
+  const pinned = segments.filter((s) => s.status === "pinned").length;
+  const evicted = segments.filter((s) => s.status === "evicted").length;
+  const details = [
+    `${formatTokens(headroom)} free`,
+    pinned > 0 ? `${pinned} pinned` : null,
+    evicted > 0 ? `${evicted} evicted` : null,
+    manifest.tokenCountMethod === "estimate" ? "estimated" : null,
+    !manifest.enforceable ? "advisory" : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
-    <div className="flex max-h-[min(72vh,560px)] flex-col">
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <IconAdjustmentsHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span>Context X-Ray</span>
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {manifest.enforceable
-                ? "Pin or evict what reaches future turns."
-                : "Advisory for external host context."}
-            </div>
+    <div className="flex max-h-[min(72vh,520px)] flex-col">
+      <div className="border-b border-border/60 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="min-w-0 truncate text-sm font-medium text-foreground">
+            Context X-Ray
+          </h2>
+          <div className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {formatTokens(manifest.totalTokens)} · {pct}%
           </div>
+        </div>
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted/70">
+          <div
+            className="h-full rounded-full bg-foreground transition-[width] duration-200"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          {details.map((detail) => (
+            <span key={detail}>{detail}</span>
+          ))}
           {manifest.reclaimedTokens > 0 && (
-            <div className="shrink-0 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">
               -{formatTokens(manifest.reclaimedTokens)}
-            </div>
+            </span>
           )}
         </div>
       </div>
 
-      <div className="space-y-3 overflow-y-auto px-4 py-3">
-        <div className="space-y-2">
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <div className="text-xl font-semibold text-foreground">
-                {formatTokens(manifest.totalTokens)}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {pct}% used · {formatTokens(headroom)} free
-              </div>
-            </div>
-            <StatusLine manifest={manifest} />
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-foreground transition-[width] duration-300"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-2">
-          <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5">
+      <div className="overflow-y-auto px-2 py-2">
+        <div className="mb-1 flex items-center justify-end">
+          <div className="inline-flex rounded-md bg-muted/40 p-0.5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -215,17 +179,6 @@ export function ContextXRayPanel({
               <TooltipContent>Map</TooltipContent>
             </Tooltip>
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <IconPin className="h-3.5 w-3.5" />
-                <span>
-                  {segments.filter((s) => s.status === "pinned").length}
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>Pinned segments survive compaction</TooltipContent>
-          </Tooltip>
         </div>
 
         {mode === "map" ? (
@@ -237,14 +190,11 @@ export function ContextXRayPanel({
             }}
           />
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-border/60">
             {groups.map((group) => {
               const isCollapsed = collapsed.has(group.name);
               return (
-                <div
-                  key={group.name}
-                  className="rounded-md border border-border"
-                >
+                <div key={group.name}>
                   <button
                     type="button"
                     onClick={() => {
@@ -255,7 +205,7 @@ export function ContextXRayPanel({
                         return next;
                       });
                     }}
-                    className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
+                    className="flex w-full items-center gap-2 rounded-sm px-1.5 py-2 text-left hover:bg-accent/35"
                   >
                     {isCollapsed ? (
                       <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
@@ -276,7 +226,7 @@ export function ContextXRayPanel({
                     </span>
                   </button>
                   {!isCollapsed && (
-                    <div className="border-t border-border py-1">
+                    <div className="pb-1">
                       {group.segments
                         .slice()
                         .sort((a, b) => b.tokenCount - a.tokenCount)

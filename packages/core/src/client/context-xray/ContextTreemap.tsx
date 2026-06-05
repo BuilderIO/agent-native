@@ -85,21 +85,18 @@ export function ContextTreemap({
 
   if (data.length === 0) {
     return (
-      <div className="flex h-56 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
+      <div className="flex h-52 items-center justify-center rounded-md bg-muted/30 text-xs text-muted-foreground">
         No active segments
       </div>
     );
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="h-64 min-w-0 rounded-md border border-border bg-muted/20 p-1"
-    >
+    <div ref={containerRef} className="h-56 min-w-0 rounded-md bg-muted/25 p-1">
       {chartWidth > 0 && (
         <Treemap
           width={chartWidth}
-          height={248}
+          height={216}
           data={data as any}
           dataKey="size"
           nameKey="name"

@@ -1,38 +1,49 @@
 ---
-name: visual-plans
+name: visual-plan
 description: >-
-  Use Agent-Native Plans when coding-agent work needs an interactive HTML plan
-  document with diagrams, wireframes, mockups, prototypes, annotations, and
-  comments.
-metadata:
-  visibility: exported
+  Use Agent-Native Plans when coding-agent work needs an interactive structured
+  plan document with diagrams, wireframes, mockups, prototypes, annotations,
+  and comments.
 ---
 
 # Agent-Native Plans
 
-Agent-Native Plans is HTML plan mode for coding agents. Generate the kind of
-plan you would normally write in Markdown, but as a polished, scannable HTML
-document with visual blocks mixed in: diagrams, wireframes, mockups, prototype
-options, tradeoff cards, and annotation prompts.
+Agent-Native Plans is structured visual planning mode for coding agents.
+Generate the kind of plan you would normally write in Markdown, but as a
+scannable plan document with editable blocks mixed in: diagrams, wireframes,
+mockups, prototype options, tradeoff cards, file/symbol implementation maps,
+code previews, bounded custom HTML fragments, and annotation prompts. It is a
+plan document, not a marketing page.
 
-Install with the Agent-Native CLI. It adds the skills and MCP connector:
+The goal is impatient review. The user should be able to react to visuals first
+and read prose only where it helps.
 
-```bash
-npx @agent-native/core@latest skills add plans
+## Install And Use
+
+Users install Plans with the Agent-Native CLI:
+
+```sh
+agent-native skills add plans
 ```
 
-Then start typing `/visual-plan` for a fresh general plan, `/ui-plan` for a
-UI-first high-fidelity plan, `/visual-questions` for visual intake before a
-plan, or `/visualize-plan` to turn an existing Codex, Claude Code, Markdown, or
-pasted plan into a visual companion.
+That one command installs `/visual-plan`, `/ui-plan`, `/visual-questions`, and
+`/visualize-plan` and registers the hosted MCP app connector for supported hosts
+such as Claude Code and Codex.
+
+Use `/visual-plan` for a fresh general plan. Use `/ui-plan` when the work is
+primarily product UI and the review should start with high-fidelity screens and
+states. Use `/visual-questions` when the agent should ask a visual intake form
+before choosing the plan direction. Use `/visualize-plan` when there is already
+a Codex, Claude Code, Markdown, or pasted text plan that should become an HTML
+companion.
 
 ## Slash Commands
 
-- `/visual-plan`: create a fresh rich HTML plan before implementation. Include
+- `/visual-plan`: create a fresh rich visual plan before implementation. Include
   a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
-  mockups when UI is involved, tradeoffs, open questions, and clear feedback
-  prompts.
-- `/ui-plan`: create a UI-first high-fidelity HTML plan before implementation.
+  mockups when UI is involved, an implementation map with files/symbols/snippets,
+  tradeoffs, open questions, and clear feedback prompts.
+- `/ui-plan`: create a UI-first high-fidelity visual plan before implementation.
   Use an optional top pan/zoom wireframe or diagram canvas when visuals clarify
   the flow, then continue as a refined Notion-like document with rich tabs,
   comments/drawing prompts, code tabs, and agent handoff notes.
@@ -42,7 +53,20 @@ pasted plan into a visual companion.
   `/visualize-plan`.
 - `/visualize-plan`: import an existing Codex, Claude Code, Markdown, or pasted
   text plan and turn it into a visual companion. Preserve the plan's intent,
-  then add diagrams, wireframes, option cards, and annotation prompts.
+  then add diagrams, wireframes, option cards, file/symbol maps, and annotation
+  prompts.
+
+## When To Use
+
+Create or update a visual plan when:
+
+- the user asks for a plan, HTML plan, visual plan, plannotate-style review,
+  diagrams, wireframes, mockups, prototypes, comments, or annotations;
+- work is multi-file, ambiguous, long-running, risky, or UI-heavy;
+- the user is unlikely to read a long text plan closely;
+- architecture, data flow, UI direction, options, or open questions would be
+  clearer visually;
+- you need the user to react before implementation.
 
 ## Plan Discipline
 
@@ -53,7 +77,7 @@ discipline before and around the plan document:
   risky, architectural, UI-heavy, has multiple valid approaches, or the code is
   unfamiliar. Skip it for trivial, unambiguous work — typos, one-line fixes, a
   single well-specified function, anything whose diff you could describe in one
-  sentence — and just make the change. A polished HTML plan is the most
+  sentence — and just make the change. A polished visual plan is the most
   expensive plan form; only invest when a wrong direction is costly. Never pad a
   plan with filler or ship a single-step plan.
 - **Research before you draft.** Read the real files, actions, schema, and
@@ -86,36 +110,136 @@ discipline before and around the plan document:
   rather than only changing course in chat, and re-read the approved plan before
   major steps so the work does not drift.
 
-## Workflow
+## Core Workflow
 
-1. Call `create-visual-plan` with a title, brief, source, repo path, sections,
-   and ideally a complete bespoke `html` document.
-2. Surface the returned inline MCP App or browser link.
-3. Ask the user to react to diagrams, wireframes, mockups, options, and open
-   questions.
-4. Call `get-plan-feedback` before implementation and after review.
-5. Use `update-visual-plan` to revise the plan document or comments.
+1. Call `create-visual-plan` with the title, brief, source, repo path, and
+   either structured `content` blocks or readable `sections` before
+   implementation.
+2. Prefer structured `content` for every new plan. Use `rich-text`,
+   `sketch-diagram`, `sketch-wireframe`, `tabs`, `code-tabs`,
+   `implementation-map`, `decision`, `checklist`, `table`,
+   `visual-questions`, and bounded `custom-html` blocks. Do not send a full
+   standalone HTML document unless importing a legacy artifact.
+3. Surface the returned Agent-Native Plans link or inline MCP App. In CLI hosts,
+   ask the user to review the plan visually.
+4. Call `get-plan-feedback` before editing, after review, after any long pause,
+   and before final response.
+5. Incorporate comments/corrections with `update-visual-plan`. Prefer
+   `contentPatches` for targeted changes: `update-rich-text`, `replace-block`,
+   `update-wireframe-region`, `replace-wireframe-regions`,
+   `update-canvas-frame`, `append-block`, `remove-block`, or
+   `update-custom-html`. Use full `content` only for broad restructuring.
+6. Export an HTML/JSON/Markdown receipt with `export-visual-plan` when the user
+   wants a shareable artifact.
 
-## Tools
+## Visual Defaults
 
-- `create-visual-plan`
-- `create-ui-plan`
-- `create-visual-questions`
-- `visualize-plan`
-- `update-visual-plan`
-- `get-visual-plan`
-- `get-plan-feedback`
-- `export-visual-plan`
-
-## Quality Bar
-
-- Wireframes must be concrete enough to critique: layout regions, controls,
-  states, empty/loading/error paths, review affordances, and copy placeholders.
-- Use `/ui-plan` when UI direction is the center of the work. `/visual-plan`
-  stays the general plan command for architecture, backend, refactors, and
-  mixed implementation planning.
+- Use implementation-plan structure first: objective, scope/non-goals, proposed
+  approach, phases or steps, files/symbols/snippets, risks, open questions, and
+  validation.
+- UI work gets wireframes, state mockups, or prototype sketches.
+- When UI direction is the center of the work, prefer the `ui-plan` skill so the
+  mockups, states, comments/drawing space, and agent handoff come before file
+  implementation detail. Keep `visual-plan` general for architecture, backend,
+  refactors, and mixed implementation planning.
+- Wireframes should be concrete enough to critique: show layout regions,
+  controls, states, empty/loading/error paths, review affordances, and copy
+  placeholders. Avoid vague rectangle-only sketches.
+- Sketch wireframes and diagrams should visibly use the app-owned
+  Rough.js/sketch renderer with subtle grids where useful, imperfect strokes,
+  and Virgil-style labels. Labels must not overlap rough lines, connectors, or
+  nodes. If the result looks like crisp boxes with normal borders, revise the
+  block data or renderer before asking for review.
+- For component, popover, or widget plans, show one broader app-context frame
+  when placement affects understanding, then focused component states. Avoid
+  fake desktop/mobile flows unless real responsive behavior changes layout.
+- Layered surfaces such as popovers and floating panels need an opaque sketch
+  surface; do not let background frames show through them.
+- Placeholder text strokes should be sparse, aligned, and separated from labels
+  so they read as content rhythm instead of noisy gray bars. In compact cards,
+  use one or two thin strokes or omit strokes entirely rather than stacking bars
+  into the label area.
+- Keep sketch regions padded. Labels, placeholder strokes, and buttons need
+  visible breathing room from rough borders; avoid placing UI marks directly on
+  frame edges.
+- Buttons and primary actions in UI mockups must look actionable, not like inert
+  labels or decorative chips.
+- When a top canvas is present, include Figma-like annotation text/arrows on the
+  canvas itself, not only in prose below. Prefer plain annotation text plus
+  arrows over boxed cards with borders, backgrounds, or shadows. Place each note
+  close to the frame it explains, aligned with that frame when possible, instead
+  of parking notes in unrelated canvas gaps.
+- When showing multiple diagrams, wireframes, mockups, or design directions,
+  use native `tabs` blocks so the plan stays readable and editable. Raw HTML tab
+  attributes are only for legacy imported artifacts.
+- Tabs for UI states, component notes, or interaction notes should include a
+  relevant visual block unless they are intentionally document-only. Do not
+  create large tab controls that reveal only prose.
+- Backend/refactor work gets architecture, sequence, data-flow, or dependency
+  diagrams.
+- Complex tradeoffs get two or three option cards with consequences.
+- Open questions are surfaced as visual callouts, not buried in paragraphs.
+- Long prose is split into readable document sections with clear headings.
+- Visuals should be review aids, not decoration. Avoid decorative hero art,
+  gradient/hero backgrounds, brand/logo chrome, nav bars, slogans, fluffy value
+  props, huge landing-page H1s, or marketing-style cards unless the user
+  explicitly asks.
+- Implementation plans include a file map: file path, symbols/components to
+  touch, reason for the change, risk/coordination notes when relevant, and short
+  syntax-highlighted snippets for the code shape the agent expects to modify.
+- File previews should be concise and reviewable. Do not paste entire large
+  files; show the key region, public API, component boundary, schema, action, or
+  selector that matters for review.
+- Include editor-open links where `repoPath` is known. Prefer explicit user
+  clicks for opening VS Code/Cursor; never auto-open editor links.
 - Include README-like details when helpful: command names, tool behavior,
   install flow, MCP/link fallback, data shape, and what is in or out of scope.
-- Avoid vague rectangle-only sketches and generic dashboards.
+- Comments and corrections should feel plannotator-style: quick to add,
+  structured enough for the agent to consume, and easy to share when the user
+  chooses.
 
-Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`.
+## Tool Guidance
+
+- `create-visual-plan`: start one structured visual plan per agent task/run.
+- `create-ui-plan`: start a UI-first plan with high-fidelity screen/state tabs.
+- `create-visual-questions`: start a visual intake questionnaire whose answers
+  feed a UI plan, visual plan, or plan update.
+- `visualize-plan`: create an HTML companion from an existing text plan.
+- `update-visual-plan`: revise content blocks, sections, status, or comments.
+  Prefer targeted `contentPatches` over regenerating the whole plan.
+  `contentPatches` are part of the public MCP action schema, so Claude Code,
+  Codex, and other MCP hosts can make surgical edits without regenerating a
+  whole artifact.
+- `get-visual-plan`: read the current structured plan, exported HTML, and annotations.
+- `get-plan-feedback`: read unconsumed human feedback. Use it frequently.
+- `export-visual-plan`: export HTML, Markdown fallback, and structured JSON.
+
+## Structured Content Guidance
+
+- Prefer structured content blocks over raw HTML. Rich text blocks should carry
+  implementation-plan substance, while diagrams, wireframes, code tabs, and
+  implementation maps make the work reviewable.
+- Use `custom-html` only for bounded fragments inside a block. Never include
+  `html`, `head`, `body`, or `script` tags in custom fragments.
+- Do not use `custom-html` as a placeholder, demo, or proof of flexibility. It
+  must contain a complete useful fragment that fits the surrounding document.
+- `sketch-diagram` blocks must be legible: labels cannot overlap nodes,
+  connectors, rough lines, or each other; omit the diagram when it does not
+  clarify a real architecture, sequence, dependency, or state relationship.
+- `decision` blocks are static records unless the UI supports changing them.
+  Do not style them like inactive buttons, tabs, or selectable chips.
+- `implementation-map` and `code-tabs` blocks should include concrete file
+  paths, language metadata, and concise snippets so rendered code can be
+  highlighted.
+- Match Agent-Native's restrained theme unless the user asks otherwise.
+- Keep the first viewport legible and plan-like: title, brief, concise scope,
+  and a useful diagram/checklist/table when it helps.
+- Use tabs or small interactions only when they make review faster.
+- Before handing off a visual plan, open it in the browser and fix overlap,
+  excessive whitespace, clipped custom fragments, misleading inactive controls,
+  poor contrast, and unreadable diagrams.
+- Do not paste huge artifacts into chat. Store the plan in Plans and surface the
+  MCP app or link.
+- Hosted default: connect
+  `https://plan.agent-native.com/_agent-native/mcp`. Do not put shared secrets
+  in skill files.

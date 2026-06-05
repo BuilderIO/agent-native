@@ -154,7 +154,7 @@ function renderTopVisualCanvas(input: {
   return `<section class="top-canvas-section" data-plan-section-id="ui-flow-canvas" data-plan-visual data-label="UI flow canvas">
     <div class="canvas-controls" aria-label="Canvas controls">
       <button type="button" data-zoom-out aria-label="Zoom out">-</button>
-      <button type="button" data-zoom-reset><span data-zoom-label>68%</span></button>
+      <span data-zoom-label>68%</span>
       <button type="button" data-zoom-in aria-label="Zoom in">+</button>
     </div>
     <div class="canvas-viewport" data-board-viewport aria-label="${input.title} pan and zoom wireframe canvas">
@@ -708,18 +708,12 @@ const UI_PLAN_JS = `
 
   document.querySelector("[data-zoom-out]")?.addEventListener("click", () => setZoom(zoom - 0.08));
   document.querySelector("[data-zoom-in]")?.addEventListener("click", () => setZoom(zoom + 0.08));
-  document.querySelector("[data-zoom-reset]")?.addEventListener("click", () => {
-    zoom = 0.68;
-    panX = 34;
-    panY = 28;
-    applyCanvasTransform();
-  });
-
   viewport.addEventListener("wheel", (event) => {
     if (root.classList.contains("an-plan-annotating")) return;
     event.preventDefault();
     if (event.metaKey || event.ctrlKey || event.altKey) {
-      setZoom(zoom + (event.deltaY > 0 ? -0.06 : 0.06), event.clientX, event.clientY);
+      const zoomStep = Math.min(0.04, Math.abs(event.deltaY) * 0.0045) * (event.deltaY > 0 ? -1 : 1);
+      setZoom(zoom + zoomStep, event.clientX, event.clientY);
       return;
     }
     const horizontal = event.shiftKey && Math.abs(event.deltaX) < Math.abs(event.deltaY)
