@@ -1264,6 +1264,10 @@ export function createAgentChatAdapter(options?: {
                 { signal: abortSignal },
               );
               if (!reconnectRes.ok || !reconnectRes.body) {
+                if (reconnectRes.status === 404) {
+                  clearActiveRun();
+                  return false;
+                }
                 lastReconnectError = new Error(
                   `Reconnect failed: ${reconnectRes.status}`,
                 );
@@ -1353,6 +1357,9 @@ export function createAgentChatAdapter(options?: {
                 { signal: abortSignal },
               );
               if (!activeRes.ok) {
+                if (activeRes.status === 404) {
+                  return false;
+                }
                 lastActiveRunError = new Error(
                   `Active run lookup failed: ${activeRes.status}`,
                 );

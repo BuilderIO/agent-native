@@ -91,6 +91,7 @@ export function Screen({
       style={{
         position: "relative",
         width: "100%",
+        height: "100%",
         background: V.paper,
         color: V.ink,
         fontFamily: V.hand,
@@ -825,9 +826,11 @@ export function Main({
 
 export function Row({
   children,
+  full = false,
   style = {},
 }: {
   children?: ReactNode;
+  full?: boolean;
   style?: CSSProperties;
 }) {
   return (
@@ -837,6 +840,8 @@ export function Row({
         flexDirection: "row",
         gap: V.gap,
         minWidth: 0,
+        minHeight: 0,
+        flex: full ? 1 : undefined,
         ...style,
       }}
     >
@@ -847,9 +852,11 @@ export function Row({
 
 export function Col({
   children,
+  full = false,
   style = {},
 }: {
   children?: ReactNode;
+  full?: boolean;
   style?: CSSProperties;
 }) {
   return (
@@ -859,6 +866,7 @@ export function Col({
         flexDirection: "column",
         gap: V.gap,
         minHeight: 0,
+        flex: full ? 1 : undefined,
         ...style,
       }}
     >

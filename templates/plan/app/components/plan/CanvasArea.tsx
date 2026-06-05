@@ -130,12 +130,36 @@ export function CanvasArea({
     null,
   );
   const [savingMarkup, setSavingMarkup] = useState(false);
+  // Real rendered heights, reported by each artboard. Frames are content-sized
+  // (maxHeight + auto height), so the declared preset height usually overshoots;
+  // connectors must route off the measured box or arrows float below the frame.
+  const [frameHeights, setFrameHeights] = useState<Map<string, number>>(
+    () => new Map(),
+  );
+  const reportFrameHeight = useCallback((id: string, height: number) => {
+    setFrameHeights((prev) => {
+      if (Math.abs((prev.get(id) ?? 0) - height) < 1) return prev;
+      const next = new Map(prev);
+      next.set(id, height);
+      return next;
+    });
+  }, []);
 
   const frames = useMemo(() => layoutArtboards(canvas.frames), [canvas.frames]);
   const frameById = useMemo(
     () => new Map(frames.map((frame) => [frame.id, frame])),
     [frames],
   );
+  // frameById with each frame's declared height overridden by its measured
+  // height, so connectors/anchors track the real (content) box.
+  const measuredFrameById = useMemo(() => {
+    const map = new Map<string, PlanArtboard>();
+    for (const frame of frames) {
+      const measured = frameHeights.get(frame.id);
+      map.set(frame.id, measured ? { ...frame, height: measured } : frame);
+    }
+    return map;
+  }, [frames, frameHeights]);
   const sections = canvas.sections ?? [];
   const annotations = canvas.annotations ?? [];
   const legacyNotes = canvas.notes ?? [];
@@ -496,7 +520,7 @@ export function CanvasArea({
             <CanvasConnector
               key={`${edge.from}-${edge.to}-${index}`}
               edge={edge}
-              frameById={frameById}
+              frameById={measuredFrameById}
             />
           ))}
 
@@ -509,6 +533,7 @@ export function CanvasArea({
               frame={frame}
               block={frame.blockId ? blockLookup.get(frame.blockId) : undefined}
               annotations={annsByFrame.byFrame.get(frame.id)}
+              onMeasure={reportFrameHeight}
             />
           ))}
 
@@ -684,16 +709,30 @@ function CanvasArtboard({
   frame,
   block,
   annotations = [],
+  onMeasure,
 }: {
   frame: PlanArtboard;
   block?: PlanBlock;
   annotations?: PlanAnnotation[];
+  onMeasure?: (id: string, height: number) => void;
 }) {
   const surface = surfaceOf(frame);
   const preset = SURFACE_SIZE[surface];
   const width = frame.width ?? preset.width;
   const height = frame.height ?? preset.height;
   const label = frame.label ?? block?.title;
+  // Report the frame's real rendered height so board connectors can anchor to
+  // the content box (frames are capped at `height` but usually shorter).
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el || !onMeasure) return;
+    const report = () => onMeasure(frame.id, el.offsetHeight);
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [frame.id, onMeasure]);
   // Annotations attached to this frame flow with its real (content) height:
   // below it for top/bottom placements, beside it for left/right.
   const belowAnns = annotations.filter((a) => !isSidePlacement(a.placement));
@@ -726,6 +765,7 @@ function CanvasArtboard({
         </div>
       )}
       <div
+        ref={frameRef}
         className="plan-artboard-frame"
         style={{ maxHeight: height, overflow: "hidden" }}
       >
@@ -1097,6 +1137,76 @@ function anchorPoint(
   }
 }
 
+/**
+ * Shared hand-drawn wobble filter (Excalidraw / wireframe house style). A single
+ * turbulence + displacement pass jitters the whole stroke so straight segments
+ * read as hand-sketched. `userSpaceOnUse` keeps the region tied to the svg box so
+ * thin near-flat lines don't clip their wobble.
+ */
+function SketchFilter({
+  id,
+  width,
+  height,
+  seed = 5,
+}: {
+  id: string;
+  width: number;
+  height: number;
+  seed?: number;
+}) {
+  return (
+    <filter
+      id={id}
+      x={0}
+      y={0}
+      width={width}
+      height={height}
+      filterUnits="userSpaceOnUse"
+    >
+      <feTurbulence
+        type="fractalNoise"
+        baseFrequency="0.014"
+        numOctaves={2}
+        seed={seed}
+        result="noise"
+      />
+      <feDisplacementMap
+        in="SourceGraphic"
+        in2="noise"
+        scale="2.8"
+        xChannelSelector="R"
+        yChannelSelector="G"
+      />
+    </filter>
+  );
+}
+
+/** Cheap deterministic seed so each arrow wobbles a little differently. */
+function hashSeed(value: string) {
+  let h = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h = (h * 31 + value.charCodeAt(i)) % 101;
+  }
+  return h;
+}
+
+/**
+ * Open, hand-drawn arrowhead — a "V" of two strokes pointing along the end
+ * tangent (from the last control point `cx,cy` to the tip `ex,ey`). Drawn inside
+ * the same filtered group as the line so it wobbles coherently with it; no hard
+ * filled triangle.
+ */
+function sketchHeadPath(ex: number, ey: number, cx: number, cy: number) {
+  const length = 12;
+  const spread = 0.5;
+  const angle = Math.atan2(ey - cy, ex - cx);
+  const w1x = ex - length * Math.cos(angle - spread);
+  const w1y = ey - length * Math.sin(angle - spread);
+  const w2x = ex - length * Math.cos(angle + spread);
+  const w2y = ey - length * Math.sin(angle + spread);
+  return `M ${w1x} ${w1y} L ${ex} ${ey} L ${w2x} ${w2y}`;
+}
+
 function ArrowSvg({
   fromX,
   fromY,
@@ -1114,10 +1224,10 @@ function ArrowSvg({
   strokeWidth?: number;
   dashed?: boolean;
 }) {
-  const left = Math.min(fromX, toX) - 16;
-  const top = Math.min(fromY, toY) - 16;
-  const width = Math.abs(toX - fromX) + 32;
-  const height = Math.abs(toY - fromY) + 32;
+  const left = Math.min(fromX, toX) - 18;
+  const top = Math.min(fromY, toY) - 18;
+  const width = Math.abs(toX - fromX) + 36;
+  const height = Math.abs(toY - fromY) + 36;
   const sx = fromX - left;
   const sy = fromY - top;
   const ex = toX - left;
@@ -1127,6 +1237,7 @@ function ArrowSvg({
   const c1y = horizontal ? sy : sy + (ey - sy) / 2;
   const c2x = horizontal ? ex - (ex - sx) / 2 : ex;
   const c2y = horizontal ? ey : ey - (ey - sy) / 2;
+  const filterId = `${id}-rough`;
   return (
     <svg
       className="pointer-events-none absolute overflow-visible"
@@ -1134,27 +1245,27 @@ function ArrowSvg({
       viewBox={`0 0 ${width} ${height}`}
     >
       <defs>
-        <marker
-          id={id}
-          markerHeight="8"
-          markerWidth="8"
-          orient="auto"
-          refX="6"
-          refY="4"
-          viewBox="0 0 8 8"
-        >
-          <path d="M 0 0 L 8 4 L 0 8 z" fill="hsl(var(--ring))" />
-        </marker>
+        <SketchFilter
+          id={filterId}
+          width={width}
+          height={height}
+          seed={hashSeed(id)}
+        />
       </defs>
-      <path
-        d={`M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`}
+      <g
         fill="none"
-        markerEnd={`url(#${id})`}
+        filter={`url(#${filterId})`}
         stroke="hsl(var(--ring))"
-        strokeDasharray={dashed ? "7 6" : undefined}
         strokeLinecap="round"
+        strokeLinejoin="round"
         strokeWidth={strokeWidth}
-      />
+      >
+        <path
+          d={`M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`}
+          strokeDasharray={dashed ? "7 6" : undefined}
+        />
+        <path d={sketchHeadPath(ex, ey, c2x, c2y)} />
+      </g>
     </svg>
   );
 }
@@ -1223,14 +1334,24 @@ function CanvasConnector({
   const to = frameById.get(edge.to);
   if (!from || !to) return null;
 
-  const fromX = (from.x ?? 0) + (from.width ?? DESK_W) + 24;
+  // Route facing-edge → facing-edge (heights are measured, so the line sits at
+  // each frame's real vertical center). A tiny gap at each end keeps the dash
+  // off the borders; the arrowhead tip lands just shy of the target edge.
+  const PAD = 18;
+  const fromX = (from.x ?? 0) + (from.width ?? DESK_W) + 3;
   const fromY = (from.y ?? 0) + (from.height ?? DESK_H) / 2;
-  const toX = (to.x ?? 0) - 24;
+  const toX = (to.x ?? 0) - 7;
   const toY = (to.y ?? 0) + (to.height ?? DESK_H) / 2;
-  const left = Math.min(fromX, toX);
-  const top = Math.min(fromY, toY);
-  const width = Math.abs(toX - fromX) || 1;
-  const height = Math.abs(toY - fromY) || 1;
+  const left = Math.min(fromX, toX) - PAD;
+  const top = Math.min(fromY, toY) - PAD;
+  const width = Math.abs(toX - fromX) + PAD * 2;
+  const height = Math.abs(toY - fromY) + PAD * 2;
+  const sx = fromX - left;
+  const sy = fromY - top;
+  const ex = toX - left;
+  const ey = toY - top;
+  const midX = (sx + ex) / 2;
+  const filterId = `connector-rough-${edge.from}-${edge.to}`;
 
   return (
     <svg
@@ -1238,18 +1359,29 @@ function CanvasConnector({
       style={{ left, top, width, height }}
       viewBox={`0 0 ${width} ${height}`}
     >
-      <path
-        d={`M ${fromX - left} ${fromY - top} C ${width / 2} ${fromY - top}, ${width / 2} ${toY - top}, ${toX - left} ${toY - top}`}
+      <defs>
+        <SketchFilter
+          id={filterId}
+          width={width}
+          height={height}
+          seed={hashSeed(edge.from + edge.to)}
+        />
+      </defs>
+      <g
         fill="none"
+        filter={`url(#${filterId})`}
         stroke="hsl(var(--ring))"
-        strokeDasharray="9 7"
         strokeLinecap="round"
-        strokeWidth="2.6"
-      />
+        strokeLinejoin="round"
+        strokeWidth={2.4}
+      >
+        <path d={`M ${sx} ${sy} C ${midX} ${sy}, ${midX} ${ey}, ${ex} ${ey}`} />
+        <path d={sketchHeadPath(ex, ey, midX, ey)} />
+      </g>
       {edge.label && (
         <text
-          x={width / 2}
-          y={height / 2 - 8}
+          x={midX}
+          y={Math.min(sy, ey) - 9}
           textAnchor="middle"
           className="fill-[hsl(var(--ring))] text-[15px] font-semibold"
         >

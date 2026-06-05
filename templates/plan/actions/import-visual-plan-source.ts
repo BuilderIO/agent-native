@@ -14,7 +14,7 @@ import {
 import { serializePlanContent } from "../server/plan-content.js";
 import {
   isLocalPlanRuntime,
-  requirePlanOwnerEmail,
+  requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
@@ -129,7 +129,7 @@ export default defineAction({
       };
     }
 
-    const ownerEmail = requirePlanOwnerEmail(
+    const ownerEmail = requirePlanOwnerEmailForWrite(
       getRequestUserEmail(),
       "Importing a visual plan",
     );

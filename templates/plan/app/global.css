@@ -90,7 +90,7 @@
     --plan-block: hsl(42 16% 94%);
     --plan-chrome: hsl(42 15% 96% / 0.92);
     --plan-line: hsl(36 9% 82%);
-    --plan-grid-line: hsl(36 9% 70% / 0.14);
+    --plan-grid-line: hsl(36 9% 70% / 0.08);
     --plan-text: hsl(30 5% 11%);
     --plan-muted: hsl(30 5% 45%);
     --plan-wireframe: hsl(42 16% 98%);
@@ -107,7 +107,7 @@
     --plan-block: hsl(32 3% 15.5%);
     --plan-chrome: hsl(32 3% 15.5% / 0.92);
     --plan-line: hsl(34 4% 24%);
-    --plan-grid-line: hsl(34 4% 36% / 0.14);
+    --plan-grid-line: hsl(34 4% 36% / 0.08);
     --plan-text: hsl(40 8% 94%);
     --plan-muted: hsl(36 5% 65%);
     --plan-wireframe: hsl(34 3% 13.4%);

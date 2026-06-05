@@ -117,7 +117,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 ## Scaffolding {#scaffolding}
 
 ```bash
-pnpm dlx @agent-native/core create my-platform
+npx @agent-native/core create my-platform
 # pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
 ```
 
@@ -140,7 +140,7 @@ You can click through the Dispatch UI after signing in. To use the chat composer
 2. In **LLM**, either connect Builder.io or add your own provider key such as `ANTHROPIC_API_KEY`.
 3. Return to **Overview** and try the composer.
 
-## Customize it {#customize}
+## Customizing it {#customize}
 
 Dispatch is a full template like any other — see [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the analytics agent" and it'll edit the routing config, add the webhook handler, and wire it up.
 

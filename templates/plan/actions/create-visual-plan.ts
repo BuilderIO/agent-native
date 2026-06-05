@@ -12,7 +12,7 @@ import {
 } from "../server/plan-content.js";
 import {
   isLocalPlanRuntime,
-  requirePlanOwnerEmail,
+  requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
@@ -95,7 +95,7 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    const ownerEmail = requirePlanOwnerEmail(
+    const ownerEmail = requirePlanOwnerEmailForWrite(
       getRequestUserEmail(),
       "Creating a visual plan",
     );

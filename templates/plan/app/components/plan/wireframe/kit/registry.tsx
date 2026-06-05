@@ -34,6 +34,7 @@ import {
   TaskRow,
   Text,
   Title,
+  Toolbar,
 } from "./primitives";
 
 /*
@@ -86,8 +87,9 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
     <BrowserBar title={n.title ?? n.text}>{children}</BrowserBar>
   ),
   statusBar: () => <StatusBar />,
-  row: (_n, children) => <Row>{children}</Row>,
-  col: (_n, children) => <Col>{children}</Col>,
+  toolbar: (_n, children) => <Toolbar>{children}</Toolbar>,
+  row: (n, children) => <Row full={n.full}>{children}</Row>,
+  col: (n, children) => <Col full={n.full}>{children}</Col>,
   sidebar: (_n, children) => <Sidebar>{children}</Sidebar>,
   main: (_n, children) => <Main>{children}</Main>,
   box: (n, children) => <Box dashed={n.dashed}>{children}</Box>,

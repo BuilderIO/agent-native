@@ -139,6 +139,7 @@ export type PlanWireframeElName =
   | "screen"
   | "browserBar"
   | "statusBar"
+  | "toolbar"
   | "row"
   | "col"
   | "sidebar"
@@ -658,6 +659,7 @@ const elNameSchema = z.enum([
   "screen",
   "browserBar",
   "statusBar",
+  "toolbar",
   "row",
   "col",
   "sidebar",

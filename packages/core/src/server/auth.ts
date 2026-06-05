@@ -688,6 +688,71 @@ async function getBearerLegacySession(
   return email ? { email, token: bearerToken } : null;
 }
 
+/**
+ * Verify a connect-minted MCP OAuth access token presented as
+ * `Authorization: Bearer <jwt>` and resolve it to a session.
+ *
+ * `agent-native connect` mints this token for the local Plans publish flow and
+ * POSTs it to the HOSTED action route
+ * `/_agent-native/actions/import-visual-plan-source`. That token is audience-
+ * bound to the app's MCP resource (`{appUrl}/_agent-native/mcp`), not to the
+ * legacy `sessions` table — so the legacy bearer lookup above never matches it.
+ * Reuse the MCP surface's canonical `verifyAuth` here so the HTTP action surface
+ * honors EXACTLY the tokens the MCP endpoint honors: same signature check, same
+ * audience binding to THIS app's resource, same connect-token revocation gate.
+ * It resolves to the same `{ userEmail, orgId }` identity the MCP path uses, so
+ * downstream `accessFilter` / ownable-data scoping is identical.
+ *
+ * `allowDevOpen: false` and the `userEmail` guard ensure an invalid token (or a
+ * bare ACCESS_TOKEN with no owner hint) never escalates to an unauthenticated
+ * or unscoped identity on this path — it strictly adds acceptance of verified,
+ * audience-bound caller tokens, nothing more.
+ */
+async function getMcpOAuthBearerSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  const authHeader = getHeader(event, "authorization");
+  if (!authHeader) return null;
+  const bearerToken = getBearerSessionToken(event);
+  if (!bearerToken) return null;
+
+  try {
+    const [{ getMcpOAuthResource }, { verifyAuth, resolveOrgIdFromDomain }] =
+      await Promise.all([
+        import("../mcp/oauth-route.js"),
+        import("../mcp/build-server.js"),
+      ]);
+    const result = await verifyAuth(authHeader, undefined, {
+      resourceUrl: getMcpOAuthResource(event),
+      allowDevOpen: false,
+    });
+    const identity = result.authed ? result.identity : undefined;
+    if (!identity?.userEmail) return null;
+    const orgId =
+      identity.orgId ?? (await resolveOrgIdFromDomain(identity.orgDomain));
+    return {
+      email: identity.userEmail,
+      token: bearerToken,
+      ...(orgId ? { orgId } : {}),
+    };
+  } catch (e) {
+    console.error("[auth] MCP OAuth bearer verification error:", e);
+    return null;
+  }
+}
+
+/**
+ * Resolve an `Authorization: Bearer` token to a session: first the legacy
+ * `sessions` table (desktop/native persisted tokens), then a connect-minted MCP
+ * OAuth access token (the local Plans publish credential). Both branches of the
+ * resolution chain use this so the two token kinds are honored consistently.
+ */
+async function getBearerSession(event: H3Event): Promise<AuthSession | null> {
+  const legacy = await getBearerLegacySession(event);
+  if (legacy) return legacy;
+  return getMcpOAuthBearerSession(event);
+}
+
 function shouldExposeSessionTokenInBody(event: H3Event): boolean {
   const origin = getHeader(event, "origin");
   if (origin && DESKTOP_AUTH_TOKEN_BODY_ORIGINS.has(origin)) return true;
@@ -1920,7 +1985,7 @@ async function resolveSessionUncached(
     const session = await customGetSession(event);
     if (session) return session;
 
-    const bearerSession = await getBearerLegacySession(event);
+    const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
 
     // Desktop SSO broker: even with BYOA auth, fall back to the broker
@@ -1932,9 +1997,11 @@ async function resolveSessionUncached(
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 4. Bearer legacy session. Desktop/native clients can persist a session
-    // token outside the WebView cookie jar and attach it to all app requests.
-    const bearerSession = await getBearerLegacySession(event);
+    // 4. Bearer session. Desktop/native clients can persist a legacy session
+    // token outside the WebView cookie jar and attach it to all app requests;
+    // `agent-native connect` clients present a connect-minted MCP OAuth access
+    // token. `getBearerSession` resolves both kinds.
+    const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
 
     // 5. Better Auth session (cookie or Bearer token)

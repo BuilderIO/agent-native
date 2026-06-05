@@ -158,6 +158,21 @@ export function initServerSentry(): boolean {
           return null;
         }
       }
+      const metadata = (
+        event as {
+          metadata?: {
+            filename?: unknown;
+            value?: unknown;
+          };
+        }
+      ).metadata;
+      if (
+        metadata?.value === "[object ErrorEvent]" &&
+        !event.exception?.values?.length &&
+        String(metadata.filename ?? "").includes("sentry")
+      ) {
+        return null;
+      }
       // h3's `createError({ statusCode: 4xx, ... })` produces an
       // `HTTPError` (h3 v2) / `H3Error` (h3 v1). 4xx HTTPErrors are
       // handler-controlled "expected failure" responses (404 not found,

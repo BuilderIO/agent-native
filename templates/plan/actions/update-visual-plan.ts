@@ -9,6 +9,7 @@ import {
 } from "../server/plan-content.js";
 import {
   isAnonymousPublicViewer,
+  isGuestAuthorIdentity,
   isLocalPlanRuntime,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
@@ -84,15 +85,25 @@ export default defineAction({
 
     if (onlyAddsNewComments) {
       // Commenting on a plan (including a public-link plan) requires an
-      // agent-native account. Anonymous public-link viewers
-      // (`public-*@agent-native.local`, minted by resolvePublicPlanViewerOwner)
-      // can read a public plan but must NOT be able to comment — only a real
-      // account (or the local single-user identity in local mode) can. This
-      // keeps "anyone with the link can view, accounts can comment".
-      if (isAnonymousPublicViewer(getRequestUserEmail())) {
+      // agent-native account. The two synthetic anonymous identities must NOT be
+      // able to comment — only a real account (or the local single-user identity
+      // in local mode) can:
+      //   - Anonymous public-link viewers (`public-*@agent-native.local`, minted
+      //     by resolvePublicPlanViewerOwner) can read a public plan but not
+      //     comment.
+      //   - Hosted guest authors (`guest-*@agent-native.guest`, minted by
+      //     resolvePlanGuestAuthorOwner) can author their OWN plans but must make
+      //     an account to comment.
+      // This keeps "anyone with the link can view, guests can author, accounts
+      // can comment and share".
+      const requesterEmail = getRequestUserEmail();
+      if (isAnonymousPublicViewer(requesterEmail)) {
         throw new Error(
           "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
         );
+      }
+      if (isGuestAuthorIdentity(requesterEmail)) {
+        throw new Error("Commenting requires an account. Sign in to comment.");
       }
       const access = await resolveAccess("plan", args.planId);
       if (!access) throw new Error(`Plan ${args.planId} not found`);

@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  GUEST_AUTHOR_DOMAIN,
   LOCAL_PLAN_OWNER_EMAIL,
   isAnonymousPublicViewer,
+  isGuestAuthorIdentity,
   isLocalPlanRuntime,
-  requirePlanOwnerEmail,
+  requirePlanOwnerEmailForWrite,
   resolvePlanOwnerEmail,
+  resolvePlanOwnerEmailForWrite,
 } from "./local-identity.js";
+
+const GUEST_EMAIL = `guest-123e4567-e89b-12d3-a456-426614174000@${GUEST_AUTHOR_DOMAIN}`;
 
 const ENV_KEYS = ["NODE_ENV", "AUTH_MODE", "PLAN_LOCAL_MODE"] as const;
 
@@ -96,19 +101,91 @@ describe("local-identity", () => {
     });
   });
 
-  describe("requirePlanOwnerEmail", () => {
-    it("throws in hosted mode with no user", () => {
+  describe("resolvePlanOwnerEmailForWrite", () => {
+    it("honors a real authenticated user (hosted)", () => {
       setEnv({ NODE_ENV: "production" });
-      expect(() => requirePlanOwnerEmail(undefined, "Creating a plan")).toThrow(
-        /requires an authenticated user/,
+      expect(resolvePlanOwnerEmailForWrite("user@example.com")).toBe(
+        "user@example.com",
       );
+    });
+
+    it("accepts the hosted guest-author identity injected by the resolver", () => {
+      // On a hosted deploy the anonymousOwner resolver injects the guest email
+      // into the request context, so it arrives here in the authenticated slot.
+      setEnv({ NODE_ENV: "production" });
+      expect(resolvePlanOwnerEmailForWrite(GUEST_EMAIL)).toBe(GUEST_EMAIL);
+    });
+
+    it("falls back to the local identity in local mode", () => {
+      setEnv({ NODE_ENV: "development" });
+      expect(resolvePlanOwnerEmailForWrite(undefined)).toBe(
+        LOCAL_PLAN_OWNER_EMAIL,
+      );
+    });
+
+    it("returns undefined when hosted, unauthenticated, and no guest", () => {
+      setEnv({ NODE_ENV: "production" });
+      expect(resolvePlanOwnerEmailForWrite(undefined)).toBeUndefined();
+    });
+
+    it("matches resolvePlanOwnerEmail for the non-guest paths (no drift)", () => {
+      setEnv({ NODE_ENV: "production" });
+      expect(resolvePlanOwnerEmailForWrite("u@example.com")).toBe(
+        resolvePlanOwnerEmail("u@example.com"),
+      );
+      expect(resolvePlanOwnerEmailForWrite(undefined)).toBe(
+        resolvePlanOwnerEmail(undefined),
+      );
+    });
+  });
+
+  describe("requirePlanOwnerEmailForWrite", () => {
+    it("throws in hosted mode with no user and no guest", () => {
+      setEnv({ NODE_ENV: "production" });
+      expect(() =>
+        requirePlanOwnerEmailForWrite(undefined, "Creating a plan"),
+      ).toThrow(/requires an authenticated user/);
+    });
+
+    it("returns the guest identity for a hosted guest author", () => {
+      setEnv({ NODE_ENV: "production" });
+      expect(
+        requirePlanOwnerEmailForWrite(GUEST_EMAIL, "Creating a plan"),
+      ).toBe(GUEST_EMAIL);
     });
 
     it("returns the local identity in local mode", () => {
       setEnv({ NODE_ENV: "development" });
-      expect(requirePlanOwnerEmail(undefined, "Creating a plan")).toBe(
+      expect(requirePlanOwnerEmailForWrite(undefined, "Creating a plan")).toBe(
         LOCAL_PLAN_OWNER_EMAIL,
       );
+    });
+  });
+
+  describe("isGuestAuthorIdentity", () => {
+    it("matches the guest-author identity shape", () => {
+      expect(isGuestAuthorIdentity(GUEST_EMAIL)).toBe(true);
+    });
+
+    it("does not match the public-viewer identity", () => {
+      expect(
+        isGuestAuthorIdentity(
+          "public-123e4567-e89b-12d3-a456-426614174000@agent-native.local",
+        ),
+      ).toBe(false);
+    });
+
+    it("does not match the local single-user identity", () => {
+      expect(isGuestAuthorIdentity(LOCAL_PLAN_OWNER_EMAIL)).toBe(false);
+    });
+
+    it("does not match a real account", () => {
+      expect(isGuestAuthorIdentity("user@example.com")).toBe(false);
+    });
+
+    it("handles null / undefined", () => {
+      expect(isGuestAuthorIdentity(null)).toBe(false);
+      expect(isGuestAuthorIdentity(undefined)).toBe(false);
     });
   });
 
@@ -123,6 +200,10 @@ describe("local-identity", () => {
 
     it("does not match the local single-user identity", () => {
       expect(isAnonymousPublicViewer(LOCAL_PLAN_OWNER_EMAIL)).toBe(false);
+    });
+
+    it("does not match the hosted guest-author identity", () => {
+      expect(isAnonymousPublicViewer(GUEST_EMAIL)).toBe(false);
     });
 
     it("does not match a real account", () => {

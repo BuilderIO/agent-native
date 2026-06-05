@@ -276,14 +276,29 @@ function getTargetElement(target: EventTarget | null) {
   return null;
 }
 
+function getMountedEditorView(editor: Editor) {
+  if (!editor || editor.isDestroyed) return null;
+  try {
+    const view = editor.view;
+    return view.dom.isConnected ? view : null;
+  } catch {
+    return null;
+  }
+}
+
 function getHoveredTableEdges(editor: Editor, target: EventTarget | null) {
+  const view = getMountedEditorView(editor);
+  if (!view) {
+    return { columnTable: null, rowTable: null };
+  }
+
   const targetElement = getTargetElement(target);
   if (!targetElement) {
     return { columnTable: null, rowTable: null };
   }
 
   const cell = targetElement.closest("td, th") as HTMLElement | null;
-  if (!cell || !editor.view.dom.contains(cell)) {
+  if (!cell || !view.dom.contains(cell)) {
     return { columnTable: null, rowTable: null };
   }
 
@@ -306,7 +321,9 @@ function getHoveredTableEdges(editor: Editor, target: EventTarget | null) {
 
 function getCellFromEditorSelection(editor: Editor) {
   try {
-    const { node } = editor.view.domAtPos(editor.state.selection.from);
+    const view = getMountedEditorView(editor);
+    if (!view) return null;
+    const { node } = view.domAtPos(editor.state.selection.from);
     const element =
       node.nodeType === Node.ELEMENT_NODE
         ? (node as Element)
@@ -357,6 +374,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   });
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [rowMenuOpen, setRowMenuOpen] = useState(false);
+  const [viewRetry, setViewRetry] = useState(0);
 
   const holdTableUiSelection = () => {
     tableUiPointerDownRef.current = true;
@@ -380,8 +398,23 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   };
 
   const syncOverlay = () => {
+    const view = getMountedEditorView(editor);
+    if (!view) {
+      selectedCellRef.current = null;
+      selectedCellAddressRef.current = null;
+      selectedCellRectRef.current = null;
+      selectedTableRectRef.current = null;
+      selectedCellStateRef.current = null;
+      hoveredEdgesRef.current = { columnTable: null, rowTable: null };
+      tablesRef.current = [];
+      setTables([]);
+      setSelectedCell(null);
+      setHoveredEdges({ columnTable: null, rowTable: null });
+      return;
+    }
+
     const liveTables = Array.from(
-      editor.view.dom.querySelectorAll("table"),
+      view.dom.querySelectorAll("table"),
     ) as HTMLElement[];
     const nextSelectedCell =
       (selectedCellRef.current?.isConnected
@@ -451,7 +484,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const selectCellForCommand = (cell: HTMLElement | null) => {
     if (!cell || editor.isDestroyed) return false;
 
-    const pos = editor.view.posAtDOM(cell, 0);
+    const view = getMountedEditorView(editor);
+    if (!view) return false;
+
+    const pos = view.posAtDOM(cell, 0);
     if (pos < 0) return false;
 
     editor
@@ -841,6 +877,14 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    const view = getMountedEditorView(editor);
+    if (!view) {
+      if (viewRetry >= 5) return;
+      const frame = requestAnimationFrame(() => {
+        setViewRetry((retry) => (retry >= 5 ? retry : retry + 1));
+      });
+      return () => cancelAnimationFrame(frame);
+    }
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = getTargetElement(event.target);
@@ -870,7 +914,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
       const cell = target.closest("td, th") as HTMLElement | null;
 
-      if (cell && editor.view.dom.contains(cell)) {
+      if (cell && view.dom.contains(cell)) {
         closeTableMenus();
         selectedCellRef.current = cell;
         selectedCellAddressRef.current = getCellAddress(editor, cell);
@@ -897,8 +941,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
     const handleKeyUp = () => {
       const cell = getCellFromEditorSelection(editor);
-      selectedCellRef.current =
-        cell && editor.view.dom.contains(cell) ? cell : null;
+      selectedCellRef.current = cell && view.dom.contains(cell) ? cell : null;
       selectedCellAddressRef.current = selectedCellRef.current
         ? getCellAddress(editor, selectedCellRef.current)
         : null;
@@ -906,13 +949,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     };
     const handleSelectionUpdate = () => {
       if (tableUiPointerDownRef.current) return;
-      if (!editor.view.hasFocus() && selectedCellRef.current?.isConnected) {
+      if (!view.hasFocus() && selectedCellRef.current?.isConnected) {
         syncOverlay();
         return;
       }
 
       const cell = getCellFromEditorSelection(editor);
-      if (cell && editor.view.dom.contains(cell)) {
+      if (cell && view.dom.contains(cell)) {
         selectedCellRef.current = cell;
         selectedCellAddressRef.current = getCellAddress(editor, cell);
       } else if (!selectedCellRef.current?.isConnected) {
@@ -927,14 +970,14 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
     syncOverlay();
     editor.on("selectionUpdate", handleSelectionUpdate);
-    observer.observe(editor.view.dom, { childList: true, subtree: true });
+    observer.observe(view.dom, { childList: true, subtree: true });
     document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("mousedown", handlePointerDown, true);
     document.addEventListener("click", handlePointerDown, true);
     document.addEventListener("pointermove", handleHoverPointerMove, true);
     window.addEventListener("resize", handleGeometryChange);
     window.addEventListener("scroll", handleGeometryChange, true);
-    editor.view.dom.addEventListener("keyup", handleKeyUp);
+    view.dom.addEventListener("keyup", handleKeyUp);
 
     return () => {
       observer.disconnect();
@@ -946,12 +989,15 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       window.removeEventListener("scroll", handleGeometryChange, true);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
-      editor.view.dom.removeEventListener("keyup", handleKeyUp);
+      view.dom.removeEventListener("keyup", handleKeyUp);
       editor.off("selectionUpdate", handleSelectionUpdate);
     };
-  }, [editor]);
+  }, [editor, viewRetry]);
 
-  const wrapper = editor.view.dom.closest(
+  const view = getMountedEditorView(editor);
+  if (!view) return null;
+
+  const wrapper = view.dom.closest(
     ".visual-editor-wrapper",
   ) as HTMLElement | null;
   const wrapperRect = wrapper?.getBoundingClientRect();

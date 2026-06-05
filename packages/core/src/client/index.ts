@@ -364,6 +364,7 @@ export {
   normalizeGuidedAnswers,
   type AskUserQuestionInput,
   type AskUserQuestionOption,
+  type AskUserQuestionResult,
   type GuidedQuestion,
   type GuidedQuestionAnswers,
   type GuidedQuestionFlowProps,

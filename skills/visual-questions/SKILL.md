@@ -81,17 +81,32 @@ desktop/mobile pair for a popover, panel, or component.
 
 ## Setup & Authentication
 
-Install once with the Agent-Native CLI — it installs the Plans skills, registers
-the Plans MCP connector, and authenticates it in the same step, so the first
-tool call does not hit an OAuth wall:
+There are two ways into Plans.
+
+**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
+installs the Plans skills, registers the hosted Plans MCP connector, and
+authenticates it in the same step (a one-time browser sign-in at setup — this is
+intended), so the first tool call does not hit an OAuth wall:
 
 ```bash
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` runs locally with no login by default: it generates
-the plan and opens the local editor. An account is only needed later, to share a
-plan link.
+After that, `/visual-plan` (and `/ui-plan`, `/visual-questions`,
+`/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
+register the connector without authenticating, then run
+`agent-native connect https://plan.agent-native.com` whenever you are ready.
+
+**Browser (people you share with).** Open the Plans editor and create & edit
+with no sign-up — you work as a guest. Sign in only when you want to save or
+share; signing in claims the plans you made as a guest into your account.
+
+Sharing and commenting require an account: public/shared plans are viewable by
+anyone with the link, but commenting on them needs an agent-native account.
+
+For fully offline, no-account use, run the Plans app locally and sync plans to
+your repo as MDX. This local mode is a separate advanced path, not the default
+hosted flow.
 
 If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
 do not keep retrying the tool. Authenticate the connector with

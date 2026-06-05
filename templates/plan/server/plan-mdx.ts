@@ -185,6 +185,7 @@ const NODE_TO_COMPONENT: Record<PlanWireframeElName, string> = {
   screen: "FrameScreen",
   browserBar: "BrowserBar",
   statusBar: "StatusBar",
+  toolbar: "Toolbar",
   row: "Row",
   col: "Col",
   sidebar: "Sidebar",

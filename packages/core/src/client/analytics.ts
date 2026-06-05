@@ -248,6 +248,48 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   ) {
     return true;
   }
+  // Browser-side access control rejections usually mean a tab outlived the
+  // session or hit a protected route while signed out. The server Sentry setup
+  // already drops these bare auth errors; mirror that here for client-captured
+  // route/query failures.
+  if (
+    exceptionValues.some((value) => {
+      const exceptionType = String(value.type ?? "")
+        .trim()
+        .toLowerCase();
+      const exceptionValue = String(value.value ?? "")
+        .trim()
+        .toLowerCase();
+      return (
+        exceptionType === "unauthorizederror" ||
+        exceptionType === "unauthenticatederror" ||
+        exceptionValue === "unauthorized" ||
+        exceptionValue === "unauthenticated"
+      );
+    })
+  ) {
+    return true;
+  }
+  // Exact user/navigation aborts are expected browser behavior. Keep other
+  // AbortError shapes visible unless they match this common non-bug message.
+  if (
+    exceptionValues.some((value) => {
+      const exceptionType = String(value.type ?? "")
+        .trim()
+        .toLowerCase();
+      const exceptionValue = String(value.value ?? "")
+        .trim()
+        .toLowerCase();
+      return (
+        exceptionValue === "the user aborted a request." ||
+        exceptionValue === "aborterror: the user aborted a request." ||
+        (exceptionType === "aborterror" &&
+          exceptionValue.includes("the user aborted a request"))
+      );
+    })
+  ) {
+    return true;
+  }
   const exceptionText = exceptionValues
     .map((value) => `${value.type ?? ""} ${value.value ?? ""}`)
     .join(" ")

@@ -369,6 +369,22 @@ describe("server/sentry", () => {
       expect(result).not.toBeNull();
     });
 
+    it("drops metadata-only SDK ErrorEvent payloads", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        metadata: {
+          filename: "/var/task/_libs/sentry__browser+sentry__core.mjs",
+          function: "Gr",
+          value: "[object ErrorEvent]",
+        },
+      } as never);
+      expect(result).toBeNull();
+    });
+
     it("drops bare HTTPError Unauthorized events", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");

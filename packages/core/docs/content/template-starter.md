@@ -51,13 +51,13 @@ Pick a domain template ([Mail](/docs/template-mail), [Calendar](/docs/template-c
 ## Scaffolding {#scaffolding}
 
 ```bash
-pnpm dlx @agent-native/core create my-app --template starter --standalone
+npx @agent-native/core create my-app --standalone --template starter
 ```
 
 Or, in a workspace:
 
 ```bash
-pnpm dlx @agent-native/core create my-platform  # pick "Starter" (pre-selected by default) plus any others
+npx @agent-native/core create my-platform  # pick "Starter" (pre-selected by default) plus any others
 ```
 
 ## First edits {#first-edits}

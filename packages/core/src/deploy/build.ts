@@ -1256,6 +1256,8 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "win32-x64-msvc",
 ];
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
+const RESVG_SCOPE = "@resvg";
+const RESVG_PACKAGE_PREFIX = "resvg-js";
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
 const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
@@ -1385,6 +1387,47 @@ export function findInstalledFfmpegStaticPackage(
   return null;
 }
 
+export function findInstalledResvgPackages(
+  nodeModulesRoots: string[],
+): Array<{ packageName: string; packageDir: string }> {
+  const found = new Map<string, string>();
+
+  for (const root of nodeModulesRoots) {
+    const directScope = path.join(root, RESVG_SCOPE);
+    if (fs.existsSync(directScope)) {
+      for (const entry of fs.readdirSync(directScope)) {
+        if (!entry.startsWith(RESVG_PACKAGE_PREFIX)) continue;
+        const packageDir = path.join(directScope, entry);
+        if (fs.existsSync(path.join(packageDir, "package.json"))) {
+          found.set(entry, packageDir);
+        }
+      }
+    }
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      const match = entry.match(/^@resvg\+(resvg-js[^@]*)@/);
+      if (!match) continue;
+      const packageName = match[1];
+      const packageDir = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        RESVG_SCOPE,
+        packageName,
+      );
+      if (fs.existsSync(path.join(packageDir, "package.json"))) {
+        found.set(packageName, packageDir);
+      }
+    }
+  }
+
+  return [...found.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([packageName, packageDir]) => ({ packageName, packageDir }));
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
@@ -1404,6 +1447,21 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
       `[deploy] Copied ${copied} installed libsql native package(s) into the server bundle.`,
     );
   }
+}
+
+function copyInstalledResvgPackages(serverDir: string | undefined) {
+  if (!serverDir || !fs.existsSync(serverDir)) return;
+  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd));
+  if (packages.length === 0) return;
+
+  const destScopeDir = path.join(serverDir, "node_modules", RESVG_SCOPE);
+  for (const { packageName, packageDir } of packages) {
+    copyDir(packageDir, path.join(destScopeDir, packageName));
+  }
+
+  console.log(
+    `[deploy] Copied ${packages.length} resvg package(s) into the server bundle for OG image rendering.`,
+  );
 }
 
 function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
@@ -1756,6 +1814,7 @@ export default bundle;
 
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
+    copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
   }
 

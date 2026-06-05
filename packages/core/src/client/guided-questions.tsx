@@ -59,6 +59,12 @@ export interface GuidedQuestionPayload {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  /**
+   * @internal Set by {@link askUserQuestion} for client-initiated questions.
+   * When present, `useGuidedQuestionFlow` resolves the matching in-memory
+   * promise with the answer instead of forwarding it to the agent chat.
+   */
+  clientResolveId?: string;
 }
 
 const OTHER_OPTION_PREFIX = "__other__:";
@@ -173,24 +179,91 @@ export interface AskUserQuestionInput {
 
 const GUIDED_QUESTIONS_STATE_KEY = "guided-questions";
 
+/** The user's answer to an {@link askUserQuestion}: the selected option
+ *  value(s), the free-text "Other" string, or `null` if the user skipped. */
+export type AskUserQuestionResult = string | string[] | null;
+
+// In-memory resolver registry shared between `askUserQuestion` (which registers
+// a resolver and writes the question to application state) and
+// `useGuidedQuestionFlow` (which renders the question and, on submit/skip,
+// resolves the matching promise). Same module → the map is shared.
+type AskQuestionResolver = (answer: AskUserQuestionResult) => void;
+const clientQuestionResolvers = new Map<string, AskQuestionResolver>();
+let askQuestionCounter = 0;
+
+function nextClientResolveId(): string {
+  askQuestionCounter += 1;
+  const rand =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `askq-${askQuestionCounter}-${rand}`;
+}
+
+/** Resolve a pending client-initiated question by id. Returns false when no
+ *  resolver is registered (e.g. an agent-initiated question, or a reload). */
+function resolveClientQuestion(
+  id: string,
+  answer: AskUserQuestionResult,
+): boolean {
+  const resolver = clientQuestionResolvers.get(id);
+  if (!resolver) return false;
+  clientQuestionResolvers.delete(id);
+  resolver(answer);
+  return true;
+}
+
+/** Pull the answer for a single guided question out of the answers map,
+ *  normalizing "Other" free-text and multi-select arrays. */
+function extractSingleAnswer(
+  answers: GuidedQuestionAnswers,
+  questionId: string,
+): AskUserQuestionResult {
+  const raw = answers[questionId];
+  if (!hasGuidedAnswer(raw)) return null;
+  if (Array.isArray(raw)) {
+    const values = raw
+      .map((v) =>
+        isOtherGuidedAnswer(v) ? getOtherGuidedAnswerText(v).trim() : String(v),
+      )
+      .filter((s) => s.length > 0);
+    return values.length ? values : null;
+  }
+  if (isOtherGuidedAnswer(raw)) {
+    const text = getOtherGuidedAnswerText(raw).trim();
+    return text.length ? text : null;
+  }
+  return String(raw);
+}
+
 /**
  * Ask the user a multiple-choice question from app code and render it inline in
  * the agent panel — the client-side twin of the agent's `ask-question` tool.
  *
  * The question is written to application state (`"guided-questions"` by
  * default), where the mounted `GuidedQuestionFlow` (driven by
- * {@link useGuidedQuestionFlow}) renders it. The user's answer is delivered to
- * the agent chat, so the agent picks up the choice and continues — consistent
- * with the agent-native model where the agent is the consumer of user intent.
- * Use it for app-triggered clarifications (e.g. a "Generate" button that needs
- * one decision before kicking off agent work).
+ * {@link useGuidedQuestionFlow}) renders it, and the agent panel is revealed so
+ * it's visible. **Resolves with the user's answer** — the selected option
+ * value (or `value[]` when `allowMultiple`), the free-text "Other" string, or
+ * `null` if they skip — so the caller can branch on it (e.g. build the right
+ * generate prompt before kicking off agent work):
  *
- * Resolves once the question has been shown; it does not resolve with the
- * answer (the answer flows to the agent, not back to the caller).
+ * ```ts
+ * const length = await askUserQuestion({
+ *   question: "How long should this deck be?",
+ *   header: "Deck length",
+ *   options: [{ label: "Short", recommended: true }, { label: "Long" }],
+ * });
+ * if (length) sendToAgentChat({ message: `Make a ${length} deck`, submit: true });
+ * ```
+ *
+ * Requires the agent panel (the mounted `GuidedQuestionFlow`) to exist, which
+ * it does in every template. The returned promise stays pending until the user
+ * answers or skips.
  */
 export async function askUserQuestion(
   input: AskUserQuestionInput,
-): Promise<void> {
+): Promise<AskUserQuestionResult> {
   const question = String(input?.question ?? "").trim();
   if (!question) {
     throw new TypeError("askUserQuestion: `question` is required.");
@@ -235,7 +308,9 @@ export async function askUserQuestion(
     );
   }
 
+  const resolveId = nextClientResolveId();
   const payload: GuidedQuestionPayload = {
+    clientResolveId: resolveId,
     questions: [
       {
         id: "q1",
@@ -252,10 +327,30 @@ export async function askUserQuestion(
     ],
   };
 
-  await setClientAppState(
-    input.stateKey ?? GUIDED_QUESTIONS_STATE_KEY,
-    payload,
-  );
+  const answerPromise = new Promise<AskUserQuestionResult>((resolve) => {
+    clientQuestionResolvers.set(resolveId, resolve);
+  });
+
+  // Reveal the agent panel so the inline question is visible even if collapsed.
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new CustomEvent("agent-panel:open"));
+    } catch {
+      // best-effort — the question still renders if the panel is already open
+    }
+  }
+
+  try {
+    await setClientAppState(
+      input.stateKey ?? GUIDED_QUESTIONS_STATE_KEY,
+      payload,
+    );
+  } catch (err) {
+    clientQuestionResolvers.delete(resolveId);
+    throw err;
+  }
+
+  return answerPromise;
 }
 
 function optionKey(option: GuidedQuestionOption): string {
@@ -900,6 +995,15 @@ export function useGuidedQuestionFlow({
 
   const handleSubmit = useCallback(
     (answers: GuidedQuestionAnswers) => {
+      // Client-initiated question (askUserQuestion): resolve the caller's
+      // promise with the answer instead of forwarding it to the agent chat.
+      const resolveId = payload?.clientResolveId;
+      if (resolveId) {
+        const firstId = payload?.questions?.[0]?.id ?? "q1";
+        resolveClientQuestion(resolveId, extractSingleAnswer(answers, firstId));
+        clear();
+        return;
+      }
       const formattedAnswers = formatGuidedAnswersForAgent(answers);
       const context =
         buildSubmitContext?.({ answers, formattedAnswers }) ??
@@ -912,17 +1016,23 @@ export function useGuidedQuestionFlow({
       sendToAgentChat({ message: submitMessage, context, submit: true });
       clear();
     },
-    [buildSubmitContext, clear, submitMessage],
+    [buildSubmitContext, clear, payload, submitMessage],
   );
 
   const handleSkip = useCallback(() => {
+    const resolveId = payload?.clientResolveId;
+    if (resolveId) {
+      resolveClientQuestion(resolveId, null);
+      clear();
+      return;
+    }
     sendToAgentChat({
       message: skipMessage,
       context: buildSkipContext?.(),
       submit: true,
     });
     clear();
-  }, [buildSkipContext, clear, skipMessage]);
+  }, [buildSkipContext, clear, payload, skipMessage]);
 
   return {
     payload,

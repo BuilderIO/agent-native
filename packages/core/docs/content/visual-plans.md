@@ -1,23 +1,26 @@
 ---
 title: "Visual Plans"
-description: "Turn your coding agent's plans into interactive, reviewable documents with /visual-plan — one command installs and authenticates, then plans run locally with no login."
+description: "Turn your coding agent's plans into interactive, reviewable documents with /visual-plan. Install authenticates once; reviewers you share with edit as a guest, sign in only to save or share."
 ---
 
 # Visual Plans
 
 `/visual-plan` is a coding-agent skill that turns the plan your agent would normally write in Markdown into a **structured visual document**: an optional pan/zoom wireframe canvas on top and a Notion-like technical document below, with diagrams, mockups, prototype options, annotations, and comments you can react to before any code changes.
 
-It is **local-first and no-login by default**. You run one command to install the skill and authenticate the connector, then `/visual-plan` generates a plan and opens the local editor — no account required. You only sign in later, when you want to share a plan link.
+There are two ways into Plans:
 
-## Install and authenticate in one step {#install}
+- **From your coding agent (CLI)** — one command installs the skill, registers the hosted Plans connector, and authenticates it.
+- **In the browser** — anyone you share with can open the editor and create or edit as a **guest, with no sign-up**. They sign in only when they want to save or share.
 
-Install with the Agent-Native CLI. The command installs the skill instructions, registers the Plans MCP connector, **and authenticates it in the same step**, so your first tool call does not hit an OAuth wall:
+## Coding agent setup {#install}
+
+Install with the Agent-Native CLI. The command installs the skill instructions, registers the hosted Plans MCP connector, **and authenticates it in the same step**, so your first tool call does not hit an OAuth wall:
 
 ```bash
 agent-native skills add visual-plan
 ```
 
-This also installs the companion commands `/ui-plan`, `/visual-questions`, and `/visualize-plan` (see [Invoking the skill](#invoke)).
+Authentication is a one-time browser sign-in at setup — this is intended, and it is what lets the agent persist and share the plans it generates. This also installs the companion commands `/ui-plan`, `/visual-questions`, and `/visualize-plan` (see [Invoking the skill](#invoke)).
 
 What the auth step does depends on your client:
 
@@ -40,16 +43,28 @@ Once installed, use the slash command that fits the work:
 - `/visual-questions` — a short visual intake form before planning.
 - `/visualize-plan` — turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual companion.
 
-The agent gates hard: it only builds a polished visual plan when a wrong direction would be costly, and skips it for trivial, unambiguous work.
+The agent gates hard: it only builds a polished visual plan when a wrong direction would be costly, and skips it for trivial, unambiguous work. Each command generates a plan and opens the editor.
 
-## No-login local usage {#local}
+## Editing in the browser as a guest {#guest}
 
-By default `/visual-plan` runs entirely locally. The agent generates the plan, opens the local editor, and you review the wireframes and document — all without an account. Local development uses the framework's auto-created dev account, so plans stay scoped and the editor works out of the box.
+People you share a plan with do not need to install anything. They open the Plans editor and **create and edit with no sign-up** — they work as a guest. Signing in is only required when someone wants to **save or share** their own work.
 
-If a Plans tool ever returns `needs auth`, `Unauthorized`, or `Session terminated`, do not keep retrying it — authenticate the connector with `agent-native connect https://plan.agent-native.com` (or re-run `/mcp` → Authenticate in an OAuth-capable host), then continue once the connector is available.
+When a guest signs in, the plans they created as a guest are **claimed** into their account, so nothing they built is lost.
 
-## Sharing a plan {#sharing}
+## Sharing and commenting {#sharing}
 
-Sharing is the one workflow that needs an account. When you want to send a reviewer a link, sign in (Google sign-in appears when the standard Google OAuth env vars are configured) and the plan is published to a shareable URL. Hosted persistence, private sharing, reviewer links, and cross-device or team review all use account login; everything up to that point stays local and login-free.
+Sharing and commenting are the workflows that need an account:
+
+- **Viewing** a public or shared plan works for anyone with the link — no account required.
+- **Commenting** on a shared plan requires an agent-native account.
+- **Sharing** a plan (publishing it to a link, private sharing, reviewer access, cross-device or team review) requires signing in. Google sign-in appears when the standard Google OAuth env vars are configured.
 
 The hosted Plans connector lives at `https://plan.agent-native.com/_agent-native/mcp`. Never put shared secrets in skill files.
+
+## Local mode (advanced, offline) {#local}
+
+For fully offline, no-account use, you can run the Plans app locally and sync your plans to your repo as MDX. This local mode is a separate, advanced path — not the default hosted flow — and is best when you need everything to stay on your machine and in version control.
+
+## Recovering from auth errors {#auth-errors}
+
+If a Plans tool ever returns `needs auth`, `Unauthorized`, or `Session terminated`, do not keep retrying it. Authenticate the connector with `agent-native connect https://plan.agent-native.com` (or re-run `/mcp` → **Authenticate** in an OAuth-capable host), then continue once the connector is available.

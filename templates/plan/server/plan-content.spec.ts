@@ -15,7 +15,7 @@ import {
 } from "./plan-content.js";
 
 describe("structured plan content", () => {
-  it("builds UI plans as native content with a canvas and legacy-wireframe blocks", () => {
+  it("builds UI plans as native content with a canvas and kit-tree wireframes", () => {
     const content = createUiPlanContent({
       title: "Checkout flow",
       brief: "Review the checkout flow before implementation.",
@@ -35,11 +35,10 @@ describe("structured plan content", () => {
     });
 
     expect(content.canvas?.frames).toHaveLength(2);
-    expect(content.canvas?.frames[0]?.legacyWireframe?.viewport).toBe(
-      "desktop",
-    );
-    expect(content.canvas?.frames[1]?.legacyWireframe?.viewport).toBe("phone");
+    expect(content.canvas?.frames[0]?.wireframe?.surface).toBe("desktop");
+    expect(content.canvas?.frames[1]?.wireframe?.surface).toBe("mobile");
     expect(content.canvas?.frames[0]?.label).toBe("Overview");
+    expect(content.canvas?.frames[0]?.legacyWireframe).toBeUndefined();
     expect(content.blocks.some((block) => block.type === "tabs")).toBe(true);
     expect(
       content.blocks.some((block) => block.type === "implementation-map"),
@@ -111,12 +110,10 @@ describe("structured plan content", () => {
 
     expect(content.blocks.map((block) => block.type)).toEqual([
       "rich-text",
-      "legacy-wireframe",
+      "wireframe",
     ]);
     expect(content.canvas?.frames).toHaveLength(1);
-    expect(
-      content.canvas?.frames[0]?.legacyWireframe?.regions.length ?? 0,
-    ).toBeGreaterThan(0);
+    expect(content.canvas?.frames[0]?.wireframe?.screen.length ?? 0).toBe(1);
   });
 
   it("creates visual questions with kit-tree previews instead of standalone HTML", () => {

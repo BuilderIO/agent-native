@@ -243,7 +243,7 @@ When an agent calls a remote A2A peer that doesn't return immediately, the frame
 ```ts
 // Default: async + poll (safe on serverless hosts)
 const reply = await callAgent(url, "Generate the quarterly report", {
-  userEmail: session.user.email,
+  userEmail: session.email,
 });
 
 // Single-shot blocking POST (avoid on Netlify/Vercel for slow handlers)
