@@ -92,7 +92,7 @@ export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
         }
       });
       // Match the version of @ffmpeg/ffmpeg installed in package.json.
-      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
       await ffmpeg.load({
         coreURL: await util.toBlobURL(
           `${baseURL}/ffmpeg-core.js`,
