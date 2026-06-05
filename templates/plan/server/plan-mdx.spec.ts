@@ -408,9 +408,10 @@ version: 2
     expect(documentButtonId).not.toBe(canvasButtonId);
   });
 
-  it("keeps generated child IDs distinct when explicit parent IDs are duplicated", async () => {
-    const parsed = await parsePlanMdxFolder({
-      "plan.mdx": `---
+  it("rejects duplicate explicit wireframe node IDs during import", async () => {
+    await expect(
+      parsePlanMdxFolder({
+        "plan.mdx": `---
 title: "Duplicate parent IDs"
 version: 2
 ---
@@ -428,25 +429,8 @@ version: 2
   </Screen>
 </WireframeBlock>
 `,
-    });
-
-    const wireframe = parsed.blocks.find(
-      (block) => block.id === "duplicate-parent-wireframe",
-    );
-    expect(wireframe?.type).toBe("wireframe");
-    if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
-
-    const firstButtonId =
-      wireframe.data.screen[0]?.children?.[0]?.children?.[0]?.id;
-    const secondButtonId =
-      wireframe.data.screen[0]?.children?.[1]?.children?.[0]?.id;
-    expect(firstButtonId).toBe(
-      "node-btn-plan-block-0-duplicate-parent-wireframe-screen-0-0-0",
-    );
-    expect(secondButtonId).toBe(
-      "node-btn-plan-block-0-duplicate-parent-wireframe-screen-0-1-0",
-    );
-    expect(firstButtonId).not.toBe(secondButtonId);
+      }),
+    ).rejects.toThrow("Duplicate wireframe node id: dup");
   });
 
   it("keeps generated IDs distinct for punctuation-equivalent owner IDs", async () => {

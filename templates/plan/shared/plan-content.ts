@@ -748,7 +748,12 @@ const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
       .max(WIREFRAME_MAX_NODES)
       .superRefine((nodes, ctx) => {
         let total = 0;
-        const walk = (list: PlanWireframeNode[], depth: number) => {
+        const seenNodeIds = new Set<string>();
+        const walk = (
+          list: PlanWireframeNode[],
+          depth: number,
+          path: Array<string | number>,
+        ) => {
           if (depth > WIREFRAME_MAX_DEPTH) {
             ctx.addIssue({
               code: "custom",
@@ -756,7 +761,7 @@ const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
             });
             return;
           }
-          for (const node of list) {
+          for (const [index, node] of list.entries()) {
             total += 1;
             if (total > WIREFRAME_MAX_NODES) {
               ctx.addIssue({
@@ -765,10 +770,23 @@ const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
               });
               return;
             }
-            if (node.children) walk(node.children, depth + 1);
+            const nodePath = [...path, index];
+            if (node.id) {
+              if (seenNodeIds.has(node.id)) {
+                ctx.addIssue({
+                  code: "custom",
+                  path: [...nodePath, "id"],
+                  message: `Duplicate wireframe node id: ${node.id}`,
+                });
+              }
+              seenNodeIds.add(node.id);
+            }
+            if (node.children) {
+              walk(node.children, depth + 1, [...nodePath, "children"]);
+            }
           }
         };
-        walk(nodes, 1);
+        walk(nodes, 1, []);
       }),
   })
   .strict();

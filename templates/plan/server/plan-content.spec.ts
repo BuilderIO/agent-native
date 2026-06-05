@@ -176,6 +176,53 @@ describe("structured plan content", () => {
     expect(messages).toContain("Duplicate canvas frame id: frame-1");
     expect(messages).toContain("Duplicate canvas annotation id: annotation-1");
   });
+
+  it("rejects duplicate wireframe node IDs", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      title: "Duplicate wireframe node IDs",
+      canvas: {
+        frames: [
+          {
+            id: "frame-1",
+            label: "Inline wireframe",
+            wireframe: {
+              surface: "desktop",
+              screen: [
+                {
+                  id: "inline-root",
+                  el: "screen",
+                  children: [
+                    { id: "inline-cta", el: "btn", text: "Save" },
+                    { id: "inline-cta", el: "btn", text: "Done" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+      blocks: [
+        {
+          id: "wf",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            screen: [
+              { id: "title-1", el: "title", text: "Today" },
+              { id: "title-1", el: "title", text: "Tomorrow" },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const messages = result.error.issues.map((issue) => issue.message);
+    expect(messages).toContain("Duplicate wireframe node id: title-1");
+    expect(messages).toContain("Duplicate wireframe node id: inline-cta");
+  });
 });
 
 describe("custom-html safety", () => {
