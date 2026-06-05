@@ -55,7 +55,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value }),
+      body: JSON.stringify(value),
     },
   );
 }
@@ -1759,7 +1759,7 @@ export default function RecordRoute() {
       void engine?.cancel();
     };
     const warnBeforeDiscard = (event: BeforeUnloadEvent) => {
-      if (!engineRef.current?.canDownloadBufferedRecording()) return;
+      if (!engineRef.current?.hasRecordingAtRisk()) return;
       event.preventDefault();
       event.returnValue = "";
     };

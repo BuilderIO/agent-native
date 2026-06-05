@@ -66,15 +66,15 @@ describe("application-state handlers", () => {
       expect(mockAppStateGet).toHaveBeenCalledWith("user@example.com", "test");
     });
 
-    it("preserves alphanumeric, hyphens, and underscores", async () => {
+    it("preserves alphanumeric, hyphens, underscores, and colons", async () => {
       mockAppStateGet.mockResolvedValue(null);
 
-      const event = { _params: { key: "my-key_123" }, _headers: {} };
+      const event = { _params: { key: "my-key_123:tab-1" }, _headers: {} };
       await getState(event);
 
       expect(mockAppStateGet).toHaveBeenCalledWith(
         "user@example.com",
-        "my-key_123",
+        "my-key_123:tab-1",
       );
     });
   });
@@ -172,6 +172,24 @@ describe("application-state handlers", () => {
         },
       );
       expect(result).toEqual({ ok: true });
+    });
+
+    it("passes x-request-source header", async () => {
+      mockAppStateDelete.mockResolvedValue(true);
+
+      const event = {
+        _params: { key: "old" },
+        _headers: { "x-request-source": "tab-1" },
+      };
+      await deleteState(event);
+
+      expect(mockAppStateDelete).toHaveBeenCalledWith(
+        "user@example.com",
+        "old",
+        {
+          requestSource: "tab-1",
+        },
+      );
     });
   });
 

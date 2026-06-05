@@ -178,14 +178,16 @@ export const TEMPLATES: TemplateMeta[] = [
     core: true,
   },
   {
-    name: "contracts",
-    label: "Visual Plans",
-    hint: "Interactive HTML plans with diagrams, wireframes, annotations, and proof gates",
+    name: "plan",
+    label: "Plans",
+    hint: "Agent-native HTML plans with diagrams, wireframes, prototypes, annotations, sharing, and proof gates",
     icon: "FileText",
     color: "#52525B",
     colorRgb: "82 82 91",
     devPort: 8105,
-    defaultMode: "dev",
+    prodUrl: "https://plan.agent-native.com",
+    defaultMode: "prod",
+    core: true,
   },
   {
     name: "design",
@@ -258,6 +260,7 @@ export function getTemplate(name: string): TemplateMeta | undefined {
   if (name === "image" || name === "images" || name === "asset") {
     name = "assets";
   }
+  if (name === "contracts" || name === "visual-plans") name = "plan";
   return TEMPLATES.find((t) => t.name === name);
 }
 

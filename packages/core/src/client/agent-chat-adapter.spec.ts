@@ -1707,7 +1707,7 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("ready after route registration");
   });
 
-  it("uses partial stream-ended text as history without keeping it visible", async () => {
+  it("keeps partial stream-ended text visible while using it as history", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -1783,14 +1783,15 @@ describe("createAgentChatAdapter", () => {
         content: [{ type: "text", text: "still working..." }],
       },
     ]);
-    expect((results[1] as any).content).toEqual([]);
+    expect(results.some((result: any) => result.content.length === 0)).toBe(
+      false,
+    );
     const last = results.at(-1) as any;
     const finalText = last.content
       .filter((part: any) => part.type === "text")
       .map((part: any) => part.text)
       .join("");
-    expect(finalText).toBe("finished after stream recovery");
-    expect(finalText).not.toContain("still working");
+    expect(finalText).toBe("still working...finished after stream recovery");
   });
 
   it("continues automatically after a recoverable gateway timeout event", async () => {
@@ -1876,13 +1877,90 @@ describe("createAgentChatAdapter", () => {
         toolName: "search-docs",
         result: "found relevant dashboard notes",
       }),
-      { type: "text", text: "finished after timeout recovery" },
+      {
+        type: "text",
+        text: "checking the dashboard...finished after timeout recovery",
+      },
     ]);
     const finalText = last.content
       .filter((part: any) => part.type === "text")
       .map((part: any) => part.text)
       .join("");
-    expect(finalText).not.toContain("checking the dashboard");
+    expect(finalText).toContain("checking the dashboard");
+  });
+
+  it("keeps text before a tool in order across transient recovery", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "I'll check first. " },
+          {
+            type: "tool_start",
+            tool: "search-docs",
+            input: { query: "analytics" },
+          },
+          {
+            type: "tool_done",
+            tool: "search-docs",
+            result: "found relevant dashboard notes",
+          },
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s",
+            errorCode: "builder_gateway_timeout",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "text", text: "Done." }, { type: "done" }]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-timeout-text-before-tool",
+      threadId: "thread-timeout-text-before-tool",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "long analytics query" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    const last = results.at(-1) as any;
+    expect(last.content).toEqual([
+      { type: "text", text: "I'll check first. " },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "search-docs",
+        result: "found relevant dashboard notes",
+      }),
+      { type: "text", text: "Done." },
+    ]);
   });
 
   it("stops after repeated stale-run recoveries", async () => {

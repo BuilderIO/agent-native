@@ -1,6 +1,6 @@
 ---
 title: "Actions"
-description: "defineAction — the single definition that becomes an agent tool, a typesafe frontend mutation, an HTTP endpoint, an MCP tool, and a CLI command."
+description: "defineAction — the single definition that becomes an agent tool, typed frontend hooks, framework transport, an MCP tool, and a CLI command."
 ---
 
 # Actions
@@ -8,8 +8,9 @@ description: "defineAction — the single definition that becomes an agent tool,
 Actions are the single source of truth for anything your app does. Define an action once with `defineAction()`, drop it in `actions/`, and it's immediately available as:
 
 - **An agent tool** — the agent sees it with a zod-derived JSON Schema and can call it in chat.
-- **A typesafe React mutation** — `useActionMutation("name")` on the frontend, types inferred from the schema.
-- **An HTTP endpoint** — `POST /_agent-native/actions/<name>` (auto-mounted by the framework).
+- **Typesafe React hooks** — `useActionQuery("name")` and `useActionMutation("name")` on the frontend, types inferred from the schema.
+- **Imperative client calls** — `callAction("name", params)` when a hook does not fit.
+- **Framework transport** — auto-mounted by the framework behind those hooks and available to external HTTP clients.
 - **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP client.
 - **An A2A tool** — called by other agent-native apps over A2A.
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
@@ -199,10 +200,7 @@ export default defineAction({
     const screen: Record<string, unknown> = { navigation };
 
     if (navigation?.view === "inbox") {
-      const res = await fetch(
-        `${process.env.APP_URL}/api/emails?label=${navigation.label}`,
-      );
-      screen.emailList = await res.json();
+      screen.emailList = await listEmailsForLabel(navigation.label);
     }
 
     return screen;

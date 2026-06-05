@@ -260,7 +260,7 @@ export default function Home() {
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Don't choose between structured user flows and autonomous agents.
+              Don't choose between rich user interfaces and autonomous agents.
               Every Agent-Native app is both.
             </p>
 

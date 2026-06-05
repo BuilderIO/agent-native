@@ -17,7 +17,11 @@ export default defineAction({
       .enum(["prototype", "other"])
       .optional()
       .describe("Updated project type"),
-    designSystemId: z.string().optional().describe("Design system ID to link"),
+    designSystemId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Design system ID to link, or null to unlink"),
   }),
   run: async ({
     id,

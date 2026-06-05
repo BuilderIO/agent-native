@@ -1,5 +1,96 @@
 # @agent-native/core
 
+## 0.37.3
+
+### Patch Changes
+
+- 309ad84: Tighten bundled visual plan guidance for non-redundant documents and aligned sketch wireframes.
+
+## 0.37.2
+
+### Patch Changes
+
+- ce7f37c: Expose shared Brand Kit helpers for parsing Figma `.fig` local-copy files.
+- ce7f37c: Add the visual-questions Plans skill to the installer and support compact share triggers.
+
+## 0.37.1
+
+### Patch Changes
+
+- 1810b32: Fix skill discovery and resource read guidance for agent-native agents.
+
+## 0.37.0
+
+### Minor Changes
+
+- 5d6ef40: Add `useSemanticNavigationState` and `useAgentRouteState` client helpers for
+  consistent semantic navigation app-state sync, tab-scoped navigate command
+  consumption, and duplicate command protection.
+
+### Patch Changes
+
+- 5d6ef40: Keep the chat shell from waiting on dynamic prompt suggestions, and show a
+  three-row suggestion skeleton in empty chats while context-aware suggestions
+  load.
+- 5d6ef40: Add a "Plan Discipline" section to the exported Plans skills
+
+  `/visual-plan`, `/ui-plan`, and `/visualize-plan` now lead with plan-mode
+  process discipline drawn from best-in-class plan modes: right-size when to plan
+  (skip trivial work), research the codebase before drafting, keep planning
+  read-only, clarify only decision-changing ambiguity before finalizing (otherwise
+  state an assumption and proceed), write specific plans with non-goals and a
+  closing verification step, and treat the plan as an explicit approval gate before
+  any code is written.
+
+## 0.36.0
+
+### Minor Changes
+
+- f424018: Add the Agent-Native Plans `/ui-plan` exported skill and CLI alias for
+  UI-first, high-fidelity visual planning.
+
+### Patch Changes
+
+- f424018: Move the Context X-Ray composer meter into a compact popover trigger.
+- f424018: Show humanized running tool-call activity and hide argument previews from collapsed tool-call headers.
+- f424018: Stop emitting `X-Frame-Options: DENY` from the global security headers middleware, emit iframe-navigation COEP/CORP headers for cross-origin isolated hosts, and allow trusted app host ancestors for extension iframe documents so agent-native apps can run inside iframe hosts.
+- f424018: Reconcile deferred external state updates after local editing becomes inactive so agent changes can appear live without a refresh.
+- f424018: Keep streamed assistant text visible across transient chat continuations so tool cards no longer jump ahead of earlier text.
+
+## 0.35.3
+
+### Patch Changes
+
+- 2da75f1: Harden Agent Teams serverless dispatch and visibility: quick non-2xx
+  self-dispatch responses now fail the sub-agent instead of leaving a ghost
+  running task, and background transcripts/stop controls resolve the active
+  chunked run id.
+- 2da75f1: Add browser-safe client helpers for reading, writing, setting, and deleting
+  application state through the framework transport, plus an imperative
+  `callAction` helper for client action calls that do not fit React hooks.
+- 2da75f1: Keep hosted template server shells CDN-cacheable by applying the shared SSR SWR
+  headers to auth login HTML and always enforcing SSR cache headers on React
+  Router shell/data responses.
+- 2da75f1: Make the stateless MCP server serverless-safe so remote hosts (Claude Code,
+  etc.) can actually complete `tools/call`. Two changes to the Streamable HTTP
+  transport: (1) `enableJsonResponse: true` so request/response is returned as
+  JSON inside the request lifecycle instead of an SSE event pushed after a
+  serverless instance has frozen (which dropped the result and surfaced as
+  "session expired"); (2) answer `405` for `GET` so clients don't latch onto a
+  standalone server-to-client SSE stream a stateless per-request instance can't keep
+  alive ("not connected"). Inline MCP App rendering and direct tool calls now
+  work over the hosted connectors.
+- 2da75f1: Enhance local context reports with workflow diagnostics and update the built-in
+  Plans skill installer metadata.
+- 2da75f1: Add observable agent chat context helpers for advanced staged prompt context
+  sync while keeping `sendToAgentChat({ message, context, submit })` as the
+  primary simple UI handoff API.
+- 2da75f1: Harden provider API runtime credential scoping and catalog allowlists from late
+  review feedback.
+- 2da75f1: Quietly handle local auto-dev-account signup races and expose stable core
+  client leaf exports for apps that need to avoid the broad client barrel.
+- 2da75f1: Move the agent runs tray out of the agent panel header and into the chat overflow menu.
+
 ## 0.35.2
 
 ### Patch Changes

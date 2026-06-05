@@ -14,6 +14,9 @@ import {
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types";
 
+export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_FIG_REFERENCE_FILE_BYTES = 200 * 1024 * 1024;
+
 export interface UploadedReferenceFile {
   path: string;
   url?: string;
@@ -38,12 +41,29 @@ function ascii(data: Uint8Array, start: number, end: number): string {
   return Buffer.from(data.subarray(start, end)).toString("ascii");
 }
 
+export function maxReferenceFileBytes(
+  originalName: string | undefined,
+): number {
+  return path.extname(originalName ?? "").toLowerCase() === ".fig"
+    ? MAX_FIG_REFERENCE_FILE_BYTES
+    : MAX_REFERENCE_FILE_BYTES;
+}
+
+function formatMaxFileSize(bytes: number): string {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
 function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   if (ext === ".pdf") {
     return ascii(data, 0, 5) === "%PDF-";
   }
   if (ext === ".pptx" || ext === ".docx") {
     return data[0] === 0x50 && data[1] === 0x4b;
+  }
+  if (ext === ".fig") {
+    const isZip = data[0] === 0x50 && data[1] === 0x4b;
+    const isKiwi = ascii(data, 0, 8) === "fig-kiwi";
+    return isZip || isKiwi;
   }
   if (ext === ".png") {
     return (
@@ -150,17 +170,19 @@ export const uploadFiles = defineEventHandler(async (event) => {
   }
 
   const MAX_FILES = 20;
-  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
   if (fileParts.length > MAX_FILES) {
     setResponseStatus(event, 413);
     return { error: `Too many files (max ${MAX_FILES})` };
   }
 
-  const oversized = fileParts.find((p) => p.data.length > MAX_FILE_SIZE);
+  const oversized = fileParts.find(
+    (p) => p.data.length > maxReferenceFileBytes(p.filename),
+  );
   if (oversized) {
+    const limit = maxReferenceFileBytes(oversized.filename);
     setResponseStatus(event, 413);
-    return { error: "File too large (max 50 MB per file)" };
+    return { error: `File too large (max ${formatMaxFileSize(limit)})` };
   }
 
   let results;

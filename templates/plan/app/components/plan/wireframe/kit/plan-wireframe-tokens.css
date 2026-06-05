@@ -1,0 +1,91 @@
+/*
+ * Plan wireframe design tokens.
+ *
+ * The MODEL emits a lean kit tree (no geometry, no CSS). This stylesheet owns
+ * ALL visual quality for the wireframe primitives: ink/paper/accent palette,
+ * density-driven spacing/type, and the hand-drawn fonts. Every kit component in
+ * ./* reads these CSS vars, so density / accent / theme are switchable by
+ * toggling a single attribute on a `.plan-wf` scope — never by changing nodes.
+ *
+ * Scope: `.plan-wf` (set on the Screen wrapper). Tokens are scoped, not global,
+ * so wireframes can sit alongside the normal app chrome without leaking fonts
+ * or colors.
+ */
+
+/* Hand-drawn fonts. Imported once; the kit references --font-hand/--font-script. */
+@import url("https://fonts.googleapis.com/css2?family=Gaegu:wght@300;400;700&family=Caveat:wght@400;500;600;700&display=swap");
+
+.plan-wf {
+  /* ---- Light palette (default) ------------------------------------------ */
+  --ink: #34322e;
+  --ink-soft: #97918a;
+  --line: #ddd8ce;
+  --paper: #fbfaf6;
+  --card: #ffffff;
+  --accent: #3f6cd6;
+  --accent-soft: color-mix(in srgb, var(--accent) 15%, #fff);
+  --warn: #b5503a;
+  --warn-soft: color-mix(in srgb, var(--warn) 14%, #fff);
+  --ok: #5b8c6e;
+  --ok-soft: color-mix(in srgb, var(--ok) 15%, #fff);
+
+  /* Page backdrop behind artboards (board surface, not the screen paper). */
+  --plan-wf-page-bg: #f0eee9;
+
+  /* ---- Fonts ------------------------------------------------------------- */
+  --font-hand: "Gaegu", "Comic Sans MS", cursive;
+  --font-script: "Caveat", "Gaegu", cursive;
+
+  /* ---- Density (regular default) ----------------------------------------- */
+  /* Density is selected via [data-density]; individual tokens below. */
+  --gap: 11px;
+  --pad: 12px;
+  --fs: 14px;
+  --radius: 7px;
+  --stroke: 1.4px;
+
+  /* ---- Sketch wobble ----------------------------------------------------- */
+  /* Default crisp (low sketch). setSketch() helper overrides these inline. */
+  --wobble: none;
+}
+
+/* Density variants. Match the reference DENSITY map exactly. */
+.plan-wf[data-density="compact"] {
+  --gap: 7px;
+  --pad: 9px;
+  --fs: 13px;
+  --radius: 6px;
+  --stroke: 1.3px;
+}
+
+.plan-wf[data-density="regular"] {
+  --gap: 11px;
+  --pad: 12px;
+  --fs: 14px;
+  --radius: 7px;
+  --stroke: 1.4px;
+}
+
+.plan-wf[data-density="roomy"] {
+  --gap: 15px;
+  --pad: 17px;
+  --fs: 15px;
+  --radius: 9px;
+  --stroke: 1.6px;
+}
+
+/* ---- Dark palette -------------------------------------------------------- */
+.plan-wf[data-theme="dark"] {
+  --ink: #ece8e1;
+  --ink-soft: #8d877f;
+  --line: #3a3833;
+  --paper: #201f1c;
+  --card: #2a2825;
+  --accent: #6f93e6;
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, #201f1c);
+  --warn: #d7745d;
+  --warn-soft: color-mix(in srgb, var(--warn) 20%, #201f1c);
+  --ok: #79a98c;
+  --ok-soft: color-mix(in srgb, var(--ok) 22%, #201f1c);
+  --plan-wf-page-bg: #161513;
+}

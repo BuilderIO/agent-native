@@ -1,10 +1,7 @@
-import { useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  agentNativePath,
   appBasePath,
   appPath,
+  useAgentRouteState,
 } from "@agent-native/core/client";
 import { TAB_ID } from "../lib/tab-id";
 
@@ -18,79 +15,16 @@ export interface NavigationState {
 }
 
 export function useNavigationState() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-
-  useEffect(() => {
-    const state: NavigationState = {
-      view: viewFromPath(location.pathname),
-      path: appPath(location.pathname),
-    };
-
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Source": TAB_ID,
-      },
-      body: JSON.stringify(state),
-    }).catch(() => {});
-  }, [location.pathname]);
-
-  // Default React Query structuralSharing reuses the previous reference when
-  // the JSON is unchanged, so repeated invalidations driven by `useDbSync`
-  // (which fire on every relevant app-state event) don't re-fire the
-  // useEffect with a brand-new object containing the same command.
-  const { data: navCommand } = useQuery<NavigationState | null>({
-    queryKey: ["navigate-command"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data ?? null;
-    },
-    refetchInterval: 2_000,
+  useAgentRouteState<NavigationState>({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, search, hash }) => ({
+      view: viewFromPath(pathname),
+      path: appPath(`${pathname}${search}${hash}`),
+    }),
+    getCommandPath: (command) =>
+      routerPath(command.path || pathFromView(command.view)),
   });
-
-  const lastProcessedDedupKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!navCommand) return;
-    const cmd = navCommand;
-    const dedupKey =
-      cmd._writeId ?? JSON.stringify({ view: cmd.view, path: cmd.path });
-    if (lastProcessedDedupKeyRef.current === dedupKey) {
-      // Same command we already handled — the consume-DELETE races against
-      // the next polling refetch, so when it loses the same command can show
-      // up again. Re-fire DELETE and bail rather than navigate again.
-      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-        method: "DELETE",
-        headers: {
-          "X-Agent-Native-CSRF": "1",
-          "X-Request-Source": TAB_ID,
-        },
-      }).catch(() => {});
-      qc.setQueryData(["navigate-command"], null);
-      return;
-    }
-    lastProcessedDedupKeyRef.current = dedupKey;
-
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-      method: "DELETE",
-      headers: {
-        "X-Agent-Native-CSRF": "1",
-        "X-Request-Source": TAB_ID,
-      },
-    }).catch(() => {});
-
-    const path = routerPath(cmd.path || pathFromView(cmd.view));
-    navigate(path);
-    qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc]);
 }
 
 function viewFromPath(pathname: string): string {

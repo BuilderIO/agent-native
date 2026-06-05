@@ -1,7 +1,9 @@
 /**
- * React Query hooks for calling actions via their auto-mounted HTTP endpoints.
+ * Client helpers for calling actions through the framework transport.
  *
- * Actions are mounted at `/_agent-native/actions/:name` by the framework.
+ * Components should prefer `useActionQuery` / `useActionMutation`; use
+ * `callAction` for imperative cases such as debounced search, prefetching, or
+ * event handlers that do not fit a hook.
  *
  * ## End-to-end type safety
  *
@@ -77,6 +79,12 @@ type ActionParams<T extends string> = T extends keyof ActionRegistry
     ? P
     : Record<string, any>
   : Record<string, any>;
+
+export type ClientActionMethod = "GET" | "POST" | "PUT" | "DELETE";
+
+export interface ClientActionCallOptions {
+  method?: ClientActionMethod;
+}
 
 // ---------------------------------------------------------------------------
 // Fetch helper
@@ -229,6 +237,25 @@ async function actionFetch<T>(
   }
 
   return (data ?? (null as unknown)) as T;
+}
+
+/**
+ * Imperatively call an action from browser/client code.
+ *
+ * Prefer `useActionQuery` / `useActionMutation` in React render flows. Use this
+ * helper when a hook is not ergonomic; do not hand-write fetch calls to
+ * `/_agent-native/actions/*` in components.
+ */
+export function callAction<
+  TResult = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: ClientActionCallOptions = {},
+): Promise<TResult extends undefined ? ActionResult<TName> : TResult> {
+  type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  return actionFetch<R>(actionName, options.method ?? "POST", params);
 }
 
 // ---------------------------------------------------------------------------

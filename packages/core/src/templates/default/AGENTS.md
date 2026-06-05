@@ -7,7 +7,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 ### Core Principles
 
 1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
-2. **All AI through agent chat** -- No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`. When UI selections should add hidden context for the user's next prompt without submitting, use `setContextToAgentChat()` with a stable `key`.
+2. **All AI through agent chat** -- No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`. Use `sendToAgentChat({ message, context, submit })` for simple UI handoffs and prefill/review flows. Only use the agent-chat context state helpers (`useAgentChatContext`, `setAgentChatContextItem`, `listAgentChatContext`, `removeAgentChatContextItem`, `clearAgentChatContext`) when the UI needs two-way sync with staged context chips.
 3. **Actions for app operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`; `defineAction` also auto-exposes those operations at `/_agent-native/actions/:name` for the UI. Do not create custom REST routes that re-export actions.
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
@@ -37,14 +37,16 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
 2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
-**Update `LEARNINGS.md` when you learn something important.**
+**Update `LEARNINGS.md` when you learn something important.** Built-in app
+chat agents use the `resources` tool with the `action` argument. External CLI
+agents can use the equivalent `pnpm action resource-*` commands.
 
-| Action            | Args                                                        | Purpose                 |
-| ----------------- | ----------------------------------------------------------- | ----------------------- |
-| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
-| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
-| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
-| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
+| Built-in agent tool call                                                | CLI equivalent                                                                         | Purpose                 |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------- |
+| `resources` with `action: "read"`, `path`, optional `scope`             | `pnpm action resource-read --path <path> [--scope personal\|shared]`                   | Read a resource         |
+| `resources` with `action: "write"`, `path`, `content`, optional `scope` | `pnpm action resource-write --path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
+| `resources` with `action: "list"`, optional `prefix`/`scope`            | `pnpm action resource-list [--prefix <path>] [--scope personal\|shared\|all]`          | List resources          |
+| `resources` with `action: "delete"`, `path`, optional `scope`           | `pnpm action resource-delete --path <path> [--scope personal\|shared]`                 | Delete a resource       |
 
 ## Application State
 
@@ -56,6 +58,12 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 | `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
 
 The `navigation` key is written by the UI whenever the route changes. The `navigate` key is a one-shot command: the agent writes it, the UI reads and executes the navigation, then deletes it.
+
+UI code should use `useAgentRouteState` / `useSemanticNavigationState` from
+`@agent-native/core/client` for navigation sync instead of hand-written
+`fetch("/_agent-native/application-state/...")` calls. Keep shareable filters
+in URL query params; the framework exposes them as `<current-url>` and the
+built-in agent can update them with `set-search-params`.
 
 ## Mounted Workspace Routing
 
@@ -123,7 +131,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 **Read the `adding-a-feature` skill first** — it has the full four-area checklist (UI / Action / Skills / App-State). Quick summary:
 
-1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes
+1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes with `useAgentRouteState`
 2. **Enhance view-screen** — make the view-screen script return relevant context for the new view
 3. **Create domain actions** — add actions in `actions/` for CRUD operations on new data models; do not create REST wrappers around those actions
 4. **Wire UI for auto-refresh** — use `useActionQuery` / `useActionMutation` for normal CRUD. If a raw `useQuery` is unavoidable, fold `useChangeVersions([<source>, "action"])` into its key with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.

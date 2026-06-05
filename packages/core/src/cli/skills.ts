@@ -32,13 +32,13 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plans|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
-  agent-native skills add visual-plans
+  agent-native skills add visual-plan
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
@@ -205,100 +205,903 @@ iteration, or a human-in-the-loop choice among design directions.
   and token values. Never paste bearer tokens into chat or logs.
 `;
 
-const VISUAL_PLANS_SKILL_MD = `---
-name: visual-plans
+export const VISUAL_PLANS_SKILL_MD = `---
+name: visual-plan
 description: >-
-  Use Visual Plans for coding-agent work that needs an interactive HTML plan,
-  diagrams, wireframes, prototype options, annotations, implementation tasks,
-  feedback, and proof gates through the hosted Visual Plans MCP app.
+  Use Agent-Native Plans when coding-agent work needs an interactive structured
+  plan document with diagrams, wireframes, mockups, prototypes, annotations,
+  and comments.
 metadata:
   visibility: exported
 ---
 
-# Visual Plans
+# Agent-Native Plans
 
-Use Visual Plans as HTML plan mode for coding work. The point is not to create a
-prettier Markdown plan. The point is to give the user something visual to react
-to before the agent edits code: diagrams, wireframes, option cards, clickable
-prototype sketches, assumptions, tasks, annotations, and proof gates.
+Agent-Native Plans is structured visual planning mode for coding agents. Build
+the plan you would normally write in Markdown, but as a scannable document with
+editable blocks mixed in: an optional pan/zoom wireframe canvas on top and a
+Notion-like technical document below. The user reacts to visuals first and reads
+prose only where it helps.
 
-Text is the fallback layer. Default to visual artifacts.
+\`/visual-plan\` is the canonical command and the main entry point. Use \`/ui-plan\`
+when the work is primarily product UI and review should start with the screens.
+Use \`/visual-questions\` to run a visual intake form first. Use \`/visualize-plan\`
+to turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual
+companion.
 
 ## When To Use
 
-Create or update a visual plan when:
+Create a visual plan when work is multi-file, ambiguous, long-running, risky, or
+UI-heavy, when architecture / data flow / UI direction / options / open
+questions would be clearer visually, or when the user needs to react to a
+direction before you implement.
 
-- the user asks for a plan, visual plan, HTML plan, plannotate-style review,
-  diagrams, wireframes, mockups, prototype options, comments, or annotations;
-- work is multi-file, ambiguous, long-running, risky, or UI-heavy;
-- the user needs to react quickly to direction rather than read prose;
-- the task touches auth, billing, migrations, public APIs, tests, production
-  config, data, security, permissions, or deploy behavior;
-- you would otherwise proceed on a material assumption;
-- you are about to claim the work is complete and need proof gates checked.
+## Plan Discipline
 
-Do not log every trivial inference. An assumption is material when changing it
-would affect user-visible behavior, data model, permissions, billing, public API
-shape, migrations/backfills/data loss, test strategy, architecture boundaries,
-deployment/configuration, file scope, or the definition of done.
+- **Gate hard.** A polished visual plan is the most expensive plan form; only
+  invest when a wrong direction is costly. Skip it for trivial, unambiguous work
+  — typos, one-line fixes, a single well-specified function, anything whose diff
+  you could describe in one sentence — and just make the change. Never pad a plan
+  with filler and never ship a single-step plan.
+- **Research before you draft.** Read the real files, actions, schema, and
+  patterns first; name actual files, symbols, and data shapes instead of
+  inventing them. Check existing \`actions/\` before proposing endpoints and prefer
+  named client helpers over raw fetch. Delegate wide exploration to a sub-agent.
+- **Planning is read-only.** Make no source edits while building or reviewing the
+  plan. Start editing only after the user approves the direction.
+- **Clarify vs. assume.** Do not ask how to build it — explore and present the
+  approach and options in the plan. Ask a clarifying question only when an
+  ambiguity would change the design and you cannot resolve it from the code; batch
+  2-4 high-leverage questions before finalizing. Otherwise state the assumption
+  explicitly and proceed, and put anything unresolved in an open-questions block.
+- **The plan is the approval gate.** After surfacing it, ask the user to review
+  and approve before you write code, and name which files/areas the work touches.
+  Presenting the plan and requesting sign-off is the approval step — do not ask a
+  separate "does this look good?" question.
+- **The document is the source of truth, not the chat.** When scope shifts,
+  update the plan with \`update-visual-plan\` rather than only changing course in
+  chat, and re-read the approved plan before major steps.
 
 ## Core Workflow
 
-1. Call \`create-visual-plan\` with the goal, source, repo path, and initial
-   plan nodes before implementation.
-2. Surface the returned Visual Plans link or inline MCP App. In CLI hosts, tell
-   the user to open the link and review the visual plan.
-3. Prefer diagrams, wireframes, UI mockups, option cards, and small interactive
-   prototypes over paragraphs.
+1. Call \`create-visual-plan\` with the title, brief, source, repo path, and
+   structured \`content\` blocks.
+2. Compose the canvas from the kit and write the document with native blocks
+   (see the two cores below). Skip the canvas for non-visual work.
+3. Surface the returned Plans link or inline MCP App and ask the user to review.
 4. Call \`get-plan-feedback\` before editing, after review, after any long pause,
    and before the final response.
-5. If the user comments, accepts, rejects, corrects, or requests proof, consume
-   the structured feedback and update the implementation plan accordingly.
-6. If new facts require a change after approval, create an amendment or
-   deviation with \`update-visual-plan\` instead of drifting silently.
-7. Attach command/test/log/diff/screenshot/design artifacts with
-   \`record-plan-evidence\`. Agent claims are not proof.
-8. Export an HTML/JSON/Markdown receipt with \`export-visual-plan\` when the
-   user wants a shareable summary.
+5. Apply changes with \`update-visual-plan\`, preferring targeted \`contentPatches\`.
+   When the user wants source-control friendly edits, use
+   \`patch-visual-plan-source\` against the MDX files instead of regenerating the
+   plan.
+6. Export with \`export-visual-plan\` only when the user wants a shareable receipt
+   or repo-check-in artifacts.
 
-## Visual Defaults
+<!-- SHARED-CORE:wireframe-canvas START -->
+## Wireframe & Canvas Core
 
-- UI work gets wireframes or prototype options before coding.
-- Backend/refactor work gets architecture and data-flow diagrams.
-- Complex tradeoffs get two or three option cards with consequences.
-- Assumptions are shown as reviewable visual callouts, not hidden prose.
-- Proof gates stay compact: what must pass, current evidence, and missing proof.
-- Long prose is collapsed behind the visual plan.
+This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
+\`/visualize-plan\`. It is the single source of truth for how wireframes and the
+canvas work. Do not paraphrase it per command.
+
+**The renderer owns all visual quality. You emit content, never styling.** Flex
+layout, fonts, density, spacing, theme, and the hand-drawn wobble all live in
+the app renderer. Never emit coordinates, CSS, pixel sizes, or raw HTML for a
+wireframe's internals. Your job is to pick a surface, compose real product
+content from the kit, and annotate — nothing else.
+
+**A wireframe block's data is a declarative kit tree, not geometry:**
+
+\`\`\`json
+{
+  "surface": "desktop",
+  "screen": [
+    { "el": "browserBar", "title": "tasklist" },
+    { "el": "row", "children": [
+      { "el": "sidebar", "children": [
+        { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
+        { "el": "navItem", "label": "Today", "count": 4 },
+        { "el": "navItem", "label": "Done" }
+      ] },
+      { "el": "main", "children": [
+        { "el": "title", "text": "Today", "script": true },
+        { "el": "chips", "items": [
+          { "label": "All", "active": true }, { "label": "Active" }, { "label": "Done" }
+        ] },
+        { "el": "section", "label": "OVERDUE", "tone": "warn" },
+        { "el": "taskRow", "title": "Send invoice to Acme Co.", "due": "Yesterday", "dueTone": "warn", "prio": 1 },
+        { "el": "taskRow", "title": "Reply to design feedback", "due": "Today", "prio": 2 }
+      ] }
+    ] }
+  ]
+}
+\`\`\`
+
+The renderer maps each node to a flex kit component and applies one whole-frame
+wobble. Layout is always flex: \`row\`, \`col\`, \`sidebar\`, and \`main\` set the flex
+direction; everything aligns by construction, so you never get overlap or drift.
+
+**Surface presets — match the real footprint, never default to desktop+mobile.**
+Pick the \`surface\` that matches what the user will actually see:
+
+- \`desktop\`: a full page or app shell.
+- \`mobile\`: a phone screen, only when the work is genuinely mobile.
+- \`popover\`: a small floating menu, dropdown, or inline popover.
+- \`panel\`: a side panel, inspector, or sidebar widget.
+- \`browser\`: a page that needs a browser chrome frame around it.
+
+A sidebar popover renders as a small surface, not a desktop page and a phone
+frame. Do not emit \`desktop\` + \`mobile\` variants unless responsive behavior
+actually changes the layout. For a component or widget, show one broader
+app-context frame only when placement affects understanding, then the focused
+component states.
+
+**Node vocabulary (\`el\` values).** Every node is \`{ el, ...props, children? }\`:
+
+- Layout: \`screen\`, \`row\`, \`col\`, \`sidebar\`, \`main\`, \`card{children}\`,
+  \`column{title,count?,children}\`, \`box{children,dashed?}\`, \`divider\`.
+- Chrome: \`browserBar{title}\`, \`statusBar\`, \`searchBar\`, \`toolbar\`.
+- Navigation: \`navItem{label,count?,active?,dot?}\`, \`tabs\`/\`chips{items:[{label,active?}]}\`,
+  \`chip{label,active?}\`, \`pill{label,tone?}\`.
+- Content: \`title{text,script?}\`, \`text{value,color?,weight?}\`,
+  \`lines{n?,widths?}\`, \`section{label,tone?}\`,
+  \`taskRow{title,note?,due?,dueTone?,prio?,done?}\`, \`kv{rows:[{k,v}]}\`,
+  \`avatar\`, \`iconSquare{active?}\`.
+- Inputs: \`field{label?,value?,placeholder?,area?}\`, \`check{done?,shape?}\`,
+  \`btn{label,solid?,full?}\`, \`fab{icon?}\`.
+
+Put **real product content** in props: real labels, real dates, real counts,
+real button text grounded in the actual screen or component you read. Use
+\`lines\`/\`text\` (with no \`value\`) only for genuine placeholder body copy — never
+fill a screen with gray placeholder bars. Buttons (\`btn\`, \`fab\`) must read as
+actionable controls.
+
+**Default crisp.** Sketchiness is a low default (a subtle single wobble over the
+whole frame), not a heavy scribble. Do not ask for or assume a heavy sketch
+look.
+
+**Canvas annotations are designer notes on the artboard.** When a top canvas is
+present, sprinkle Figma-style notes near the frames they explain: a short
+heading, supporting text, and bullets — plain text layers, never bordered or
+shadowed cards, and never a box around a frame. The renderer spaces notes away
+from frames, so place each note by the frame it describes. Use an arrow only to
+point at one specific control or transition; for a broad frame-level note, write
+text beside the frame with no connector. Connectors are for real sequences only —
+never fake "Step 1 → Step 2" lines between independent states.
+
+**Patching.** Edit one wireframe node, canvas annotation, or block with targeted \`contentPatches\`
+(for example \`update-wireframe-node\`, \`update-block\`, \`replace-blocks\`) rather
+than regenerating the whole plan. \`contentPatches\` are part of the public MCP
+action schema, so Claude Code, Codex, Cursor, and other hosts can make surgical
+edits. If an agent is working from exported source files, use
+\`read-visual-plan-source\` / \`patch-visual-plan-source\`: \`plan.mdx\` holds
+frontmatter plus markdown/document blocks, \`canvas.mdx\` holds
+\`<DesignBoard>/<Section>/<Artboard>/<Screen>/<Annotation>/<Connector>\`, and the
+patch action normalizes the MDX back into the same JSON runtime model. JSON is
+the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
+
+**Legacy imports only.** Old or imported plans may carry coordinate-based
+regions or a full standalone HTML document; the renderer still displays them.
+Never emit geometry, regions, or a standalone HTML document for a new plan —
+compose the kit tree instead.
+<!-- SHARED-CORE:wireframe-canvas END -->
+
+<!-- SHARED-CORE:document-quality START -->
+## Document Quality Core
+
+This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
+\`/visualize-plan\`. It is the single source of truth for the document below the
+canvas. Do not paraphrase it per command.
+
+**The document is a serious technical plan, not marketing.** Write it the way a
+strong Claude or Codex implementation plan reads: outcome-first, prose-first,
+self-contained, and specific. State the objective and what "done" means, the
+scope and non-goals, the proposed approach with the key decisions and their
+rationale, ordered steps that name real files, symbols, actions, and data
+shapes, the risks, and a closing verification step (tests, build, or a checkable
+behavior). Replace vague prose with specifics; never ship a step like "make it
+work." No hero art, gradients, logos, nav bars, slogans, value props, giant
+landing-page headings, or marketing cards unless the user explicitly asks.
+
+**Canvas and document never duplicate each other.** The UI story lives on the
+canvas with on-canvas annotations; the document carries the technical depth the
+canvas cannot show — concrete file/symbol maps, API and data contracts, code
+snippets, migration or implementation phases, risks, and validation. Repeat a
+wireframe in the document only for a genuinely new detail view or comparison.
+Skip the canvas entirely for non-visual work and write a clean rich document.
+
+**Use the right block, and make it carry substance:**
+
+- \`rich-text\` for plan prose with real bold/italic/code/links and nested lists.
+- \`implementation-map\` / \`code-tabs\` for the file map: file path, the
+  symbols/components to touch, the reason, risk/coordination notes, and a
+  concise syntax-highlighted snippet of the code shape — never the whole file,
+  never a prose-only file list.
+- \`decision\` for two or three option cards with consequences. These are static
+  records; do not style them like clickable tabs or chips unless the renderer
+  truly supports changing the selection.
+- \`diagram\` for architecture, sequence, data-flow, dependency, or state
+  relationships, only when it clarifies something real. Labels must not overlap
+  nodes, connectors, or each other.
+- \`tabs\` for multiple states, directions, or comparisons. A tab that reveals
+  only prose usually means the plan is under-specified — include a relevant
+  visual unless the tab is intentionally document-only.
+- \`table\`, \`checklist\`, \`callout\` for scannable structure.
+
+**Open questions are callouts, not buried prose.** Surface anything unresolved in
+a dedicated open-questions / needs-clarification block. Never put a
+questions/decisions wall inside the plan narrative.
+
+**\`custom-html\` is a bounded escape hatch only** — a single complete fragment
+inside a block, never \`html\`/\`head\`/\`body\`/\`script\` tags, never a placeholder,
+density demo, or proof that custom HTML works. Prefer the native blocks; they
+cover real plans.
+
+**Before handoff, open the plan and check it.** Fix overlap, excessive
+whitespace, clipped fragments, misleading inactive controls, poor contrast, and
+unreadable diagrams before asking for approval.
+<!-- SHARED-CORE:document-quality END -->
+
+<!-- SHARED-CORE:exemplar START -->
+## Good vs. Bad Exemplar
+
+**GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard
+composed from the kit — a sidebar of real \`navItem\`s (\`Inbox 12\`, \`Today 4\`,
+\`Done\`), a \`main\` with a scripted \`title\`, real \`chips\`, a \`section\` labeled
+\`OVERDUE\`, and \`taskRow\`s carrying real titles, due dates, and priorities — one
+subtle whole-frame wobble, correct desktop footprint, and plain-text designer
+notes spaced off the frames pointing only at the controls that need explanation.
+Below it, a Claude/Codex-grade document: objective and done-criteria, an
+\`implementation-map\` naming the real components and actions with short
+highlighted snippets, a \`decision\` card weighing two real approaches, and a
+validation step — none of it repeating the canvas. This is the bar.
+
+**BAD.** Empty coordinate boxes placed by \`x/y/width/height\`, gray placeholder
+bars "insinuating" text, crisp double-bordered rectangles or a heavy scribble, a
+forced desktop + mobile pair for a popover, floating bordered annotation cards
+hugging the frames, and a marketing-style document with a hero heading and value
+props that just restates what the canvas already shows. Never produce this.
+<!-- SHARED-CORE:exemplar END -->
 
 ## Tool Guidance
 
-- \`create-visual-plan\`: start one visual plan per agent task/run.
-- \`update-visual-plan\`: bulk add/update plan nodes, options, assumptions,
-  decisions, tasks, risks, deviations, annotations, and proof gates.
-- \`get-visual-plan\` and \`get-plan-review-queue\`: read current plan state.
+- \`create-visual-plan\`: start one structured visual plan per agent task/run.
+- \`create-ui-plan\`: start a UI-first plan when the work is primarily product UI.
+- \`create-visual-questions\`: run a visual intake form before planning.
+- \`visualize-plan\`: build a visual companion from an existing text plan.
+- \`update-visual-plan\`: revise content, status, or comments; prefer
+  \`contentPatches\` over regenerating the whole plan.
+- \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,
+  optional \`canvas.mdx\`, optional \`.plan-state.json\`, and JSON.
+- \`patch-visual-plan-source\`: apply granular MDX AST patches by stable block,
+  artboard, annotation, component, or wireframe-node id.
+- \`import-visual-plan-source\`: create or replace a plan from an MDX folder.
+- \`get-visual-plan\`: read the current structured plan, exported HTML, and
+  annotations; it also returns the MDX folder for source workflows.
 - \`get-plan-feedback\`: read unconsumed human feedback. Use it frequently.
-- \`record-plan-progress\`: update phase/status and mark feedback consumed only
-  after you incorporated it.
-- \`record-plan-evidence\`: attach artifacts and provenance. Use high trust for
-  captured commands/tests/CI, human_confirmed for explicit human confirmation,
-  and low trust for agent-only statements.
-- \`analyze-visual-plan\`: import pasted Markdown/text and create possible
-  visual plan nodes. Treat detections as possible, not authoritative.
+- \`export-visual-plan\`: export HTML, Markdown fallback, structured JSON, and MDX
+  files for repo check-in.
 
-## Guardrails
+When the user critiques a plan's look or structure, fix the renderer or this
+skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-- Keep it simple. Do not build a ten-tab dashboard unless the user asks.
-- Before high-risk actions, create a blocking review item or ask the user
-  directly.
-- Never modify tests merely to make implementation pass unless the visual plan
-  explicitly approves test expectation changes.
-- If proof is missing, say so. Do not call the task complete just because code
-  was changed.
-- Do not hand-roll MCP HTTP requests with curl. Use host-exposed tools after
-  restart/reload, or use the returned browser/deep-link fallback.
-- Hosted default: connect
-  \`https://plans.agent-native.com/_agent-native/mcp\`. Do not put shared
-  secrets in skill files.
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+not put shared secrets in skill files.
+`;
+
+export const UI_PLAN_SKILL_MD = `---
+name: ui-plan
+description: >-
+  Use Agent-Native Plans for UI-first planning with an optional top pan/zoom
+  wireframe canvas, a refined Notion-like document, rich tabs, diagrams,
+  comments, drawing, and agent handoff.
+metadata:
+  visibility: exported
+---
+
+# UI Plan
+
+Use \`/ui-plan\` when the task is primarily about product UI, user flows,
+interaction states, component layout, or visual direction. The reviewable UI
+comes first; implementation detail comes after the user has something concrete to
+react to.
+
+\`/visual-plan\` remains the general command for architecture, backend, refactors,
+and mixed work. Use \`/visual-questions\` first when the user should answer intake
+questions, and \`/visualize-plan\` when a text plan already exists.
+
+## Plan Discipline
+
+- **Gate hard.** Use a UI plan when the surface is new, ambiguous, spans several
+  screens or states, or the direction needs agreement before coding. Skip it for
+  cosmetic one-liners — a color, a label, a spacing tweak — and just make the
+  change. Never ship a single-step or filler plan.
+- **Research before you draft.** Read the real components, routes, and design
+  tokens first; ground every mockup and the file map in actual files and symbols.
+  Delegate wide exploration to a sub-agent when the surface is large.
+- **Planning is read-only.** Make no source edits while building or reviewing.
+  Start editing only after the user approves the UI direction.
+- **Clarify vs. assume.** Do not ask how to build the UI — present the direction
+  and options as mockups and tabs. Ask a clarifying question only when an
+  ambiguity would change the design; batch 2-4 before finalizing. Otherwise state
+  the assumption in the plan and proceed.
+- **The plan is the approval gate.** Ask the user to review and approve the UI
+  direction before you write code, and name the files/areas the work touches.
+
+## UI-First Workflow
+
+1. Call \`create-ui-plan\` with a UI-specific title, brief, source, repo path, and
+   structured \`content\`. The canvas comes first, the document second.
+2. Compose the top canvas from the kit (see the cores below): the key artboards
+   with real product content, designer notes, and connectors only for real
+   sequences. Skip the canvas when wireframes would not clarify the work.
+3. Continue below as a concise technical document — not a second copy of the
+   canvas — covering concrete files, contracts, phases, risks, and validation.
+4. Call \`get-plan-feedback\` before implementation, after review, after a long
+   pause, and before the final response. Apply changes with \`update-visual-plan\`,
+   preferring \`contentPatches\` for one frame, annotation, node, tab, or block. When the user
+   wants source-control friendly edits, use \`patch-visual-plan-source\` against
+   the MDX files instead of regenerating the plan.
+
+## Agent Handoff
+
+After the canvas and document, add a short handoff that names the chosen UI
+direction, unresolved visual questions, and feedback that must be read before
+code changes. Never claim feedback has been applied until \`get-plan-feedback\` or
+the user has supplied it.
+
+<!-- SHARED-CORE:wireframe-canvas START -->
+## Wireframe & Canvas Core
+
+This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
+\`/visualize-plan\`. It is the single source of truth for how wireframes and the
+canvas work. Do not paraphrase it per command.
+
+**The renderer owns all visual quality. You emit content, never styling.** Flex
+layout, fonts, density, spacing, theme, and the hand-drawn wobble all live in
+the app renderer. Never emit coordinates, CSS, pixel sizes, or raw HTML for a
+wireframe's internals. Your job is to pick a surface, compose real product
+content from the kit, and annotate — nothing else.
+
+**A wireframe block's data is a declarative kit tree, not geometry:**
+
+\`\`\`json
+{
+  "surface": "desktop",
+  "screen": [
+    { "el": "browserBar", "title": "tasklist" },
+    { "el": "row", "children": [
+      { "el": "sidebar", "children": [
+        { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
+        { "el": "navItem", "label": "Today", "count": 4 },
+        { "el": "navItem", "label": "Done" }
+      ] },
+      { "el": "main", "children": [
+        { "el": "title", "text": "Today", "script": true },
+        { "el": "chips", "items": [
+          { "label": "All", "active": true }, { "label": "Active" }, { "label": "Done" }
+        ] },
+        { "el": "section", "label": "OVERDUE", "tone": "warn" },
+        { "el": "taskRow", "title": "Send invoice to Acme Co.", "due": "Yesterday", "dueTone": "warn", "prio": 1 },
+        { "el": "taskRow", "title": "Reply to design feedback", "due": "Today", "prio": 2 }
+      ] }
+    ] }
+  ]
+}
+\`\`\`
+
+The renderer maps each node to a flex kit component and applies one whole-frame
+wobble. Layout is always flex: \`row\`, \`col\`, \`sidebar\`, and \`main\` set the flex
+direction; everything aligns by construction, so you never get overlap or drift.
+
+**Surface presets — match the real footprint, never default to desktop+mobile.**
+Pick the \`surface\` that matches what the user will actually see:
+
+- \`desktop\`: a full page or app shell.
+- \`mobile\`: a phone screen, only when the work is genuinely mobile.
+- \`popover\`: a small floating menu, dropdown, or inline popover.
+- \`panel\`: a side panel, inspector, or sidebar widget.
+- \`browser\`: a page that needs a browser chrome frame around it.
+
+A sidebar popover renders as a small surface, not a desktop page and a phone
+frame. Do not emit \`desktop\` + \`mobile\` variants unless responsive behavior
+actually changes the layout. For a component or widget, show one broader
+app-context frame only when placement affects understanding, then the focused
+component states.
+
+**Node vocabulary (\`el\` values).** Every node is \`{ el, ...props, children? }\`:
+
+- Layout: \`screen\`, \`row\`, \`col\`, \`sidebar\`, \`main\`, \`card{children}\`,
+  \`column{title,count?,children}\`, \`box{children,dashed?}\`, \`divider\`.
+- Chrome: \`browserBar{title}\`, \`statusBar\`, \`searchBar\`, \`toolbar\`.
+- Navigation: \`navItem{label,count?,active?,dot?}\`, \`tabs\`/\`chips{items:[{label,active?}]}\`,
+  \`chip{label,active?}\`, \`pill{label,tone?}\`.
+- Content: \`title{text,script?}\`, \`text{value,color?,weight?}\`,
+  \`lines{n?,widths?}\`, \`section{label,tone?}\`,
+  \`taskRow{title,note?,due?,dueTone?,prio?,done?}\`, \`kv{rows:[{k,v}]}\`,
+  \`avatar\`, \`iconSquare{active?}\`.
+- Inputs: \`field{label?,value?,placeholder?,area?}\`, \`check{done?,shape?}\`,
+  \`btn{label,solid?,full?}\`, \`fab{icon?}\`.
+
+Put **real product content** in props: real labels, real dates, real counts,
+real button text grounded in the actual screen or component you read. Use
+\`lines\`/\`text\` (with no \`value\`) only for genuine placeholder body copy — never
+fill a screen with gray placeholder bars. Buttons (\`btn\`, \`fab\`) must read as
+actionable controls.
+
+**Default crisp.** Sketchiness is a low default (a subtle single wobble over the
+whole frame), not a heavy scribble. Do not ask for or assume a heavy sketch
+look.
+
+**Canvas annotations are designer notes on the artboard.** When a top canvas is
+present, sprinkle Figma-style notes near the frames they explain: a short
+heading, supporting text, and bullets — plain text layers, never bordered or
+shadowed cards, and never a box around a frame. The renderer spaces notes away
+from frames, so place each note by the frame it describes. Use an arrow only to
+point at one specific control or transition; for a broad frame-level note, write
+text beside the frame with no connector. Connectors are for real sequences only —
+never fake "Step 1 → Step 2" lines between independent states.
+
+**Patching.** Edit one wireframe node, canvas annotation, or block with targeted \`contentPatches\`
+(for example \`update-wireframe-node\`, \`update-block\`, \`replace-blocks\`) rather
+than regenerating the whole plan. \`contentPatches\` are part of the public MCP
+action schema, so Claude Code, Codex, Cursor, and other hosts can make surgical
+edits. If an agent is working from exported source files, use
+\`read-visual-plan-source\` / \`patch-visual-plan-source\`: \`plan.mdx\` holds
+frontmatter plus markdown/document blocks, \`canvas.mdx\` holds
+\`<DesignBoard>/<Section>/<Artboard>/<Screen>/<Annotation>/<Connector>\`, and the
+patch action normalizes the MDX back into the same JSON runtime model. JSON is
+the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
+
+**Legacy imports only.** Old or imported plans may carry coordinate-based
+regions or a full standalone HTML document; the renderer still displays them.
+Never emit geometry, regions, or a standalone HTML document for a new plan —
+compose the kit tree instead.
+<!-- SHARED-CORE:wireframe-canvas END -->
+
+<!-- SHARED-CORE:document-quality START -->
+## Document Quality Core
+
+This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
+\`/visualize-plan\`. It is the single source of truth for the document below the
+canvas. Do not paraphrase it per command.
+
+**The document is a serious technical plan, not marketing.** Write it the way a
+strong Claude or Codex implementation plan reads: outcome-first, prose-first,
+self-contained, and specific. State the objective and what "done" means, the
+scope and non-goals, the proposed approach with the key decisions and their
+rationale, ordered steps that name real files, symbols, actions, and data
+shapes, the risks, and a closing verification step (tests, build, or a checkable
+behavior). Replace vague prose with specifics; never ship a step like "make it
+work." No hero art, gradients, logos, nav bars, slogans, value props, giant
+landing-page headings, or marketing cards unless the user explicitly asks.
+
+**Canvas and document never duplicate each other.** The UI story lives on the
+canvas with on-canvas annotations; the document carries the technical depth the
+canvas cannot show — concrete file/symbol maps, API and data contracts, code
+snippets, migration or implementation phases, risks, and validation. Repeat a
+wireframe in the document only for a genuinely new detail view or comparison.
+Skip the canvas entirely for non-visual work and write a clean rich document.
+
+**Use the right block, and make it carry substance:**
+
+- \`rich-text\` for plan prose with real bold/italic/code/links and nested lists.
+- \`implementation-map\` / \`code-tabs\` for the file map: file path, the
+  symbols/components to touch, the reason, risk/coordination notes, and a
+  concise syntax-highlighted snippet of the code shape — never the whole file,
+  never a prose-only file list.
+- \`decision\` for two or three option cards with consequences. These are static
+  records; do not style them like clickable tabs or chips unless the renderer
+  truly supports changing the selection.
+- \`diagram\` for architecture, sequence, data-flow, dependency, or state
+  relationships, only when it clarifies something real. Labels must not overlap
+  nodes, connectors, or each other.
+- \`tabs\` for multiple states, directions, or comparisons. A tab that reveals
+  only prose usually means the plan is under-specified — include a relevant
+  visual unless the tab is intentionally document-only.
+- \`table\`, \`checklist\`, \`callout\` for scannable structure.
+
+**Open questions are callouts, not buried prose.** Surface anything unresolved in
+a dedicated open-questions / needs-clarification block. Never put a
+questions/decisions wall inside the plan narrative.
+
+**\`custom-html\` is a bounded escape hatch only** — a single complete fragment
+inside a block, never \`html\`/\`head\`/\`body\`/\`script\` tags, never a placeholder,
+density demo, or proof that custom HTML works. Prefer the native blocks; they
+cover real plans.
+
+**Before handoff, open the plan and check it.** Fix overlap, excessive
+whitespace, clipped fragments, misleading inactive controls, poor contrast, and
+unreadable diagrams before asking for approval.
+<!-- SHARED-CORE:document-quality END -->
+
+<!-- SHARED-CORE:exemplar START -->
+## Good vs. Bad Exemplar
+
+**GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard
+composed from the kit — a sidebar of real \`navItem\`s (\`Inbox 12\`, \`Today 4\`,
+\`Done\`), a \`main\` with a scripted \`title\`, real \`chips\`, a \`section\` labeled
+\`OVERDUE\`, and \`taskRow\`s carrying real titles, due dates, and priorities — one
+subtle whole-frame wobble, correct desktop footprint, and plain-text designer
+notes spaced off the frames pointing only at the controls that need explanation.
+Below it, a Claude/Codex-grade document: objective and done-criteria, an
+\`implementation-map\` naming the real components and actions with short
+highlighted snippets, a \`decision\` card weighing two real approaches, and a
+validation step — none of it repeating the canvas. This is the bar.
+
+**BAD.** Empty coordinate boxes placed by \`x/y/width/height\`, gray placeholder
+bars "insinuating" text, crisp double-bordered rectangles or a heavy scribble, a
+forced desktop + mobile pair for a popover, floating bordered annotation cards
+hugging the frames, and a marketing-style document with a hero heading and value
+props that just restates what the canvas already shows. Never produce this.
+<!-- SHARED-CORE:exemplar END -->
+
+## Tool Guidance
+
+- \`create-ui-plan\`: create the UI-first structured visual plan.
+- \`create-visual-questions\`: run a visual intake form before the UI plan.
+- \`update-visual-plan\`: revise content, mockups, comments, or handoff notes;
+  prefer targeted \`contentPatches\`.
+- \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,
+  optional \`canvas.mdx\`, optional \`.plan-state.json\`, and JSON.
+- \`patch-visual-plan-source\`: apply granular MDX AST patches by stable block,
+  artboard, annotation, component, or wireframe-node id.
+- \`import-visual-plan-source\`: create or replace a plan from an MDX folder.
+- \`get-visual-plan\`: inspect the current structured plan, exported HTML, and
+  annotations; it also returns the MDX folder for source workflows.
+- \`get-plan-feedback\`: read unconsumed reviewer comments before coding.
+- \`export-visual-plan\`: export HTML, Markdown fallback, structured JSON, and MDX
+  files for repo check-in.
+
+When the user critiques a plan's look or structure, fix the renderer or this
+skill — never hand-edit one stored plan. Turn feedback into better guidance.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
+`;
+
+export const VISUAL_QUESTIONS_SKILL_MD = `---
+name: visual-questions
+description: >-
+  Use Agent-Native Plans to ask rich visual intake questions before creating a
+  UI plan or visual plan.
+metadata:
+  visibility: both
+---
+
+# Visual Questions
+
+Use \`/visual-questions\` when the next best step is not a plan yet, but a
+reviewable visual intake: single-choice chips, multi-select chips, freeform
+notes, mockup choices, sketch diagrams, and a generated answer summary that feeds
+the next planning prompt. It composes with \`/visual-plan\`, \`/ui-plan\`, and
+\`/visualize-plan\`.
+
+## When To Use
+
+- The user asks to be shown options before the agent writes a plan.
+- UI direction, form factor, layout model, feature set, or visual style is fuzzy
+  enough that 2-6 answers would materially change the plan.
+- The user would benefit from choosing between visual mockups or diagrams rather
+  than answering text-only prompts.
+
+Gate hard: skip this for tiny, unambiguous changes. If the agent can reasonably
+infer the answer, prefer \`/ui-plan\` or \`/visual-plan\` directly and put
+assumptions in the plan.
+
+## Workflow
+
+1. Call \`create-visual-questions\` with a clear title, brief, source, and repo
+   path when known.
+2. Omit \`questions\` for the default UI intake. Provide a custom \`questions\` array
+   only when the task has domain-specific choices.
+3. Surface the returned Plans link and ask the user to answer visually.
+4. The generated summary drives the next step: \`create-ui-plan\` for UI flows,
+   \`create-visual-plan\` for general plans, \`visualize-plan\` when a text plan
+   already exists, or \`update-visual-plan\` with targeted \`contentPatches\` to fold
+   answers into an active plan.
+5. If the user leaves comments, call \`get-plan-feedback\` before using the answers.
+
+## Question Types
+
+Supported \`questions\` entries:
+
+- \`single\`: chip group where one option wins.
+- \`multi\`: chip group where multiple options can be selected.
+- \`freeform\`: textarea for constraints, inspirations, or things to avoid.
+- \`visual\`: visual options with sketch previews — use for layout direction, flow
+  depth, surface choice, or diagram choices.
+
+Each option can include \`label\`, \`value\`, \`description\`, \`recommended\`,
+\`preview\`, and \`bullets\`. Valid \`preview\` values match the wireframe surfaces:
+\`desktop\`, \`mobile\`, \`popover\`, \`panel\`, \`component\`, \`split\`, \`flow\`, and
+\`diagram\`. Pick the preview that matches the real footprint — do not offer a
+desktop/mobile pair for a popover, panel, or component.
+
+## Quality Bar
+
+- Ask only decision-changing questions. A beautiful form with low-value questions
+  is still friction.
+- Prefer visible, answerable options over abstract prose.
+- Use visual tabs when users need to compare layout or flow shapes.
+- Keep the output calm and document-like, not a landing page.
+- The generated answer summary is not the final plan; it is the intake prompt for
+  the next agent step.
+
+## Tool Guidance
+
+- \`create-visual-questions\`: create the interactive intake plan.
+- \`get-visual-plan\`: inspect the current visual question plan.
+- \`get-plan-feedback\`: read comments before creating or updating the next plan.
+- \`create-ui-plan\`: create a UI-first plan from the answers.
+- \`create-visual-plan\`: create a general visual plan from the answers.
+- \`visualize-plan\`: enrich an existing text plan after answers are gathered.
+- \`export-visual-plan\`: export answer plans as HTML, Markdown fallback,
+  structured JSON, and MDX files when the intake needs to be checked into a repo.
+- \`read-visual-plan-source\` / \`patch-visual-plan-source\`: inspect or patch the
+  MDX source if another agent is operating from checked-in plan files.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
+`;
+
+export const VISUALIZE_PLAN_SKILL_MD = `---
+name: visualize-plan
+description: >-
+  Convert an existing Codex, Claude Code, Markdown, or pasted plan into an
+  Agent-Native Plans visual companion with diagrams, wireframes, annotations, and
+  feedback.
+metadata:
+  visibility: exported
+---
+
+# Visualize Plan
+
+Use \`/visualize-plan\` when a plan already exists and the user wants it easier to
+review. The native Codex or Claude Code plan can stay where it is; Agent-Native
+Plans creates a structured visual companion beside it — diagrams, wireframes,
+state sketches, option cards, and comment prompts instead of a wall of text. It
+still reads like a plan, not a marketing page.
+
+## Plan Discipline
+
+- **Gate hard.** A visual companion is worth it only when the source plan is
+  long, risky, or hard to react to as text. If the source plan is for trivial,
+  unambiguous work, skip the companion and just implement.
+- **Stay grounded and read-only.** Preserve the source plan's intent, do not
+  invent codebase facts, and label anything inferred as inferred. Make no source
+  edits while building or reviewing the companion.
+- **The companion is the approval gate.** Ask the user to review and approve the
+  direction before you write code, and name which files/areas the work touches.
+  Carry unresolved assumptions and open questions into a clear block instead of
+  guessing silently.
+
+## Workflow
+
+1. Gather the existing plan text from the user's paste, a referenced file, or
+   recent visible agent context. Do not invent the source plan. If no plan text
+   exists and the work is UI-heavy, use \`/ui-plan\` instead.
+2. Call \`visualize-plan\` with \`planText\`, \`title\`, \`brief\`, \`source\`, and
+   \`repoPath\` when available.
+3. Surface the returned Plans link or inline MCP App.
+4. Enrich the import with \`update-visual-plan\` (prefer targeted \`contentPatches\`):
+   add a canvas with wireframes for user-visible UI, diagrams for architecture or
+   data flow, option cards for real tradeoffs, and explicit open questions. Apply
+   the two cores below — the companion must meet the same quality bar as a fresh
+   plan, not be a thinner ruleset. Label inferred visuals as inferred. When the
+   user wants source-control friendly edits, use \`patch-visual-plan-source\`
+   against the MDX files instead of regenerating the plan.
+5. Ask the user to react, then call \`get-plan-feedback\` before implementing,
+   after review, and before the final response.
+6. Treat imported text as source material. The structured visual plan and
+   comments are the review surface; HTML is the export receipt. Do not replace a
+   native plan unless the user asks.
+
+<!-- SHARED-CORE:wireframe-canvas START -->
+## Wireframe & Canvas Core
+
+This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
+\`/visualize-plan\`. It is the single source of truth for how wireframes and the
+canvas work. Do not paraphrase it per command.
+
+**The renderer owns all visual quality. You emit content, never styling.** Flex
+layout, fonts, density, spacing, theme, and the hand-drawn wobble all live in
+the app renderer. Never emit coordinates, CSS, pixel sizes, or raw HTML for a
+wireframe's internals. Your job is to pick a surface, compose real product
+content from the kit, and annotate — nothing else.
+
+**A wireframe block's data is a declarative kit tree, not geometry:**
+
+\`\`\`json
+{
+  "surface": "desktop",
+  "screen": [
+    { "el": "browserBar", "title": "tasklist" },
+    { "el": "row", "children": [
+      { "el": "sidebar", "children": [
+        { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
+        { "el": "navItem", "label": "Today", "count": 4 },
+        { "el": "navItem", "label": "Done" }
+      ] },
+      { "el": "main", "children": [
+        { "el": "title", "text": "Today", "script": true },
+        { "el": "chips", "items": [
+          { "label": "All", "active": true }, { "label": "Active" }, { "label": "Done" }
+        ] },
+        { "el": "section", "label": "OVERDUE", "tone": "warn" },
+        { "el": "taskRow", "title": "Send invoice to Acme Co.", "due": "Yesterday", "dueTone": "warn", "prio": 1 },
+        { "el": "taskRow", "title": "Reply to design feedback", "due": "Today", "prio": 2 }
+      ] }
+    ] }
+  ]
+}
+\`\`\`
+
+The renderer maps each node to a flex kit component and applies one whole-frame
+wobble. Layout is always flex: \`row\`, \`col\`, \`sidebar\`, and \`main\` set the flex
+direction; everything aligns by construction, so you never get overlap or drift.
+
+**Surface presets — match the real footprint, never default to desktop+mobile.**
+Pick the \`surface\` that matches what the user will actually see:
+
+- \`desktop\`: a full page or app shell.
+- \`mobile\`: a phone screen, only when the work is genuinely mobile.
+- \`popover\`: a small floating menu, dropdown, or inline popover.
+- \`panel\`: a side panel, inspector, or sidebar widget.
+- \`browser\`: a page that needs a browser chrome frame around it.
+
+A sidebar popover renders as a small surface, not a desktop page and a phone
+frame. Do not emit \`desktop\` + \`mobile\` variants unless responsive behavior
+actually changes the layout. For a component or widget, show one broader
+app-context frame only when placement affects understanding, then the focused
+component states.
+
+**Node vocabulary (\`el\` values).** Every node is \`{ el, ...props, children? }\`:
+
+- Layout: \`screen\`, \`row\`, \`col\`, \`sidebar\`, \`main\`, \`card{children}\`,
+  \`column{title,count?,children}\`, \`box{children,dashed?}\`, \`divider\`.
+- Chrome: \`browserBar{title}\`, \`statusBar\`, \`searchBar\`, \`toolbar\`.
+- Navigation: \`navItem{label,count?,active?,dot?}\`, \`tabs\`/\`chips{items:[{label,active?}]}\`,
+  \`chip{label,active?}\`, \`pill{label,tone?}\`.
+- Content: \`title{text,script?}\`, \`text{value,color?,weight?}\`,
+  \`lines{n?,widths?}\`, \`section{label,tone?}\`,
+  \`taskRow{title,note?,due?,dueTone?,prio?,done?}\`, \`kv{rows:[{k,v}]}\`,
+  \`avatar\`, \`iconSquare{active?}\`.
+- Inputs: \`field{label?,value?,placeholder?,area?}\`, \`check{done?,shape?}\`,
+  \`btn{label,solid?,full?}\`, \`fab{icon?}\`.
+
+Put **real product content** in props: real labels, real dates, real counts,
+real button text grounded in the actual screen or component you read. Use
+\`lines\`/\`text\` (with no \`value\`) only for genuine placeholder body copy — never
+fill a screen with gray placeholder bars. Buttons (\`btn\`, \`fab\`) must read as
+actionable controls.
+
+**Default crisp.** Sketchiness is a low default (a subtle single wobble over the
+whole frame), not a heavy scribble. Do not ask for or assume a heavy sketch
+look.
+
+**Canvas annotations are designer notes on the artboard.** When a top canvas is
+present, sprinkle Figma-style notes near the frames they explain: a short
+heading, supporting text, and bullets — plain text layers, never bordered or
+shadowed cards, and never a box around a frame. The renderer spaces notes away
+from frames, so place each note by the frame it describes. Use an arrow only to
+point at one specific control or transition; for a broad frame-level note, write
+text beside the frame with no connector. Connectors are for real sequences only —
+never fake "Step 1 → Step 2" lines between independent states.
+
+**Patching.** Edit one wireframe node, canvas annotation, or block with targeted \`contentPatches\`
+(for example \`update-wireframe-node\`, \`update-block\`, \`replace-blocks\`) rather
+than regenerating the whole plan. \`contentPatches\` are part of the public MCP
+action schema, so Claude Code, Codex, Cursor, and other hosts can make surgical
+edits. If an agent is working from exported source files, use
+\`read-visual-plan-source\` / \`patch-visual-plan-source\`: \`plan.mdx\` holds
+frontmatter plus markdown/document blocks, \`canvas.mdx\` holds
+\`<DesignBoard>/<Section>/<Artboard>/<Screen>/<Annotation>/<Connector>\`, and the
+patch action normalizes the MDX back into the same JSON runtime model. JSON is
+the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
+
+**Legacy imports only.** Old or imported plans may carry coordinate-based
+regions or a full standalone HTML document; the renderer still displays them.
+Never emit geometry, regions, or a standalone HTML document for a new plan —
+compose the kit tree instead.
+<!-- SHARED-CORE:wireframe-canvas END -->
+
+<!-- SHARED-CORE:document-quality START -->
+## Document Quality Core
+
+This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
+\`/visualize-plan\`. It is the single source of truth for the document below the
+canvas. Do not paraphrase it per command.
+
+**The document is a serious technical plan, not marketing.** Write it the way a
+strong Claude or Codex implementation plan reads: outcome-first, prose-first,
+self-contained, and specific. State the objective and what "done" means, the
+scope and non-goals, the proposed approach with the key decisions and their
+rationale, ordered steps that name real files, symbols, actions, and data
+shapes, the risks, and a closing verification step (tests, build, or a checkable
+behavior). Replace vague prose with specifics; never ship a step like "make it
+work." No hero art, gradients, logos, nav bars, slogans, value props, giant
+landing-page headings, or marketing cards unless the user explicitly asks.
+
+**Canvas and document never duplicate each other.** The UI story lives on the
+canvas with on-canvas annotations; the document carries the technical depth the
+canvas cannot show — concrete file/symbol maps, API and data contracts, code
+snippets, migration or implementation phases, risks, and validation. Repeat a
+wireframe in the document only for a genuinely new detail view or comparison.
+Skip the canvas entirely for non-visual work and write a clean rich document.
+
+**Use the right block, and make it carry substance:**
+
+- \`rich-text\` for plan prose with real bold/italic/code/links and nested lists.
+- \`implementation-map\` / \`code-tabs\` for the file map: file path, the
+  symbols/components to touch, the reason, risk/coordination notes, and a
+  concise syntax-highlighted snippet of the code shape — never the whole file,
+  never a prose-only file list.
+- \`decision\` for two or three option cards with consequences. These are static
+  records; do not style them like clickable tabs or chips unless the renderer
+  truly supports changing the selection.
+- \`diagram\` for architecture, sequence, data-flow, dependency, or state
+  relationships, only when it clarifies something real. Labels must not overlap
+  nodes, connectors, or each other.
+- \`tabs\` for multiple states, directions, or comparisons. A tab that reveals
+  only prose usually means the plan is under-specified — include a relevant
+  visual unless the tab is intentionally document-only.
+- \`table\`, \`checklist\`, \`callout\` for scannable structure.
+
+**Open questions are callouts, not buried prose.** Surface anything unresolved in
+a dedicated open-questions / needs-clarification block. Never put a
+questions/decisions wall inside the plan narrative.
+
+**\`custom-html\` is a bounded escape hatch only** — a single complete fragment
+inside a block, never \`html\`/\`head\`/\`body\`/\`script\` tags, never a placeholder,
+density demo, or proof that custom HTML works. Prefer the native blocks; they
+cover real plans.
+
+**Before handoff, open the plan and check it.** Fix overlap, excessive
+whitespace, clipped fragments, misleading inactive controls, poor contrast, and
+unreadable diagrams before asking for approval.
+<!-- SHARED-CORE:document-quality END -->
+
+<!-- SHARED-CORE:exemplar START -->
+## Good vs. Bad Exemplar
+
+**GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard
+composed from the kit — a sidebar of real \`navItem\`s (\`Inbox 12\`, \`Today 4\`,
+\`Done\`), a \`main\` with a scripted \`title\`, real \`chips\`, a \`section\` labeled
+\`OVERDUE\`, and \`taskRow\`s carrying real titles, due dates, and priorities — one
+subtle whole-frame wobble, correct desktop footprint, and plain-text designer
+notes spaced off the frames pointing only at the controls that need explanation.
+Below it, a Claude/Codex-grade document: objective and done-criteria, an
+\`implementation-map\` naming the real components and actions with short
+highlighted snippets, a \`decision\` card weighing two real approaches, and a
+validation step — none of it repeating the canvas. This is the bar.
+
+**BAD.** Empty coordinate boxes placed by \`x/y/width/height\`, gray placeholder
+bars "insinuating" text, crisp double-bordered rectangles or a heavy scribble, a
+forced desktop + mobile pair for a popover, floating bordered annotation cards
+hugging the frames, and a marketing-style document with a hero heading and value
+props that just restates what the canvas already shows. Never produce this.
+<!-- SHARED-CORE:exemplar END -->
+
+## Tool Guidance
+
+- \`visualize-plan\`: create the visual companion from the existing text plan.
+- \`update-visual-plan\`: enrich the import; prefer targeted \`contentPatches\` over
+  replacing the whole content.
+- \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,
+  optional \`canvas.mdx\`, optional \`.plan-state.json\`, and JSON.
+- \`patch-visual-plan-source\`: apply granular MDX AST patches by stable block,
+  artboard, annotation, component, or wireframe-node id.
+- \`import-visual-plan-source\`: create or replace a plan from an MDX folder.
+- \`get-visual-plan\`: inspect the current structured plan, exported HTML, and
+  annotations; it also returns the MDX folder for source workflows.
+- \`get-plan-feedback\`: read unconsumed reviewer comments before coding.
+- \`export-visual-plan\`: export HTML, Markdown fallback, structured JSON, and MDX
+  files for repo check-in.
+
+When the user critiques a plan's look or structure, fix the renderer or this
+skill — never hand-edit one stored plan. Turn feedback into better guidance.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`.
 `;
 
 const BUILT_IN_APP_SKILLS = {
@@ -393,22 +1196,27 @@ const BUILT_IN_APP_SKILLS = {
     skillMarkdown: DESIGN_EXPLORATION_SKILL_MD,
   },
   "visual-plans": {
-    skillName: "visual-plans",
+    skillName: "visual-plan",
+    extraSkills: {
+      "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
+      "ui-plan": UI_PLAN_SKILL_MD,
+      "visualize-plan": VISUALIZE_PLAN_SKILL_MD,
+    },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
-      displayName: "Visual Plans",
+      displayName: "Agent-Native Plans",
       description:
-        "Review coding-agent plans as interactive HTML with diagrams, wireframes, annotations, and proof gates.",
+        "Generate and review coding-agent plans as structured visual documents with diagrams, wireframes, prototypes, annotations, feedback, and HTML export.",
       hosted: {
-        url: "https://plans.agent-native.com",
-        mcpUrl: "https://plans.agent-native.com/_agent-native/mcp",
+        url: "https://plan.agent-native.com",
+        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
       },
-      mcp: { serverName: "agent-native-visual-plans" },
+      mcp: { serverName: "agent-native-plans" },
       auth: {
         mode: "oauth",
         setup:
-          "Authenticate with the Visual Plans MCP connector in the host app. No shared secrets are stored in skill files.",
+          "Install with the Agent-Native CLI to add /visual-plan, /visual-questions, /ui-plan, and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -416,12 +1224,46 @@ const BUILT_IN_APP_SKILLS = {
           action: "create-visual-plan",
           path: "/plans",
         },
+        {
+          id: "visual-questions",
+          action: "create-visual-questions",
+          path: "/plans",
+          description:
+            "Create a visual intake questionnaire before generating or updating an Agent-Native plan.",
+        },
+        {
+          id: "ui-plan",
+          action: "create-ui-plan",
+          path: "/plans",
+          description:
+            "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below.",
+        },
+        {
+          id: "visualize-plan",
+          action: "visualize-plan",
+          path: "/plans",
+        },
       ],
       skills: [
         {
-          path: "skills/visual-plans",
+          path: "skills/visual-plan",
           visibility: "exported",
-          exportAs: "visual-plans",
+          exportAs: "visual-plan",
+        },
+        {
+          path: "skills/visual-questions",
+          visibility: "exported",
+          exportAs: "visual-questions",
+        },
+        {
+          path: "skills/ui-plan",
+          visibility: "exported",
+          exportAs: "ui-plan",
+        },
+        {
+          path: "skills/visualize-plan",
+          visibility: "exported",
+          exportAs: "visualize-plan",
         },
       ],
       hostAdapters: [
@@ -474,6 +1316,7 @@ const BUILT_IN_APP_SKILLS = {
     manifest: AppSkillManifest;
     skillMarkdown: string;
     skillName: string;
+    extraSkills?: Record<string, string>;
     localOnly?: boolean;
   }
 >;
@@ -498,18 +1341,16 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "agent-native-design-exploration": "design",
   "visual-plans": "visual-plans",
   "visual-plan": "visual-plans",
-  plans: "visual-plans",
-  plan: "visual-plans",
+  "visual-questions": "visual-plans",
+  "visual-question": "visual-plans",
+  "ui-plan": "visual-plans",
+  "ui-plans": "visual-plans",
+  "visualize-plan": "visual-plans",
+  "visualize-plans": "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
   plannotator: "visual-plans",
-  contracts: "visual-plans",
-  contract: "visual-plans",
-  proof: "visual-plans",
-  "proof-check": "visual-plans",
-  "assumption-review": "visual-plans",
-  "agent-native-contracts": "visual-plans",
   "agent-native-visual-plans": "visual-plans",
   "context-xray": "context-xray",
   "local-context-xray": "context-xray",
@@ -527,11 +1368,12 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "agent-native-design-exploration",
   ],
   "visual-plans": [
-    "plans",
+    "visual-plan",
+    "visual-questions",
+    "ui-plan",
+    "visualize-plan",
     "html-plan",
     "plannotate",
-    "contracts",
-    "proof-check",
   ],
   "context-xray": ["xray", "context-window", "context-usage"],
 } satisfies Record<BuiltInAppSkillId, string[]>;
@@ -643,6 +1485,18 @@ function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
 ): boolean {
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
+}
+
+function builtInExtraSkills(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): Record<string, string> {
+  return "extraSkills" in entry && entry.extraSkills ? entry.extraSkills : {};
+}
+
+function builtInSkillNames(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
+): string[] {
+  return [entry.skillName, ...Object.keys(builtInExtraSkills(entry))];
 }
 
 function normalizeClientIds(values: unknown): ClientId[] {
@@ -835,6 +1689,7 @@ function loadSkillTarget(target: string): SkillInstallTarget {
   const knownTarget = normalizeKnownSkillTarget(target);
   if (knownTarget) {
     const builtIn = BUILT_IN_APP_SKILLS[knownTarget];
+    const skillNames = builtInSkillNames(builtIn);
     return {
       id: builtIn.manifest.id,
       displayName: builtIn.manifest.displayName,
@@ -843,15 +1698,21 @@ function loadSkillTarget(target: string): SkillInstallTarget {
         file: `<built-in:${builtIn.manifest.id}>`,
         dir: process.cwd(),
       },
-      skillNames: [builtIn.skillName],
+      skillNames,
       materializeInstructions(outDir) {
-        const skillDir = path.join(outDir, "skills", builtIn.skillName);
-        fs.mkdirSync(skillDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(skillDir, "SKILL.md"),
-          builtIn.skillMarkdown,
-          "utf-8",
-        );
+        const skills: Record<string, string> = {
+          [builtIn.skillName]: builtIn.skillMarkdown,
+          ...builtInExtraSkills(builtIn),
+        };
+        for (const [skillName, skillMarkdown] of Object.entries(skills)) {
+          const skillDir = path.join(outDir, "skills", skillName);
+          fs.mkdirSync(skillDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(skillDir, "SKILL.md"),
+            skillMarkdown,
+            "utf-8",
+          );
+        }
         return outDir;
       },
     };

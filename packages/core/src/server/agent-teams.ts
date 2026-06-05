@@ -445,6 +445,12 @@ async function failReconciledTask(
   return task;
 }
 
+function subAgentDispatchFailureMessage(err: unknown): string {
+  return err instanceof Error
+    ? `Failed to start sub-agent: ${err.message}`
+    : "Failed to start sub-agent.";
+}
+
 /**
  * Re-fire a dropped self-dispatch. When the queue row is still queued/running
  * but its heartbeat has gone stale (the self-fire never landed, or the
@@ -469,8 +475,12 @@ async function refireStuckAgentTeamRunIfNeeded(
       taskId: task.taskId,
       body: { mode: dispatch.continuationCount > 0 ? "continue" : "start" },
     });
-  } catch {
-    // best-effort
+  } catch (err) {
+    await failReconciledTask(
+      task,
+      dispatch.ownerEmail,
+      subAgentDispatchFailureMessage(err),
+    );
   }
 }
 
@@ -595,10 +605,42 @@ function taskRunId(taskId: string): string {
   return `run-task-${taskId}`;
 }
 
+function taskRunChunkId(taskId: string, chunk: number): string {
+  return `${taskRunId(taskId)}-c${chunk}`;
+}
+
 function taskIdFromBackgroundRunId(runId: string): string {
-  return runId.startsWith("run-task-")
+  const taskId = runId.startsWith("run-task-")
     ? runId.slice("run-task-".length)
     : runId;
+  const chunkTaskId = taskId.match(/^(.*)-c\d+$/)?.[1];
+  // Public background run ids are stable base ids. Only strip a chunk suffix
+  // when the caller passed a live run-manager chunk id.
+  return chunkTaskId && getRun(runId)?.status === "running"
+    ? chunkTaskId
+    : taskId;
+}
+
+function runningInMemoryTaskRunId(taskId: string): string {
+  const baseRunId = taskRunId(taskId);
+  for (let i = MAX_AGENT_TEAM_CONTINUATIONS; i >= 0; i -= 1) {
+    const chunkRunId = taskRunChunkId(taskId, i);
+    if (getRun(chunkRunId)?.status === "running") return chunkRunId;
+  }
+  if (getRun(baseRunId)?.status === "running") return baseRunId;
+  return baseRunId;
+}
+
+async function durableActiveTaskRunId(taskId: string): Promise<string> {
+  try {
+    const dispatch = await getAgentTeamRunDispatchState(taskId);
+    if (dispatch?.status === "queued" || dispatch?.status === "running") {
+      return taskRunChunkId(taskId, dispatch.continuationCount);
+    }
+  } catch {
+    // Fall back to in-memory state if queue state is temporarily unavailable.
+  }
+  return runningInMemoryTaskRunId(taskId);
 }
 
 function mapTaskStatusToBackgroundStatus(
@@ -900,23 +942,33 @@ function summarizeAgentChatEvent(event: RunEvent): {
 export function toAgentTaskBackgroundTranscriptEvent(
   runId: string,
   event: RunEvent,
+  options: { seq?: number; sourceRunId?: string } = {},
 ): AgentTeamBackgroundTranscriptEvent | null {
   const summary = summarizeAgentChatEvent(event);
   if (!summary) return null;
+  const sourceRunId = options.sourceRunId ?? runId;
+  const eventId = `${sourceRunId}:${event.seq}`;
+  const seq = options.seq ?? event.seq;
+  const metadata = {
+    ...(summary.metadata ?? {}),
+    seq,
+    sourceSeq: event.seq,
+    ...(sourceRunId === runId ? {} : { sourceRunId }),
+  };
   return {
     schemaVersion: 1,
-    id: `${runId}:${event.seq}`,
+    id: eventId,
     runId,
     kind: summary.kind,
     source: "hosted-agent-team",
     sourceRecord: {
       type: "agent-team-run-event",
-      id: `${runId}:${event.seq}`,
-      seq: event.seq,
+      id: eventId,
+      seq,
     },
     message: summary.message,
     createdAt: new Date().toISOString(),
-    metadata: summary.metadata,
+    metadata,
   };
 }
 
@@ -1065,11 +1117,11 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     // Enqueue/dispatch failed outright — surface as an errored task rather
     // than a ghost "running" one. (A dropped self-fire that still enqueued is
     // recovered by the reconcile stuck-refire path.)
-    const message =
-      err instanceof Error
-        ? `Failed to start sub-agent: ${err.message}`
-        : "Failed to start sub-agent.";
-    await failReconciledTask(task, opts.ownerEmail, message);
+    await failReconciledTask(
+      task,
+      opts.ownerEmail,
+      subAgentDispatchFailureMessage(err),
+    );
   }
 
   return task;
@@ -1413,12 +1465,20 @@ export async function processAgentTeamRun(
                   task.preview = (fullText || accumulatedText).slice(-800);
                   await saveTask(task);
                   if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
-                  await fireInternalDispatch({
-                    event: opts.event,
-                    path: AGENT_TEAM_PROCESS_RUN_PATH,
-                    taskId: opts.taskId,
-                    body: { mode: "continue" },
-                  });
+                  try {
+                    await fireInternalDispatch({
+                      event: opts.event,
+                      path: AGENT_TEAM_PROCESS_RUN_PATH,
+                      taskId: opts.taskId,
+                      body: { mode: "continue" },
+                    });
+                  } catch (err) {
+                    await failReconciledTask(
+                      task,
+                      ownerEmail || null,
+                      subAgentDispatchFailureMessage(err),
+                    );
+                  }
                   return;
                 }
                 // Hit the cap — finalize with whatever was produced.
@@ -1487,26 +1547,58 @@ export async function getAgentTeamBackgroundRun(
 export async function listAgentTeamBackgroundTranscriptEvents(
   runId: string,
 ): Promise<AgentTeamBackgroundTranscriptEvent[]> {
-  const normalizedRunId = taskRunId(taskIdFromBackgroundRunId(runId));
-  const activeRun = getRun(normalizedRunId);
-  const events = activeRun
-    ? activeRun.events
-    : await getPersistedRunEvents(normalizedRunId);
+  const taskId = taskIdFromBackgroundRunId(runId);
+  const normalizedRunId = taskRunId(taskId);
+  const runIds = await transcriptRunIdsForTask(taskId);
+  const output: AgentTeamBackgroundTranscriptEvent[] = [];
+  let seq = 0;
 
-  return events
-    .map((event) =>
-      toAgentTaskBackgroundTranscriptEvent(normalizedRunId, event),
-    )
-    .filter((event): event is AgentTeamBackgroundTranscriptEvent =>
-      Boolean(event),
-    );
+  for (const sourceRunId of runIds) {
+    const activeRun = getRun(sourceRunId);
+    const events = activeRun
+      ? activeRun.events
+      : await getPersistedRunEvents(sourceRunId);
+    for (const event of events) {
+      const transcriptEvent = toAgentTaskBackgroundTranscriptEvent(
+        normalizedRunId,
+        event,
+        { seq, sourceRunId },
+      );
+      if (transcriptEvent) {
+        output.push(transcriptEvent);
+        seq += 1;
+      }
+    }
+  }
+
+  return output;
 }
 
 export function subscribeToAgentTeamBackgroundRun(
   runId: string,
   fromSeq = 0,
 ): ReadableStream<Uint8Array> | null {
-  return subscribeToRun(taskRunId(taskIdFromBackgroundRunId(runId)), fromSeq);
+  return subscribeToRun(
+    runningInMemoryTaskRunId(taskIdFromBackgroundRunId(runId)),
+    fromSeq,
+  );
+}
+
+async function transcriptRunIdsForTask(taskId: string): Promise<string[]> {
+  const baseRunId = taskRunId(taskId);
+  let continuationCount = 0;
+  try {
+    continuationCount =
+      (await getAgentTeamRunDispatchState(taskId))?.continuationCount ?? 0;
+  } catch {
+    continuationCount = 0;
+  }
+
+  const ids = [baseRunId];
+  for (let i = 0; i <= continuationCount; i += 1) {
+    ids.push(taskRunChunkId(taskId, i));
+  }
+  return ids;
 }
 
 async function getPersistedRunEvents(runId: string): Promise<RunEvent[]> {
@@ -1623,7 +1715,7 @@ export async function stopAgentTeamBackgroundRun(
     return { ok: false, error: "Task is not running" };
   }
 
-  abortRun(taskRunId(taskId), reason);
+  abortRun(await durableActiveTaskRunId(taskId), reason);
   task.status = "errored";
   task.summary =
     reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
@@ -1635,6 +1727,7 @@ export async function stopAgentTeamBackgroundRun(
   if (ownerEmail) {
     await completeTaskProgressRun(task, ownerEmail, "cancelled", task.summary);
   }
+  await completeAgentTeamRun(task.taskId, "failed");
   return { ok: true };
 }
 

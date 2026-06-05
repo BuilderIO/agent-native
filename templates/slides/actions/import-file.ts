@@ -7,15 +7,17 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { parseSlidesFigDesignSystem } from "../server/lib/fig-design-system.js";
 import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
 export default defineAction({
   description:
-    "Import a file (PPTX, DOCX, PDF) and extract content for creating slides. " +
+    "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
     "For PPTX files, returns parsed slides with text and layout info ready for conversion. " +
     "For DOCX files, returns structured sections extracted from the document. " +
     "For PDF files, returns extracted text organized by page. " +
-    "The agent can then use the extracted content to create a deck via create-deck or add-slide.",
+    "For Figma .fig files, returns extracted brand/design-system tokens and a preview; call create-design-system with the returned data. " +
+    "The agent can then use the extracted content to create a deck via create-deck or add-slide, or create a design system from .fig tokens.",
   schema: z.object({
     filePath: z
       .string()
@@ -23,7 +25,7 @@ export default defineAction({
         "Server path to the uploaded file (e.g. data/uploads/file.pptx)",
       ),
     format: z
-      .enum(["pptx", "docx", "pdf", "auto"])
+      .enum(["pptx", "docx", "pdf", "fig", "auto"])
       .optional()
       .default("auto")
       .describe("File format — auto-detected from extension if not specified"),
@@ -51,11 +53,40 @@ export default defineAction({
       if (ext === ".pptx") detectedFormat = "pptx";
       else if (ext === ".docx") detectedFormat = "docx";
       else if (ext === ".pdf") detectedFormat = "pdf";
+      else if (ext === ".fig") detectedFormat = "fig";
       else {
         throw new Error(
-          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf`,
+          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig`,
         );
       }
+    }
+
+    if (detectedFormat === "fig") {
+      if (importIntoDeck) {
+        throw new Error(
+          "Figma .fig imports create design systems, not slide replacements. Re-run without importIntoDeck, then call create-design-system with the returned data.",
+        );
+      }
+      const result = parseSlidesFigDesignSystem({
+        data: fileBuffer,
+        filename: path.basename(absPath),
+      });
+      return {
+        format: "fig",
+        title: result.suggestedTitle,
+        designSystem: result.data,
+        customInstructions: result.customInstructions,
+        preview: result.preview,
+        deckId,
+        instructions: [
+          "Parsed the .fig file and extracted a slide-ready design system.",
+          "Call create-design-system with:",
+          `- title: ${JSON.stringify(result.suggestedTitle)}`,
+          "- data: JSON.stringify(designSystem)",
+          "- customInstructions: the returned customInstructions string",
+          "Then set it as default or apply it to a deck if the user asked.",
+        ].join("\n"),
+      };
     }
 
     if (detectedFormat === "pptx") {

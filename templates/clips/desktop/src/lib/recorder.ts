@@ -540,6 +540,52 @@ async function getBrowserRecordingBackupChunks(
   }
 }
 
+function validateBrowserRecordingBackupChunks(
+  meta: BrowserRecordingBackupMeta,
+  chunks: BrowserRecordingBackupChunk[],
+): BrowserRecordingBackupChunk[] {
+  if (chunks.length === 0) {
+    throw new Error("Local recording backup has no chunks");
+  }
+
+  if (!Number.isInteger(meta.chunkCount) || meta.chunkCount <= 0) {
+    throw new Error("Local recording backup metadata has no chunk count");
+  }
+  const expectedCount = meta.chunkCount;
+  if (chunks.length !== expectedCount) {
+    throw new Error(
+      `Local recording backup is incomplete: found ${chunks.length} of ${expectedCount} chunks`,
+    );
+  }
+
+  const sorted = [...chunks].sort((a, b) => a.index - b.index);
+  let totalBytes = 0;
+  for (let i = 0; i < expectedCount; i++) {
+    const chunk = sorted[i];
+    if (!chunk || chunk.index !== i) {
+      throw new Error(`Local recording backup is missing chunk ${i}`);
+    }
+    const blobBytes = chunk.blob?.size ?? 0;
+    if (blobBytes <= 0) {
+      throw new Error(`Local recording backup chunk ${i} is empty`);
+    }
+    if (chunk.bytes !== blobBytes) {
+      throw new Error(
+        `Local recording backup chunk ${i} byte metadata is inconsistent`,
+      );
+    }
+    totalBytes += blobBytes;
+  }
+
+  if (meta.bytes > 0 && totalBytes !== meta.bytes) {
+    throw new Error(
+      `Local recording backup byte total is inconsistent: found ${totalBytes} of ${meta.bytes} bytes`,
+    );
+  }
+
+  return sorted;
+}
+
 async function deleteBrowserRecordingBackup(
   recordingId: string,
 ): Promise<void> {
@@ -579,14 +625,12 @@ export async function exportBrowserRecordingBackup(
     throw new Error("Local recording backup not found");
   }
   const chunks = await getBrowserRecordingBackupChunks(recordingId);
-  if (chunks.length === 0) {
-    throw new Error("Local recording backup has no chunks");
-  }
+  const validatedChunks = validateBrowserRecordingBackupChunks(meta, chunks);
 
   return exportBlobChunksToLocalRecordingFile({
-    chunks: chunks.map((chunk) => chunk.blob),
+    chunks: validatedChunks.map((chunk) => chunk.blob),
     role: "composed",
-    mimeType: meta.mimeType || chunks[0]?.mimeType || "video/webm",
+    mimeType: meta.mimeType || validatedChunks[0]?.mimeType || "video/webm",
     durationMs: meta.durationMs,
     width: meta.width,
     height: meta.height,
@@ -694,9 +738,7 @@ export async function retryBrowserRecordingBackup(input: {
     meta = { ...meta, serverUrl };
   }
   const chunks = await getBrowserRecordingBackupChunks(input.recordingId);
-  if (chunks.length === 0) {
-    throw new Error("Local recording backup has no chunks");
-  }
+  const validatedChunks = validateBrowserRecordingBackupChunks(meta, chunks);
 
   try {
     await putBrowserRecordingBackupMeta({
@@ -706,8 +748,8 @@ export async function retryBrowserRecordingBackup(input: {
     });
     await resetBrowserRecordingBackupUpload(meta, input.authToken);
 
-    const totalPosts = chunks.length + 1;
-    for (const chunk of chunks) {
+    const totalPosts = validatedChunks.length + 1;
+    for (const chunk of validatedChunks) {
       await postBackupChunk(
         chunkUrl(meta.serverUrl, meta.recordingId, chunk.index, false, {
           total: String(totalPosts),
@@ -719,7 +761,7 @@ export async function retryBrowserRecordingBackup(input: {
     }
 
     await postBackupChunk(
-      chunkUrl(meta.serverUrl, meta.recordingId, chunks.length, true, {
+      chunkUrl(meta.serverUrl, meta.recordingId, validatedChunks.length, true, {
         total: String(totalPosts),
         mimeType: meta.mimeType,
         durationMs: String(Math.round(meta.durationMs || 0)),

@@ -68,7 +68,7 @@ The agent uses app-specific actions to read/write the database. Core DB scripts 
 - `pnpm action db-query --sql "SELECT * FROM forms"` — Run SELECT queries
 - `pnpm action db-exec --sql "UPDATE ..."` — Last-resort ad-hoc maintenance for short columns, multi-column writes, or computed updates when no domain action exists. For several related writes, prefer `--statements '[{"sql":"...","args":[...]}]'` so they run sequentially in one transaction. Schema changes are blocked; use reviewed additive migrations/startup code instead.
 - `pnpm action db-patch --table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` — **Surgical search/replace on a large text column.** Sends the diff instead of re-transmitting the whole value, so it's dramatically more token-efficient than `db-exec UPDATE` when editing multi-kilobyte documents, slide HTML, dashboard/form JSON, etc. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` to replace every occurrence.
-- App-specific actions for domain operations (auto-exposed as HTTP endpoints) — **always prefer these over raw SQL when one exists.** They encode business rules, and for editor-backed tables (documents, slides) they also push live Yjs updates to open collaborative editors. `db-patch` is the generic fallback for tables without a dedicated edit action.
+- App-specific actions for domain operations — **always prefer these over raw SQL when one exists.** They encode business rules, power the client action hooks, and for editor-backed tables (documents, slides) also push live Yjs updates to open collaborative editors. `db-patch` is the generic fallback for tables without a dedicated edit action.
 
 **For one-off maintenance, how to choose between `db-exec UPDATE` and `db-patch`:**
 
@@ -87,16 +87,16 @@ All of these honor the per-user / per-org data scoping — you can't read or wri
 
 ### Frontend Access
 
-The frontend calls actions via their auto-mounted HTTP endpoints using React Query hooks:
+The frontend calls actions using React Query hooks from the client API. The framework owns the HTTP transport behind these hooks, so components should not call action routes with raw `fetch`.
 
 ```ts
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
-// Read data (calls GET /_agent-native/actions/list-meals)
-const { data } = useActionQuery<Meal[]>("list-meals", { date: "2025-01-01" });
+// Read data
+const { data } = useActionQuery("list-meals", { date: "2025-01-01" });
 
-// Write data (calls POST /_agent-native/actions/log-meal)
-const { mutate } = useActionMutation<Meal>("log-meal");
+// Write data
+const { mutate } = useActionMutation("log-meal");
 ```
 
 Actions are the **preferred way** for the frontend to access data. You rarely need custom `/api/` routes — only for file uploads, streaming, webhooks, or OAuth callbacks.
@@ -156,5 +156,6 @@ When adding a new data model or feature, also consider what navigation and selec
 
 - **context-awareness** — How to expose navigation and selection state via application-state
 - **real-time-sync** — Set up polling so the UI updates when the database changes
-- **actions** — Create actions with `defineAction` to query the database (auto-exposed as HTTP endpoints)
+- **actions** — Create actions with `defineAction` to query the database
+- **client-methods** — Keep route details behind named client helpers/hooks
 - **self-modifying-code** — The agent can also modify the app's source code

@@ -5,13 +5,13 @@ import {
   IconPencil,
   IconMessage,
   IconBrush,
-  IconSettings,
+  IconAdjustmentsHorizontal,
   IconZoomIn,
   IconZoomOut,
   IconDeviceDesktop,
   IconDeviceTablet,
   IconDeviceMobile,
-  IconDeviceDesktopOff,
+  IconViewportWide,
   IconPlus,
   IconLayoutGrid,
   IconX,
@@ -23,7 +23,7 @@ import {
   IconMenu2,
   IconChevronDown,
   IconCheck,
-  IconDots,
+  IconDotsVertical,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -39,13 +39,14 @@ import {
   NotificationsBell,
   ShareButton,
   isEmbedAuthActive,
+  sendToAgentChat,
+  useReconciledState,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -67,10 +68,10 @@ import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
 import { VariantGrid } from "@/components/design/VariantGrid";
 import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
-import { SaveStatusIndicator } from "@/components/visual-editor";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import {
   DESIGN_VARIANT_PICKED_EVENT,
@@ -153,10 +154,58 @@ function formatUploadedFileContext(files: UploadedFile[]): string {
   return lines.join("\n");
 }
 
-function designGenerationDirectives(designId: string): string[] {
+function formatTweakDefinitionsContext(tweaks: TweakDefinition[]): string {
+  if (tweaks.length === 0) return "None yet.";
+  return JSON.stringify(
+    tweaks.map((tweak) => ({
+      id: tweak.id,
+      label: tweak.label,
+      type: tweak.type,
+      cssVar: tweak.cssVar,
+      defaultValue: tweak.defaultValue,
+      options: tweak.options,
+      min: tweak.min,
+      max: tweak.max,
+      step: tweak.step,
+    })),
+    null,
+    2,
+  );
+}
+
+function designSystemGenerationDirectives(
+  designSystemId?: string | null,
+): string[] {
+  if (!designSystemId) return [];
+  return [
+    `Use design system id "${designSystemId}" for this generation.`,
+    "Before generating visual code, call `get-design-system` for that id and follow its tokens, assets, and custom instructions.",
+    `When calling \`generate-design\`, pass \`designSystemId: "${designSystemId}"\` so the design remains linked.`,
+  ];
+}
+
+function designIntakeQuestionDirectives(
+  designId: string,
+  designSystemId?: string | null,
+): string[] {
+  return [
+    `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
+    ...designSystemGenerationDirectives(designSystemId),
+    "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
+    "Make the questions feel like Claude Design intake: form factor, aesthetic direction, important features/content, special interactions/polish, and whether to explore variations. Omit or rephrase anything the user's prompt already answered.",
+    "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
+    "Set a specific title like `Quick questions about your todo app` and a short description. After `show-design-questions` succeeds, wait for the user's answers.",
+  ];
+}
+
+function designGenerationDirectives(
+  designId: string,
+  designSystemId?: string | null,
+): string[] {
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
-    "Do not call show-questions or write design-variants for this UI-started generation unless the user explicitly asks for options or questions.",
+    ...designSystemGenerationDirectives(designSystemId),
+    "If the user asked to explore variations, call `present-design-variants` with 2-5 complete HTML directions and wait for their pick before calling generate-design. Otherwise generate one polished first direction.",
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
   ];
@@ -202,6 +251,30 @@ function isDesignData(
   return !!data && typeof data === "object" && Array.isArray(data.files);
 }
 
+function areTweakSelectionsEqual(
+  a: TweakSelections,
+  b: TweakSelections,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => Object.is(a[key], b[key]));
+}
+
+function buildAuthoritativeTweakSelections(
+  tweaks: TweakDefinition[],
+  persistedSelections: TweakSelections,
+): TweakSelections {
+  const selections: TweakSelections = {};
+  for (const tweak of tweaks) {
+    selections[tweak.id] =
+      persistedSelections[tweak.id] !== undefined
+        ? persistedSelections[tweak.id]
+        : tweak.defaultValue;
+  }
+  return selections;
+}
+
 export default function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -224,25 +297,29 @@ export default function DesignEditor() {
   );
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [tweaksVisible, setTweaksVisible] = useState(false);
-  // Tweak values: keyed by tweak id while in the panel; mapped to CSS-var ->
-  // value when sent to the iframe so the design's :root block picks them up.
-  const [tweakSelections, setTweakSelections] = useState<
-    Record<string, string | number | boolean>
-  >({});
+  const [tweakSaveActive, setTweakSaveActive] = useState(false);
   // Shared visual-editor modes (overlays the iframe). drawMode toggles the
   // pencil overlay, pinMode lets the user drop comment pins. They're
   // mutually exclusive — turning one on turns the other off.
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const [svgExporting, setSvgExporting] = useState(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
+  const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
   const [hasPendingGeneration, setHasPendingGeneration] = useState(() =>
     hasFreshPendingGeneration(id),
   );
+  const [generationChatTabId, setGenerationChatTabId] = useState<string | null>(
+    null,
+  );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
+  const [promptDesignSystemId, setPromptDesignSystemId] = useState<
+    string | null | undefined
+  >(undefined);
   // When generation stalls we keep the original prompt + files around so the
   // user can retry with one click instead of re-typing. Cleared as soon as the
   // user kicks off a new run (retry or fresh prompt).
@@ -252,6 +329,7 @@ export default function DesignEditor() {
     model?: PromptComposerSubmitOptions["model"];
     engine?: PromptComposerSubmitOptions["engine"];
     effort?: PromptComposerSubmitOptions["effort"];
+    designSystemId?: string | null;
     attempt?: number;
   } | null>(null);
   const generationOutputReadyRef = useRef(false);
@@ -279,6 +357,7 @@ export default function DesignEditor() {
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
       });
       return true;
@@ -330,6 +409,30 @@ export default function DesignEditor() {
     onComplete: handleGenerationComplete,
     onStale: markGenerationStale,
   });
+  const handleQuestionFlowContinue = useCallback(
+    (runTabId: string) => {
+      clearGenerationCompleteTimer();
+      setGenerationIssue(null);
+      setRetryablePrompt(null);
+      setGenerationChatTabId(runTabId);
+      const pending = readPendingGeneration(id, { allowUntimestamped: true });
+      patchPendingGeneration(id, {
+        prompt: pending?.prompt ?? "Continue from answered design questions.",
+        files: pending?.files ?? [],
+        title: pending?.title,
+        designSystemId: pending?.designSystemId,
+        model: pending?.model,
+        engine: pending?.engine,
+        effort: pending?.effort,
+        runTabId,
+        attempt: pending?.attempt ?? 1,
+        startedAt: Date.now(),
+      });
+      setHasPendingGeneration(true);
+      trackAgentGeneration(runTabId);
+    },
+    [clearGenerationCompleteTimer, id, trackAgentGeneration],
+  );
 
   // Question flow + variant flow — full-canvas overlays driven by the agent.
   const {
@@ -340,7 +443,10 @@ export default function DesignEditor() {
     submitLabel: pendingQuestionsSubmitLabel,
     handleSubmit: handleQuestionsSubmit,
     handleSkip: handleQuestionsSkip,
-  } = useQuestionFlow(id);
+  } = useQuestionFlow(id, {
+    continuationTabId: generationChatTabId,
+    onContinue: handleQuestionFlowContinue,
+  });
   const {
     state: pendingVariants,
     useVariant: handleVariantChoice,
@@ -398,6 +504,7 @@ export default function DesignEditor() {
     }
     setHasPendingGeneration(true);
     if (pending.runTabId) {
+      setGenerationChatTabId(pending.runTabId);
       trackAgentGeneration(pending.runTabId);
     }
   }, [id, markGenerationStale, trackAgentGeneration]);
@@ -487,12 +594,19 @@ export default function DesignEditor() {
   // designs.data.tweakSelections (additive JSON merge, server-side). This is
   // what makes the visual-tune survive reload and feeds the snapshot/handoff
   // round-trip so external agents continue from the *tuned* design.
-  const pendingTweakSaveRef = useRef<TweakSelections | null>(null);
+  const pendingTweakSaveRef = useRef<{
+    selections: TweakSelections;
+    revision: number;
+  } | null>(null);
   const tweakSaveTimerRef = useRef<number | null>(null);
+  const tweakSaveRevisionRef = useRef(0);
   const queueTweakSave = useCallback(
     (selections: TweakSelections) => {
       if (!id) return;
-      pendingTweakSaveRef.current = selections;
+      const revision = tweakSaveRevisionRef.current + 1;
+      tweakSaveRevisionRef.current = revision;
+      setTweakSaveActive(true);
+      pendingTweakSaveRef.current = { selections, revision };
       if (tweakSaveTimerRef.current) {
         window.clearTimeout(tweakSaveTimerRef.current);
       }
@@ -501,10 +615,19 @@ export default function DesignEditor() {
         pendingTweakSaveRef.current = null;
         tweakSaveTimerRef.current = null;
         if (!pending) return;
-        applyTweaksMutation.mutate({
-          designId: id,
-          selections: pending,
-        } as any);
+        applyTweaksMutation.mutate(
+          {
+            designId: id,
+            selections: pending.selections,
+          } as any,
+          {
+            onSettled: () => {
+              if (tweakSaveRevisionRef.current === pending.revision) {
+                setTweakSaveActive(false);
+              }
+            },
+          },
+        );
       }, 600);
     },
     [id, applyTweaksMutation],
@@ -519,6 +642,66 @@ export default function DesignEditor() {
   }, []);
 
   const design = isDesignData(designResult) ? designResult : null;
+  const {
+    designSystems,
+    defaultSystem,
+    isLoading: designSystemsLoading,
+  } = useDesignSystems();
+
+  const resolvePromptDesignSystemId = useCallback(
+    () =>
+      design?.designSystemId ??
+      defaultSystem?.id ??
+      designSystems[0]?.id ??
+      null,
+    [defaultSystem?.id, design?.designSystemId, designSystems],
+  );
+
+  const selectedPromptDesignSystemId =
+    promptDesignSystemId === undefined
+      ? resolvePromptDesignSystemId()
+      : promptDesignSystemId;
+
+  const handlePromptOpenChange = useCallback(
+    (open: boolean) => {
+      setShowPrompt(open);
+      if (open) {
+        setPromptDesignSystemId(resolvePromptDesignSystemId());
+      } else {
+        setPromptDesignSystemId(undefined);
+      }
+    },
+    [resolvePromptDesignSystemId],
+  );
+
+  const handleTweakPromptOpenChange = useCallback((open: boolean) => {
+    setShowTweakPrompt(open);
+    if (!open) {
+      tweakPromptAnchorRef.current = null;
+    }
+  }, []);
+
+  const handleRequestTweaks = useCallback((anchor: HTMLElement) => {
+    tweakPromptAnchorRef.current = anchor;
+    setTweaksVisible(true);
+    setShowTweakPrompt(true);
+  }, []);
+
+  const persistPromptDesignSystem = useCallback(
+    (designSystemId: string | null) => {
+      if (!id || design?.designSystemId === designSystemId) return;
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, designSystemId };
+      });
+      updateDesignMutation.mutate({ id, designSystemId } as any, {
+        onError: () => {
+          queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+        },
+      });
+    },
+    [design?.designSystemId, id, queryClient, updateDesignMutation],
+  );
 
   useEffect(() => {
     if (!design?.title) return;
@@ -596,6 +779,7 @@ export default function DesignEditor() {
     if (pending.runTabId) {
       setGenerationIssue(null);
       setHasPendingGeneration(true);
+      setGenerationChatTabId(pending.runTabId);
       trackAgentGeneration(pending.runTabId);
       return;
     }
@@ -607,6 +791,10 @@ export default function DesignEditor() {
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
+    const pendingDesignSystemId =
+      pending.designSystemId === undefined
+        ? design.designSystemId
+        : pending.designSystemId;
 
     if (pending.autoGenerate === false) {
       setGenerationIssue(null);
@@ -619,9 +807,12 @@ export default function DesignEditor() {
       `Design id: "${id}"`,
       `Design title: "${design.title}"`,
       `User request: "${prompt}"`,
+      pendingDesignSystemId
+        ? `Design system id: "${pendingDesignSystemId}"`
+        : "",
       fileContext,
       "",
-      ...designGenerationDirectives(id),
+      ...designIntakeQuestionDirectives(id, pendingDesignSystemId),
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -632,9 +823,11 @@ export default function DesignEditor() {
       effort: pending.effort,
       newTab: true,
     });
+    setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
       runTabId,
       attempt: pending.attempt ?? 1,
+      designSystemId: pendingDesignSystemId,
       startedAt: Date.now(),
     });
     setHasPendingGeneration(true);
@@ -686,6 +879,14 @@ export default function DesignEditor() {
   // Yjs observe handler can advance the reconcile watermark without re-subscribing.
   const documentFileUpdatedAtRef = useRef<string | null>(null);
   const documentFileContentRef = useRef<string | null>(null);
+  const collabContentRef = useRef<string | null>(null);
+  const staleAgentCollabRecoveryTimerRef = useRef<number | null>(null);
+  const clearStaleAgentCollabRecovery = useCallback(() => {
+    if (staleAgentCollabRecoveryTimerRef.current !== null) {
+      window.clearTimeout(staleAgentCollabRecoveryTimerRef.current);
+      staleAgentCollabRecoveryTimerRef.current = null;
+    }
+  }, []);
 
   // Whether this client applies authoritative external snapshots into the
   // shared Y.Doc. Exactly one client (the lead) does, so an agent/peer edit
@@ -715,8 +916,13 @@ export default function DesignEditor() {
       setCollabContent(null);
       lastAppliedFileUpdatedAtRef.current = null;
       lastLocalContentRef.current = null;
+      clearStaleAgentCollabRecovery();
     }
-  }, [activeFileId]);
+  }, [activeFileId, clearStaleAgentCollabRecovery]);
+
+  useEffect(() => {
+    return clearStaleAgentCollabRecovery;
+  }, [clearStaleAgentCollabRecovery]);
 
   // Seed collab content from Y.Doc once synced
   useEffect(() => {
@@ -737,15 +943,21 @@ export default function DesignEditor() {
     documentFileContentRef.current = activeFile?.content ?? null;
   }, [activeFile?.content, activeFile?.updatedAt]);
 
+  useEffect(() => {
+    collabContentRef.current = collabContent;
+  }, [collabContent]);
+
   // Observe Y.Text changes for live updates from remote editors (peers + the
   // agent's in-process applyText). This is the instant peer-to-peer path.
   useEffect(() => {
     if (!ydoc || !isSynced) return;
     const ytext = ydoc.getText("content");
-    const handler = () => {
+    const handler = (_event: unknown, transaction?: { origin?: unknown }) => {
       const next = ytext.toString();
       setCollabContent(next);
-      lastLocalContentRef.current = next;
+      if (transaction?.origin === TAB_ID) {
+        lastLocalContentRef.current = next;
+      }
       // Only advance the DB reconcile watermark when the live CRDT text
       // actually matches the current SQL snapshot. Otherwise an intermediate
       // or malformed Yjs update can shadow valid saved HTML until reload.
@@ -788,7 +1000,46 @@ export default function DesignEditor() {
     // always adopts so a stale persisted Y.Doc can't shadow newer SQL.
     const applied = lastAppliedFileUpdatedAtRef.current;
     const externalNewer = !applied || (!!dbUpdatedAt && dbUpdatedAt > applied);
-    if (!externalNewer) return;
+    const staleAgentEchoPossible =
+      agentActive &&
+      !!applied &&
+      !!dbUpdatedAt &&
+      dbUpdatedAt === applied &&
+      lastLocalContentRef.current !== collabContent;
+    if (!externalNewer) {
+      if (staleAgentEchoPossible) {
+        if (staleAgentCollabRecoveryTimerRef.current === null) {
+          const expectedContent = dbContent;
+          const expectedUpdatedAt = dbUpdatedAt;
+          staleAgentCollabRecoveryTimerRef.current = window.setTimeout(() => {
+            staleAgentCollabRecoveryTimerRef.current = null;
+            const currentCollab = collabContentRef.current;
+            if (documentFileUpdatedAtRef.current !== expectedUpdatedAt) return;
+            if (documentFileContentRef.current !== expectedContent) return;
+            if (currentCollab === expectedContent) return;
+            if (lastLocalContentRef.current === currentCollab) return;
+
+            setCollabContent(expectedContent);
+            lastLocalContentRef.current = expectedContent;
+            lastAppliedFileUpdatedAtRef.current = expectedUpdatedAt;
+
+            if (isLeadClient && ydoc) {
+              const ytext = ydoc.getText("content");
+              if (ytext.toString() !== expectedContent) {
+                ydoc.transact(() => {
+                  ytext.delete(0, ytext.length);
+                  ytext.insert(0, expectedContent);
+                }, TAB_ID);
+              }
+            }
+          }, 1200);
+        }
+      } else {
+        clearStaleAgentCollabRecovery();
+      }
+      return;
+    }
+    clearStaleAgentCollabRecovery();
 
     // Render the newer content immediately so the preview is never stale.
     setCollabContent(dbContent);
@@ -809,7 +1060,15 @@ export default function DesignEditor() {
         }, TAB_ID);
       }
     }
-  }, [activeFile, collabContent, isSynced, isLeadClient, ydoc]);
+  }, [
+    activeFile,
+    agentActive,
+    clearStaleAgentCollabRecovery,
+    collabContent,
+    isSynced,
+    isLeadClient,
+    ydoc,
+  ]);
 
   useEffect(() => {
     const handleVariantPicked = (event: Event) => {
@@ -877,24 +1136,21 @@ export default function DesignEditor() {
     }
   }, [design?.data]);
 
-  // Initialize tweak selections: persisted user value first, then the tweak's
-  // default. Runs once per design load (only fills keys still undefined locally
-  // so an in-progress drag isn't clobbered by a slightly-stale fetch).
-  useEffect(() => {
-    if (tweaks.length === 0) return;
-    setTweakSelections((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const t of tweaks) {
-        if (next[t.id] === undefined) {
-          const persisted = persistedSelections[t.id];
-          next[t.id] = persisted !== undefined ? persisted : t.defaultValue;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [tweaks, persistedSelections]);
+  // Tweak values are keyed by tweak id while in the panel, then mapped to
+  // CSS-var -> value for the iframe so the design's :root block picks them up.
+  // Persisted selections are authoritative for agent edits; a local queued
+  // save temporarily pauses adoption so stale refetches don't clobber a drag.
+  const authoritativeTweakSelections = useMemo(
+    () => buildAuthoritativeTweakSelections(tweaks, persistedSelections),
+    [tweaks, persistedSelections],
+  );
+  const [tweakSelections, setTweakSelections] = useReconciledState(
+    authoritativeTweakSelections,
+    {
+      active: tweakSaveActive,
+      equals: areTweakSelectionsEqual,
+    },
+  );
 
   // Map tweak selections (id -> value) to CSS-var assignments (--var -> value)
   // for the iframe bridge. Shared with the snapshot/handoff actions via
@@ -902,6 +1158,60 @@ export default function DesignEditor() {
   const cssVarValues = useMemo(
     () => resolveTweaksToCssVars(tweaks, tweakSelections),
     [tweaks, tweakSelections],
+  );
+
+  const handleTweakPromptSubmit = useCallback(
+    (
+      prompt: string,
+      files: UploadedFile[],
+      options: PromptComposerSubmitOptions,
+    ) => {
+      if (!design) return;
+      const trimmed = prompt.trim();
+      if (!trimmed) return;
+      const fileContext = formatUploadedFileContext(files);
+      const currentSelections =
+        Object.keys(tweakSelections).length > 0
+          ? JSON.stringify(tweakSelections, null, 2)
+          : "None yet.";
+      const context = [
+        `The user is in the Design editor tweaks panel for design id "${id}" (title: "${design.title}").`,
+        activeFile
+          ? `Active file: "${activeFile.filename}" (file id: "${activeFile.id}").`
+          : "There is no active file yet.",
+        `User request: "${trimmed}"`,
+        "",
+        "Existing tweak definitions:",
+        formatTweakDefinitionsContext(tweaks),
+        "",
+        "Current selected tweak values:",
+        currentSelections,
+        fileContext,
+        "",
+        "Add or update live tweak controls for this design. Keep existing useful tweak controls unless the user explicitly asks to replace them.",
+        "If a requested control needs a new CSS custom property, first read the live design with `get-design-snapshot`, update the relevant HTML/CSS so the property is used, then persist the complete updated tweak definition list through `generate-design`.",
+        "For tiny source changes, prefer `edit-design`, but make sure the tweak definitions are saved so the Tweaks panel updates.",
+      ].join("\n");
+
+      sendToAgentChat({
+        message: `Add tweak controls to "${design.title}": ${trimmed}`,
+        context,
+        submit: true,
+        openSidebar: true,
+        model: options.model,
+        engine: options.engine,
+        effort: options.effort,
+      });
+      handleTweakPromptOpenChange(false);
+    },
+    [
+      activeFile,
+      design,
+      handleTweakPromptOpenChange,
+      id,
+      tweakSelections,
+      tweaks,
+    ],
   );
 
   // Expose selection state for agent context
@@ -1022,9 +1332,21 @@ export default function DesignEditor() {
     [activeFile, viewMode],
   );
 
+  useEffect(() => {
+    if (
+      embedded ||
+      mode !== "comment" ||
+      !activeFile ||
+      viewMode === "overview"
+    ) {
+      return;
+    }
+    setPinMode(true);
+  }, [activeFile?.id, embedded, mode, viewMode]);
+
   const handleCommentTabClick = useCallback(() => {
     if (mode !== "comment" || !activeFile || viewMode === "overview") return;
-    setPinMode((current) => !current);
+    setPinMode(true);
     setDrawMode(false);
   }, [activeFile, mode, viewMode]);
 
@@ -1064,10 +1386,13 @@ export default function DesignEditor() {
       const context = [
         `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
         `User request: "${promptState.prompt}"`,
+        promptState.designSystemId
+          ? `Design system id: "${promptState.designSystemId}"`
+          : "",
         fileContext,
         "",
         retryLine,
-        ...designGenerationDirectives(id),
+        ...designGenerationDirectives(id, promptState.designSystemId),
       ].join("\n");
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
@@ -1080,10 +1405,12 @@ export default function DesignEditor() {
           effort: promptState.effort,
         },
       );
+      setGenerationChatTabId(runTabId);
       patchPendingGeneration(id, {
         prompt: promptState.prompt,
         files: promptState.files,
         title: design.title,
+        designSystemId: promptState.designSystemId,
         model: promptState.model,
         engine: promptState.engine,
         effort: promptState.effort,
@@ -1492,10 +1819,6 @@ ${serializedHtml}
               {design.title}
             </button>
           )}
-          <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {design.projectType}
-          </Badge>
-
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
             {!embedded && (
               <>
@@ -1544,12 +1867,17 @@ ${serializedHtml}
                   size="icon"
                   className="h-7 w-7 cursor-pointer"
                   onClick={handleViewModeToggle}
+                  aria-label={
+                    viewMode === "overview"
+                      ? "Return to current screen"
+                      : "Open screen overview"
+                  }
                 >
                   <IconLayoutGrid className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {viewMode === "overview" ? "Single screen" : "All screens"}
+                {viewMode === "overview" ? "Current screen" : "Screen overview"}
               </TooltipContent>
             </Tooltip>
 
@@ -1573,7 +1901,7 @@ ${serializedHtml}
                           ) : deviceFrame === "mobile" ? (
                             <IconDeviceMobile className="w-3.5 h-3.5" />
                           ) : (
-                            <IconDeviceDesktopOff className="w-3.5 h-3.5" />
+                            <IconViewportWide className="w-3.5 h-3.5" />
                           )}
                           <IconChevronDown className="w-3 h-3 opacity-60" />
                         </Button>
@@ -1589,7 +1917,7 @@ ${serializedHtml}
                       }
                     >
                       <DropdownMenuRadioItem value="none">
-                        <IconDeviceDesktopOff className="mr-2 h-4 w-4" />
+                        <IconViewportWide className="mr-2 h-4 w-4" />
                         Responsive
                       </DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="desktop">
@@ -1654,27 +1982,6 @@ ${serializedHtml}
               </>
             )}
 
-            {/* Tweaks */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={tweaksVisible ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  onClick={() => setTweaksVisible(!tweaksVisible)}
-                >
-                  <IconSettings className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Tweaks</TooltipContent>
-            </Tooltip>
-
-            {/* Save state — currently the design template doesn't expose a
-              dedicated "save in flight" signal (file edits go through Yjs +
-              update-file actions). Surface the indicator so the UX matches
-              slides; flip `saving` off until we wire a real source. */}
-            <SaveStatusIndicator saving={false} className="ml-1 mr-1" />
-
             {!embedded && (
               <ShareButton
                 resourceType="design"
@@ -1694,7 +2001,7 @@ ${serializedHtml}
                         size="icon"
                         className="relative h-7 w-7 cursor-pointer"
                       >
-                        <IconDots className="w-3.5 h-3.5" />
+                        <IconDotsVertical className="w-3.5 h-3.5" />
                         {pinMode && (
                           <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#609FF8]" />
                         )}
@@ -1709,7 +2016,7 @@ ${serializedHtml}
                     disabled={!activeFile || viewMode === "overview"}
                   >
                     <IconPin className="mr-2 h-4 w-4" />
-                    {pinMode ? "Exit comment pin" : "Drop comment pin"}
+                    {pinMode ? "Stop pinning comments" : "Pin comment"}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
@@ -1905,6 +2212,8 @@ ${serializedHtml}
                 onExitPinMode={() => setPinMode(false)}
                 designId={id}
                 designTitle={design?.title}
+                commentContextId={`${id}:${activeFile.id}`}
+                commentContextLabel={`${design?.title ?? "Design"} / ${prettyScreenName(activeFile.filename)}`}
                 onPrototypeNavigate={(screen) => {
                   if (!screen) return;
                   const norm = (s: string) =>
@@ -1963,7 +2272,7 @@ ${serializedHtml}
                         className="cursor-pointer"
                         onClick={() => {
                           setRetryablePrompt(null);
-                          setShowPrompt(true);
+                          handlePromptOpenChange(true);
                         }}
                       >
                         <IconPlus className="w-3.5 h-3.5" />
@@ -1975,6 +2284,24 @@ ${serializedHtml}
               </div>
             </div>
           ))}
+
+        {!pendingVariants && activeFile && viewMode === "single" && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant={tweaksVisible ? "secondary" : "outline"}
+                size="icon"
+                className="absolute bottom-4 right-4 z-[70] size-9 cursor-pointer rounded-full bg-background/95 shadow-lg backdrop-blur"
+                onClick={() => setTweaksVisible((visible) => !visible)}
+                aria-label={tweaksVisible ? "Hide tweaks" : "Show tweaks"}
+              >
+                <IconAdjustmentsHorizontal className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Tweaks</TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Edit panel (right side) */}
         {mode === "edit" && (
@@ -1989,104 +2316,84 @@ ${serializedHtml}
             (color swatches, segments, sliders, toggles) bound to CSS custom
             properties in the design. Empty state when the design has no
             tweak definitions. */}
-        {tweaksVisible &&
-          (tweaks.length > 0 ? (
-            <TweaksPanel
-              tweaks={tweaks}
-              values={tweakSelections}
-              onChange={(tweakId, value) =>
-                setTweakSelections((prev) => {
-                  const next = { ...prev, [tweakId]: value };
-                  queueTweakSave(next);
-                  return next;
-                })
-              }
-              onClose={() => setTweaksVisible(false)}
-              visible
-            />
-          ) : (
-            <div className="absolute bottom-4 left-4 z-30 w-60 rounded-xl border border-border bg-card p-4 shadow-2xl">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Tweaks
-                </h3>
-                <button
-                  onClick={() => setTweaksVisible(false)}
-                  className="cursor-pointer text-muted-foreground/70 hover:text-muted-foreground"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground/70 leading-relaxed">
-                Ask the agent to add knobs to this design (e.g. "let me toggle
-                the accent color and density"). They'll appear here as live
-                controls.
-              </p>
-            </div>
-          ))}
+        {tweaksVisible && (
+          <TweaksPanel
+            tweaks={tweaks}
+            values={tweakSelections}
+            onChange={(tweakId, value) =>
+              setTweakSelections((prev) => {
+                const next = { ...prev, [tweakId]: value };
+                queueTweakSave(next);
+                return next;
+              })
+            }
+            onClose={() => setTweaksVisible(false)}
+            onRequestTweaks={handleRequestTweaks}
+            visible
+          />
+        )}
       </div>
 
       <PromptPopover
         open={showPrompt}
-        onOpenChange={setShowPrompt}
+        onOpenChange={handlePromptOpenChange}
         title="Generate design"
         placeholder="Describe what you want to build..."
-        skipLabel="Skip prompt"
-        onSkip={() => {
-          clearGenerationCompleteTimer();
-          setGenerationIssue(null);
-          const runTabId = agentSubmit(
-            `Generate the initial design files for the "${design.title}" project.`,
-            [
-              `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
-              ...designGenerationDirectives(id),
-            ].join("\n"),
-          );
-          patchPendingGeneration(id, {
-            prompt: `Create an initial design for ${design.title}.`,
-            files: [],
-            title: design.title,
-            runTabId,
-            attempt: 1,
-            startedAt: Date.now(),
-          });
-          setHasPendingGeneration(true);
-          setShowPrompt(false);
-        }}
         onSubmit={(
           prompt: string,
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
+          const designSystemId = selectedPromptDesignSystemId;
+          persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
+            designSystemId ? `Design system id: "${designSystemId}"` : "",
             fileContext,
             "",
-            ...designGenerationDirectives(id),
+            ...designIntakeQuestionDirectives(id, designSystemId),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
           const runTabId = agentSubmit(
-            `Generate design for "${design.title}": ${prompt}`,
+            `Prepare design questions for "${design.title}": ${prompt}`,
             context,
-            options,
+            { ...options, newTab: true },
           );
+          setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {
             prompt,
             files,
             title: design.title,
+            designSystemId,
             ...options,
             runTabId,
             attempt: 1,
             startedAt: Date.now(),
           });
           setHasPendingGeneration(true);
-          setShowPrompt(false);
+          handlePromptOpenChange(false);
         }}
         loading={generating}
         anchorRef={promptAnchorRef}
+        designSystems={designSystems}
+        designSystemsLoading={designSystemsLoading}
+        selectedDesignSystemId={selectedPromptDesignSystemId}
+        onDesignSystemChange={setPromptDesignSystemId}
+        onCreateDesignSystem={() => {
+          handlePromptOpenChange(false);
+          navigate("/design-systems/setup");
+        }}
+      />
+      <PromptPopover
+        open={showTweakPrompt}
+        onOpenChange={handleTweakPromptOpenChange}
+        title="What tweaks do you want?"
+        placeholder="Accent options, density, radius, dark mode..."
+        onSubmit={handleTweakPromptSubmit}
+        anchorRef={tweakPromptAnchorRef}
       />
     </div>
   );

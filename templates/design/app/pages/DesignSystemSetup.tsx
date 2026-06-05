@@ -18,6 +18,7 @@ import {
   openAgentSidebar,
   useActionQuery,
   useActionMutation,
+  appApiPath,
 } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -136,7 +137,7 @@ export default function DesignSystemSetup() {
       try {
         const body = new FormData();
         body.append("file", file);
-        const res = await fetch("/api/import-figma-system", {
+        const res = await fetch(appApiPath("/api/import-figma-system"), {
           method: "POST",
           body,
         });

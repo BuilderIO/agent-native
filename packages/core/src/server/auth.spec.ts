@@ -1,7 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const LOGIN_HTML_CACHE_CONTROL =
-  "private, no-store, max-age=0, must-revalidate";
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const LOGIN_HTML_CDN_CACHE_CONTROL = LOGIN_HTML_CACHE_CONTROL;
+const LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL =
+  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+
+function expectLoginHtmlCacheHeaders(response: Response) {
+  expect(response.headers.get("Cache-Control")).toBe(LOGIN_HTML_CACHE_CONTROL);
+  expect(response.headers.get("CDN-Cache-Control")).toBe(
+    LOGIN_HTML_CDN_CACHE_CONTROL,
+  );
+  expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(
+    LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL,
+  );
+}
 
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -435,15 +448,7 @@ describe("server/auth", () => {
       const result = await guard(createMockEvent({ path: "/demo" }));
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
-      expect((result as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
-      expect((result as Response).headers.get("CDN-Cache-Control")).toBe(
-        "no-store",
-      );
-      expect(
-        (result as Response).headers.get("Netlify-CDN-Cache-Control"),
-      ).toBe("no-store");
+      expectLoginHtmlCacheHeaders(result as Response);
 
       const html = await (result as Response).text();
       expect(html).toContain("Create account");
@@ -526,9 +531,7 @@ describe("server/auth", () => {
       );
       expect(adminResult).toBeInstanceOf(Response);
       expect((adminResult as Response).status).toBe(200);
-      expect((adminResult as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
+      expectLoginHtmlCacheHeaders(adminResult as Response);
 
       const adminDataResult = await guard(
         createMockEvent({
@@ -577,9 +580,7 @@ describe("server/auth", () => {
       );
       expect(privateResult).toBeInstanceOf(Response);
       expect((privateResult as Response).status).toBe(200);
-      expect((privateResult as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
+      expectLoginHtmlCacheHeaders(privateResult as Response);
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {
@@ -794,6 +795,26 @@ describe("server/auth", () => {
       expect(managementResult).not.toBeUndefined();
     });
 
+    it("lets the public speculation rules endpoint bypass auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(
+          createMockEvent({ path: "/_agent-native/speculation-rules.json" }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -899,9 +920,7 @@ describe("server/auth", () => {
 
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
-      expect((result as Response).headers.get("Cache-Control")).toBe(
-        LOGIN_HTML_CACHE_CONTROL,
-      );
+      expectLoginHtmlCacheHeaders(result as Response);
       expect((result as Response).headers.get("X-Robots-Tag")).toBe(
         "noindex, nofollow",
       );
@@ -963,6 +982,95 @@ describe("server/auth", () => {
         expect((result as Response).status).toBe(302);
         expect((result as Response).headers.get("location")).toBe("/dispatch");
       }
+    });
+
+    it("quietly falls back when auto dev account signup loses a duplicate-user race", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const duplicateCreateError = Object.assign(
+        new Error("Failed to create user"),
+        {
+          status: "UNPROCESSABLE_ENTITY",
+          body: {
+            message: "Failed to create user",
+            code: "FAILED_TO_CREATE_USER",
+          },
+        },
+      );
+      let duplicateRaceObserved = false;
+      const signUpEmail = vi.fn(async () => {
+        duplicateRaceObserved = true;
+        throw duplicateCreateError;
+      });
+      const signInEmail = vi.fn();
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail,
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const mockExecute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (/email NOT IN/i.test(sql)) return { rows: [] };
+        if (/email IN/i.test(sql)) {
+          return {
+            rows: duplicateRaceObserved ? [{ exists: 1 }] : [],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/dispatch/overview",
+        headers: { "sec-fetch-dest": "document" },
+      });
+      const socket = { remoteAddress: "127.0.0.1" };
+      event.req.context = { clientAddress: "127.0.0.1" };
+      event.req.ip = "127.0.0.1";
+      event.node.req.socket = socket;
+      event.node.req.connection = socket;
+
+      const result = await guard(event);
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(200);
+      expect(await (result as Response).text()).toContain("QA login");
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
+      expect(signInEmail).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
     });
 
     it("allows app-state request-source headers in CORS preflight responses", async () => {

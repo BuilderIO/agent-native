@@ -111,6 +111,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
+import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
 import {
   normalizeWorkspaceAppAudience,
   workspaceAppAudienceFromEnv,
@@ -1380,12 +1381,10 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      // Login HTML is selected by the absence of a session cookie. Never put it
-      // in a shared CDN cache: the same route may redirect authenticated users
-      // or render the app after sign-in.
-      "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-      "CDN-Cache-Control": "no-store",
-      "Netlify-CDN-Cache-Control": "no-store",
+      // The sign-in document is part of the public server shell. Keep it on the
+      // same short-fresh/long-SWR CDN policy as React Router SSR so hosted
+      // template roots do not invoke origin just to render anonymous login UI.
+      ...DEFAULT_SSR_CACHE_HEADERS,
       "X-Robots-Tag": "noindex, nofollow",
     },
   });
@@ -1637,6 +1636,7 @@ function createAuthGuardFn(): (
     // through — it returns a tiny RSC-encoded manifest of the public
     // route tree, no per-user data.
     if (p === "/__manifest") return;
+    if (p === "/_agent-native/speculation-rules.json") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
@@ -1683,6 +1683,16 @@ const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
 // below doesn't mistake the old auto-account for a real signup (which would
 // permanently disable auto-create) and the post-logout guard still fires.
 const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
+
+async function hasAutoDevAccountUser(
+  db: ReturnType<typeof getDbExec>,
+): Promise<boolean> {
+  const { rows } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  return rows.length > 0;
+}
 
 /**
  * Local-dev convenience: skip the sign-up wall on first run.
@@ -1748,11 +1758,7 @@ async function maybeAutoCreateDevSession(
     // experience back, drop the row or wipe the local DB. The legacy
     // `dev@local` address is matched too so pre-fix DBs still suppress
     // re-create after logout.
-    const { rows: devUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email IN (?, ?) LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-    });
-    if (devUsers.length > 0) return null;
+    if (await hasAutoDevAccountUser(db)) return null;
 
     const auth = await getBetterAuth();
     if (!auth) return null;
@@ -1777,7 +1783,12 @@ async function maybeAutoCreateDevSession(
         },
       });
     } catch (e) {
+      // A concurrent first page load can win the Better Auth signup after our
+      // preflight SELECT. Once the dev row exists, do not sign in with this
+      // request's random password or log a scary local-only stack trace.
+      if (await hasAutoDevAccountUser(db)) return null;
       if (!isExpectedAuthFailure(e)) throw e;
+      return null;
     }
 
     const result = await auth.api.signInEmail({

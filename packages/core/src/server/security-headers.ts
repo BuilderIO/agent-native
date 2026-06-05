@@ -3,9 +3,9 @@
  *
  * Sets a baseline set of "no-brainer" security headers on every framework HTTP
  * response. These headers are layered defenses: each one mitigates a specific
- * class of attack, and together they harden the surface against clickjacking,
- * MIME-sniffing, referrer leakage, mixed-content downgrades, and cross-origin
- * window/embed access.
+ * class of attack, and together they harden the surface against MIME-sniffing,
+ * referrer leakage, mixed-content downgrades, and cross-origin window/embed
+ * access.
  *
  * The headers we emit:
  *
@@ -16,15 +16,6 @@
  *   - `X-Content-Type-Options: nosniff` — disables browser MIME sniffing so
  *     a tool /render route serving user-authored HTML can't be misinterpreted
  *     as some other content type by a clever Accept header.
- *   - `X-Frame-Options: DENY` — prevents the entire app from being iframed by
- *     other origins (clickjacking the agent chat, booking pages, etc.). The
- *     tool /render endpoint and any other route that legitimately needs to be
- *     embedded in the same-origin app shell can opt out by setting its own
- *     header inside the route handler — h3's `setResponseHeader` overwrites,
- *     so a route emitting `SAMEORIGIN` wins over our middleware default.
- *     We skip this header entirely in dev (NODE_ENV !== "production") so the
- *     desktop app's local dev frame (localhost:3334) can iframe templates
- *     running on other localhost ports (e.g. mail at 8085).
  *   - `Referrer-Policy: strict-origin-when-cross-origin` — strips path/query
  *     from outbound Referer headers when the request crosses origin, so a
  *     public-share viewer's outbound link clicks never leak the share token.
@@ -36,19 +27,26 @@
  *   - `Cross-Origin-Opener-Policy: same-origin` — isolates window.opener so
  *     a popup-window opener reference can't read or modify our document.
  *   - `Cross-Origin-Embedder-Policy: require-corp` — emitted only for
- *     validated MCP embed-session page loads. COEP hosts such as Claude's MCP
- *     Apps proxy require framed cross-origin documents to opt in explicitly.
+ *     validated MCP embed-session page loads and browser iframe navigations.
+ *     COEP hosts such as Claude's MCP Apps proxy require framed cross-origin
+ *     documents to opt in explicitly.
  *   - `Cross-Origin-Resource-Policy: same-site` — prevents other origins from
  *     embedding our endpoints as `<img>` / `<script>` / `<audio>`, blocking
  *     the simplest data-leak chain when combined with auth cookies. Validated
- *     MCP embed-session page loads use `cross-origin` so COEP hosts such as
- *     Claude's MCP Apps proxy can frame the short-lived app document.
+ *     MCP embed-session page loads and browser iframe navigations use
+ *     `cross-origin` so COEP hosts can frame app documents.
  *
  * NOTE: `Cross-Origin-Embedder-Policy` is NOT set by default because it
  * requires every embedded subresource to opt in via CORP/CORS, which would
  * break Builder's iframe editor and template embed use cases. COOP + CORP
  * without COEP gives us most of the protection on normal responses; COEP is
- * only added for validated MCP embed-session page loads (see above).
+ * only added for validated MCP embed-session page loads and browser iframe
+ * navigations (see above).
+ *
+ * NOTE: `X-Frame-Options` is intentionally not set globally. Agent-native apps
+ * are expected to run inside iframe hosts such as Builder, Design, and MCP app
+ * shells. Routes that render especially sensitive iframe-only documents should
+ * set their own route-specific CSP / frame policy.
  */
 
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";
@@ -92,23 +90,23 @@ function isMcpEndpointRequest(event: any): boolean {
   );
 }
 
+function isIframeNavigationRequest(event: any): boolean {
+  return getHeader(event, "sec-fetch-dest") === "iframe";
+}
+
 /**
  * Create the security-headers h3 middleware. Mount this BEFORE other route
  * handlers so the headers are present on every response (including 4xx/5xx
- * error pages). Route handlers that need to relax a specific header (e.g.
- * `X-Frame-Options: SAMEORIGIN` on the tool render route) can call
+ * error pages). Route handlers that need to tighten a specific header can call
  * `setResponseHeader` after this runs — the latest write wins.
  */
 export function createSecurityHeadersMiddleware() {
-  const isProduction = process.env.NODE_ENV === "production";
   return defineEventHandler((event) => {
     const embedFrameRequest = requestHasEmbedAuthMarker(event);
     const mcpEndpointRequest = isMcpEndpointRequest(event);
+    const iframeNavigationRequest = isIframeNavigationRequest(event);
     const requestOrigin = getHeader(event, "origin");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    if (isProduction && !embedFrameRequest) {
-      setResponseHeader(event, "X-Frame-Options", "DENY");
-    }
     setResponseHeader(
       event,
       "Referrer-Policy",
@@ -116,13 +114,15 @@ export function createSecurityHeadersMiddleware() {
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
-    if (embedFrameRequest) {
+    if (embedFrameRequest || iframeNavigationRequest) {
       setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
     }
     setResponseHeader(
       event,
       "Cross-Origin-Resource-Policy",
-      embedFrameRequest || mcpEndpointRequest ? "cross-origin" : "same-site",
+      embedFrameRequest || mcpEndpointRequest || iframeNavigationRequest
+        ? "cross-origin"
+        : "same-site",
     );
     if (embedFrameRequest && isMcpEmbedCorsOrigin(requestOrigin)) {
       setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin);

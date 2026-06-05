@@ -1,0 +1,1977 @@
+import {
+  PLAN_CONTENT_VERSION,
+  createPlanBlockId,
+  migratePlanContent,
+  planContentSchema,
+  type PlanArtboard,
+  type PlanAnnotation,
+  type PlanBlock,
+  type PlanContent,
+  type PlanContentInput,
+  type PlanConnector,
+  type PlanDiagramBlock,
+  type PlanImageBlock,
+  type PlanLegacyWireframeBlock,
+  type PlanWireframeBlock,
+  type PlanWireframeNode,
+  type PlanWireframeRegion,
+  type PlanVisualQuestion,
+} from "../shared/plan-content.js";
+import type { PlanSection } from "../shared/types.js";
+
+type SectionLike = Pick<PlanSection, "id" | "type" | "title" | "body" | "html">;
+
+/** Region-based wireframe data — the renderer's legacy fallback shape. */
+type LegacyWireframeData = PlanLegacyWireframeBlock["data"];
+
+export function parsePlanContent(value: unknown): PlanContent | null {
+  if (!value) return null;
+  const parsedValue =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
+          }
+        })()
+      : value;
+  if (!parsedValue) return null;
+  // Upgrade old/raw shapes (region wireframes -> legacy-wireframe, sketch-* ->
+  // diagram, version backfill) before validating. Never lossily migrate.
+  const migrated = migratePlanContent(parsedValue);
+  const result = planContentSchema.safeParse(migrated);
+  if (result.success) return result.data;
+  // Surface parse failures instead of swallowing them so a bad migration is
+  // diagnosable rather than silently erasing a plan body.
+  console.warn(
+    "[plan-content] failed to parse stored content:",
+    result.error.issues.slice(0, 4),
+  );
+  return null;
+}
+
+export function serializePlanContent(content: PlanContentInput): string {
+  return JSON.stringify(sanitizePlanContent(planContentSchema.parse(content)));
+}
+
+export function normalizePlanContent(
+  content: PlanContentInput | undefined,
+): PlanContent | null {
+  if (!content) return null;
+  return sanitizePlanContent(
+    planContentSchema.parse(migratePlanContent(content)),
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* custom-html sanitization (defense in depth at the action boundary)         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Tags that may NEVER survive in a stored custom-html fragment. The zod schema
+ * already rejects these at validation time; this is a second, allowlist-style
+ * pass so the value we persist (and later export) is structurally clean even if
+ * validation is ever bypassed or relaxed. The in-app React path renders these
+ * fragments in a sandboxed iframe; the export path shows escaped source.
+ */
+/**
+ * Content-bearing dangerous elements: the whole element (open tag, body, close
+ * tag) must go, not just the tags — otherwise script/style bodies leak through.
+ */
+const FORBIDDEN_ELEMENT =
+  /<(script|style|iframe|object|embed|template|noscript|svg|math|applet|portal|frameset)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
+
+/** Standalone / self-closing forbidden tags (e.g. <link>, <meta>, dangling). */
+const FORBIDDEN_TAG =
+  /<\/?\s*(?:script|style|iframe|object|embed|link|meta|base|form|svg|math|template|noscript|frame|frameset|applet|portal)\b[^>]*>/gi;
+
+/** Inline event handlers and javascript:/data: URLs in attributes. */
+const FORBIDDEN_ATTR = /\son[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+const FORBIDDEN_URL_ATTR =
+  /\s(?:href|src|xlink:href|srcdoc|action|formaction|data|background|poster|style)\s*=\s*(?:"[^"]*(?:javascript:|data:text\/html|vbscript:)[^"]*"|'[^']*(?:javascript:|data:text\/html|vbscript:)[^']*'|(?:javascript:|data:text\/html|vbscript:)[^\s>]*)/gi;
+
+/** Strip the dangerous surface from a stored custom-html / css string. */
+export function sanitizeCustomHtml(value: string): string {
+  let out = value;
+  // Iterate element-stripping so nested / sequential cases collapse fully.
+  for (let i = 0; i < 4; i += 1) {
+    const next = out.replace(FORBIDDEN_ELEMENT, "");
+    if (next === out) break;
+    out = next;
+  }
+  return out
+    .replace(FORBIDDEN_TAG, "")
+    .replace(FORBIDDEN_ATTR, "")
+    .replace(FORBIDDEN_URL_ATTR, "")
+    .replace(/javascript:/gi, "")
+    .replace(/vbscript:/gi, "");
+}
+
+function sanitizeBlock(block: PlanBlock): PlanBlock {
+  if (block.type === "custom-html") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        html: sanitizeCustomHtml(block.data.html),
+        css:
+          block.data.css === undefined
+            ? undefined
+            : sanitizeCustomHtml(block.data.css),
+      },
+    };
+  }
+  if (block.type === "tabs") {
+    return {
+      ...block,
+      data: {
+        tabs: block.data.tabs.map((tab) => ({
+          ...tab,
+          blocks: tab.blocks.map(sanitizeBlock),
+        })),
+      },
+    };
+  }
+  return block;
+}
+
+/** Sanitize every custom-html fragment in a plan before it is stored. */
+export function sanitizePlanContent(content: PlanContent): PlanContent {
+  return { ...content, blocks: content.blocks.map(sanitizeBlock) };
+}
+
+export function createPlanContentFromSections(input: {
+  title: string;
+  brief: string;
+  sections: SectionLike[];
+}): PlanContent {
+  const blocks = input.sections.map((section, index) =>
+    blockFromSection(section, index),
+  );
+  return sanitizePlanContent(
+    planContentSchema.parse({
+      version: PLAN_CONTENT_VERSION,
+      title: input.title,
+      brief: input.brief,
+      canvas: findCanvas(blocks),
+      blocks,
+    }),
+  );
+}
+
+export function createDefaultPlanContent(input: {
+  title: string;
+  brief: string;
+  repoPath?: string | null;
+}): PlanContent {
+  return sanitizePlanContent(
+    planContentSchema.parse({
+      version: PLAN_CONTENT_VERSION,
+      title: input.title,
+      brief: input.brief,
+      blocks: [
+        {
+          id: createPlanBlockId("plan-summary"),
+          type: "rich-text",
+          title: "What Matters Most",
+          editable: true,
+          data: {
+            markdown: input.brief,
+          },
+        },
+        {
+          id: createPlanBlockId("flow"),
+          type: "diagram",
+          title: "Plan Flow",
+          data: {
+            nodes: [
+              { id: "intent", label: "Intent", detail: "Clarify the target" },
+              { id: "review", label: "Review", detail: "Comment on the plan" },
+              { id: "build", label: "Build", detail: "Agent implements" },
+              { id: "verify", label: "Verify", detail: "Check the result" },
+            ],
+            edges: [
+              { from: "intent", to: "review" },
+              { from: "review", to: "build" },
+              { from: "build", to: "verify" },
+            ],
+          },
+        },
+        {
+          id: createPlanBlockId("implementation-map"),
+          type: "implementation-map",
+          title: "Implementation Map",
+          data: {
+            files: [
+              {
+                path: input.repoPath
+                  ? `${input.repoPath}/...`
+                  : "repo/path.tsx",
+                title: "Files to inspect",
+                note: "Replace this with concrete file references, symbols, and short snippets after the repo pass.",
+                language: "text",
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  );
+}
+
+type UiPlanContentInput = {
+  title: string;
+  brief: string;
+  source?: string;
+  repoPath?: string | null;
+  states: Array<{ name: string; description: string }>;
+  components: Array<{ name: string; description: string }>;
+  implementationNotes?: string | null;
+};
+
+export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
+  const states = input.states;
+  const stateIds = uniqueIds(
+    states.map((state, index) => slug(state.name) || `state-${index + 1}`),
+  );
+  const stateBlockIds = stateIds.map((id) => ({
+    notes: createPlanBlockId(`${id}-notes`),
+    wireframe: createPlanBlockId(`${id}-wireframe`),
+  }));
+  const componentIds = uniqueIds(
+    input.components.map(
+      (component, index) => slug(component.name) || `component-${index + 1}`,
+    ),
+  );
+  const componentPlan = isComponentPlan(input);
+  const includeComponentContext =
+    componentPlan && shouldShowComponentContext(input);
+  const stateFlow = shouldUseStateFlow(input, componentPlan);
+  const stateFrames: PlanArtboard[] = states
+    .slice(0, 6)
+    .map((state, index) => ({
+      id: `frame-${stateIds[index] ?? index + 1}`,
+      label: state.name,
+      blockId: stateBlockIds[index]?.wireframe,
+      legacyWireframe: createWireframeData({
+        title: state.name,
+        description: state.description,
+        viewport: viewportForState(state, componentPlan, {
+          index,
+          stateFlow,
+        }),
+        component: componentPlan,
+      }),
+      ...(componentPlan
+        ? {
+            x: (includeComponentContext ? 780 : 80) + (index % 2) * 380,
+            y: 96 + Math.floor(index / 2) * 504,
+            width: 340,
+            height: 340,
+          }
+        : {}),
+    }));
+  const contextFrame: PlanArtboard | undefined = includeComponentContext
+    ? {
+        id: "frame-app-context",
+        label: "App context",
+        legacyWireframe: createComponentContextWireframe(input),
+        x: 80,
+        y: 96,
+        width: 640,
+        height: 410,
+      }
+    : undefined;
+  const frames: PlanArtboard[] = contextFrame
+    ? [contextFrame, ...stateFrames]
+    : stateFrames;
+  const flow: PlanConnector[] = stateFlow
+    ? stateFrames.slice(0, -1).map((frame, index) => ({
+        from: frame.id,
+        to: stateFrames[index + 1]?.id ?? frame.id,
+        label: `Step ${index + 1}`,
+      }))
+    : [];
+  const notes = createCanvasNotes({
+    componentPlan,
+    includeComponentContext,
+    contextFrame,
+    stateFrames,
+  });
+  const duplicateVisualBlocks = !componentPlan;
+  const blocks: PlanBlock[] = [
+    {
+      id: createPlanBlockId("summary"),
+      type: "rich-text",
+      title: componentPlan ? "Plan Overview" : "What Matters Most",
+      editable: true,
+      data: {
+        markdown: componentPlan
+          ? createComponentPlanOverview(input)
+          : input.brief,
+      },
+    },
+    ...(states.length > 0 && duplicateVisualBlocks
+      ? ([
+          {
+            id: createPlanBlockId("screen-states"),
+            type: "tabs",
+            title: componentPlan ? "Component States" : "Screen States",
+            data: {
+              tabs: states.map((state, index) => ({
+                id: stateIds[index] ?? createPlanBlockId("state"),
+                label: state.name,
+                blocks: [
+                  {
+                    id:
+                      stateBlockIds[index]?.notes ??
+                      createPlanBlockId(`${state.name}-notes`),
+                    type: "rich-text",
+                    title: state.name,
+                    editable: true,
+                    data: { markdown: state.description },
+                  },
+                  {
+                    id:
+                      stateBlockIds[index]?.wireframe ??
+                      createPlanBlockId(`${state.name}-wireframe`),
+                    type: "legacy-wireframe",
+                    title: `${state.name} Wireframe`,
+                    data: createWireframeData({
+                      title: state.name,
+                      description: state.description,
+                      viewport: viewportForState(state, componentPlan, {
+                        index,
+                        stateFlow,
+                      }),
+                      component: componentPlan,
+                    }),
+                  },
+                ],
+              })),
+            },
+          },
+          ...(stateFlow
+            ? ([
+                {
+                  id: createPlanBlockId("flow-diagram"),
+                  type: "diagram",
+                  title: "Flow Diagram",
+                  data: {
+                    nodes: states.slice(0, 6).map((state, index) => ({
+                      id: stateIds[index] ?? `state-${index + 1}`,
+                      label: state.name,
+                      detail: state.description,
+                    })),
+                    edges: states.slice(0, -1).map((state, index) => ({
+                      from: stateIds[index] ?? `state-${index + 1}`,
+                      to: stateIds[index + 1] ?? `state-${index + 2}`,
+                      label: `Step ${index + 1}`,
+                    })),
+                  },
+                },
+              ] satisfies PlanBlock[])
+            : []),
+        ] satisfies PlanBlock[])
+      : []),
+    ...(input.components.length > 0 && duplicateVisualBlocks
+      ? ([
+          {
+            id: createPlanBlockId("components"),
+            type: "tabs",
+            title: "Interaction Notes",
+            data: {
+              tabs: input.components.map((component, index) => ({
+                id: componentIds[index] ?? `component-${index + 1}`,
+                label: component.name,
+                blocks: [
+                  {
+                    id: createPlanBlockId(`${component.name}-detail`),
+                    type: "rich-text",
+                    title: component.name,
+                    editable: true,
+                    data: { markdown: component.description },
+                  },
+                  {
+                    id: createPlanBlockId(`${component.name}-sketch`),
+                    type: "legacy-wireframe",
+                    title: `${component.name} Sketch`,
+                    data: createWireframeData({
+                      title: component.name,
+                      description: component.description,
+                      viewport: "desktop",
+                      component: true,
+                    }),
+                  },
+                ],
+              })),
+            },
+          },
+        ] satisfies PlanBlock[])
+      : []),
+    ...(componentPlan
+      ? ([
+          {
+            id: createPlanBlockId("implementation-plan"),
+            type: "rich-text",
+            title: "Implementation Plan",
+            editable: true,
+            data: {
+              markdown: createImplementationPlanMarkdown(input),
+            },
+          },
+          {
+            id: createPlanBlockId("implementation-snippets"),
+            type: "code-tabs",
+            title: "Implementation Details",
+            data: {
+              tabs: [
+                {
+                  id: "component-shape",
+                  label: "Component shape",
+                  language: "tsx",
+                  code: `// Keep the visual system in app-owned components.\n<ContextXRayPanel\n  segments={segments}\n  view={view}\n  onPin={pinSegment}\n  onEvict={evictSegment}\n/>\n`,
+                  caption:
+                    "Use concrete file paths and symbol names once the implementation agent inspects the target code.",
+                },
+                {
+                  id: "verification-shape",
+                  label: "Verification",
+                  language: "ts",
+                  code: `await expect(page.getByText("Context X-Ray")).toBeVisible();\nawait expect(page.getByText(/step/i)).toHaveCount(0);\nawait expect(contextPanel).toHaveScreenshot("context-xray-panel.png");\n`,
+                  caption:
+                    "Favor visual regression and DOM checks for alignment, overflow, and removed step chrome.",
+                },
+              ],
+            },
+          },
+        ] satisfies PlanBlock[])
+      : []),
+    {
+      id: createPlanBlockId("implementation-map"),
+      type: "implementation-map",
+      title: "Implementation Map",
+      data: {
+        files: [
+          {
+            path: input.repoPath ? `${input.repoPath}/...` : "repo/path.tsx",
+            title: componentPlan
+              ? "Files to inspect and update"
+              : "Implementation notes",
+            note:
+              input.implementationNotes ||
+              "Replace this with concrete file references, state ownership, actions, accessibility checks, and the smallest snippets needed before implementation.",
+            language: "tsx",
+            snippet: componentPlan
+              ? `const planShape = {\n  canvas: "visual review surface",\n  document: "implementation plan, not duplicate mockups",\n};`
+              : `const planShape = {\n  canvas: "when states or components exist",\n  document: "editable rich blocks",\n};`,
+          },
+        ],
+      },
+    },
+    ...(componentPlan
+      ? ([
+          {
+            id: createPlanBlockId("verification"),
+            type: "checklist",
+            title: "Verification",
+            data: {
+              items: [
+                {
+                  id: "canvas-review",
+                  label:
+                    "Review the canvas for product context, focused component states, annotations, and no redundant visual sections below.",
+                },
+                {
+                  id: "alignment-review",
+                  label:
+                    "Check wireframe labels, placeholder strokes, arrows, and padding at the current viewport and a narrow sidebar width.",
+                },
+                {
+                  id: "step-removal",
+                  label:
+                    "Run a chat turn and confirm no visible step UI appears above chat or after messages.",
+                },
+                {
+                  id: "focused-tests",
+                  label:
+                    "Run focused type checks and UI tests for the touched chat/context files.",
+                },
+              ],
+            },
+          },
+        ] satisfies PlanBlock[])
+      : []),
+  ];
+
+  return sanitizePlanContent(
+    planContentSchema.parse({
+      version: PLAN_CONTENT_VERSION,
+      title: input.title,
+      brief: input.brief,
+      ...(frames.length > 0
+        ? {
+            canvas: {
+              title: componentPlan ? "Component States" : "UI Flow",
+              frames,
+              ...(flow.length > 0 ? { flow } : {}),
+              ...(notes.length > 0 ? { notes } : {}),
+            },
+          }
+        : {}),
+      blocks,
+    }),
+  );
+}
+
+function createComponentPlanOverview(input: UiPlanContentInput) {
+  const states = input.states
+    .slice(0, 6)
+    .map((state) => state.name)
+    .join(", ");
+  const components = input.components
+    .slice(0, 6)
+    .map((component) => component.name)
+    .join(", ");
+
+  return [
+    `## Objective\n${input.brief}`,
+    states
+      ? `## Canvas Review\nUse the top board as the visual source of truth. It covers ${states}, with product context first and focused component variants next. Keep annotations near the artboards and only add arrows for specific controls or transitions.`
+      : "",
+    components
+      ? `## Component Scope\nGround implementation in the actual ${components} surfaces and nearby chat/sidebar chrome. The document below should name concrete files, contracts, risks, and verification rather than repeating the same mockups.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function createImplementationPlanMarkdown(input: UiPlanContentInput) {
+  const implementationNotes = input.implementationNotes?.trim();
+  return [
+    "## Current vs Proposed",
+    "Describe the current UI behavior, then the proposed component behavior. Keep visual specifics on the canvas; keep implementation specifics here.",
+    "## Files And Contracts",
+    implementationNotes ||
+      "List the exact components, hooks, actions, state keys, tests, and stylesheets the implementation agent should inspect or update.",
+    "## Implementation Phases",
+    "1. Inspect the existing component, surrounding app chrome, and chat step rendering paths.\n2. Update the smallest app-owned components or tokens that control the visual system.\n3. Remove redundant or stale UI surfaces rather than hiding them with extra chrome.\n4. Add focused tests or screenshots for layout, overflow, and removed step UI.",
+    "## Risks",
+    "- Wireframe-only feedback can drift from real components if the plan omits file and symbol names.\n- Placeholder text, arrows, and diagrams should be cut when they do not answer a concrete review question.\n- Custom HTML fragments should stay bounded inside document blocks, not replace the app-owned canvas and document shell.",
+  ].join("\n\n");
+}
+
+function createCanvasNotes(input: {
+  componentPlan: boolean;
+  includeComponentContext: boolean;
+  contextFrame?: PlanArtboard;
+  stateFrames: PlanArtboard[];
+}): NonNullable<NonNullable<PlanContent["canvas"]>["notes"]> {
+  if (input.componentPlan) {
+    if (!input.includeComponentContext || !input.contextFrame) return [];
+    return [
+      {
+        id: "canvas-note-app-context",
+        title: "Start in the product.",
+        body: "Show the host chat and agent sidebar first so the popover scale, anchor, and surrounding chrome are reviewable.",
+        x: input.contextFrame.x ?? 80,
+        y:
+          (input.contextFrame.y ?? 96) +
+          (input.contextFrame.height ?? 420) +
+          52,
+      },
+      ...(input.stateFrames[0]
+        ? [
+            {
+              id: "canvas-note-focused-states",
+              title: "Then focus the component.",
+              body: "Compare compact popover states as widget variants, not as a fake desktop/mobile journey.",
+              x: input.stateFrames[0].x ?? 80,
+              y:
+                (input.stateFrames[0].y ?? 96) +
+                (input.stateFrames[0].height ?? 360) +
+                52,
+            },
+          ]
+        : []),
+      ...(input.stateFrames[3]
+        ? [
+            {
+              id: "canvas-note-chat-cleanup",
+              title: "Remove step chrome.",
+              body: "The chat frame should show ordinary messages, thinking status, and composer without step rows above or after turns.",
+              x: input.stateFrames[3].x ?? input.stateFrames[0]?.x ?? 80,
+              y:
+                (input.stateFrames[3].y ?? 600) +
+                (input.stateFrames[3].height ?? 340) +
+                46,
+            },
+          ]
+        : []),
+    ];
+  }
+
+  if (!input.stateFrames[0]) return [];
+  return [
+    {
+      id: "canvas-note-review",
+      title: "Read this like a design handoff.",
+      body: "Pan and zoom to compare states, then scroll for the document spec.",
+      x: input.stateFrames[0].x ?? 80,
+      y:
+        (input.stateFrames[0].y ?? 80) +
+        (input.stateFrames[0].height ?? 420) +
+        60,
+    },
+  ];
+}
+
+function isComponentPlan(input: {
+  title: string;
+  brief: string;
+  states: Array<{ name: string; description: string }>;
+  components: Array<{ name: string; description: string }>;
+}) {
+  const text = [
+    input.title,
+    input.brief,
+    ...input.states.flatMap((state) => [state.name, state.description]),
+    ...input.components.flatMap((component) => [
+      component.name,
+      component.description,
+    ]),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return /\b(component|widget|popover|sidebar|side\s*panel|panel|dialog|modal|dropdown|toolbar|inspector|menu|card)\b/.test(
+    text,
+  );
+}
+
+function shouldShowComponentContext(input: {
+  title: string;
+  brief: string;
+  states: Array<{ name: string; description: string }>;
+  components: Array<{ name: string; description: string }>;
+}) {
+  const text = [
+    input.title,
+    input.brief,
+    ...input.states.flatMap((state) => [state.name, state.description]),
+    ...input.components.flatMap((component) => [
+      component.name,
+      component.description,
+    ]),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return /\b(popover|sidebar|side\s*panel|agent sidebar|chat|composer|inspector|floating|anchored|context)\b/.test(
+    text,
+  );
+}
+
+function shouldUseStateFlow(
+  input: {
+    title: string;
+    brief: string;
+    states: Array<{ name: string; description: string }>;
+  },
+  componentPlan: boolean,
+) {
+  if (componentPlan || input.states.length < 2) return false;
+  const text = [
+    input.title,
+    input.brief,
+    ...input.states.map((state) => state.name),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return /\b(flow|journey|sequence|wizard|checkout|onboard|handoff|step|next|submit|confirm|complete|path)\b/.test(
+    text,
+  );
+}
+
+function viewportForState(
+  state: { name: string; description: string },
+  componentPlan: boolean,
+  options?: { index?: number; stateFlow?: boolean },
+): "desktop" | "tablet" | "phone" {
+  if (componentPlan) return "desktop";
+  const name = state.name.toLowerCase();
+  const description = state.description.toLowerCase();
+  if (/\b(desktop|overview|home|dashboard|workspace|board)\b/.test(name)) {
+    return "desktop";
+  }
+  if (/\b(phone|mobile|narrow)\b/.test(name)) return "phone";
+  if (/\b(tablet)\b/.test(name)) return "tablet";
+  if (/\b(tablet-only|tablet first|tablet-first)\b/.test(description)) {
+    return "tablet";
+  }
+  if (
+    /\b(phone-only|mobile-only|mobile first|mobile-first|narrow screen|single-column mobile)\b/.test(
+      description,
+    )
+  ) {
+    return "phone";
+  }
+  if (options?.stateFlow && (options.index ?? 0) > 0) return "phone";
+  return "desktop";
+}
+
+function uniqueIds(values: string[]): string[] {
+  const counts = new Map<string, number>();
+  return values.map((value) => {
+    const count = counts.get(value) ?? 0;
+    counts.set(value, count + 1);
+    return count === 0 ? value : `${value}-${count + 1}`;
+  });
+}
+
+export type VisualQuestionBuilderInput = {
+  id: string;
+  type: "single" | "multi" | "freeform" | "visual";
+  title: string;
+  subtitle?: string;
+  options?: Array<{
+    value?: string;
+    label: string;
+    description?: string;
+    recommended?: boolean;
+    preview?: "desktop" | "mobile" | "split" | "flow" | "diagram";
+    bullets?: string[];
+  }>;
+  allowOther?: boolean;
+  placeholder?: string;
+};
+
+type VisualQuestionPreview = NonNullable<
+  VisualQuestionBuilderInput["options"]
+>[number]["preview"];
+
+export function createVisualQuestionsContent(input: {
+  title: string;
+  brief: string;
+  questions: VisualQuestionBuilderInput[];
+}): PlanContent {
+  const questions = input.questions.length
+    ? input.questions
+    : defaultVisualQuestions(input.brief);
+  const visualQuestions: PlanVisualQuestion[] = questions.map((question) => ({
+    id: question.id,
+    title: question.title,
+    subtitle: question.subtitle,
+    mode:
+      question.type === "multi"
+        ? "multi"
+        : question.type === "freeform"
+          ? "freeform"
+          : "single",
+    options: question.options?.map((option, index) => ({
+      id: option.value || slug(option.label) || `option-${index + 1}`,
+      label: option.label,
+      detail: [
+        option.description,
+        ...(option.bullets?.map((bullet) => `- ${bullet}`) ?? []),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      recommended: option.recommended,
+      wireframe: previewToWireframe(option.preview, option.label),
+      diagram: previewToDiagram(option.preview, option.label),
+    })),
+  }));
+
+  return sanitizePlanContent(
+    planContentSchema.parse({
+      version: PLAN_CONTENT_VERSION,
+      title: input.title,
+      brief: input.brief,
+      blocks: [
+        {
+          id: createPlanBlockId("visual-intake"),
+          type: "visual-questions",
+          title: input.title,
+          data: {
+            questions: visualQuestions,
+            submitLabel: "Send to agent",
+          },
+        },
+      ],
+    }),
+  );
+}
+
+export function buildPlanContentHtml(input: {
+  content: PlanContent;
+  title: string;
+  brief: string;
+  source?: string | null;
+  status?: string | null;
+  repoPath?: string | null;
+}) {
+  const planLabel =
+    input.content.canvas?.title === "UI Flow" ? "UI Plan" : "Visual Plan";
+  const canvas = input.content.canvas
+    ? renderCanvasHtml(input.content.canvas)
+    : "";
+  const blocks = input.content.blocks.map(renderBlockHtml).join("\n");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(input.title)}</title>
+  <style>${CONTENT_EXPORT_CSS}</style>
+</head>
+<body>
+  ${canvas}
+  <main>
+    <section class="hero">
+      <p class="kicker">${escapeHtml(planLabel)}</p>
+      <h1>${escapeHtml(input.content.title || input.title)}</h1>
+      <p class="lede">${escapeHtml(input.content.brief || input.brief)}</p>
+    </section>
+    ${blocks}
+  </main>
+</body>
+</html>`;
+}
+
+function blockFromSection(section: SectionLike, index: number): PlanBlock {
+  if (section.html?.trim()) {
+    return {
+      id: section.id || createPlanBlockId(section.title),
+      type: "custom-html",
+      title: section.title,
+      data: {
+        html: section.html,
+        caption: section.body,
+      },
+    };
+  }
+  if (section.type === "implementation") {
+    return {
+      id: section.id || createPlanBlockId(section.title),
+      type: "implementation-map",
+      title: section.title,
+      data: {
+        files: [
+          {
+            path: "repo/path.tsx",
+            title: "Implementation detail",
+            note: section.body || "Add concrete file and symbol notes here.",
+            language: "tsx",
+          },
+        ],
+      },
+    };
+  }
+  if (section.type === "wireframe" || section.type === "mockup") {
+    return {
+      id: section.id || createPlanBlockId(section.title),
+      type: "legacy-wireframe",
+      title: section.title,
+      summary: section.body,
+      data: createWireframeData({
+        title: section.title,
+        description: section.body,
+        viewport: index === 0 ? "desktop" : "phone",
+      }),
+    };
+  }
+  if (section.type === "diagram") {
+    return {
+      id: section.id || createPlanBlockId(section.title),
+      type: "diagram",
+      title: section.title,
+      data: createBasicDiagram(section.title, section.body),
+    };
+  }
+  if (section.type === "questions" || section.type === "decisions") {
+    return {
+      id: section.id || createPlanBlockId(section.title),
+      type: "decision",
+      title: section.title,
+      data: {
+        question: section.title,
+        options: markdownLines(section.body).map((line, optionIndex) => ({
+          id: `option-${optionIndex + 1}`,
+          label: line,
+        })),
+      },
+    };
+  }
+  return {
+    id: section.id || createPlanBlockId(section.title),
+    type: "rich-text",
+    title: section.title,
+    editable: true,
+    data: {
+      markdown: section.body,
+    },
+  };
+}
+
+function findCanvas(blocks: PlanBlock[]): PlanContent["canvas"] | undefined {
+  const frames = blocks
+    .filter((block): block is PlanLegacyWireframeBlock => {
+      return block.type === "legacy-wireframe";
+    })
+    .slice(0, 6)
+    .map<PlanArtboard>((block, index) => ({
+      id: `frame-${block.id}`,
+      label: block.title || `Frame ${index + 1}`,
+      blockId: block.id,
+      legacyWireframe: block.data,
+    }));
+  if (frames.length === 0) return undefined;
+  return {
+    title: "Wireframes",
+    frames,
+    flow: frames.slice(0, -1).map((frame, index) => ({
+      from: frame.id,
+      to: frames[index + 1]?.id ?? frame.id,
+      label: `Step ${index + 1}`,
+    })),
+  };
+}
+
+function createComponentContextWireframe(input: {
+  title: string;
+  brief: string;
+}): LegacyWireframeData {
+  return {
+    viewport: "desktop",
+    template: "context-xray-app",
+    caption: `Show ${input.title} in the surrounding app before reviewing focused component states.`,
+    regions: [],
+  };
+}
+
+function createWireframeData(input: {
+  title: string;
+  description?: string;
+  viewport?: "desktop" | "tablet" | "phone";
+  component?: boolean;
+}): LegacyWireframeData {
+  const viewport = input.viewport ?? "desktop";
+  const title = compactLabel(input.title, 24);
+  const description = compactLabel(input.description ?? "", 78);
+  if (input.component) {
+    const template = inferComponentWireframeTemplate(input);
+    return {
+      viewport,
+      ...(template ? { template } : {}),
+      caption: input.description,
+      regions: template ? [] : createComponentWireframeRegions(input),
+    };
+  }
+  if (viewport === "phone") {
+    return {
+      viewport,
+      caption: input.description,
+      regions: [
+        {
+          id: "phone-back",
+          kind: "button",
+          label: "Back",
+          x: 9,
+          y: 7,
+          width: 18,
+          height: 7,
+          emphasis: true,
+        },
+        {
+          id: "phone-title",
+          kind: "header",
+          label: title,
+          x: 32,
+          y: 7,
+          width: 34,
+          height: 7,
+        },
+        {
+          id: "phone-menu",
+          kind: "toolbar",
+          label: "...",
+          x: 76,
+          y: 7,
+          width: 12,
+          height: 7,
+        },
+        {
+          id: "phone-filter-all",
+          kind: "button",
+          label: "All",
+          x: 9,
+          y: 20,
+          width: 17,
+          height: 8,
+        },
+        {
+          id: "phone-filter-active",
+          kind: "button",
+          label: "Active",
+          x: 29,
+          y: 20,
+          width: 24,
+          height: 8,
+        },
+        {
+          id: "phone-filter-done",
+          kind: "button",
+          label: "Done",
+          x: 56,
+          y: 20,
+          width: 21,
+          height: 8,
+        },
+        {
+          id: "phone-row-1",
+          kind: "list",
+          x: 9,
+          y: 35,
+          width: 80,
+          height: 10,
+        },
+        {
+          id: "phone-row-2",
+          kind: "list",
+          x: 9,
+          y: 49,
+          width: 80,
+          height: 10,
+        },
+        {
+          id: "phone-row-3",
+          kind: "list",
+          x: 9,
+          y: 63,
+          width: 80,
+          height: 10,
+        },
+        {
+          id: "action",
+          kind: "button",
+          label: "+",
+          x: 70,
+          y: 82,
+          width: 16,
+          height: 9,
+          emphasis: true,
+        },
+      ],
+    };
+  }
+  return {
+    viewport,
+    caption: input.description,
+    regions: [
+      {
+        id: "chrome",
+        kind: "header",
+        label: title,
+        x: 3,
+        y: 4,
+        width: 94,
+        height: 8,
+      },
+      {
+        id: "nav",
+        kind: "nav",
+        label: "Workspace",
+        x: 3,
+        y: 12,
+        width: 22,
+        height: 78,
+      },
+      {
+        id: "nav-active",
+        kind: "button",
+        x: 6,
+        y: 25,
+        width: 16,
+        height: 7,
+        emphasis: true,
+      },
+      { id: "nav-item-1", kind: "toolbar", x: 6, y: 37, width: 16, height: 6 },
+      { id: "nav-item-2", kind: "toolbar", x: 6, y: 48, width: 16, height: 6 },
+      { id: "nav-item-3", kind: "toolbar", x: 6, y: 59, width: 16, height: 6 },
+      {
+        id: "title",
+        kind: "header",
+        label: title,
+        x: 30,
+        y: 18,
+        width: 36,
+        height: 8,
+      },
+      {
+        id: "summary",
+        kind: "content",
+        label: description,
+        x: 30,
+        y: 29,
+        width: 50,
+        height: 11,
+      },
+      {
+        id: "filter-all",
+        kind: "button",
+        label: "All",
+        x: 30,
+        y: 45,
+        width: 9,
+        height: 7,
+      },
+      {
+        id: "filter-active",
+        kind: "button",
+        label: "Active",
+        x: 42,
+        y: 45,
+        width: 14,
+        height: 7,
+      },
+      {
+        id: "filter-done",
+        kind: "button",
+        label: "Done",
+        x: 59,
+        y: 45,
+        width: 13,
+        height: 7,
+      },
+      { id: "row-1", kind: "list", x: 30, y: 58, width: 62, height: 10 },
+      { id: "row-2", kind: "list", x: 30, y: 71, width: 62, height: 10 },
+      { id: "row-3", kind: "list", x: 30, y: 84, width: 62, height: 8 },
+      {
+        id: "primary",
+        kind: "button",
+        label: "Primary",
+        x: 82,
+        y: 20,
+        width: 12,
+        height: 8,
+        emphasis: true,
+      },
+    ],
+  };
+}
+
+function compactLabel(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+}
+
+function inferComponentWireframeTemplate(input: {
+  title: string;
+  description?: string;
+}): LegacyWireframeData["template"] | undefined {
+  const text = `${input.title} ${input.description ?? ""}`.toLowerCase();
+  if (/\b(chat|message|composer|thinking|step chrome)\b/.test(text)) {
+    return "context-xray-chat-cleanup";
+  }
+  if (/\b(map|treemap|token distribution)\b/.test(text)) {
+    return "context-xray-map";
+  }
+  if (/\b(expanded|segment|detail|pin|evict|protected)\b/.test(text)) {
+    return "context-xray-expanded";
+  }
+  if (
+    /\b(context\s*x-?ray|x-?ray|popover|usage|meter|list\/?map|conversation group)\b/.test(
+      text,
+    )
+  ) {
+    return "context-xray-default";
+  }
+  return undefined;
+}
+
+function createComponentWireframeRegions(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeRegion[] {
+  const text = `${input.title} ${input.description ?? ""}`.toLowerCase();
+  if (/\b(chat|message|composer|thinking)\b/.test(text)) {
+    return [
+      componentShell(),
+      {
+        id: "messages",
+        kind: "list",
+        label: "Chat messages",
+        x: 16,
+        y: 16,
+        width: 68,
+        height: 40,
+        emphasis: true,
+      },
+      {
+        id: "thinking-status",
+        kind: "toolbar",
+        label: "Thinking status",
+        x: 16,
+        y: 62,
+        width: 38,
+        height: 8,
+      },
+      {
+        id: "composer",
+        kind: "input",
+        label: "Composer",
+        x: 16,
+        y: 76,
+        width: 68,
+        height: 10,
+      },
+    ];
+  }
+
+  const looksLikeContextXRay =
+    /\b(context\s*x-?ray|x-?ray|popover|usage|meter|list\/?map)\b/.test(text);
+
+  if (
+    !looksLikeContextXRay &&
+    /\b(map|treemap|token distribution)\b/.test(text)
+  ) {
+    return [
+      componentShell(),
+      {
+        id: "map-title",
+        kind: "header",
+        label: "Map",
+        x: 16,
+        y: 13,
+        width: 34,
+        height: 9,
+        emphasis: true,
+      },
+      {
+        id: "token-map",
+        kind: "content",
+        label: "Token map",
+        x: 16,
+        y: 29,
+        width: 68,
+        height: 36,
+        emphasis: true,
+      },
+      {
+        id: "legend",
+        kind: "toolbar",
+        label: "Legend",
+        x: 16,
+        y: 72,
+        width: 32,
+        height: 8,
+      },
+      {
+        id: "selected-summary",
+        kind: "content",
+        label: "Selected 2.0k",
+        x: 54,
+        y: 72,
+        width: 30,
+        height: 8,
+      },
+    ];
+  }
+
+  if (/\b(expanded|segment|detail|pin|evict|protected)\b/.test(text)) {
+    return [
+      componentShell(),
+      {
+        id: "segment-title",
+        kind: "header",
+        label: "Conversation",
+        x: 16,
+        y: 13,
+        width: 40,
+        height: 9,
+        emphasis: true,
+      },
+      {
+        id: "segment-usage",
+        kind: "toolbar",
+        label: "2.0k protected",
+        x: 58,
+        y: 13,
+        width: 26,
+        height: 9,
+      },
+      {
+        id: "user-row",
+        kind: "list",
+        label: "User message",
+        x: 16,
+        y: 31,
+        width: 68,
+        height: 13,
+      },
+      {
+        id: "tool-row",
+        kind: "list",
+        label: "Tool result",
+        x: 16,
+        y: 50,
+        width: 68,
+        height: 13,
+      },
+      {
+        id: "pin-evict",
+        kind: "button",
+        label: "Pin / evict",
+        x: 60,
+        y: 72,
+        width: 26,
+        height: 9,
+        emphasis: true,
+      },
+    ];
+  }
+
+  if (looksLikeContextXRay) {
+    return [
+      componentShell(),
+      {
+        id: "xray-title",
+        kind: "header",
+        label: "Context X-Ray",
+        x: 16,
+        y: 13,
+        width: 42,
+        height: 9,
+        emphasis: true,
+      },
+      {
+        id: "usage-meter",
+        kind: "content",
+        label: "2.0k used",
+        x: 16,
+        y: 30,
+        width: 68,
+        height: 18,
+      },
+      {
+        id: "view-toggle",
+        kind: "toolbar",
+        label: "List / Map",
+        x: 16,
+        y: 54,
+        width: 36,
+        height: 8,
+      },
+      {
+        id: "conversation-group",
+        kind: "list",
+        label: "Conversation",
+        x: 16,
+        y: 68,
+        width: 68,
+        height: 18,
+        emphasis: true,
+      },
+      {
+        id: "row-action",
+        kind: "button",
+        label: "Pin",
+        x: 68,
+        y: 76,
+        width: 14,
+        height: 7,
+      },
+    ];
+  }
+
+  return [
+    componentShell(),
+    {
+      id: "title",
+      kind: "header",
+      label: input.title,
+      x: 14,
+      y: 12,
+      width: 42,
+      height: 9,
+      emphasis: true,
+    },
+    { id: "summary", kind: "content", x: 14, y: 28, width: 72, height: 18 },
+    { id: "controls", kind: "toolbar", x: 14, y: 52, width: 36, height: 8 },
+    {
+      id: "content",
+      kind: "list",
+      x: 14,
+      y: 66,
+      width: 72,
+      height: 20,
+      emphasis: true,
+    },
+  ];
+}
+
+function componentShell(): PlanWireframeRegion {
+  return { id: "shell", kind: "content", x: 9, y: 7, width: 82, height: 86 };
+}
+
+function createBasicDiagram(
+  title: string,
+  body: string,
+): PlanDiagramBlock["data"] {
+  const labels = markdownLines(body).slice(0, 5);
+  const nodes = (labels.length ? labels : [title, "Review", "Build", "Verify"])
+    .slice(0, 6)
+    .map((label, index) => ({
+      id: `node-${index + 1}`,
+      label,
+    }));
+  return {
+    nodes,
+    edges: nodes.slice(0, -1).map((node, index) => ({
+      from: node.id,
+      to: nodes[index + 1]?.id ?? node.id,
+    })),
+  };
+}
+
+function renderBlockHtml(block: PlanBlock): string {
+  const title = block.title ? `<h2>${escapeHtml(block.title)}</h2>` : "";
+  if (block.type === "rich-text") {
+    return `<section class="plan-block">${title}<div class="copy">${markdownToHtml(block.data.markdown)}</div></section>`;
+  }
+  if (block.type === "callout") {
+    return `<aside class="callout ${escapeHtml(block.data.tone || "info")}">${title}<p>${escapeHtml(block.data.body)}</p></aside>`;
+  }
+  if (block.type === "checklist") {
+    return `<section class="plan-block">${title}<ul class="checklist">${block.data.items.map((item) => `<li>${item.checked ? "[x]" : "[ ]"} ${escapeHtml(item.label)}</li>`).join("")}</ul></section>`;
+  }
+  if (block.type === "table") {
+    return `<section class="plan-block">${title}<table><thead><tr>${block.data.columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr></thead><tbody>${block.data.rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></section>`;
+  }
+  if (block.type === "code-tabs") {
+    return `<section class="plan-block">${title}<div class="code-tabs">${block.data.tabs.map((tab) => `<article><h3>${escapeHtml(tab.label)}</h3><pre><code>${escapeHtml(tab.code)}</code></pre></article>`).join("")}</div></section>`;
+  }
+  if (block.type === "implementation-map") {
+    return `<section class="plan-block">${title}<div class="implementation-map">${block.data.files.map((file) => `<article><h3>${escapeHtml(file.title || file.path)}</h3><p><code>${escapeHtml(file.path)}</code></p><p>${escapeHtml(file.note)}</p>${file.snippet ? `<pre><code>${escapeHtml(file.snippet)}</code></pre>` : ""}</article>`).join("")}</div></section>`;
+  }
+  if (block.type === "legacy-wireframe") {
+    return `<section class="plan-block sketch-block">${title}${renderWireframeHtml(block.data)}</section>`;
+  }
+  if (block.type === "wireframe") {
+    return `<section class="plan-block sketch-block">${title}${renderKitWireframeHtml(block.data)}</section>`;
+  }
+  if (block.type === "diagram") {
+    return `<section class="plan-block sketch-block">${title}${renderDiagramHtml(block.data)}</section>`;
+  }
+  if (block.type === "image") {
+    return renderImageHtml(block);
+  }
+  if (block.type === "decision") {
+    return `<section class="plan-block">${title}<h3>${escapeHtml(block.data.question)}</h3><div class="chips">${block.data.options.map((option) => `<span>${escapeHtml(option.label)}</span>`).join("")}</div></section>`;
+  }
+  if (block.type === "tabs") {
+    return `<section class="plan-block">${title}<div class="tab-export">${block.data.tabs.map((tab) => `<article><h3>${escapeHtml(tab.label)}</h3>${tab.blocks.map(renderBlockHtml).join("")}</article>`).join("")}</div></section>`;
+  }
+  if (block.type === "custom-html") {
+    const source = [
+      block.data.css ? `<style>\n${block.data.css}\n</style>` : "",
+      block.data.html,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return `<section class="plan-block">${title}<div class="custom-fragment"><p class="caption">Custom HTML fragment. Plans renders this safely in a sandboxed iframe; standalone exports show the source instead of executing it.</p><pre><code>${escapeHtml(source)}</code></pre></div>${block.data.caption ? `<p class="caption">${escapeHtml(block.data.caption)}</p>` : ""}</section>`;
+  }
+  if (block.type === "visual-questions") {
+    return `<section class="plan-block">${title}${block.data.questions.map((question, index) => `<article class="question"><h3>${index + 1}. ${escapeHtml(question.title)}</h3>${question.subtitle ? `<p>${escapeHtml(question.subtitle)}</p>` : ""}<div class="chips">${question.options?.map((option) => `<span>${escapeHtml(option.label)}</span>`).join("") ?? ""}</div></article>`).join("")}</section>`;
+  }
+  return "";
+}
+
+function frameLegacyData(frame: PlanArtboard): LegacyWireframeData | undefined {
+  return frame.legacyWireframe;
+}
+
+function renderCanvasHtml(canvas: NonNullable<PlanContent["canvas"]>): string {
+  const layoutFrames = layoutCanvasFrames(canvas.frames);
+  const frames = layoutFrames
+    .map((frame) => {
+      const legacy = frameLegacyData(frame);
+      const inner = frame.wireframe
+        ? renderKitWireframeHtml(frame.wireframe)
+        : legacy
+          ? renderWireframeHtml(legacy)
+          : "";
+      return `<div class="canvas-frame" style="left:${frame.x ?? 80}px;top:${frame.y ?? 80}px;width:${frame.width ?? 420}px;height:${frame.height ?? 360}px">
+        <h3>${escapeHtml(frame.label ?? "")}</h3>
+        ${inner}
+      </div>`;
+    })
+    .join("");
+  const legacyNotes = (canvas.notes ?? []).map(
+    (note) =>
+      `<aside class="canvas-note" style="left:${note.x ?? 80}px;top:${note.y ?? 40}px"><strong>${escapeHtml(note.title || "Note")}</strong><p>${escapeHtml(note.body)}</p></aside>`,
+  );
+  const annotations = (canvas.annotations ?? []).map(
+    (annotation) =>
+      `<aside class="canvas-note" style="left:${annotation.x ?? 80}px;top:${annotation.y ?? 40}px">${annotation.title ? `<strong>${escapeHtml(annotation.title)}</strong>` : ""}<p>${escapeHtml(annotation.text)}</p></aside>`,
+  );
+  const notes = [...legacyNotes, ...annotations].join("");
+  return `<section class="canvas-export"><div class="canvas-inner">${frames}${notes}</div></section>`;
+}
+
+function isPhoneFrame(frame: PlanArtboard): boolean {
+  return (
+    frame.surface === "mobile" || frameLegacyData(frame)?.viewport === "phone"
+  );
+}
+
+function layoutCanvasFrames(frames: PlanArtboard[]): PlanArtboard[] {
+  return frames.map((frame, index) => {
+    const explicitSize =
+      frame.width !== undefined || frame.height !== undefined;
+    const isPhone = isPhoneFrame(frame);
+    const width = frame.width ?? (isPhone ? 300 : index === 0 ? 640 : 560);
+    const height = frame.height ?? (isPhone ? 520 : 420);
+    if (frame.x !== undefined || frame.y !== undefined || explicitSize) {
+      return {
+        ...frame,
+        width,
+        height,
+        x: frame.x ?? 80,
+        y: frame.y ?? 80,
+      };
+    }
+    const desktopCountBefore = frames
+      .slice(0, index)
+      .filter((candidate) => !isPhoneFrame(candidate)).length;
+    const phoneCountBefore = frames
+      .slice(0, index)
+      .filter((candidate) => isPhoneFrame(candidate)).length;
+    return {
+      ...frame,
+      width,
+      height,
+      x: isPhone ? 760 + phoneCountBefore * 380 : 80 + desktopCountBefore * 700,
+      y: isPhone ? 80 : 80 + Math.floor(desktopCountBefore / 2) * 520,
+    };
+  });
+}
+
+function renderWireframeHtml(data: LegacyWireframeData) {
+  if (data.template) {
+    return `<div class="sketch-wireframe template ${escapeHtml(data.template)}">${renderWireframeTemplateHtml(data.template)}</div>`;
+  }
+  return `<div class="sketch-wireframe ${escapeHtml(data.viewport || "desktop")}">
+    ${data.regions
+      .map(
+        (region) =>
+          `<span class="sketch-region ${escapeHtml(region.kind)}${region.emphasis ? " emphasis" : ""}" style="left:${region.x}%;top:${region.y}%;width:${region.width}%;height:${region.height}%">${region.label ? escapeHtml(region.label) : ""}</span>`,
+      )
+      .join("")}
+  </div>`;
+}
+
+function renderWireframeTemplateHtml(
+  template: NonNullable<LegacyWireframeData["template"]>,
+) {
+  if (template === "context-xray-app") {
+    return `<div class="wf-template app">
+      <div class="wf-box app-shell">
+        <div class="wf-topbar"><span>App shell</span><i></i></div>
+        <div class="wf-app-grid">
+          <div class="wf-box wf-chat"><strong>Chat thread</strong><span class="wf-lines"><i></i><i></i><i></i></span><span class="wf-lines reply"><i></i><i></i></span></div>
+          <div class="wf-sidebar">
+            <div class="wf-box wf-side-title">Agent sidebar</div>
+            <div class="wf-box wf-popover"><strong>Context X-Ray popover</strong>${renderXRayMeterHtml(true)}<div class="wf-toggle"><b>List</b><b>Map</b></div><div class="wf-box wf-row"><strong>Conversation</strong><span class="wf-lines"><i></i></span></div></div>
+            <div class="wf-button solid">X-Ray</div>
+          </div>
+          <div class="wf-box wf-status">Thinking status</div>
+          <div class="wf-box wf-composer">Composer <i></i></div>
+        </div>
+      </div>
+    </div>`;
+  }
+  if (template === "context-xray-expanded") {
+    return `<div class="wf-template popover">
+      <div class="wf-head"><div class="wf-box emphasis">Conversation</div><div class="wf-box">2.0k protected</div></div>
+      <div class="wf-box message"><strong>User message</strong><span class="wf-lines"><i></i><i></i></span></div>
+      <div class="wf-box message"><strong>Tool result</strong><span class="wf-lines"><i></i><i></i></span></div>
+      <div class="wf-actions"><span class="wf-pill">Protected</span><div class="wf-button solid">Pin / evict</div></div>
+    </div>`;
+  }
+  if (template === "context-xray-map") {
+    return `<div class="wf-template popover map">
+      <div class="wf-head"><div class="wf-box emphasis">Context X-Ray</div><span>Map</span></div>
+      <div class="wf-box wf-map-area"><div class="wf-rowhead"><strong>Token map</strong><span>2.0k selected</span></div><div class="wf-treemap"><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="wf-foot"><div class="wf-box">Legend</div><div class="wf-box">Selected 2.0k</div></div>
+    </div>`;
+  }
+  if (template === "context-xray-chat-cleanup") {
+    return `<div class="wf-template chat-cleanup">
+      <div class="wf-box wf-chat-thread"><div class="wf-bubble"><strong>Chat messages</strong><span class="wf-lines"><i></i><i></i><i></i></span></div><div class="wf-bubble reply"><span class="wf-lines"><i></i><i></i><i></i></span></div></div>
+      <div class="wf-box wf-status">Thinking status</div>
+      <div class="wf-box wf-composer">Composer <i></i></div>
+    </div>`;
+  }
+  return `<div class="wf-template popover">
+    <div class="wf-head"><div class="wf-box emphasis">Context X-Ray</div><span>Pinned 0 · Evicted 0</span></div>
+    ${renderXRayMeterHtml(false)}
+    <div class="wf-toggle"><b>List</b><b>Map</b></div>
+    <div class="wf-box group"><div class="wf-rowhead"><strong>Conversation</strong><span>2.0k</span></div><div class="wf-box wf-row"><strong>Conversation</strong><span class="wf-lines"><i></i></span><span class="wf-button">Pin</span></div></div>
+  </div>`;
+}
+
+function renderXRayMeterHtml(compact: boolean) {
+  return `<div class="wf-box wf-meter"><div><strong>2.0k used</strong>${compact ? "" : "<span>1% used · 198k free</span>"}</div><span class="wf-progress"><i></i></span></div>`;
+}
+
+function renderDiagramHtml(data: PlanDiagramBlock["data"]) {
+  const nodes = data.nodes;
+  const positioned = nodes.map((node, index) => ({
+    ...node,
+    x: node.x ?? 12 + index * (76 / Math.max(nodes.length - 1, 1)),
+    y: node.y ?? 50,
+  }));
+  return `<svg class="sketch-diagram" viewBox="0 0 100 100" role="img">
+    ${data.edges
+      .map((edge) => {
+        const from = positioned.find((node) => node.id === edge.from);
+        const to = positioned.find((node) => node.id === edge.to);
+        if (!from || !to) return "";
+        return `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" />`;
+      })
+      .join("")}
+    ${positioned
+      .map(
+        (node) =>
+          `<g><rect x="${node.x - 8}" y="${node.y - 6}" width="16" height="12" rx="2" /><text x="${node.x}" y="${node.y + 1}">${escapeHtml(node.label)}</text></g>`,
+      )
+      .join("")}
+  </svg>`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Kit-tree wireframe export (semantic flex tree -> inert HTML)               */
+/* -------------------------------------------------------------------------- */
+
+function renderKitWireframeHtml(data: PlanWireframeBlock["data"]): string {
+  const surface = escapeHtml(data.surface || "desktop");
+  const screen = data.screen.map(renderKitNodeHtml).join("");
+  return `<div class="kit-wireframe surface-${surface}">${screen}</div>`;
+}
+
+function renderKitNodeHtml(node: PlanWireframeNode): string {
+  const el = escapeHtml(node.el);
+  const classes = ["kit-node", `kit-${el}`];
+  if (node.tone) classes.push(`tone-${escapeHtml(node.tone)}`);
+  if (node.active) classes.push("is-active");
+  if (node.emphasis) classes.push("is-emphasis");
+  if (node.done) classes.push("is-done");
+
+  const label = node.text ?? node.label ?? node.title ?? node.value ?? "";
+  const text = label ? escapeHtml(label) : "";
+
+  if (node.el === "lines") {
+    const count = node.n ?? 2;
+    const lines = Array.from({ length: Math.min(count, 8) })
+      .map(() => `<i></i>`)
+      .join("");
+    return `<span class="${classes.join(" ")}">${lines}</span>`;
+  }
+  if (node.el === "chips" && node.items?.length) {
+    const chips = node.items
+      .map(
+        (item) =>
+          `<span class="kit-chip${item.active ? " is-active" : ""}">${escapeHtml(item.label)}${item.count !== undefined ? ` <b>${item.count}</b>` : ""}</span>`,
+      )
+      .join("");
+    return `<div class="${classes.join(" ")}">${chips}</div>`;
+  }
+  if (node.el === "kv" && node.rows?.length) {
+    const rows = node.rows
+      .map(
+        (row) =>
+          `<div class="kit-kv-row"><span>${escapeHtml(row.k)}</span><span>${escapeHtml(row.v)}</span></div>`,
+      )
+      .join("");
+    return `<div class="${classes.join(" ")}">${rows}</div>`;
+  }
+
+  const children = node.children?.length
+    ? node.children.map(renderKitNodeHtml).join("")
+    : "";
+  return `<div class="${classes.join(" ")}">${text ? `<span class="kit-text">${text}</span>` : ""}${children}</div>`;
+}
+
+function renderImageHtml(block: PlanImageBlock): string {
+  const title = block.title ? `<h2>${escapeHtml(block.title)}</h2>` : "";
+  const src = block.data.url;
+  const alt = escapeHtml(block.data.alt);
+  const caption = block.data.caption
+    ? `<p class="caption">${escapeHtml(block.data.caption)}</p>`
+    : "";
+  // Only inline a same-origin-safe src when an explicit url is present; asset
+  // ids resolve in-app, so the standalone export shows a placeholder instead.
+  const body = src
+    ? `<img class="plan-image" src="${escapeHtml(src)}" alt="${alt}" loading="lazy" />`
+    : `<div class="plan-image placeholder" role="img" aria-label="${alt}">${alt}</div>`;
+  return `<section class="plan-block">${title}${body}${caption}</section>`;
+}
+
+function previewToWireframe(
+  preview: VisualQuestionPreview,
+  label: string,
+): PlanWireframeBlock["data"] | undefined {
+  if (preview === "desktop" || preview === "mobile" || preview === "split") {
+    // Visual-question previews use the lean kit tree so they validate against
+    // the new wireframe model (region data is rejected there by design).
+    return {
+      surface: preview === "mobile" ? "mobile" : "desktop",
+      screen: [
+        { el: "title", script: true, text: label },
+        { el: "lines", n: 3 },
+        {
+          el: "row",
+          children: [
+            { el: "btn", text: "Primary", tone: "accent" },
+            { el: "btn", text: "Secondary" },
+          ],
+        },
+      ],
+    };
+  }
+  return undefined;
+}
+
+function previewToDiagram(preview: VisualQuestionPreview, label: string) {
+  if (preview === "flow" || preview === "diagram") {
+    return createBasicDiagram(label, "Start\nChoose\nBuild");
+  }
+  return undefined;
+}
+
+function defaultVisualQuestions(brief: string): VisualQuestionBuilderInput[] {
+  return [
+    {
+      id: "form-factor",
+      type: "single",
+      title: "What form factor should lead?",
+      subtitle: "Where should the first design direction feel native?",
+      options: [
+        { label: "Desktop web app", preview: "desktop" },
+        { label: "Mobile app", preview: "mobile" },
+        { label: "Both / responsive", recommended: true, preview: "split" },
+        { label: "Decide for me" },
+      ],
+    },
+    {
+      id: "aesthetic",
+      type: "multi",
+      title: "What aesthetic direction appeals?",
+      subtitle: "Pick any signals worth exploring.",
+      options: [
+        { label: "Calm and minimal" },
+        { label: "Dense and productive" },
+        { label: "Playful and colorful" },
+        { label: "Editorial / typographic" },
+        { label: "Sleek dark mode" },
+      ],
+    },
+    {
+      id: "scope",
+      type: "freeform",
+      title: "Anything the plan must include?",
+      subtitle: brief,
+    },
+    {
+      id: "flow-complexity",
+      type: "visual",
+      title: "How complex should the flow be?",
+      subtitle: "Choose how much canvas vs document detail the plan needs.",
+      options: [
+        {
+          label: "One polished path",
+          description: "Fastest to approve with fewer branches.",
+          preview: "flow",
+          recommended: true,
+        },
+        {
+          label: "A few variations",
+          description: "Useful when direction is fuzzy and tradeoffs matter.",
+          preview: "diagram",
+        },
+      ],
+    },
+  ];
+}
+
+function markdownLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^[-*]\s+/, "")
+        .replace(/^#+\s+/, "")
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
+function markdownToHtml(value: string) {
+  const lines = value.split(/\r?\n/);
+  const html: string[] = [];
+  let list: string[] = [];
+  const flushList = () => {
+    if (list.length === 0) return;
+    html.push(
+      `<ul>${list.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`,
+    );
+    list = [];
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushList();
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushList();
+      const level = Math.min(heading[1]?.length ?? 2, 3);
+      html.push(`<h${level + 1}>${escapeHtml(heading[2])}</h${level + 1}>`);
+      continue;
+    }
+    const listItem = /^[-*]\s+(.+)$/.exec(line);
+    if (listItem?.[1]) {
+      list.push(listItem[1]);
+      continue;
+    }
+    flushList();
+    html.push(`<p>${escapeHtml(line)}</p>`);
+  }
+  flushList();
+  return html.join("\n");
+}
+
+function slug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const CONTENT_EXPORT_CSS = `
+:root { color-scheme: light dark; --bg: #fbfaf8; --canvas: #f2f1ee; --paper: #ffffff; --line: #dedbd5; --text: #191918; --muted: #68645f; --accent: #3f7cff; --code-bg: #f4f4f2; --code-text: #242321; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1f1e1d; --canvas: #1c1b1a; --paper: #22211f; --line: #393735; --text: #f3f2ef; --muted: #aaa6a0; --code-bg: #171615; --code-text: #f0efeb; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
+main { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 72px 0 96px; }
+.canvas-export { height: 70vh; min-height: 520px; overflow: hidden; background-color: var(--canvas); background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 28px 28px; border-bottom: 1px solid var(--line); }
+.canvas-inner { position: relative; width: 2400px; height: 1400px; }
+.canvas-frame, .canvas-note { position: absolute; }
+.canvas-frame h3 { margin: 0 0 8px; font-size: 14px; }
+.canvas-note { width: 280px; color: var(--muted); }
+.hero { padding-bottom: 34px; border-bottom: 1px solid var(--line); }
+.kicker { color: var(--muted); font-size: 12px; font-weight: 760; letter-spacing: .12em; text-transform: uppercase; }
+h1 { margin: 0; max-width: 880px; font-size: clamp(42px, 5vw, 74px); line-height: .98; letter-spacing: -.03em; }
+.lede { max-width: 880px; color: var(--muted); font-size: 22px; }
+.plan-block, .callout { margin-top: 60px; padding-top: 34px; border-top: 1px solid var(--line); }
+h2 { margin: 0 0 18px; font-size: clamp(28px, 4vw, 44px); letter-spacing: -.025em; }
+h3 { margin: 0 0 10px; }
+.copy { max-width: 840px; color: var(--muted); font-size: 18px; }
+.sketch-wireframe { position: relative; height: 360px; border: 2px solid currentColor; border-radius: 18px; color: #eceae5; background: var(--paper); }
+.sketch-wireframe.phone { width: 260px; height: 480px; border-radius: 38px; }
+.sketch-wireframe.template { display: flex; color: var(--text); padding: 18px; font-family: "Virgil", "Comic Sans MS", "Bradley Hand", cursive; }
+.wf-template { display: grid; width: 100%; height: 100%; min-height: 0; gap: 14px; }
+.wf-template.popover { grid-template-rows: auto auto auto 1fr; gap: 16px; padding: 10px; }
+.wf-template.popover.map { grid-template-rows: auto 1fr auto; }
+.wf-template.chat-cleanup { grid-template-rows: 1fr auto auto; padding: 10px; }
+.wf-box { min-width: 0; min-height: 0; border: 1.5px solid currentColor; border-radius: 12px; background: transparent; padding: 12px 14px; }
+.wf-box.emphasis { color: var(--accent); }
+.wf-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.wf-head > span { color: var(--muted); font: 700 11px Inter, sans-serif; }
+.wf-lines { display: flex; width: min(100%, 230px); flex-direction: column; gap: 4px; }
+.wf-lines i { display: block; width: 70%; height: 4px; border-radius: 999px; background: var(--line); opacity: .72; }
+.wf-lines i:nth-child(2) { width: 54%; }
+.wf-lines i:nth-child(3) { width: 34%; }
+.wf-meter { display: grid; gap: 9px; }
+.wf-meter > div { display: flex; justify-content: space-between; gap: 10px; }
+.wf-meter span { color: var(--muted); font: 700 11px Inter, sans-serif; }
+.wf-progress { height: 5px; overflow: hidden; border-radius: 999px; background: var(--line); opacity: .72; }
+.wf-progress i { display: block; width: 18%; height: 100%; background: var(--accent); }
+.wf-toggle { display: inline-flex; gap: 8px; }
+.wf-toggle b, .wf-pill { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; border: 1.4px solid currentColor; border-radius: 999px; padding: 3px 10px 4px; font-size: 12px; white-space: nowrap; }
+.wf-toggle b:first-child { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.wf-rowhead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.wf-rowhead span { color: var(--muted); font: 700 11px Inter, sans-serif; }
+.wf-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.wf-button { display: inline-flex; align-items: center; justify-content: center; border: 1.4px solid currentColor; border-radius: 10px; padding: 7px 12px; font-weight: 700; white-space: nowrap; }
+.wf-button.solid { color: #fff; border-color: var(--accent); background: var(--accent); }
+.wf-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.wf-map-area { display: grid; gap: 12px; }
+.wf-treemap { display: grid; min-height: 130px; grid-template-columns: 1.4fr .9fr .7fr; grid-template-rows: 1fr .8fr; gap: 8px; }
+.wf-treemap i { border-radius: 8px; background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+.wf-treemap i:first-child { grid-row: span 2; background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.wf-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wf-chat-thread { display: grid; align-content: center; gap: 28px; padding: 18px 20px; }
+.wf-bubble { display: grid; gap: 8px; }
+.wf-bubble.reply { width: 84%; margin-left: auto; }
+.wf-status { width: 48%; }
+.wf-composer { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; }
+.wf-template.app .app-shell { display: grid; height: 100%; grid-template-rows: auto 1fr; gap: 12px; padding: 18px; }
+.wf-topbar { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; }
+.wf-topbar i, .wf-composer i { display: block; height: 4px; border-radius: 999px; background: var(--line); }
+.wf-app-grid { display: grid; min-height: 0; grid-template-columns: minmax(0, 1fr) minmax(188px, 34%); grid-template-rows: minmax(0, 1fr) auto auto; gap: 14px 18px; }
+.wf-chat { display: grid; align-content: center; gap: 24px; padding: 22px 26px; }
+.wf-sidebar { display: grid; grid-row: 1 / span 3; grid-template-rows: auto 1fr auto; gap: 12px; }
+.wf-side-title { width: 78%; justify-self: end; }
+.wf-popover { display: grid; gap: 10px; background: var(--canvas); }
+.wf-sidebar > .wf-button { width: 84px; justify-self: end; }
+.sketch-region { position: absolute; border: 1.5px solid currentColor; border-radius: 10px; color: inherit; }
+.sketch-region.emphasis { border-color: var(--accent); }
+.sketch-diagram { width: 100%; max-width: 900px; min-height: 260px; color: #eceae5; }
+.sketch-diagram line { stroke: var(--accent); stroke-width: 1.7; stroke-linecap: round; }
+.sketch-diagram rect { fill: var(--paper); stroke: currentColor; stroke-width: 1.3; }
+.sketch-diagram text { fill: currentColor; font: 4px ui-sans-serif, system-ui; text-anchor: middle; dominant-baseline: middle; }
+.kit-wireframe { display: flex; flex-direction: column; gap: var(--kit-gap, 11px); min-height: 320px; padding: 16px; border: 1.4px solid var(--line); border-radius: 16px; background: var(--paper); color: var(--text); font-family: "Gaegu", "Virgil", "Comic Sans MS", "Bradley Hand", cursive; }
+.kit-wireframe.surface-mobile { width: 300px; min-height: 560px; border-radius: 30px; margin: 0 auto; }
+.kit-wireframe .kit-node { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.kit-wireframe .kit-row { flex-direction: row; align-items: center; gap: 10px; }
+.kit-wireframe .kit-sidebar { width: 30%; gap: 7px; }
+.kit-wireframe .kit-main { flex: 1; }
+.kit-wireframe .kit-title { font-family: "Caveat", "Gaegu", cursive; font-size: 24px; font-weight: 700; }
+.kit-wireframe .kit-text { display: block; }
+.kit-wireframe .kit-btn, .kit-wireframe .kit-pill, .kit-wireframe .kit-chip { display: inline-flex; align-items: center; gap: 6px; border: 1.3px solid currentColor; border-radius: 999px; padding: 3px 12px; font-size: 13px; width: fit-content; }
+.kit-wireframe .kit-btn.tone-accent, .kit-wireframe .kit-chip.is-active { color: var(--accent); border-color: var(--accent); }
+.kit-wireframe .kit-chips { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.kit-wireframe .kit-card, .kit-wireframe .kit-box, .kit-wireframe .kit-taskRow, .kit-wireframe .kit-field, .kit-wireframe .kit-searchBar { border: 1.3px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.kit-wireframe .kit-lines { gap: 5px; }
+.kit-wireframe .kit-lines i { display: block; height: 5px; border-radius: 999px; background: var(--line); opacity: .8; }
+.kit-wireframe .kit-lines i:nth-child(2) { width: 78%; }
+.kit-wireframe .kit-lines i:nth-child(3) { width: 56%; }
+.kit-wireframe .kit-divider { height: 1px; background: var(--line); margin: 4px 0; }
+.kit-wireframe .kit-kv-row { display: flex; justify-content: space-between; gap: 12px; }
+.kit-wireframe .tone-warn { color: var(--warn, #b5503a); }
+.kit-wireframe .tone-ok { color: var(--ok, #5b8c6e); }
+.kit-wireframe .tone-muted { color: var(--muted); }
+.plan-image { max-width: 100%; border: 1px solid var(--line); border-radius: 14px; }
+.plan-image.placeholder { display: grid; place-items: center; min-height: 220px; color: var(--muted); background: var(--code-bg); font-size: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: var(--muted); }
+pre { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--code-bg); padding: 16px; color: var(--code-text); }
+code { font-family: "SFMono-Regular", Consolas, monospace; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border-bottom: 1px solid var(--line); padding: 10px; text-align: left; }
+`;

@@ -46,6 +46,9 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import {
+  AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
   appendAgentChatContextToMessage,
   normalizeAgentChatContextItem,
   type AgentChatContextItem,
@@ -732,6 +735,8 @@ function chatTabStatusFromAgentTeamStatus(
   return isActiveAgentTeamStatus(status) ? "running" : "completed";
 }
 
+const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
+
 function runToAgentTeamTabInfo(
   run: AgentTeamRunSummary,
 ): AgentTeamTabInfo | null {
@@ -892,6 +897,31 @@ export function MultiTabAssistantChat({
     },
     [],
   );
+
+  const removeContextInTab = useCallback((threadId: string, key: string) => {
+    const ref = chatRefs.current.get(threadId);
+    if (ref) {
+      ref.removeComposerContextItem(key);
+      return;
+    }
+    const existing = pendingContextItems.current.get(threadId);
+    if (!existing) return;
+    const next = existing.filter((item) => item.key !== key);
+    if (next.length === 0) {
+      pendingContextItems.current.delete(threadId);
+    } else {
+      pendingContextItems.current.set(threadId, next);
+    }
+  }, []);
+
+  const clearContextInTab = useCallback((threadId: string) => {
+    const ref = chatRefs.current.get(threadId);
+    if (ref) {
+      ref.clearComposerContextItems();
+      return;
+    }
+    pendingContextItems.current.delete(threadId);
+  }, []);
 
   const resolveThreadModelSelection = useCallback(
     (threadId: string) =>
@@ -1265,11 +1295,12 @@ export function MultiTabAssistantChat({
 
     // Hide tabs that have had no activity for more than 12 hours. Stale tabs
     // are removed from the sidebar on load but remain accessible via history.
-    const STALE_THRESHOLD_MS = 12 * 60 * 60 * 1000;
     const now = Date.now();
     const isStale = (id: string) => {
       const thread = threadMap.get(id);
-      return thread ? now - thread.updatedAt > STALE_THRESHOLD_MS : false;
+      return thread
+        ? now - thread.updatedAt > STALE_THREAD_THRESHOLD_MS
+        : false;
     };
 
     // If the active thread is a sub-agent, switch to its parent or the most recent main thread
@@ -1309,13 +1340,26 @@ export function MultiTabAssistantChat({
   // Ensure active thread is always in open tabs.
   // Use functional update to check inside the setter — avoids race with the
   // initialization effect that may have already added the ID in the same batch.
+  //
+  // Scoped navigation can reset openTabIds from a different localStorage key
+  // without changing activeThreadId. Re-check after tab-list resets so the
+  // sidebar cannot end up with a live active thread but no mounted chat.
   useEffect(() => {
-    if (activeThreadId) {
-      setOpenTabIds((prev) =>
-        prev.includes(activeThreadId) ? prev : [...prev, activeThreadId],
-      );
+    if (!activeThreadId || openTabIds.includes(activeThreadId)) return;
+    if (parentMap[activeThreadId]) return;
+
+    const activeThread = threads.find((thread) => thread.id === activeThreadId);
+    if (
+      activeThread &&
+      Date.now() - activeThread.updatedAt > STALE_THREAD_THRESHOLD_MS
+    ) {
+      return;
     }
-  }, [activeThreadId]);
+
+    setOpenTabIds((prev) =>
+      prev.includes(activeThreadId) ? prev : [...prev, activeThreadId],
+    );
+  }, [activeThreadId, openTabIds, parentMap, threads]);
 
   // Ensure at least one tab is always open — auto-create if sidebar is empty.
   // Skipped when an active thread already exists (e.g. the hook generated an
@@ -1497,7 +1541,7 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
-      if (event.data?.type === "agentNative.setChatContext") {
+      if (event.data?.type === AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE) {
         const item = normalizeAgentChatContextItem(event.data.data);
         if (!item) return;
         const openSidebar = event.data.data?.openSidebar as boolean | undefined;
@@ -1508,6 +1552,33 @@ export function MultiTabAssistantChat({
         const currentTabId = activeThreadIdRef.current;
         if (!currentTabId) return;
         setContextInTab(currentTabId, item);
+        return;
+      }
+      if (event.data?.type === AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE) {
+        const key =
+          typeof event.data.data?.key === "string"
+            ? event.data.data.key.trim()
+            : "";
+        if (!key) return;
+        const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+        if (openSidebar === true) {
+          window.dispatchEvent(new CustomEvent("agent-panel:open"));
+        }
+        if (postMessageSubmissionsDisabled) return;
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        removeContextInTab(currentTabId, key);
+        return;
+      }
+      if (event.data?.type === AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE) {
+        const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+        if (openSidebar === true) {
+          window.dispatchEvent(new CustomEvent("agent-panel:open"));
+        }
+        if (postMessageSubmissionsDisabled) return;
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        clearContextInTab(currentTabId);
         return;
       }
       if (event.data?.type !== "agentNative.submitChat") return;
@@ -1604,8 +1675,10 @@ export function MultiTabAssistantChat({
   }, [
     availableModels,
     bumpModelSelectionVersion,
+    clearContextInTab,
     createThread,
     postMessageSubmissionsDisabled,
+    removeContextInTab,
     setContextInTab,
     switchThread,
   ]);
@@ -1737,6 +1810,7 @@ export function MultiTabAssistantChat({
           }
           chatRefs.current.delete(key);
           pendingSends.current.delete(key);
+          pendingContextItems.current.delete(key);
           newThreadIds.current.delete(key);
           threadModelRef.current.delete(key);
         }
@@ -1768,6 +1842,7 @@ export function MultiTabAssistantChat({
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
+      pendingContextItems.current.clear();
       threadModelRef.current.clear();
       setParentMap({});
       setSubAgentNames({});
@@ -2025,9 +2100,15 @@ export function MultiTabAssistantChat({
     [forkThread, switchThread],
   );
 
-  // Build tabs from open thread IDs
+  // Build tabs from open thread IDs. During the first thread-list fetch,
+  // `activeThreadId` is seeded synchronously so the chat can mount before
+  // persisted open tabs have been reconciled.
+  const visibleOpenTabIds =
+    activeThreadId && !openTabIds.includes(activeThreadId)
+      ? [...openTabIds, activeThreadId]
+      : openTabIds;
   const threadMap = new Map(threads.map((t) => [t.id, t]));
-  const tabs: ChatTab[] = openTabIds
+  const tabs: ChatTab[] = visibleOpenTabIds
     .filter((id) => threadMap.has(id) || id === activeThreadId)
     .map((id) => {
       const t = threadMap.get(id);
@@ -2050,7 +2131,7 @@ export function MultiTabAssistantChat({
     });
 
   // Include sub-agent tabs that aren't in threadMap yet (just created, not refreshed)
-  for (const id of openTabIds) {
+  for (const id of visibleOpenTabIds) {
     if (!tabs.some((t) => t.id === id)) {
       tabs.push({
         id,
@@ -2079,14 +2160,13 @@ export function MultiTabAssistantChat({
     clearActiveTab,
     showHistory,
     toggleHistory: () => setShowHistory((v) => !v),
-    tabCount: openTabIds.length,
+    tabCount: visibleOpenTabIds.length,
   };
 
-  // Wait for the first thread-list pass before mounting restored tabs. Saved
-  // localStorage ids may be empty client-only tabs or old ids from another
-  // deployment; rendering AssistantChat before validation causes harmless but
-  // noisy /threads/:id 404s during app startup.
-  if (isLoading) {
+  // Wait for the first thread-list pass only when there is no synchronously
+  // seeded active thread. Suggestion loading and thread-list reconciliation
+  // should not block the chat shell from mounting.
+  if (isLoading && !activeThreadId) {
     return (
       <ChatSkeleton
         header={renderHeader?.(headerProps)}
@@ -2331,7 +2411,7 @@ export function MultiTabAssistantChat({
         {/* Render tabs that have been activated at least once, hide inactive ones to preserve state.
             Sub-agent tabs are only mounted when first focused — prevents stale restore from running
             while the component is display:none before the user switches to it. */}
-        {[...new Set(openTabIds)]
+        {[...new Set(visibleOpenTabIds)]
           .filter(
             (tabId) =>
               tabId === activeThreadId || mountedTabsRef.current.has(tabId),
@@ -2396,6 +2476,7 @@ export function MultiTabAssistantChat({
                   tabId={tabId}
                   browserTabId={browserTabId}
                   contextScope={tabScope}
+                  isActiveComposer={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)

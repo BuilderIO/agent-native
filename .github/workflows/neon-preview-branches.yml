@@ -48,6 +48,9 @@ jobs:
           - template: mail
             neon_project: patient-cake-44789837
             netlify_site: dee98bb0-6143-4205-8c04-afe7bf83d5b5
+          - template: plan
+            neon_project: late-pine-39936033
+            netlify_site: 9d0d7a73-385d-4da1-ba10-1581ffc4d413
           - template: slides
             neon_project: hidden-thunder-16834477
             netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
@@ -117,6 +120,9 @@ jobs:
           - template: mail
             neon_project: patient-cake-44789837
             netlify_site: dee98bb0-6143-4205-8c04-afe7bf83d5b5
+          - template: plan
+            neon_project: late-pine-39936033
+            netlify_site: 9d0d7a73-385d-4da1-ba10-1581ffc4d413
           - template: slides
             neon_project: hidden-thunder-16834477
             netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd

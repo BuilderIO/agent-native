@@ -154,15 +154,27 @@ function parseDateBoundary(
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
   if (dateOnly) {
     const [, year, month, day] = dateOnly;
-    return Date.UTC(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
+    const numericYear = Number(year);
+    const numericMonth = Number(month);
+    const numericDay = Number(day);
+    const timestamp = Date.UTC(
+      numericYear,
+      numericMonth - 1,
+      numericDay,
       endOfDay ? 23 : 0,
       endOfDay ? 59 : 0,
       endOfDay ? 59 : 0,
       endOfDay ? 999 : 0,
     );
+    const parsedDate = new Date(timestamp);
+    if (
+      parsedDate.getUTCFullYear() !== numericYear ||
+      parsedDate.getUTCMonth() !== numericMonth - 1 ||
+      parsedDate.getUTCDate() !== numericDay
+    ) {
+      return null;
+    }
+    return timestamp;
   }
 
   const parsed = Date.parse(trimmed);

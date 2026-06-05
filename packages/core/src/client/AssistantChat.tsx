@@ -40,10 +40,12 @@ import {
   appendAgentChatContextToMessage,
   formatAgentChatContextItemsForPrompt,
   normalizeAgentChatContextItem,
+  publishAgentChatContextItems,
+  refreshAgentChatContext,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import {
-  useAgentDynamicSuggestions,
+  useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -77,6 +79,7 @@ import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
+import { humanizeToolName } from "./tool-display.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
@@ -257,7 +260,6 @@ function getFileDataURL(file: File | Blob): Promise<string> {
 // images on the client before we ever serialize them.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
-const SHOW_AGENT_ACTIVITY_STEPS = false;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -1253,9 +1255,9 @@ function useSmoothStreamingText(
       !targetText.startsWith(visibleTextRef.current);
 
     if (
-      keyChanged ||
       visibleNoLongerMatchesTarget ||
-      visibleCountRef.current > targetGraphemes.length
+      visibleCountRef.current > targetGraphemes.length ||
+      (keyChanged && visibleTextRef.current.length === 0)
     ) {
       commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
       lastCommitAtRef.current = 0;
@@ -1481,17 +1483,6 @@ function stringifyToolValue(value: unknown, pretty = false): string {
   } catch {
     return String(value ?? "");
   }
-}
-
-function toolArgsPreview(args: Record<string, unknown>): string {
-  return Object.entries(args)
-    .map(([key, value]) => {
-      const singleLine = stringifyToolValue(value).replace(/\s+/g, " ").trim();
-      const preview =
-        singleLine.length > 96 ? `${singleLine.slice(0, 96)}...` : singleLine;
-      return `${key}=${preview}`;
-    })
-    .join(", ");
 }
 
 function looksLikeSql(text: string): boolean {
@@ -1734,66 +1725,6 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
   );
 }
 
-function activityTrailFromMetadata(message: unknown): ActivityStep[] {
-  const meta = (message as { metadata?: unknown })?.metadata as
-    | {
-        custom?: { activityTrail?: unknown };
-        activityTrail?: unknown;
-      }
-    | undefined;
-  const raw = meta?.custom?.activityTrail ?? meta?.activityTrail;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item, index): ActivityStep | null => {
-      if (!item || typeof item !== "object") return null;
-      const label = (item as { label?: unknown }).label;
-      const tool = (item as { tool?: unknown }).tool;
-      if (typeof label !== "string" || !label.trim()) return null;
-      return {
-        id: `trail-${index}-${label}`,
-        label: label.trim(),
-        ...(typeof tool === "string" && tool.trim()
-          ? { tool: tool.trim() }
-          : {}),
-      };
-    })
-    .filter((item): item is ActivityStep => item !== null);
-}
-
-function RunActivityTrail({ steps }: { steps: ActivityStep[] }) {
-  const [open, setOpen] = useState(false);
-  if (steps.length === 0) return null;
-  const visibleSteps = steps.slice(-6);
-  return (
-    <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-      >
-        <IconChevronDown
-          size={12}
-          className={cn("transition-transform", open && "rotate-180")}
-        />
-        Steps
-      </button>
-      {open && (
-        <div className="mt-1 rounded-md border border-border/60 bg-muted/25 px-2.5 py-2 text-[11px] text-muted-foreground">
-          <div className="space-y-1">
-            {visibleSteps.map((step) => (
-              <div key={step.id} className="flex min-w-0 items-center gap-2">
-                <IconCheck className="h-3 w-3 shrink-0 text-emerald-500" />
-                <span className="truncate">{step.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ToolCallDisplay({
   toolName,
   argsText,
@@ -1888,7 +1819,6 @@ function ToolCallDisplay({
     }
   }
 
-  const argsStr = isAgentCall ? "" : toolArgsPreview(args);
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
   const resultPayload = toolResultPayload(result);
 
@@ -1898,7 +1828,7 @@ function ToolCallDisplay({
       : isAgentError
         ? `Error asking ${agentName}`
         : `Asked ${agentName}`
-    : toolName;
+    : humanizeToolName(toolName);
 
   const canExpand = isAgentCall
     ? hasStreamText
@@ -1931,7 +1861,6 @@ function ToolCallDisplay({
         </span>
         <span className="truncate min-w-0">
           <span className="font-medium">{displayName}</span>
-          {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
         {canExpand && (
           <IconChevronDown
@@ -2450,9 +2379,6 @@ function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
-  const activityTrail = SHOW_AGENT_ACTIVITY_STEPS
-    ? activityTrailFromMetadata(msg)
-    : [];
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -2525,9 +2451,6 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {SHOW_AGENT_ACTIVITY_STEPS && isComplete && activityTrail.length > 0 && (
-        <RunActivityTrail steps={activityTrail} />
-      )}
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
           <div className="flex min-w-0 items-center gap-2">
@@ -2587,63 +2510,10 @@ function AssistantMessage() {
 
 // ─── Thinking Indicator ─────────────────────────────────────────────────────
 
-interface ActivityStep {
-  id: string;
-  label: string;
-  tool?: string;
-}
-
-function ActivitySteps({
-  steps,
-  className,
-}: {
-  steps: ActivityStep[];
-  className?: string;
-}) {
-  if (steps.length === 0) return null;
-  const visibleSteps = steps.slice(-4);
-  return (
-    <div
-      className={cn(
-        "max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground",
-        className,
-      )}
-      aria-live="polite"
-    >
-      <div className="space-y-1">
-        {visibleSteps.map((step, index) => {
-          const isCurrent = index === visibleSteps.length - 1;
-          return (
-            <div key={step.id} className="flex min-w-0 items-center gap-2">
-              {isCurrent ? (
-                <IconLoader2 className="h-3 w-3 shrink-0 animate-spin" />
-              ) : (
-                <IconCheck className="h-3 w-3 shrink-0 text-emerald-500" />
-              )}
-              <span className="truncate">{step.label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function RunningActivityStatus({
-  steps,
-  label,
-}: {
-  steps: ActivityStep[];
-  label: string;
-}) {
+function RunningActivityStatus({ label }: { label: string }) {
   return (
     <div className="agent-running-activity shrink-0 px-4 pb-2">
-      <div className="flex flex-col gap-2">
-        {SHOW_AGENT_ACTIVITY_STEPS && (
-          <ActivitySteps steps={steps} className="max-w-full" />
-        )}
-        <ThinkingIndicator label={label} />
-      </div>
+      <ThinkingIndicator label={label} />
     </div>
   );
 }
@@ -3517,6 +3387,10 @@ export interface AssistantChatHandle {
   prefillMessage(text: string): void;
   /** Add or replace keyed context for the next composer submission. */
   setComposerContextItem(item: AgentChatContextItem): void;
+  /** Remove a keyed context item from the composer. */
+  removeComposerContextItem(key: string): void;
+  /** Clear all staged context items from the composer. */
+  clearComposerContextItems(): void;
   /** Programmatically send a recovery prompt without replacing the original request. */
   sendRecoveryMessage(
     text: string,
@@ -3557,6 +3431,8 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /** Whether this chat owns the active visible composer context snapshot. */
+  isActiveComposer?: boolean;
   /**
    * Identifies which surface hosts this chat. Defaults to "app", which keeps
    * dev filesystem/bash code-editing tools out of in-product sidebars.
@@ -3729,6 +3605,19 @@ import {
 } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
+function EmptyStateSuggestionSkeleton() {
+  return (
+    <div
+      className="flex w-full max-w-[280px] flex-col gap-1.5"
+      aria-hidden="true"
+    >
+      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
+      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
+      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
+    </div>
+  );
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -3746,6 +3635,7 @@ const AssistantChatInner = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    isActiveComposer = true,
     onMessageCountChange,
     onSaveThread,
     onGenerateTitle,
@@ -3787,13 +3677,14 @@ const AssistantChatInner = forwardRef<
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
-  const resolvedSuggestions = useAgentDynamicSuggestions({
-    staticSuggestions: suggestions,
-    dynamicSuggestions,
-    browserTabId,
-    scope: contextScope,
-    enabled: messages.length === 0,
-  });
+  const { suggestions: resolvedSuggestions, isLoading: suggestionsLoading } =
+    useAgentDynamicSuggestionsResult({
+      staticSuggestions: suggestions,
+      dynamicSuggestions,
+      browserTabId,
+      scope: contextScope,
+      enabled: messages.length === 0,
+    });
   const messageListResetKey = useMemo(
     () => messages.map((message) => message.id).join("|"),
     [messages],
@@ -3915,15 +3806,25 @@ const AssistantChatInner = forwardRef<
     AgentChatContextItem[]
   >([]);
   const composerContextItemsRef = useRef<AgentChatContextItem[]>([]);
+  const isActiveComposerRef = useRef(isActiveComposer);
+  isActiveComposerRef.current = isActiveComposer;
+  const publishComposerContextItems = useCallback(
+    (items: AgentChatContextItem[]) => {
+      if (!isActiveComposerRef.current) return;
+      publishAgentChatContextItems(items);
+    },
+    [],
+  );
   const updateComposerContextItems = useCallback(
     (updater: (previous: AgentChatContextItem[]) => AgentChatContextItem[]) => {
       setComposerContextItems((previous) => {
         const next = updater(previous);
         composerContextItemsRef.current = next;
+        publishComposerContextItems(next);
         return next;
       });
     },
-    [],
+    [publishComposerContextItems],
   );
   const stageComposerContextItem = useCallback(
     (rawItem: AgentChatContextItem) => {
@@ -3957,6 +3858,19 @@ const AssistantChatInner = forwardRef<
       includesContext: true,
     };
   }, []);
+
+  useEffect(() => {
+    if (!isActiveComposer) return;
+    let cancelled = false;
+    void refreshAgentChatContext().then((state) => {
+      if (cancelled || !isActiveComposerRef.current) return;
+      composerContextItemsRef.current = state.items;
+      setComposerContextItems(state.items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isActiveComposer]);
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
@@ -3975,8 +3889,6 @@ const AssistantChatInner = forwardRef<
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
-  const [activityLabel, setActivityLabel] = useState<string | null>(null);
-  const activityStepIdCounter = useRef(0);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
@@ -3996,7 +3908,6 @@ const AssistantChatInner = forwardRef<
   const wasRunningRef = useRef(false);
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
-  const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([]);
 
   useEffect(() => {
     if (lastBroadcastRunningRef.current === isRunning) return;
@@ -4726,59 +4637,6 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as {
-        label?: string;
-        tool?: string;
-        tabId?: string;
-      };
-      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (
-        SHOW_AGENT_ACTIVITY_STEPS &&
-        typeof detail?.label === "string" &&
-        detail.label.trim()
-      ) {
-        const label = detail.label.trim();
-        const tool = detail.tool?.trim() || undefined;
-        setActivityLabel(label);
-        setActivitySteps((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.label === label && last.tool === tool) return prev;
-          return [
-            ...prev,
-            {
-              id: `${Date.now()}-${++activityStepIdCounter.current}`,
-              label,
-              ...(tool ? { tool } : {}),
-            },
-          ].slice(-6);
-        });
-      }
-    };
-    window.addEventListener("agent-chat:activity", handler);
-    return () => window.removeEventListener("agent-chat:activity", handler);
-  }, [tabId]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { tabId?: string };
-      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      setActivityLabel(null);
-      setActivitySteps([]);
-    };
-    window.addEventListener("agent-chat:activity-clear", handler);
-    return () =>
-      window.removeEventListener("agent-chat:activity-clear", handler);
-  }, [tabId]);
-
-  useEffect(() => {
-    if (!showRunningInUI) {
-      setActivityLabel(null);
-      setActivitySteps([]);
-    }
-  }, [showRunningInUI]);
-
   // Auto-dequeue: when agent finishes running, send the next queued message
   useEffect(() => {
     if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
@@ -4924,8 +4782,6 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
-      setActivityLabel(null);
-      setActivitySteps([]);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
@@ -5016,6 +4872,12 @@ const AssistantChatInner = forwardRef<
       setComposerContextItem(item: AgentChatContextItem) {
         stageComposerContextItem(item);
         tiptapRef.current?.focus();
+      },
+      removeComposerContextItem(key: string) {
+        removeComposerContextItem(key);
+      },
+      clearComposerContextItems() {
+        updateComposerContextItems(() => []);
       },
       sendRecoveryMessage(
         text: string,
@@ -5154,6 +5016,10 @@ const AssistantChatInner = forwardRef<
     !isComposerDisabled &&
     !showRunningInUI;
   const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
+  const contextXRayEnabled = Boolean(
+    threadId &&
+    (messages.length > 0 || isReconnecting || reconnectContent.length > 0),
+  );
   const handleImplementPlan = useCallback(() => {
     onExecModeChange?.("build");
     void addToQueue(
@@ -5372,11 +5238,14 @@ const AssistantChatInner = forwardRef<
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
                       <IconMessage className="h-5 w-5 text-muted-foreground" />
                     </div>
-                    <p className="text-sm text-muted-foreground text-center max-w-[240px]">
+                    <p className="sr-only">
                       {emptyStateText ?? "How can I help you?"}
                     </p>
                     {emptyStateAddon}
-                    {resolvedSuggestions && resolvedSuggestions.length > 0 && (
+                    {suggestionsLoading ? (
+                      <EmptyStateSuggestionSkeleton />
+                    ) : resolvedSuggestions &&
+                      resolvedSuggestions.length > 0 ? (
                       <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
                         {resolvedSuggestions.map((suggestion) => (
                           <button
@@ -5393,7 +5262,7 @@ const AssistantChatInner = forwardRef<
                           </button>
                         ))}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 ) : (
                   <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
@@ -5564,21 +5433,12 @@ const AssistantChatInner = forwardRef<
                 />
               )}
               <SelectionAttachedPill />
-              {/* Keep live run progress pinned in the composer footer while the
-                completed/collapsed trail remains attached to the transcript. */}
+              {/* Keep live run progress pinned in the composer footer. */}
               {showRunningInUI && (
                 <RunningActivityStatus
-                  steps={activitySteps}
-                  label={
-                    isReconnecting
-                      ? "Reconnecting"
-                      : SHOW_AGENT_ACTIVITY_STEPS
-                        ? (activityLabel ?? "Thinking")
-                        : "Thinking"
-                  }
+                  label={isReconnecting ? "Reconnecting" : "Thinking"}
                 />
               )}
-              <ContextMeter threadId={threadId} />
               {/* Input area */}
               <AgentComposerFrame
                 layoutVariant={composerLayoutVariant}
@@ -5644,8 +5504,13 @@ const AssistantChatInner = forwardRef<
                   draftScope={threadId || tabId}
                   interceptBuildRequestsForBuilder
                   extraActionButton={
-                    composerExtraActionButton || showRunningInUI ? (
+                    contextXRayEnabled ||
+                    composerExtraActionButton ||
+                    showRunningInUI ? (
                       <>
+                        {contextXRayEnabled && (
+                          <ContextMeter threadId={threadId} />
+                        )}
                         {composerExtraActionButton}
                         {showRunningInUI && (
                           <Tooltip>
@@ -5728,6 +5593,7 @@ export const AssistantChat = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    isActiveComposer,
     ...props
   },
   ref,
@@ -5796,6 +5662,7 @@ export const AssistantChat = forwardRef<
               {...props}
               browserTabId={browserTabId}
               contextScope={contextScope}
+              isActiveComposer={isActiveComposer}
               apiUrl={apiUrl}
               tabId={tabId}
               threadId={threadId}

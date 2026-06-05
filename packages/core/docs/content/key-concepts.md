@@ -45,7 +45,7 @@ Six rules govern the architecture:
 
 Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
 
-- **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend mutation (`useActionMutation("name")`), an HTTP endpoint at `/_agent-native/actions/:name`, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
+- **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
 - **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
 - **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
 - **Live sync between agent and UI.** Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.
@@ -151,8 +151,8 @@ export default defineAction({
 One `defineAction()` call gives you:
 
 - **Agent tool** — the agent sees it with the zod-derived JSON Schema and can call it.
-- **Frontend mutation** — `useActionMutation("fetch-data")` with full TypeScript inference.
-- **HTTP endpoint** — `POST /_agent-native/actions/fetch-data` (auto-mounted).
+- **Frontend hook** — `useActionMutation("fetch-data")` with full TypeScript inference.
+- **Framework transport** — auto-mounted behind the client hooks.
 - **CLI** — `pnpm action fetch-data --source=signups` for scripting and agent dev loops.
 - **MCP tool / A2A tool** — when MCP server or A2A is enabled, the same action shows up there too.
 

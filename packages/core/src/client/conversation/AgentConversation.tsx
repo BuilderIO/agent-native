@@ -14,6 +14,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import { humanizeToolName } from "../tool-display.js";
 import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 import type {
   AgentConversationAttachment,
@@ -417,7 +418,9 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
   const content = (
     <>
       <span className="agent-conversation-tool__icon">{icon}</span>
-      <span className="agent-conversation-tool__name">{tool.name}</span>
+      <span className="agent-conversation-tool__name">
+        {humanizeToolName(tool.name)}
+      </span>
       {tool.summary && (
         <span className="agent-conversation-tool__summary">{tool.summary}</span>
       )}

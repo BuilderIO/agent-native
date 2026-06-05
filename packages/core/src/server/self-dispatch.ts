@@ -93,6 +93,22 @@ export interface FireInternalDispatchOptions {
   settleMs?: number;
 }
 
+async function dispatchResponseError(
+  path: string,
+  res: Response,
+): Promise<Error> {
+  let body = "";
+  try {
+    body = (await res.text()).trim();
+  } catch {
+    body = "";
+  }
+  const detail = body ? `: ${body.slice(0, 300)}` : "";
+  return new Error(
+    `Self-dispatch to ${path} returned HTTP ${res.status} ${res.statusText}${detail}`,
+  );
+}
+
 /**
  * Fire a fresh, HMAC-signed POST to a processor route on this same deployment.
  * Fire-and-forget: the dispatch is NOT awaited to completion (the processed run
@@ -128,7 +144,12 @@ export async function fireInternalDispatch(
     method: "POST",
     headers,
     body: JSON.stringify({ taskId: options.taskId, ...(options.body ?? {}) }),
-  }).catch((err) => {
+  }).then(async (res) => {
+    if (!res.ok) {
+      throw await dispatchResponseError(options.path, res);
+    }
+  });
+  dispatchPromise.catch((err) => {
     console.error(`[self-dispatch] dispatch to ${options.path} failed:`, err);
   });
 

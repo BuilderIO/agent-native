@@ -203,7 +203,7 @@ describe("SSE event processor no-progress recovery", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("run_timeout");
     expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
       {
-        label: "Preparing create-extension action",
+        label: "Preparing create extension action",
         tool: "create-extension",
       },
     ]);
@@ -414,7 +414,7 @@ describe("SSE event processor error classification", () => {
     });
   });
 
-  it("dispatches activity events without adding visible content", async () => {
+  it("renders tool-scoped activity as a pending tool call", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -448,12 +448,41 @@ describe("SSE event processor error classification", () => {
 
     expect(results).toEqual([
       {
-        content: [],
+        content: [
+          expect.objectContaining({
+            type: "tool-call",
+            toolName: "create-document",
+            argsText: "",
+            args: {},
+            activity: true,
+          }),
+        ],
         metadata: {
           custom: {
             activityTrail: [
               {
-                label: "Preparing create-document action",
+                label: "Preparing create document action",
+                tool: "create-document",
+              },
+            ],
+          },
+        },
+      },
+      {
+        content: [
+          expect.objectContaining({
+            type: "tool-call",
+            toolName: "create-document",
+            argsText: "",
+            args: {},
+            activity: true,
+          }),
+        ],
+        metadata: {
+          custom: {
+            activityTrail: [
+              {
+                label: "Preparing create document action",
                 tool: "create-document",
               },
             ],
@@ -465,12 +494,85 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:activity",
         detail: {
-          label: "Preparing create-document action",
+          label: "Preparing create document action",
           tool: "create-document",
           tabId: "tab-activity",
         },
       }),
     );
+  });
+
+  it("does not render non-tool activity as visible content", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Contacting model",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-activity",
+      ),
+    );
+
+    expect(results).toEqual([
+      {
+        content: [],
+        metadata: {
+          custom: {
+            activityTrail: [
+              {
+                label: "Contacting model",
+              },
+            ],
+          },
+        },
+      },
+    ]);
+  });
+
+  it("fills the pending tool activity card when tool_start arrives", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing generate-design action",
+            tool: "generate-design",
+          },
+          {
+            type: "tool_start",
+            tool: "generate-design",
+            input: { designId: "design-1" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-activity",
+      ),
+    );
+
+    expect(results[0].content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        argsText: "",
+        args: {},
+        activity: true,
+      }),
+    ]);
+    expect(results[1].content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        argsText: '{"designId":"design-1"}',
+        args: { designId: "design-1" },
+      }),
+    ]);
   });
 
   it("clears visible activity when the server clears a corrective draft", async () => {
@@ -557,7 +659,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           activityTrail: [
             {
-              label: "Running create-document",
+              label: "Running create document",
               tool: "create-document",
             },
           ],
@@ -568,7 +670,7 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:activity",
         detail: {
-          label: "Running create-document",
+          label: "Running create document",
           tool: "create-document",
           tabId: "tab-tool-start",
         },

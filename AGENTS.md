@@ -44,8 +44,11 @@ step is still pending. Use `🔴` only when blocked on user input.
 - Data lives in SQL via Drizzle. Keep schemas provider-agnostic.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
-  auto-mounted `/_agent-native/actions/:name` endpoint through
-  `useActionQuery` / `useActionMutation`.
+  shared action surface through `useActionQuery` / `useActionMutation`.
+- Client code imports named helpers, hooks, or client modules instead of
+  hand-writing REST calls to framework routes or template `/api/*` routes. If a
+  browser workflow needs a route and no helper exists, add the helper first and
+  teach that method in docs/skills instead of teaching raw `fetch`.
 - Before adding any custom API or Nitro route for app data, inspect existing
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
@@ -140,6 +143,8 @@ Read the relevant skill before making changes in that area:
 - `actions` for action definitions and invocation.
 - `storing-data`, `portability`, `security`, `sharing` for data work.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
+- `client-methods` for browser/client APIs that must use named helpers instead
+  of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.
 - `self-modifying-code` for source edits by the agent.
 - `server-plugins` for `/_agent-native/*` routes and plugins.

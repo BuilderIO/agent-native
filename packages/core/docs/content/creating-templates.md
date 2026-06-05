@@ -133,7 +133,7 @@ Use the [Database](/docs/database) and [Security](/docs/security) docs before ad
 
 ## Define Operations As Actions {#actions}
 
-Actions are the single source of truth for app behavior. The agent calls them as tools, the frontend calls them through hooks or HTTP, and other apps can reach them through MCP/A2A.
+Actions are the single source of truth for app behavior. The agent calls them as tools, the frontend calls them through hooks, and other apps can reach them through MCP/A2A.
 
 ```ts
 // actions/create-project.ts
@@ -196,7 +196,7 @@ export function AppSync() {
 }
 ```
 
-**The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook refetches when a mutating action emits `source: "action"`. If you reach for raw `useQuery` with a custom key (e.g. for a non-action HTTP endpoint, integration status, etc.), fold the per-source counter into the queryKey for targeted refreshes:
+**The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook refetches when a mutating action emits `source: "action"`. If you reach for raw `useQuery` with a custom key (for example, a low-level client helper that reads integration status), fold the per-source counter into the queryKey for targeted refreshes:
 
 ```tsx
 import { useChangeVersions } from "@agent-native/core/client";
@@ -215,9 +215,30 @@ Common sources: `"action"` (every successful agent action — the reliable fallb
 
 Application state is how the agent knows what the user is seeing. At minimum, add:
 
-- A UI hook that writes `navigation` state when routes, selected records, filters, or editor selections change.
+- A UI hook that writes semantic `navigation` state when routes, selected records, active tabs, or editor selections change.
 - A `view-screen` action that reads that state and returns the current screen snapshot.
 - A `navigate` action that writes a one-shot `navigate` command for the UI to consume.
+
+Use `useAgentRouteState` for the UI hook so application-state writes, tab-scoped command reads, delete-after-read, and duplicate-command protection stay consistent:
+
+```tsx
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+export function useNavigationState() {
+  useAgentRouteState({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, searchParams }) => ({
+      view: pathname === "/" ? "home" : pathname.slice(1),
+      selectedId: searchParams.get("id"),
+    }),
+    getCommandPath: (command: any) => command.path ?? "/",
+  });
+}
+```
+
+Keep shareable filters in URL query params. The framework exposes them to the agent as `<current-url>` and the built-in agent can change them with `set-search-params`; `navigation` should hold semantic IDs and aliases, not a second copy of the full query string.
 
 ```ts
 // actions/navigate.ts

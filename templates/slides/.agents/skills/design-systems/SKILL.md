@@ -22,6 +22,25 @@ Design systems are stored in the `design_systems` SQL table. Each has a `data` c
 3. Agent analyzes the data and calls `create-design-system` with extracted tokens
 4. The design system is published and becomes available for deck creation
 
+### Source: Figma `.fig` file
+
+When the user uploads a raw Figma local copy (`.fig`), parse it in-process with
+`import-file` instead of treating it like a document:
+
+```bash
+pnpm action import-file --filePath "data/uploads/brand.fig" --format fig
+```
+
+The action returns `designSystem`, `customInstructions`, and `preview`. Review
+the result, then call `create-design-system` with:
+
+- `title`: the returned title or a user-approved name
+- `data`: `JSON.stringify(designSystem)`
+- `customInstructions`: the returned `customInstructions`
+
+Do not call `import-document` for `.fig` files; it only handles metadata and
+will miss the real design tokens.
+
 ## Applying to Slides
 
 When generating slides, replace default values with design system tokens:

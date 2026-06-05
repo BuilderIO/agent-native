@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   buildExtensionHtml,
+  EXTENSION_FRAME_ANCESTORS,
   EXTENSION_IFRAME_CSP,
   EXTENSION_IFRAME_META_CSP,
 } from "./html-shell.js";
@@ -18,7 +19,17 @@ describe("buildExtensionHtml", () => {
     expect(EXTENSION_IFRAME_CSP).toContain("object-src 'none'");
     expect(EXTENSION_IFRAME_CSP).toContain("img-src 'self' data: blob:");
     expect(EXTENSION_IFRAME_CSP).not.toContain("img-src 'self' data: https:");
-    expect(EXTENSION_IFRAME_CSP).toContain("frame-ancestors 'self'");
+    expect(EXTENSION_IFRAME_CSP).toContain(
+      `frame-ancestors ${EXTENSION_FRAME_ANCESTORS}`,
+    );
+    expect(EXTENSION_IFRAME_CSP).not.toContain("frame-ancestors *");
+    expect(EXTENSION_FRAME_ANCESTORS).toContain("https://*.agent-native.com");
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://*.claudemcpcontent.com",
+    );
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://*.web-sandbox.oaiusercontent.com",
+    );
   });
 
   it("keeps frame-ancestors in the HTTP header CSP only", () => {
@@ -29,7 +40,7 @@ describe("buildExtensionHtml", () => {
       "extension-1",
     );
 
-    expect(EXTENSION_IFRAME_CSP).toContain("frame-ancestors 'self'");
+    expect(EXTENSION_IFRAME_CSP).toContain("frame-ancestors");
     expect(EXTENSION_IFRAME_META_CSP).not.toContain("frame-ancestors");
     expect(html).toContain(
       `<meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />`,

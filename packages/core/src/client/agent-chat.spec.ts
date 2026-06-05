@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
 const dispatchEventSpy = vi.fn();
+const fetchSpy = vi.fn(() =>
+  Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("") }),
+);
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
 const sendToBuilderChatMock = vi.hoisted(() => vi.fn());
 const sendMcpAppHostMessageMock = vi.hoisted(() => vi.fn(() => false));
@@ -25,15 +28,22 @@ vi.stubGlobal("window", {
   postMessage: selfPostMessageSpy,
   location: {
     origin: "http://localhost:3000",
+    pathname: "/",
     search: "",
   },
 });
+vi.stubGlobal("fetch", fetchSpy);
 
 const {
+  _resetAgentChatContextForTests,
   addContextToAgentChat,
+  clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  listAgentChatContext,
+  removeAgentChatContextItem,
   sendToAgentChat,
+  setAgentChatContextItem,
   setContextToAgentChat,
 } = await import("./agent-chat.js");
 const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
@@ -55,9 +65,11 @@ describe("sendToAgentChat", () => {
     sendToBuilderChatMock.mockClear();
     sendMcpAppHostMessageMock.mockClear();
     sendMcpAppHostMessageMock.mockReturnValue(false);
+    fetchSpy.mockClear();
     window.location.search = "";
     window.sessionStorage?.clear();
     _resetEmbedAuthForTests();
+    _resetAgentChatContextForTests();
   });
 
   afterEach(() => {
@@ -343,8 +355,13 @@ describe("sendToAgentChat", () => {
     expect(id1).not.toBe(id2);
   });
 
+  it("keeps legacy context helper names as aliases", () => {
+    expect(setContextToAgentChat).toBe(setAgentChatContextItem);
+    expect(addContextToAgentChat).toBe(setAgentChatContextItem);
+  });
+
   it("posts keyed context to the active chat without submitting", () => {
-    setContextToAgentChat({
+    setAgentChatContextItem({
       key: ".thing#hello",
       title: "Selected Element",
       context: "<div>Hello</div>",
@@ -361,14 +378,22 @@ describe("sendToAgentChat", () => {
         context: "<div>Hello</div>",
       },
     });
+    expect(listAgentChatContext()).toEqual([
+      {
+        key: ".thing#hello",
+        title: "Selected Element",
+        context: "<div>Hello</div>",
+      },
+    ]);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agentNative.chatContextChanged",
       "agent-panel:set-mode",
       "agent-panel:open",
     ]);
   });
 
-  it("uses addContextToAgentChat as an alias for replacing keyed context", () => {
-    addContextToAgentChat({
+  it("stages keyed context without opening the sidebar", () => {
+    setAgentChatContextItem({
       key: "cart",
       title: "Cart",
       context: "Line item A",
@@ -380,6 +405,55 @@ describe("sendToAgentChat", () => {
       "agentNative.setChatContext",
     );
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agentNative.chatContextChanged",
+      "agent-panel:prepare",
+    ]);
+  });
+
+  it("removes a staged context item by key", () => {
+    setAgentChatContextItem({
+      key: "cart",
+      title: "Cart",
+      context: "Line item A",
+      openSidebar: false,
+    });
+    parentPostMessageSpy.mockClear();
+    dispatchEventSpy.mockClear();
+
+    removeAgentChatContextItem("cart");
+
+    expect(listAgentChatContext()).toEqual([]);
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(parentPostMessageSpy.mock.calls[0][0]).toEqual({
+      type: "agentNative.removeChatContext",
+      data: { key: "cart" },
+    });
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agentNative.chatContextChanged",
+      "agent-panel:prepare",
+    ]);
+  });
+
+  it("clears all staged context items", () => {
+    setAgentChatContextItem({
+      key: "cart",
+      title: "Cart",
+      context: "Line item A",
+      openSidebar: false,
+    });
+    parentPostMessageSpy.mockClear();
+    dispatchEventSpy.mockClear();
+
+    clearAgentChatContext();
+
+    expect(listAgentChatContext()).toEqual([]);
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(parentPostMessageSpy.mock.calls[0][0]).toEqual({
+      type: "agentNative.clearChatContext",
+      data: {},
+    });
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agentNative.chatContextChanged",
       "agent-panel:prepare",
     ]);
   });

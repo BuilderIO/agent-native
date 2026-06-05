@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.9.1",
+  "version": "0.9.3",
   "type": "module",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "license": "MIT",
@@ -22,8 +22,10 @@
     "./routes": "./dist/routes/index.js",
     "./routes/pages/*": "./dist/routes/pages/*.js",
     "./server": "./dist/server/index.js",
+    "./server/lib/thread-link-preview": "./dist/server/lib/thread-link-preview.js",
     "./actions": "./dist/actions/index.js",
     "./db": "./dist/db/index.js",
+    "./lib/thread-link-preview": "./dist/lib/thread-link-preview.js",
     "./components": "./dist/components/index.js",
     "./components/ui/*": "./dist/components/ui/*.js",
     "./styles/dispatch.css": "./src/styles/dispatch.css"

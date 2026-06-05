@@ -50,8 +50,9 @@ export default defineAction({
       .describe("Array of files to create/update in the design project"),
     designSystemId: z
       .string()
+      .nullable()
       .optional()
-      .describe("Design system ID used for generation"),
+      .describe("Design system ID used for generation, or null to unlink"),
     projectType: z
       .enum(["prototype", "other"])
       .optional()

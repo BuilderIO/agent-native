@@ -4,9 +4,11 @@ import {
   setResponseStatus,
 } from "h3";
 import { getSession } from "@agent-native/core/server";
+import {
+  extractFigBrandKit,
+  looksLikeFigFile,
+} from "@agent-native/core/brand-kit/fig";
 import type { DesignSystemData } from "../../shared/api.js";
-import { decodeFig } from "../lib/fig/decode.js";
-import { extractDesignSystemFromFig } from "../lib/fig/extract-design-system.js";
 
 // .fig files can be large (the document is a kiwi-compressed canvas). Cap to
 // keep memory bounded — typical brand files are well under this.
@@ -87,17 +89,14 @@ export const importFigmaSystem = defineEventHandler(async (event) => {
   }
 
   // Validate it actually looks like a .fig: a zip archive (PK) or fig-kiwi.
-  const d = part.data;
-  const isZip = d[0] === 0x50 && d[1] === 0x4b;
-  const isKiwi = Buffer.from(d.subarray(0, 8)).toString("utf8") === "fig-kiwi";
-  if (!isZip && !isKiwi) {
+  if (!looksLikeFigFile(part.data)) {
     setResponseStatus(event, 400);
     return { error: "That doesn't look like a Figma .fig file." };
   }
 
-  let decoded;
+  let extracted;
   try {
-    decoded = decodeFig(Buffer.from(part.data));
+    extracted = extractFigBrandKit(part.data);
   } catch (e) {
     setResponseStatus(event, 422);
     return {
@@ -107,29 +106,8 @@ export const importFigmaSystem = defineEventHandler(async (event) => {
     };
   }
 
-  if (!decoded.document) {
-    setResponseStatus(event, 422);
-    return {
-      error:
-        "Decoded the file but found no document — it may be a partial or corrupt export. Re-save a full local copy from Figma and try again.",
-    };
-  }
-
-  const extracted = extractDesignSystemFromFig(decoded.document);
-  const {
-    customInstructions,
-    gradients,
-    palette,
-    namedColors,
-    nodeCount,
-    ...tokenData
-  } = extracted;
-
-  const thumbnailDataUrl = decoded.thumbnail
-    ? `data:image/png;base64,${decoded.thumbnail.toString("base64")}`
-    : null;
-
-  const data = withDefaults(tokenData);
+  const thumbnailDataUrl = extracted.preview.thumbnailDataUrl;
+  const data = withDefaults(extracted.data);
   // Attach the file thumbnail as a brand reference image for the generator.
   if (thumbnailDataUrl) {
     data.imageStyle = {
@@ -148,14 +126,7 @@ export const importFigmaSystem = defineEventHandler(async (event) => {
     ok: true,
     suggestedTitle,
     data,
-    customInstructions: customInstructions ?? "",
-    preview: {
-      gradients: gradients ?? [],
-      palette: palette ?? [],
-      namedColors: namedColors ?? {},
-      thumbnailDataUrl,
-      nodeCount: nodeCount ?? 0,
-      imageCount: decoded.images.length,
-    },
+    customInstructions: extracted.customInstructions,
+    preview: extracted.preview,
   };
 });

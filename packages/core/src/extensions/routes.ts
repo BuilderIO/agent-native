@@ -191,15 +191,10 @@ async function dispatch(
         role: access.role,
       },
     );
-    // Security headers per render. We set these explicitly here (rather than
-    // rely on the global security-headers middleware) because:
-    //   - The global middleware sets X-Frame-Options: DENY which would break
-    //     the legitimate iframe usage of this route inside the app.
-    //   - frame-ancestors in the CSP must be set as an HTTP header to be
-    //     enforced; meta-CSP can't set it per spec.
+    // Security headers per render. `frame-ancestors` in the CSP must be set as
+    // an HTTP header to be enforced; meta-CSP can't set it per spec.
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     setResponseHeader(event, "Content-Security-Policy", EXTENSION_IFRAME_CSP);
-    setResponseHeader(event, "X-Frame-Options", "SAMEORIGIN");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
     return html;

@@ -557,6 +557,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo.annotations?.readOnlyHint).toBe(true);
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
+    // Anthropic MCP-Apps linkage (Claude.ai / Claude Desktop): the tool→`ui://`
+    // resource binding lives on the tool DESCRIPTOR, here and in `_meta.ui`
+    // below — NOT on the tools/call result. Hosts read
+    // `tool._meta.ui.resourceUri ?? tool._meta["ui/resourceUri"]` from the
+    // cached tools/list entry and render that resource when the tool is called
+    // (see @modelcontextprotocol/ext-apps app.d.ts `RESOURCE_URI_META_KEY` +
+    // host-side example, and spec.types.d.ts `McpUiToolMeta`). `outputTemplate`
+    // is the OpenAI/ChatGPT equivalent and is the only one that also rides on
+    // the result — MCP Apps has no result-level linkage key.
     expect(echo._meta?.["ui/resourceUri"]).toBe(
       "ui://mail/echo-thing/shell-v43",
     );
@@ -1890,6 +1899,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
+    // The tools/call RESULT deliberately carries NO `_meta.ui` resource
+    // linkage. MCP Apps (ext-apps 1.7.2) binds the `ui://` window on the tool
+    // DESCRIPTOR (`_meta.ui.resourceUri`, asserted in the tools/list test
+    // above); `ui/notifications/tool-result` delivers a plain CallToolResult,
+    // so Claude.ai / Claude Desktop render inline from the descriptor binding
+    // regardless of the result `_meta`. `openai/outputTemplate` above is the
+    // ChatGPT-only result key. Do NOT add a result-level `ui` /
+    // `io.modelcontextprotocol/ui` key here — no such linkage exists in the
+    // spec and hosts ignore it.
     expect(out.result._meta.ui).toBeUndefined();
     expect(out.result.structuredContent).toMatchObject({
       echoed: "hello",
@@ -2741,6 +2759,47 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const res = await handleMcpRequest(event, config as any);
     expect(event._status).toBe(405);
     expect(res).toEqual({ error: "Method not allowed" });
+  });
+
+  it("returns 405 for GET (no standalone SSE stream on a stateless serverless server)", async () => {
+    // A stateless, per-request transport on serverless cannot keep the GET
+    // server->client SSE stream alive across invocations; offering it makes the
+    // client latch onto a stream that dies ("session expired"/"not connected").
+    // Answering 405 tells the client to use plain POST request/response.
+    const event = makeWebEvent({ method: "GET" });
+    const res = await handleMcpRequest(event, config as any);
+    expect(event._status).toBe(405);
+    expect(res).toEqual({ error: "Method not allowed" });
+  });
+
+  it("returns tools/call results as JSON, not an SSE stream (serverless-safe framing)", async () => {
+    // enableJsonResponse: true — the result is computed and returned inside the
+    // request lifecycle. With the SDK default (SSE), a serverless instance can
+    // freeze right after returning the streaming Response, before the result
+    // event flushes, so the client never receives it and reports "session
+    // expired". JSON framing is what makes tools/call actually complete.
+    const event = makeWebEvent({
+      method: "POST",
+      body: {
+        jsonrpc: "2.0",
+        id: 314,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      headers: { "x-agent-native-mcp-full-catalog": "1" },
+    });
+    const res = await handleMcpRequest(event, config as any);
+    expect(res).toBeInstanceOf(Response);
+    const response = res as Response;
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("content-type")).not.toContain(
+      "text/event-stream",
+    );
+    const body = JSON.parse(await response.text());
+    expect(body.error).toBeUndefined();
+    expect(body.result.content[0].text).toBe(
+      "echo-thing completed for thing-42.",
+    );
   });
 
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {

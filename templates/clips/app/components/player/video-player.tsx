@@ -471,26 +471,39 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       durationProbedRef.current = false;
     }, [activeVideoSrc, durationMs]);
 
-    const probeDurationIfNeeded = useCallback((v: HTMLVideoElement) => {
-      if (durationProbedRef.current) return;
-      if (Number.isFinite(v.duration) && v.duration > 0) {
-        durationProbedRef.current = true;
-        setResolvedDurationMs(Math.round(v.duration * 1000));
-        return;
-      }
-      if (playAttemptPendingRef.current || !v.paused) return;
+    // The recorder's elapsed-time counter (durationMs prop) is the most
+    // trustworthy length we have. A MediaRecorder WebM's own duration is
+    // cluster-estimated and lands short by up to one timeslice, so we never
+    // let it overwrite a real prop — doing so makes the scrubber jump to a
+    // shorter length than the actual recording on first watch.
+    const hasReliableDurationProp =
+      Number.isFinite(durationMs) && durationMs > 0;
 
-      // Poke the browser into computing the real duration for MediaRecorder
-      // WebM files. Defer this while playback is starting; the large seek can
-      // otherwise abort the first user-initiated play().
-      durationProbedRef.current = true;
-      try {
-        v.currentTime = 1e10;
-      } catch {
-        // Safari occasionally throws — the durationchange fallback still picks
-        // up the real duration.
-      }
-    }, []);
+    const probeDurationIfNeeded = useCallback(
+      (v: HTMLVideoElement) => {
+        if (durationProbedRef.current) return;
+        if (Number.isFinite(v.duration) && v.duration > 0) {
+          durationProbedRef.current = true;
+          if (!hasReliableDurationProp) {
+            setResolvedDurationMs(Math.round(v.duration * 1000));
+          }
+          return;
+        }
+        if (playAttemptPendingRef.current || !v.paused) return;
+
+        // Poke the browser into computing the real duration for MediaRecorder
+        // WebM files. Defer this while playback is starting; the large seek can
+        // otherwise abort the first user-initiated play().
+        durationProbedRef.current = true;
+        try {
+          v.currentTime = 1e10;
+        } catch {
+          // Safari occasionally throws — the durationchange fallback still
+          // picks up the real duration.
+        }
+      },
+      [hasReliableDurationProp],
+    );
 
     // Resolve the WebM-duration-is-Infinity Chrome quirk: when a video created
     // by MediaRecorder doesn't have a Duration element in the container, the
@@ -507,7 +520,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       const onDurationChange = () => {
         if (Number.isFinite(v.duration) && v.duration > 0) {
-          setResolvedDurationMs(Math.round(v.duration * 1000));
+          // Don't downgrade a trustworthy recorder duration to the
+          // cluster-estimated WebM duration; only adopt it as a fallback.
+          if (!hasReliableDurationProp) {
+            setResolvedDurationMs(Math.round(v.duration * 1000));
+          }
           // After we've resolved the real duration, rewind back to 0 so the
           // user isn't sitting at the end of the clip.
           if (durationProbedRef.current && v.currentTime > v.duration) {
@@ -530,7 +547,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.removeEventListener("loadedmetadata", onLoadedMetadata);
         v.removeEventListener("durationchange", onDurationChange);
       };
-    }, [activeVideoSrc, probeDurationIfNeeded]);
+    }, [activeVideoSrc, hasReliableDurationProp, probeDurationIfNeeded]);
 
     // Reset the thumbnail-capture flag when the source changes (e.g. the
     // player is reused for a different recording via React Router).

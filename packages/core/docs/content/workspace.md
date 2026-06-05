@@ -139,7 +139,7 @@ Change how the agent behaves, in 60 seconds.
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 
-The agent has built-in tools for managing resources: `resource-list`, `resource-read`, `resource-effective`, `resource-write`, and `resource-delete`. These are available in both Code mode and App mode.
+The built-in app agent manages resources with the unified `resources` tool: use `action: "list"`, `"read"`, `"effective"`, `"write"`, `"promote"`, or `"delete"`. External CLI/code agents can use the equivalent `pnpm action resource-*` commands.
 
 At the start of every conversation, the agent automatically reads:
 
@@ -182,7 +182,7 @@ Both normal chat and integration-triggered agent runs load these instruction res
 
 ### Reference Resources {#reference-resources}
 
-Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of workspace and shared reference resources and reads the relevant file with `resource-read` when a task may depend on it. Use `resource-effective --path "context/brand.md"` when you need to see whether a workspace default is overridden by an organization/app or personal resource.
+Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of workspace and shared reference resources and reads the relevant file with the `resources` tool (`action: "read"`) when a task may depend on it. Use `resources` with `action: "effective"` and `path: "context/brand.md"` when you need to see whether a workspace default is overridden by an organization/app or personal resource.
 
 Examples:
 
@@ -440,7 +440,7 @@ What shows up depends on the mode:
 
 ## / Slash Commands {#slash-commands}
 
-Type `/` at the start of a line to invoke a skill. A dropdown shows available skills with their names and descriptions. Selecting a skill adds it as an inline chip, and its content is included as context when the message is sent.
+Type `/` at the start of a line to invoke a skill. A dropdown shows available skills with their names and descriptions. Selecting a skill adds it as an inline chip, and its content is included as context when the message is sent when the backend can resolve it; otherwise the agent receives the exact skill path and reads it with the appropriate resource or file tool.
 
 What shows up depends on the mode:
 
