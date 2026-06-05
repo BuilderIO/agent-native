@@ -13,6 +13,7 @@ function sampleContent(): PlanContent {
     brief: "Review checkout states before implementation.",
     canvas: {
       title: "Checkout board",
+      viewport: { zoom: 0.81, pan: { x: 24, y: 36 } },
       sections: [
         {
           id: "primary-flow",
@@ -122,6 +123,16 @@ function sampleContent(): PlanContent {
           y: 620,
         },
       ],
+      notes: [
+        {
+          id: "legacy-review-note",
+          title: "Legacy review note",
+          body: "Legacy canvas notes survive source sync.",
+          arrowToFrameId: "confirm-artboard",
+          x: 1040,
+          y: 520,
+        },
+      ],
     },
     blocks: [
       {
@@ -171,6 +182,8 @@ describe("plan MDX source adapter", () => {
     expect(folder["canvas.mdx"]).toContain("<Annotation");
     expect(folder["canvas.mdx"]).toContain("<Connector");
     expect(folder[".plan-state.json"]).toContain('"canvas"');
+    expect(folder[".plan-state.json"]).toContain('"zoom": 0.81');
+    expect(folder["canvas.mdx"]).toContain("Legacy canvas notes survive");
   });
 
   it("round-trips MDX back to normalized JSON without losing wireframes", async () => {
@@ -192,6 +205,11 @@ describe("plan MDX source adapter", () => {
       parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0]
         ?.children?.[1]?.children?.[2]?.text,
     ).toBe("Continue");
+    expect(parsed.canvas?.viewport?.zoom).toBe(0.81);
+    expect(parsed.canvas?.viewport?.pan?.x).toBe(24);
+    expect(parsed.canvas?.annotations?.map((note) => note.id)).toContain(
+      "legacy-review-note",
+    );
   });
 
   it("applies small source patches by stable semantic ids", async () => {
@@ -264,5 +282,115 @@ describe("plan MDX source adapter", () => {
     expect(
       parsed.canvas?.frames[1]?.wireframe?.screen[0]?.children?.[1]?.id,
     ).toBe("confirm-submit");
+  });
+
+  it("patches document-level wireframe nodes when there is no canvas file", async () => {
+    const folder = {
+      "plan.mdx": `---
+title: "Document wireframe"
+version: 2
+---
+
+<WireframeBlock id="doc-wireframe" title="Inline wireframe">
+  <Screen surface="browser" caption="Inline state">
+    <FrameScreen id="doc-screen">
+      <Btn id="doc-cta" text="Old label" />
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+`,
+    };
+
+    const patched = await applyPlanMdxSourcePatches(folder, [
+      {
+        op: "update-wireframe-node",
+        nodeId: "doc-cta",
+        patch: { text: "New label", tone: "accent" },
+      },
+    ]);
+
+    expect(patched["plan.mdx"]).toContain('text="New label"');
+    expect(patched["plan.mdx"]).toContain('tone="accent"');
+
+    const parsed = await parsePlanMdxFolder(patched);
+    const wireframe = parsed.blocks.find(
+      (block) => block.id === "doc-wireframe",
+    );
+    expect(wireframe?.type).toBe("wireframe");
+    if (wireframe?.type === "wireframe") {
+      expect(wireframe.data.screen[0]?.children?.[0]?.text).toBe("New label");
+    }
+  });
+
+  it("reports missing canvas files before canvas-only source patches", async () => {
+    const folder = {
+      "plan.mdx": `---
+title: "Document only"
+version: 2
+---
+
+<RichText id="summary">No canvas here.</RichText>
+`,
+    };
+
+    await expect(
+      applyPlanMdxSourcePatches(folder, [
+        {
+          op: "update-annotation",
+          annotationId: "missing-note",
+          patch: { text: "Updated" },
+        },
+      ]),
+    ).rejects.toThrow(
+      "canvas.mdx is not present; cannot update annotation missing-note",
+    );
+
+    await expect(
+      applyPlanMdxSourcePatches(folder, [
+        {
+          op: "replace-artboard",
+          artboardId: "missing-board",
+          mdx: `<Artboard id="missing-board" />`,
+        },
+      ]),
+    ).rejects.toThrow(
+      "canvas.mdx is not present; cannot replace artboard missing-board",
+    );
+
+    await expect(
+      applyPlanMdxSourcePatches(folder, [
+        {
+          op: "update-component-prop",
+          file: "canvas.mdx",
+          componentId: "missing-component",
+          prop: "title",
+          value: "Updated",
+        },
+      ]),
+    ).rejects.toThrow(
+      "canvas.mdx is not present; cannot update component missing-component",
+    );
+  });
+
+  it("throws on unsupported MDX attribute expressions", async () => {
+    await expect(
+      parsePlanMdxFolder({
+        "plan.mdx": `---
+title: "Bad expression"
+version: 2
+---
+
+<WireframeBlock id="bad-wireframe">
+  <Screen surface="browser">
+    <FrameScreen id="bad-screen">
+      <Lines id="bad-lines" widths={notJson} />
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+`,
+      }),
+    ).rejects.toThrow(
+      'Unsupported MDX attribute expression for "widths": {notJson}',
+    );
   });
 });

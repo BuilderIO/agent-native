@@ -87,6 +87,24 @@ export const planMdxFileSchema = z.object({
   ".plan-state.json": z.string().optional(),
 });
 
+const planMdxStateSchema = z
+  .object({
+    version: z.number().optional(),
+    planId: z.string().optional(),
+    canvas: z
+      .object({
+        zoom: z.number().min(0.05).max(8).optional(),
+        pan: z
+          .object({
+            x: z.number().optional(),
+            y: z.number().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+  })
+  .passthrough();
+
 export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-file"),
@@ -356,10 +374,10 @@ export async function exportPlanContentToMdxFolder(
         version: 1,
         planId: input.planId,
         canvas: content.canvas
-          ? {
+          ? (content.canvas.viewport ?? {
               zoom: 0.68,
               pan: { x: 80, y: 54 },
-            }
+            })
           : undefined,
       },
       null,
@@ -406,7 +424,18 @@ function serializeCanvas(content: PlanContent): string {
     .filter((frame) => !emitted.has(frame.id))
     .map(serializeArtboard)
     .join("\n\n");
-  const annotations = (canvas.annotations ?? [])
+  const annotationsSource: PlanAnnotation[] = [
+    ...(canvas.annotations ?? []),
+    ...(canvas.notes ?? []).map((note) => ({
+      id: note.id,
+      title: note.title,
+      text: note.body,
+      targetId: note.arrowToFrameId,
+      x: note.x,
+      y: note.y,
+    })),
+  ];
+  const annotations = annotationsSource
     .map(
       (annotation) =>
         `<Annotation${prop("id", annotation.id)}${prop("title", annotation.title)}${prop("targetId", annotation.targetId)}${prop("placement", annotation.placement)}${prop("x", annotation.x)}${prop("y", annotation.y)}>\n\n${annotation.text.trim()}\n\n</Annotation>`,
@@ -492,10 +521,13 @@ function attributeValue(attr: MdxAttribute | undefined): unknown {
   if (astValue !== undefined) return astValue;
   const expression = attr.value.value.trim();
   if (!expression) return undefined;
+  if (expression === "undefined") return undefined;
   try {
     return JSON.parse(expression);
   } catch {
-    return expression;
+    throw new Error(
+      `Unsupported MDX attribute expression for "${attr.name}": {${expression}}. Use literal values or valid JSON.`,
+    );
   }
 }
 
@@ -767,6 +799,12 @@ export async function parsePlanMdxFolder(
   }
   flushLoose();
 
+  const canvas = files["canvas.mdx"]
+    ? parseCanvas(files["canvas.mdx"])
+    : undefined;
+  const state = parsePlanState(files[".plan-state.json"]);
+  if (canvas && state?.canvas) canvas.viewport = state.canvas;
+
   const content: PlanContent = {
     version:
       typeof parsedMatter.data.version === "number"
@@ -780,13 +818,22 @@ export async function parsePlanMdxFolder(
       typeof parsedMatter.data.brief === "string"
         ? parsedMatter.data.brief
         : undefined,
-    canvas: files["canvas.mdx"] ? parseCanvas(files["canvas.mdx"]) : undefined,
+    canvas,
     blocks,
   };
   const normalized = normalizePlanContent(content);
   if (!normalized)
     throw new Error("MDX source did not parse into valid plan content.");
   return normalized;
+}
+
+function parsePlanState(source: string | undefined) {
+  if (!source) return undefined;
+  try {
+    return planMdxStateSchema.parse(JSON.parse(source));
+  } catch {
+    throw new Error(".plan-state.json is not valid visual plan state.");
+  }
 }
 
 function parseCanvas(source: string): PlanContent["canvas"] {
@@ -941,6 +988,38 @@ async function updateMdxSource(
   return formatMdx(withMatter);
 }
 
+async function updateMdxSourceIf(
+  source: string,
+  updater: (tree: MdxNode) => boolean,
+): Promise<{ source: string; changed: boolean }> {
+  const parsedMatter = matter(source);
+  const tree = parseMdx(parsedMatter.content);
+  const changed = updater(tree);
+  if (!changed) return { source, changed: false };
+  const body = stringifyMdx(tree);
+  const withMatter =
+    Object.keys(parsedMatter.data).length > 0
+      ? matter.stringify(body, parsedMatter.data)
+      : body;
+  return { source: await formatMdx(withMatter), changed: true };
+}
+
+type MdxSourceFile = "plan.mdx" | "canvas.mdx";
+
+function requireMdxSource(
+  folder: PlanMdxFolder,
+  file: MdxSourceFile,
+  operation: string,
+): string {
+  const source = folder[file];
+  if (source === undefined) {
+    throw new Error(
+      `${file} is not present; cannot ${operation}. Use replace-file to create it first.`,
+    );
+  }
+  return source;
+}
+
 export async function applyPlanMdxSourcePatches(
   folder: PlanMdxFolder,
   patches: PlanMdxSourcePatch[],
@@ -977,7 +1056,11 @@ export async function applyPlanMdxSourcePatches(
 
     if (patch.op === "update-component-prop") {
       next[patch.file] = await updateMdxSource(
-        next[patch.file] ?? "",
+        requireMdxSource(
+          next,
+          patch.file,
+          `update component ${patch.componentId}`,
+        ),
         (tree) => {
           let changed = false;
           visitMdx(tree, ["mdxJsxFlowElement", "mdxJsxTextElement"], (node) => {
@@ -995,33 +1078,58 @@ export async function applyPlanMdxSourcePatches(
     }
 
     if (patch.op === "update-wireframe-node") {
-      next["canvas.mdx"] = await updateMdxSource(
-        next["canvas.mdx"] ?? "",
-        (tree) => {
-          let changed = false;
-          visitMdx(tree, ["mdxJsxFlowElement", "mdxJsxTextElement"], (node) => {
-            if (elementId(node) !== patch.nodeId) return;
-            if (
-              !elementName(node) ||
-              !COMPONENT_TO_NODE[elementName(node) ?? ""]
-            )
-              return;
-            for (const [key, value] of Object.entries(patch.patch))
-              setAttribute(node, key, value);
-            changed = true;
-          });
-          if (!changed)
-            throw new Error(
-              `Wireframe node ${patch.nodeId} not found in canvas.mdx.`,
+      const filesToSearch: MdxSourceFile[] = next["canvas.mdx"]
+        ? ["canvas.mdx", "plan.mdx"]
+        : ["plan.mdx"];
+      let changedFile: MdxSourceFile | undefined;
+      for (const file of filesToSearch) {
+        const result = await updateMdxSourceIf(
+          requireMdxSource(next, file, `update wireframe node ${patch.nodeId}`),
+          (tree) => {
+            let changed = false;
+            visitMdx(
+              tree,
+              ["mdxJsxFlowElement", "mdxJsxTextElement"],
+              (node) => {
+                if (elementId(node) !== patch.nodeId) return;
+                if (
+                  !elementName(node) ||
+                  !COMPONENT_TO_NODE[elementName(node) ?? ""]
+                )
+                  return;
+                for (const [key, value] of Object.entries(patch.patch))
+                  setAttribute(node, key, value);
+                changed = true;
+              },
             );
-        },
-      );
+            return changed;
+          },
+        );
+        if (result.changed) {
+          next[file] = result.source;
+          changedFile = file;
+          break;
+        }
+      }
+      if (!changedFile) {
+        const searched = filesToSearch.join(" or ");
+        const missingCanvas = next["canvas.mdx"]
+          ? ""
+          : " canvas.mdx is not present.";
+        throw new Error(
+          `Wireframe node ${patch.nodeId} not found in ${searched}.${missingCanvas}`,
+        );
+      }
       continue;
     }
 
     if (patch.op === "update-annotation") {
       next["canvas.mdx"] = await updateMdxSource(
-        next["canvas.mdx"] ?? "",
+        requireMdxSource(
+          next,
+          "canvas.mdx",
+          `update annotation ${patch.annotationId}`,
+        ),
         (tree) => {
           let changed = false;
           visitMdx(tree, "mdxJsxFlowElement", (node) => {
@@ -1049,7 +1157,11 @@ export async function applyPlanMdxSourcePatches(
     if (patch.op === "replace-artboard") {
       const replacement = parseFragmentElement(patch.mdx, "Artboard");
       next["canvas.mdx"] = await updateMdxSource(
-        next["canvas.mdx"] ?? "",
+        requireMdxSource(
+          next,
+          "canvas.mdx",
+          `replace artboard ${patch.artboardId}`,
+        ),
         (tree) => {
           let changed = false;
           visitMdx(tree, "mdxJsxFlowElement", (node, index, parent) => {

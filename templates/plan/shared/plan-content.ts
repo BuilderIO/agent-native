@@ -503,12 +503,22 @@ export type PlanBoardSection = {
   artboardIds?: string[];
 };
 
+export type PlanCanvasViewport = {
+  zoom?: number;
+  pan?: {
+    x?: number;
+    y?: number;
+  };
+};
+
 export type PlanContent = {
   version: number;
   title?: string;
   brief?: string;
   canvas?: {
     title?: string;
+    /** Optional initial viewport persisted by source-sync exports. */
+    viewport?: PlanCanvasViewport;
     sections?: PlanBoardSection[];
     /** Artboards placed on the board (spatial). */
     frames: PlanArtboard[];
@@ -718,7 +728,7 @@ const wireframeNodeSchema: z.ZodType<PlanWireframeNode> = z.lazy(() =>
         .max(40)
         .optional(),
     })
-    .strict(),
+    .passthrough(),
 ) as z.ZodType<PlanWireframeNode>;
 
 const wireframeSurfaceSchema = z.enum([
@@ -1082,6 +1092,17 @@ export const planContentSchema: z.ZodType<PlanContent> = z
     canvas: z
       .object({
         title: z.string().trim().max(180).optional(),
+        viewport: z
+          .object({
+            zoom: z.number().min(0.05).max(8).optional(),
+            pan: z
+              .object({
+                x: z.number().optional(),
+                y: z.number().optional(),
+              })
+              .optional(),
+          })
+          .optional(),
         sections: z.array(boardSectionSchema).max(40).optional(),
         frames: z.array(artboardSchema).max(40).default([]),
         flow: z.array(connectorSchema).max(80).optional(),

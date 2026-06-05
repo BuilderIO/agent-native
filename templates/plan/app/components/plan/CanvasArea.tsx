@@ -59,7 +59,21 @@ export function CanvasArea({
   blockLookup: Map<string, PlanBlock>;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [view, setView] = useState<CanvasView>(DEFAULT_VIEW);
+  const initialView = useMemo<CanvasView>(
+    () => ({
+      zoom: clamp(
+        canvas.viewport?.zoom ?? DEFAULT_VIEW.zoom,
+        MIN_ZOOM,
+        MAX_ZOOM,
+      ),
+      pan: {
+        x: canvas.viewport?.pan?.x ?? DEFAULT_VIEW.pan.x,
+        y: canvas.viewport?.pan?.y ?? DEFAULT_VIEW.pan.y,
+      },
+    }),
+    [canvas.viewport?.pan?.x, canvas.viewport?.pan?.y, canvas.viewport?.zoom],
+  );
+  const [view, setView] = useState<CanvasView>(initialView);
   const [drag, setDrag] = useState<{
     pointerId: number;
     startX: number;
@@ -77,6 +91,10 @@ export function CanvasArea({
   const annotations = canvas.annotations ?? [];
   const legacyNotes = canvas.notes ?? [];
   const connectors = canvas.flow ?? [];
+
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
 
   const board = useMemo(() => {
     const maxX = Math.max(
