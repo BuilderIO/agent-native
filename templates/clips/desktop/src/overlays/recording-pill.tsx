@@ -6,6 +6,7 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconExternalLink,
+  IconGripHorizontal,
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
@@ -317,12 +318,13 @@ export function RecordingPill() {
       });
     };
 
-    // Mic (top, amber). Sys (bottom, sky blue) with 2× gain — system levels run lower.
+    // Mic (top, green — matches the collapsed pill's accent). Sys (bottom, sky
+    // blue) with 2× gain — system levels run lower.
     mount(
       micCanvasRef.current,
       micLevelRef,
-      "rgba(252, 196, 60, 0.90)",
-      "rgba(252, 196, 60, 0.5)",
+      "rgba(74, 222, 128, 0.95)",
+      "rgba(74, 222, 128, 0.55)",
       1.0,
     );
     mount(
@@ -391,7 +393,10 @@ export function RecordingPill() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
-  }, [hasSystemAudio]);
+    // `expanded` is a dep because the collapsed view renders a single mic
+    // canvas while the expanded meeting view can swap to the dual-stream
+    // layout — the canvas elements remount and must be re-initialized.
+  }, [hasSystemAudio, expanded]);
 
   async function toggleExpanded() {
     const next = !expanded;
@@ -474,10 +479,22 @@ export function RecordingPill() {
         onMouseDown={handlePillMouseDown}
       >
         <div
-          className={`pill-header${detached ? " pill-header-detached" : ""}`}
+          className={`pill-header${
+            detached
+              ? " pill-header-detached"
+              : !expanded
+                ? " pill-vertical"
+                : ""
+          }`}
         >
-          <PillLogo className="pill-logo" />
-          {hasSystemAudio ? (
+          <div
+            className="pill-media"
+            onClick={
+              !expanded && !detached ? () => void toggleExpanded() : undefined
+            }
+          >
+            <PillLogo className="pill-logo" />
+            {hasSystemAudio ? (
             <div
               className="pill-wave-dual"
               aria-hidden
@@ -501,6 +518,7 @@ export function RecordingPill() {
               aria-hidden
             />
           )}
+          </div>
           <div className="pill-controls">
             <span className="pill-timer">
               {mm}:{ss}
@@ -550,6 +568,11 @@ export function RecordingPill() {
               )}
             </button>
           </div>
+          {!expanded && !detached ? (
+            <div className="pill-vgrip" aria-hidden>
+              <IconGripHorizontal size={14} stroke={2} />
+            </div>
+          ) : null}
         </div>
 
         {detached ? (

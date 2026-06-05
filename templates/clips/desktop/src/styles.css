@@ -3727,6 +3727,7 @@ body[data-clips-route="recording-pill"] #root {
   width: fit-content;
   height: fit-content;
   align-self: center;
+  border-radius: 18px;
 }
 
 .pill-controls {
@@ -3780,6 +3781,99 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-inner-compact .pill-logo {
   height: 12px;
+}
+
+/* Collapsed = vertical capsule: clips logo on top, waveform below, whole
+   pill clickable to expand. Detached mode keeps its own horizontal layout, so
+   this only applies to the non-detached collapsed pill. */
+.pill-inner-compact .pill-header.pill-vertical {
+  flex-direction: column;
+  gap: 0;
+  height: auto;
+  width: auto;
+  padding: 11px 7px 7px;
+  cursor: pointer;
+}
+
+.pill-vertical .pill-logo {
+  height: 11px;
+}
+
+/* Controls (timer / pause / stop / chevron) live in the expanded view — the
+   collapsed capsule is just logo + waveform and expands on click. */
+.pill-vertical .pill-controls {
+  display: none;
+}
+
+.pill-vertical .pill-wave-canvas {
+  height: 18px;
+  width: 18px;
+}
+
+/* Dual-stream (mic + system audio) stacked in the collapsed capsule. */
+.pill-vertical .pill-wave-dual {
+  height: 26px;
+  width: 18px;
+  gap: 1px;
+}
+
+/* Wrapper around logo + waveform. Transparent in row layouts (expanded /
+   detached); a real, clickable box only in the collapsed vertical capsule —
+   clicking it expands the pill, and hovering tints it. */
+.pill-media {
+  display: contents;
+}
+
+.pill-vertical .pill-media {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: stretch;
+  gap: 5px;
+  /* Padding + equal negative margin: the hover highlight covers the whole
+     upper region (to the top + side edges of the capsule) while leaving the
+     logo/waveform in their original positions. */
+  padding: 11px 7px 4px;
+  margin: -11px -7px 0;
+  border-radius: 18px 18px 0 0;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.pill-vertical .pill-media:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Drag grip revealed at the bottom of the collapsed capsule on hover. The
+   pill grows downward to fit it (window is sized with headroom for this).
+   Dragging the pill is wired on the whole window; this is the visible
+   affordance and gets its own hover tint. */
+.pill-vertical .pill-vgrip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  opacity: 0;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: grab;
+  transition:
+    height 140ms ease,
+    margin-top 140ms ease,
+    background 120ms ease,
+    opacity 120ms ease;
+}
+
+.pill-inner-compact:hover .pill-vertical .pill-vgrip {
+  height: 14px;
+  margin-top: 3px;
+  opacity: 1;
+}
+
+.pill-vertical .pill-vgrip:active {
+  cursor: grabbing;
 }
 
 .pill-timer {

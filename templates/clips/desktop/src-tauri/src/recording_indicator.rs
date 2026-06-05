@@ -47,14 +47,15 @@ const PILL_LABEL: &str = "recording-pill";
 static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
 static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
 
-/// Granola-fidelity collapsed dimensions (logical px). The expanded form
-/// stretches to fit the live-transcript area.
-const PILL_W_LOGICAL: u32 = 220;
+/// Collapsed dimensions (logical px). The collapsed pill is a vertical capsule
+/// — clips logo on top, waveform below — so it is taller than it is wide. The
+/// expanded form stretches horizontally to fit the live-transcript area.
+const PILL_W_LOGICAL: u32 = 38;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
 /// Meeting mode expands wider so the live transcript and the notes editor sit
 /// side by side without either column feeling cramped.
 const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 720;
-const PILL_H_LOGICAL: u32 = 44;
+const PILL_H_LOGICAL: u32 = 92;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
