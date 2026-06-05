@@ -622,7 +622,7 @@ function baseBlock(node: MdxNode) {
   };
 }
 
-function parseBlock(node: MdxNode): PlanBlock | null {
+function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const name = elementName(node);
   if (!name || !BLOCK_COMPONENTS.has(name)) return null;
   const base = baseBlock(node);
@@ -682,7 +682,7 @@ function parseBlock(node: MdxNode): PlanBlock | null {
     return {
       ...base,
       type: "wireframe",
-      data: parseScreen(screen, `block-${base.id}`),
+      data: parseScreen(screen, `${idContext}-${base.id}`),
     };
   }
   if (name === "LegacyWireframeBlock") {
@@ -800,9 +800,7 @@ function parseWireframeNode(
   parsed.el = el;
   parsed.id ??= createStableWireframeNodeId(el, path);
   const children = (node.children ?? [])
-    .map((child, index) =>
-      parseWireframeNode(child, `${parsed.id ?? el}-${index}`),
-    )
+    .map((child, index) => parseWireframeNode(child, `${path}-${index}`))
     .filter(Boolean) as PlanWireframeNode[];
   if (children.length > 0) parsed.children = children;
   return parsed;
@@ -826,8 +824,8 @@ export async function parsePlanMdxFolder(
       data: { markdown },
     });
   };
-  for (const child of planTree.children ?? []) {
-    const block = parseBlock(child);
+  for (const [index, child] of (planTree.children ?? []).entries()) {
+    const block = parseBlock(child, `plan-block-${index}`);
     if (block) {
       flushLoose();
       blocks.push(block);
@@ -885,7 +883,11 @@ function parseCanvas(source: string): PlanContent["canvas"] {
   const annotations: PlanAnnotation[] = [];
   const flow: PlanConnector[] = [];
 
-  const parseCanvasChild = (child: MdxNode, section?: PlanBoardSection) => {
+  const parseCanvasChild = (
+    child: MdxNode,
+    section: PlanBoardSection | undefined,
+    path: string,
+  ) => {
     const name = elementName(child);
     if (name === "Section") {
       const nextSection: PlanBoardSection = {
@@ -895,13 +897,13 @@ function parseCanvas(source: string): PlanContent["canvas"] {
         artboardIds: [],
       };
       sections.push(nextSection);
-      for (const grandchild of child.children ?? [])
-        parseCanvasChild(grandchild, nextSection);
+      for (const [index, grandchild] of (child.children ?? []).entries())
+        parseCanvasChild(grandchild, nextSection, `${path}-section-${index}`);
       if (nextSection.artboardIds?.length === 0) delete nextSection.artboardIds;
       return;
     }
     if (name === "Artboard") {
-      const frame = parseArtboard(child);
+      const frame = parseArtboard(child, path);
       frames.push(frame);
       section?.artboardIds?.push(frame.id);
       return;
@@ -933,7 +935,8 @@ function parseCanvas(source: string): PlanContent["canvas"] {
     }
   };
 
-  for (const child of board.children ?? []) parseCanvasChild(child);
+  for (const [index, child] of (board.children ?? []).entries())
+    parseCanvasChild(child, undefined, `canvas-${index}`);
 
   return {
     title: stringAttr(board, "title"),
@@ -944,7 +947,7 @@ function parseCanvas(source: string): PlanContent["canvas"] {
   };
 }
 
-function parseArtboard(node: MdxNode): PlanArtboard {
+function parseArtboard(node: MdxNode, idContext = "artboard"): PlanArtboard {
   const id = stringAttr(node, "id") ?? createPlanBlockId("artboard");
   const screen = node.children?.find(
     (child) => elementName(child) === "Screen",
@@ -962,7 +965,7 @@ function parseArtboard(node: MdxNode): PlanArtboard {
     width: numberAttr(node, "width"),
     height: numberAttr(node, "height"),
     order: numberAttr(node, "order"),
-    wireframe: screen ? parseScreen(screen, `artboard-${id}`) : undefined,
+    wireframe: screen ? parseScreen(screen, `${idContext}-${id}`) : undefined,
     legacyWireframe: legacy
       ? dataAttr<PlanLegacyWireframeBlock["data"]>(legacy, "data")
       : undefined,

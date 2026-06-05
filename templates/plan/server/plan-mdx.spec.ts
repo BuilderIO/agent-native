@@ -343,10 +343,10 @@ version: 2
     const generatedScreenId = wireframe.data.screen[0]?.id;
     const generatedButtonId = wireframe.data.screen[0]?.children?.[0]?.id;
     expect(generatedScreenId).toBe(
-      "node-screen-block-inline-wireframe-screen-0",
+      "node-screen-plan-block-0-inline-wireframe-screen-0",
     );
     expect(generatedButtonId).toBe(
-      "node-btn-node-screen-block-inline-wireframe-screen-0-0",
+      "node-btn-plan-block-0-inline-wireframe-screen-0-0",
     );
 
     const exported = await exportPlanContentToMdxFolder({
@@ -402,12 +402,90 @@ version: 2
       parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0]?.id;
 
     expect(documentButtonId).toBe(
-      "node-btn-node-screen-block-doc-wireframe-screen-0-0",
+      "node-btn-plan-block-0-doc-wireframe-screen-0-0",
     );
-    expect(canvasButtonId).toBe(
-      "node-btn-node-screen-artboard-canvas-artboard-screen-0-0",
-    );
+    expect(canvasButtonId).toBe("node-btn-canvas-0-canvas-artboard-screen-0-0");
     expect(documentButtonId).not.toBe(canvasButtonId);
+  });
+
+  it("keeps generated child IDs distinct when explicit parent IDs are duplicated", async () => {
+    const parsed = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Duplicate parent IDs"
+version: 2
+---
+
+<WireframeBlock id="duplicate-parent-wireframe">
+  <Screen surface="browser">
+    <FrameScreen>
+      <Row id="dup">
+        <Btn text="First" />
+      </Row>
+      <Row id="dup">
+        <Btn text="Second" />
+      </Row>
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+`,
+    });
+
+    const wireframe = parsed.blocks.find(
+      (block) => block.id === "duplicate-parent-wireframe",
+    );
+    expect(wireframe?.type).toBe("wireframe");
+    if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
+
+    const firstButtonId =
+      wireframe.data.screen[0]?.children?.[0]?.children?.[0]?.id;
+    const secondButtonId =
+      wireframe.data.screen[0]?.children?.[1]?.children?.[0]?.id;
+    expect(firstButtonId).toBe(
+      "node-btn-plan-block-0-duplicate-parent-wireframe-screen-0-0-0",
+    );
+    expect(secondButtonId).toBe(
+      "node-btn-plan-block-0-duplicate-parent-wireframe-screen-0-1-0",
+    );
+    expect(firstButtonId).not.toBe(secondButtonId);
+  });
+
+  it("keeps generated IDs distinct for punctuation-equivalent owner IDs", async () => {
+    const parsed = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Punctuation IDs"
+version: 2
+---
+
+<WireframeBlock id="foo_bar">
+  <Screen surface="browser">
+    <FrameScreen>
+      <Btn text="Underscore" />
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+
+<WireframeBlock id="foo-bar">
+  <Screen surface="browser">
+    <FrameScreen>
+      <Btn text="Hyphen" />
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+`,
+    });
+
+    const first = parsed.blocks.find((block) => block.id === "foo_bar");
+    const second = parsed.blocks.find((block) => block.id === "foo-bar");
+    expect(first?.type).toBe("wireframe");
+    expect(second?.type).toBe("wireframe");
+    if (first?.type !== "wireframe" || second?.type !== "wireframe")
+      throw new Error("Expected wireframes");
+
+    const firstButtonId = first.data.screen[0]?.children?.[0]?.id;
+    const secondButtonId = second.data.screen[0]?.children?.[0]?.id;
+    expect(firstButtonId).toBe("node-btn-plan-block-0-foo-bar-screen-0-0");
+    expect(secondButtonId).toBe("node-btn-plan-block-1-foo-bar-screen-0-0");
+    expect(firstButtonId).not.toBe(secondButtonId);
   });
 
   it("replaces a single artboard from an MDX fragment", async () => {
