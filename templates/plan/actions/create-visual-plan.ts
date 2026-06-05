@@ -49,7 +49,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable plan content. Prefer this for rich text, top canvas wireframes, sketch diagrams, code tabs, implementation maps, custom HTML fragments, and visual questions.",
+          "Structured editable plan content. Prefer this for rich text, top canvas wireframes (semantic kit-tree screens — no geometry or CSS), diagrams, code tabs, implementation maps, images, bounded custom HTML fragments, and visual questions. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()

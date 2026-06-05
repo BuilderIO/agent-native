@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
 import {
   buildPlanHtml,
   loadPlanBundle,
@@ -9,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Export an Agent-Native Plan as durable HTML, Markdown fallback, and structured JSON for check-in, handoff, or external-agent review receipts.",
+    "Export an Agent-Native Plan as durable HTML, Markdown fallback, structured JSON, and source-control friendly MDX files for check-in, handoff, or external-agent review receipts.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
   }),
@@ -20,7 +21,7 @@ export default defineAction({
     readOnly: true,
     requiresAuth: true,
     title: "Export Visual Plan",
-    description: "Export a visual plan as HTML, Markdown, and JSON.",
+    description: "Export a visual plan as HTML, Markdown, JSON, and MDX.",
   },
   run: async (args) => {
     const bundle = await loadPlanBundle(args.planId);
@@ -52,6 +53,13 @@ export default defineAction({
       html: buildPlanHtml(bundle),
       markdown,
       json: bundle,
+      mdx: await exportPlanContentToMdxFolder({
+        content: bundle.plan.content,
+        title: bundle.plan.title,
+        brief: bundle.plan.brief,
+        planId: bundle.plan.id,
+        url: path,
+      }),
       path,
       url: path,
     };
