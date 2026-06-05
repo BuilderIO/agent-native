@@ -23,6 +23,7 @@
     "gray-matter": "^4.0.3",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
+    "jszip": "^3.10.1",
     "node-pty": "^1.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",

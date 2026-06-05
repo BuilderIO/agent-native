@@ -2714,7 +2714,22 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
       'scope="mcp:read mcp:write mcp:apps"',
     );
-    expect(res).toEqual({ error: "Unauthorized" });
+    // The legacy `error` field is preserved, plus an actionable message and the
+    // exact remediation (connect command + authorize/metadata/MCP URLs).
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        command: "agent-native connect https://mail.agent-native.com",
+        authorizeUrl:
+          "https://mail.agent-native.com/_agent-native/mcp/oauth/authorize",
+        resourceMetadataUrl:
+          "https://mail.agent-native.com/.well-known/oauth-protected-resource",
+        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+      },
+    });
+    expect((res as any).message).toContain(
+      "agent-native connect https://mail.agent-native.com",
+    );
   });
 
   it("uses forwarded host for tunneled OAuth challenges instead of opening dev mode", async () => {
@@ -2740,7 +2755,21 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
       'resource_metadata="https://assets-local.trycloudflare.com/assets/.well-known/oauth-protected-resource"',
     );
-    expect(res).toEqual({ error: "Unauthorized" });
+    // The actionable body uses the forwarded host + base path for the connect
+    // command and authorize/metadata URLs.
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        command:
+          "agent-native connect https://assets-local.trycloudflare.com/assets",
+        authorizeUrl:
+          "https://assets-local.trycloudflare.com/assets/_agent-native/mcp/oauth/authorize",
+        resourceMetadataUrl:
+          "https://assets-local.trycloudflare.com/assets/.well-known/oauth-protected-resource",
+        mcpUrl:
+          "https://assets-local.trycloudflare.com/assets/_agent-native/mcp",
+      },
+    });
   });
 
   it("returns 204 for DELETE on the web runtime (stateless, unchanged)", async () => {

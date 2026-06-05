@@ -75,6 +75,10 @@ instructions, and application state.
 - Tables with `ownableColumns()` require scoped reads and writes through
   `accessFilter`, `resolveAccess`, or `assertAccess`. Custom Nitro routes must
   establish request context before querying ownable data.
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
+  Builder/internal data, customer data, or credential-looking literals in source,
+  docs, tests, fixtures, screenshots, prompts, or generated extension/app
+  content. Use obviously fake placeholders in examples.
 - Do not copy provider tokens into apps when a workspace integration grant can be
   used. Vault/secrets own secret values; apps own app-specific readers and
   interpretation.

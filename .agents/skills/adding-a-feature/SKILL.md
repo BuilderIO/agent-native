@@ -61,6 +61,12 @@ provider endpoint or filter into a rigid action. Prefer the shared
 from `@agent-native/core/provider-api`, then add narrow convenience actions only
 for workflows that truly deserve a first-class shortcut.
 
+If the feature needs credentials, design the credential path in the same change.
+Never hardcode API keys, tokens, webhook URLs, signing secrets, private
+Builder/internal data, or customer data in the action, UI, seed data, fixtures,
+docs, prompts, or generated extension/app content. Register required secrets,
+use OAuth helpers, or read scoped values from the vault/credential store.
+
 **If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents and MCP hosts (Claude / ChatGPT / Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. If a compatible MCP host should render an inline review/edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real React app route instead of a one-off HTML UI. The `link` builder and `mcpApp` metadata must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
 
 ### 3. Skills / Instructions
@@ -68,6 +74,10 @@ for workflows that truly deserve a first-class shortcut.
 Update `AGENTS.md` and/or create a skill in `.agents/skills/` if the feature introduces patterns the agent needs to know. At minimum, add the new actions to the action table in the template's `AGENTS.md`.
 
 Reusable actions are part of the app contract, not just implementation detail. When an action is useful outside one screen, update agent instructions in the same change so app agents know when to call it, which arguments matter, and what output to preserve. If the capability is workflow-heavy, cross-app, provider-backed, or has a non-obvious sequence of actions, add or update a skill instead of burying the behavior in one long `AGENTS.md` paragraph.
+
+Instruction examples may name secret keys like `SLACK_WEBHOOK`, but must use
+placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
+real keys, internal data, or customer data into instructions as examples.
 
 For app-backed skills, declare skill visibility in the app-skill manifest:
 
@@ -141,6 +151,9 @@ After completing all four areas, verify:
 3. Does `pnpm action view-screen` show the relevant state when the user is using the feature?
 4. Can the agent navigate to the feature view via the `navigate` action?
 5. Is the feature documented in AGENTS.md with action names and args?
+6. Are credentials and sensitive data supplied only through approved runtime
+   channels, with no hardcoded real keys, tokens, webhook URLs, Builder/internal
+   data, or customer data?
 
 ## One more area — sharing
 

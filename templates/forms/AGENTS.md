@@ -8,6 +8,7 @@ Detailed building, publishing, response, storage, and UI rules live in
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for form lifecycle, fields, publishing, responses, navigation,
   sharing, and database work. Do not bypass ownable access checks.
 - In dev, call actions with `pnpm action <name>`; in production, use native

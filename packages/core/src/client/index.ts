@@ -24,6 +24,11 @@ export {
   type AgentChatContextState,
   type AgentChatMessage,
 } from "./agent-chat.js";
+export {
+  saveAgentEngineApiKey,
+  type AgentEngineProvider,
+  type SaveAgentEngineApiKeyOptions,
+} from "./agent-engine-key.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export {
   useAgentChatContext,
@@ -155,6 +160,12 @@ export {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
+export {
+  RichMarkdownEditor,
+  type RichMarkdownDialect,
+  type RichMarkdownEditorPreset,
+  type RichMarkdownEditorProps,
+} from "./rich-markdown-editor/index.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
 export {
@@ -349,6 +360,7 @@ export type { TiptapComposerHandle } from "./composer/TiptapComposer.js";
 export {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
+  askUserQuestion,
   formatGuidedAnswerValue,
   formatGuidedAnswersForAgent,
   getOtherGuidedAnswerText,
@@ -356,6 +368,9 @@ export {
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
+  type AskUserQuestionInput,
+  type AskUserQuestionOption,
+  type AskUserQuestionResult,
   type GuidedQuestion,
   type GuidedQuestionAnswers,
   type GuidedQuestionFlowProps,
@@ -456,6 +471,7 @@ export {
   captureClientException,
   type ClientCaptureContext,
 } from "./analytics.js";
+export { track } from "./track.js";
 export {
   useCollaborativeDoc,
   isReconcileLeadClient,

@@ -139,7 +139,7 @@ User identity is derived from the session email. The framework provides `emailTo
 Templates can add a comments system with threaded discussions on documents. The content template includes a full implementation with:
 
 - `document_comments` SQL table (threads, replies, resolved status)
-- CRUD API routes at `/api/comments`
+- REST routes for update/delete at `/api/comments/:id`; create and list run through the `add-comment` / `list-comments` actions
 - Comments sidebar with threaded view and reply UI
 - Resolve/unresolve threads
 - **Send to AI** button — sends the comment thread context to the agent chat via `sendToAgentChat()`

@@ -5,7 +5,12 @@ import os from "node:os";
 import {
   readAgentsBundleFromFs,
   parseSkillFrontmatter,
+  generateSkillsPromptBlock,
+  getRuntimeSkills,
+  normalizeSkillScope,
   __resetAgentsBundleCache,
+  type AgentsBundle,
+  type Skill,
   type WorkspaceAgentsSource,
 } from "./agents-bundle.js";
 
@@ -51,6 +56,23 @@ function makeWorkspaceSource(opts: {
   };
 }
 
+function skill(name: string, scope: Skill["meta"]["scope"]): Skill {
+  return {
+    meta: { name, description: `${name} desc`, scope },
+    content: `---\nname: ${name}\n---\nbody`,
+    dir: `.agents/skills/${name}`,
+    extraFiles: [],
+  };
+}
+
+function bundleWith(skills: Skill[]): AgentsBundle {
+  return {
+    agentsMd: "",
+    workspaceAgentsMd: "",
+    skills: Object.fromEntries(skills.map((s) => [s.meta.name, s])),
+  };
+}
+
 describe("parseSkillFrontmatter", () => {
   it("parses simple inline name + description", () => {
     const meta = parseSkillFrontmatter(
@@ -58,6 +80,103 @@ describe("parseSkillFrontmatter", () => {
     );
     expect(meta.name).toBe("foo");
     expect(meta.description).toBe("hello");
+  });
+
+  it("parses an explicit scope value", () => {
+    const meta = parseSkillFrontmatter(
+      "---\nname: foo\ndescription: hello\nscope: dev\n---\nbody",
+    );
+    expect(meta.scope).toBe("dev");
+  });
+
+  it("leaves scope undefined when absent (loader applies the default)", () => {
+    const meta = parseSkillFrontmatter(
+      "---\nname: foo\ndescription: hello\n---\nbody",
+    );
+    expect(meta.scope).toBeUndefined();
+  });
+
+  it("normalizes an unknown scope value to both", () => {
+    const meta = parseSkillFrontmatter(
+      "---\nname: foo\ndescription: hello\nscope: production\n---\nbody",
+    );
+    expect(meta.scope).toBe("both");
+  });
+});
+
+describe("normalizeSkillScope", () => {
+  it("accepts the three known values (case-insensitive)", () => {
+    expect(normalizeSkillScope("runtime")).toBe("runtime");
+    expect(normalizeSkillScope("DEV")).toBe("dev");
+    expect(normalizeSkillScope(" Both ")).toBe("both");
+  });
+
+  it("falls back to both for empty/unknown values", () => {
+    expect(normalizeSkillScope(undefined)).toBe("both");
+    expect(normalizeSkillScope("")).toBe("both");
+    expect(normalizeSkillScope("nonsense")).toBe("both");
+  });
+});
+
+describe("skill scope loading", () => {
+  beforeEach(() => __resetAgentsBundleCache());
+  afterEach(() => __resetAgentsBundleCache());
+
+  it("defaults scope to both when frontmatter omits it", () => {
+    const tpl = makeTemplate({ name: "alpha", description: "A skill" });
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills.alpha!.meta.scope).toBe("both");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("reads an explicit scope from SKILL.md frontmatter", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(tpl, ".agents", "skills", "dev-only");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: dev-only\ndescription: Dev only\nscope: dev\n---\nbody",
+    );
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills["dev-only"]!.meta.scope).toBe("dev");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getRuntimeSkills", () => {
+  it("excludes scope: dev and includes runtime/both", () => {
+    const bundle = bundleWith([
+      skill("r", "runtime"),
+      skill("b", "both"),
+      skill("d", "dev"),
+    ]);
+    const names = getRuntimeSkills(bundle)
+      .map((s) => s.meta.name)
+      .sort();
+    expect(names).toEqual(["b", "r"]);
+  });
+});
+
+describe("generateSkillsPromptBlock scope filtering", () => {
+  it("omits scope: dev skills from the prompt block", () => {
+    const bundle = bundleWith([
+      skill("runtime-one", "both"),
+      skill("dev-one", "dev"),
+    ]);
+    const block = generateSkillsPromptBlock(bundle);
+    expect(block).toContain("runtime-one");
+    expect(block).not.toContain("dev-one");
+  });
+
+  it("returns empty string when every skill is dev-scoped", () => {
+    const bundle = bundleWith([skill("dev-one", "dev")]);
+    expect(generateSkillsPromptBlock(bundle)).toBe("");
   });
 });
 

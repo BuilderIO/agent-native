@@ -10,7 +10,11 @@ import {
 import { nanoid } from "nanoid";
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  askUserQuestion,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
@@ -73,7 +77,26 @@ export default function Templates() {
 
   useSetPageTitle("Templates");
 
-  const handleUseTemplate = (template: DesignTemplate) => {
+  const handleUseTemplate = async (template: DesignTemplate) => {
+    // One quick decision before generating: which format/viewport to target.
+    // Skippable — fall back to the template's default sizing if dismissed.
+    const format = await askUserQuestion({
+      question: `What format should this ${template.title.toLowerCase()} target?`,
+      header: "Format",
+      options: [
+        { label: "Desktop", value: "desktop, 1280px wide", recommended: true },
+        { label: "Mobile", value: "mobile, 390px wide" },
+        { label: "Tablet", value: "tablet, 1024px wide" },
+        { label: "Social square", value: "social square, 1080×1080" },
+      ],
+      allowFreeText: false,
+    });
+    const formatDirective =
+      typeof format === "string" && format
+        ? `\n\nTarget format: ${format}.`
+        : "";
+    const prompt = `${template.prompt}${formatDirective}`;
+
     const id = nanoid();
     const now = new Date().toISOString();
     const html = buildTemplateHtml(template, defaultDesignSystem);
@@ -90,7 +113,7 @@ export default function Templates() {
 
     writePendingGeneration(id, {
       title: template.title,
-      prompt: template.prompt,
+      prompt,
       source: template.title,
       autoGenerate: false,
     });
@@ -120,7 +143,7 @@ export default function Templates() {
 
       await generateMutation.mutateAsync({
         designId: id,
-        prompt: template.prompt,
+        prompt,
         files: [
           {
             filename: template.filename,

@@ -30,7 +30,7 @@ Fire an analytics event.
 ```ts
 import { track } from "@agent-native/core/tracking";
 
-track("meal.logged", { mealName: "Salad", calories: 350 }, { userId: "steve@builder.io" });
+track("meal.logged", { mealName: "Salad", calories: 350 }, { userId: "user@example.com" });
 ```
 
 ### `identify(userId, traits?)`
@@ -40,7 +40,7 @@ Identify a user with traits. Forwarded to providers that support it.
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "ExampleCo" });
 ```
 
 ### `registerTrackingProvider(provider)`

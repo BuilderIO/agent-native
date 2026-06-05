@@ -59,6 +59,70 @@ describe("agent-native skills", () => {
     });
   });
 
+  it("authenticates by default and opts out with --no-connect", () => {
+    expect(parseSkillsArgs(["add", "assets"]).connect).toBe(true);
+    expect(parseSkillsArgs(["add", "assets", "--no-connect"]).connect).toBe(
+      false,
+    );
+    expect(parseSkillsArgs(["add", "assets", "--skip-connect"]).connect).toBe(
+      false,
+    );
+  });
+
+  it("skips the auth flow when --no-connect is passed", async () => {
+    const root = tmpDir();
+    const runConnect = vi.fn(async () => {});
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--no-connect",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        runConnect,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(runConnect).not.toHaveBeenCalled();
+    expect(result.connected).toBe(false);
+  });
+
+  it("prints the connect command instead of auth in a non-interactive shell", async () => {
+    const root = tmpDir();
+    const runConnect = vi.fn(async () => {});
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => false,
+        runConnect,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(runConnect).not.toHaveBeenCalled();
+    expect(result.connected).toBe(false);
+    expect(result.connectCommand).toBe(
+      "agent-native connect https://assets.agent-native.com --client claude-code --scope project",
+    );
+  });
+
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
     const root = tmpDir();
     const commands: { cmd: string; args: string[] }[] = [];
@@ -655,6 +719,7 @@ describe("agent-native skills", () => {
       "codex" as const,
       "claude-code" as const,
     ]);
+    const runConnect = vi.fn(async () => {});
     vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
       stdout.push(String(chunk));
       return true;
@@ -665,6 +730,7 @@ describe("agent-native skills", () => {
         baseDir: root,
         isInteractive: () => true,
         promptClients,
+        runConnect,
         runCommand: async (cmd, args, options) => {
           commands.push({ cmd, args, stdio: options?.stdio });
           return 0;
@@ -683,7 +749,13 @@ describe("agent-native skills", () => {
         JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf-8"))
           .mcpServers["agent-native-assets"].url,
       ).toBe("https://assets.agent-native.com/_agent-native/mcp");
+      // Install also authenticates the hosted connector in one step.
+      expect(runConnect).toHaveBeenCalledTimes(1);
+      expect(runConnect.mock.calls[0][0]).toEqual(
+        expect.arrayContaining(["https://assets.agent-native.com"]),
+      );
       expect(stdout.join("")).toContain("MCP config: codex, claude-code.");
+      expect(stdout.join("")).toContain("Authentication: completed.");
       expect(stdout.join("")).toContain("rerun with --client <client>");
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
@@ -704,6 +776,7 @@ describe("agent-native skills", () => {
         baseDir: root,
         isInteractive: () => true,
         promptClients,
+        runConnect: async () => {},
         runCommand: async () => 0,
       },
     );
@@ -731,6 +804,7 @@ describe("agent-native skills", () => {
         isInteractive: () => true,
         promptClients: async () => ["codex"],
         promptSkills,
+        runConnect: async () => {},
         runCommand: async (_cmd, args) => {
           commands.push({ args });
           return 0;

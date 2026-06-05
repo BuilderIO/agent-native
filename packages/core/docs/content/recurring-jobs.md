@@ -104,7 +104,7 @@ If the runtime is serverless/edge, trigger the tick from an external cron (Cloud
 ## Debugging a job {#debugging}
 
 - Open `jobs/<name>.md` in the workspace — the frontmatter shows `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Run it now:** ask the agent to "run the `morning-digest` job right now." The agent will invoke the scheduler tool to force-fire it.
+- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron).
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
 ## Different from the scheduling package {#vs-scheduling-package}

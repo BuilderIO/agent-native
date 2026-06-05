@@ -53,7 +53,6 @@ export type PlanRichTextBlock = PlanBlockBase & {
   type: "rich-text";
   data: {
     markdown: string;
-    doc?: unknown;
   };
 };
 
@@ -139,6 +138,7 @@ export type PlanWireframeElName =
   | "screen"
   | "browserBar"
   | "statusBar"
+  | "toolbar"
   | "row"
   | "col"
   | "sidebar"
@@ -436,6 +436,19 @@ export type PlanAnnotationPlacement =
   | "bottom-left"
   | "bottom-right";
 
+export type PlanAnnotationType = "note" | "text" | "callout" | "arrow";
+
+export type PlanAnnotationPoint = {
+  x: number;
+  y: number;
+};
+
+export type PlanAnnotationStyle = {
+  tone?: PlanWireframeTone;
+  stroke?: "solid" | "dashed";
+  width?: number;
+};
+
 /**
  * A wireframe placed on the spatial board. Geometry (position/order) is KEPT
  * here — only the wireframe INTERNALS (its kit tree) are geometry-free.
@@ -468,8 +481,14 @@ export type PlanCanvasFrame = PlanArtboard;
 /** A designer note placed on the board. Plain text layers, optional arrow. */
 export type PlanAnnotation = {
   id: string;
+  /** Semantic markup kind. Omitted legacy annotations render as notes. */
+  type?: PlanAnnotationType;
   title?: string;
   text: string;
+  /** Optional routed points for callouts/arrows/free placement. */
+  points?: PlanAnnotationPoint[];
+  /** Semantic style hints only; the renderer owns actual colors. */
+  style?: PlanAnnotationStyle;
   /** Artboard this annotation points at, if any. */
   targetId?: string;
   /** Which side of the target the arrow anchors to. */
@@ -563,7 +582,6 @@ export type PlanContentPatch =
       blockId: string;
       title?: string;
       markdown?: string;
-      doc?: unknown;
     }
   | {
       op: "update-custom-html";
@@ -595,6 +613,10 @@ export type PlanContentPatch =
       op: "update-canvas-annotation";
       annotationId: string;
       patch: Partial<Omit<PlanAnnotation, "id">>;
+    }
+  | {
+      op: "append-canvas-annotation";
+      annotation: PlanAnnotation;
     }
   | {
       op: "append-block";
@@ -635,6 +657,7 @@ const elNameSchema = z.enum([
   "screen",
   "browserBar",
   "statusBar",
+  "toolbar",
   "row",
   "col",
   "sidebar",
@@ -876,7 +899,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       type: z.literal("rich-text"),
       data: z.object({
         markdown: z.string().max(100_000),
-        doc: z.unknown().optional(),
       }),
     }),
     baseBlockSchema.extend({
@@ -1056,6 +1078,19 @@ const annotationPlacementSchema = z.enum([
   "bottom-right",
 ]);
 
+const annotationTypeSchema = z.enum(["note", "text", "callout", "arrow"]);
+
+const annotationPointSchema: z.ZodType<PlanAnnotationPoint> = z.object({
+  x: z.number(),
+  y: z.number(),
+});
+
+const annotationStyleSchema: z.ZodType<PlanAnnotationStyle> = z.object({
+  tone: toneSchema.optional(),
+  stroke: z.enum(["solid", "dashed"]).optional(),
+  width: z.number().min(1).max(12).optional(),
+});
+
 const artboardSchema: z.ZodType<PlanArtboard> = z.object({
   id: idSchema,
   label: z.string().trim().max(180).optional(),
@@ -1072,8 +1107,11 @@ const artboardSchema: z.ZodType<PlanArtboard> = z.object({
 
 const annotationSchema: z.ZodType<PlanAnnotation> = z.object({
   id: idSchema,
+  type: annotationTypeSchema.optional(),
   title: z.string().trim().max(180).optional(),
   text: z.string().trim().min(1).max(2_000),
+  points: z.array(annotationPointSchema).min(1).max(12).optional(),
+  style: annotationStyleSchema.optional(),
   targetId: idSchema.optional(),
   placement: annotationPlacementSchema.optional(),
   x: z.number().optional(),
@@ -1327,8 +1365,11 @@ const canvasFramePatchSchema = z
 
 const canvasAnnotationPatchSchema = z
   .object({
+    type: annotationTypeSchema.optional(),
     title: z.string().trim().max(180).optional(),
     text: z.string().trim().min(1).max(2_000).optional(),
+    points: z.array(annotationPointSchema).min(1).max(12).optional(),
+    style: annotationStyleSchema.optional(),
     targetId: idSchema.optional(),
     placement: annotationPlacementSchema.optional(),
     x: z.number().optional(),
@@ -1370,7 +1411,6 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       blockId: idSchema,
       title: z.string().trim().min(1).max(180).optional(),
       markdown: z.string().max(100_000).optional(),
-      doc: z.unknown().optional(),
     }),
     z.object({
       op: z.literal("update-custom-html"),
@@ -1415,6 +1455,10 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       op: z.literal("update-canvas-annotation"),
       annotationId: idSchema,
       patch: canvasAnnotationPatchSchema,
+    }),
+    z.object({
+      op: z.literal("append-canvas-annotation"),
+      annotation: annotationSchema,
     }),
     z.object({
       op: z.literal("append-block"),
@@ -1490,9 +1534,11 @@ export function applyPlanContentPatches(
         return {
           ...block,
           ...(patch.title ? { title: patch.title } : {}),
+          // markdown is the only source of truth for rich-text blocks; any
+          // legacy Tiptap/ProseMirror `doc` is intentionally dropped here so it
+          // can never become a second source of truth.
           data: {
             markdown: patch.markdown ?? block.data.markdown,
-            doc: patch.doc ?? block.data.doc,
           },
         };
       }).blocks;
@@ -1575,6 +1621,25 @@ export function applyPlanContentPatches(
         );
       }
       Object.assign(annotation, patch.patch);
+      continue;
+    }
+    if (patch.op === "append-canvas-annotation") {
+      if (!next.canvas) {
+        throw new Error("Cannot append a canvas annotation without a canvas.");
+      }
+      if (
+        next.canvas.annotations?.some(
+          (candidate) => candidate.id === patch.annotation.id,
+        )
+      ) {
+        throw new Error(
+          `Canvas annotation ${patch.annotation.id} already exists.`,
+        );
+      }
+      next.canvas.annotations = [
+        ...(next.canvas.annotations ?? []),
+        patch.annotation,
+      ];
       continue;
     }
     if (patch.op === "append-block") {

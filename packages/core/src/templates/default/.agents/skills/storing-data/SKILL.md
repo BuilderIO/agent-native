@@ -16,7 +16,7 @@ There are three storage layers, each for a different kind of data:
 
 ### 1. Settings — app configuration
 
-Key-value store for persistent config that the user or agent can change. Theme, preferences, integration API keys, availability schedules.
+Key-value store for persistent non-secret config that the user or agent can change. Theme, preferences, integration settings, availability schedules.
 
 ```ts
 import { getSetting, putSetting } from "@agent-native/core/settings";
@@ -88,6 +88,15 @@ const tokens = await getOAuthTokens("google", "user@gmail.com");
 const accounts = await listOAuthAccounts("google");
 ```
 
+### 5. Secrets / Credentials — encrypted values
+
+For API keys, service tokens, webhook secrets, and user/org/workspace
+credentials. Register user-facing secrets with the secrets registry and read
+them server-side with `readAppSecret`, or use `saveCredential` /
+`resolveCredential` for scoped credential lookup. Never store these values in
+settings, application state, source code, docs, examples, logs, or action
+responses.
+
 ## Which Layer to Use
 
 | Data | Layer | Why |
@@ -96,6 +105,7 @@ const accounts = await listOAuthAccounts("google");
 | What the user sees on screen | Application State | Ephemeral, real-time sync, agent ↔ UI bridge |
 | Compose drafts, wizard steps | Application State | Temporary, deleted when done |
 | Domain records (forms, bookings) | Drizzle table | Needs schema, queries, relationships |
+| API keys, service tokens, webhook secrets | Secrets / credentials | Encrypted and scoped; never client-readable |
 | OAuth refresh tokens | OAuth Tokens | Secure, per-provider, per-account |
 
 ## Environment Variables
@@ -107,10 +117,12 @@ Infrastructure config stays in `.env` — these differ per deployment:
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — OAuth app credentials
 - `ACCESS_TOKEN` — production auth token
 
-Everything else (user settings, tokens, app state) goes in SQL.
+Everything else (user settings, app state, domain data) goes in SQL through the
+appropriate store. User/org/workspace credential values go in the encrypted
+secrets/credential stores, not plain settings rows.
 
 ## Security Rules
 
-- **Never store API keys or secrets in Settings or Application State** — use `.env` for API keys (gitignored) and the `oauth_tokens` store for OAuth credentials. Settings and application state are readable by the client.
+- **Never store API keys or secrets in Settings or Application State** — use the secrets registry / vault or `saveCredential` / `resolveCredential` for API keys and service tokens, deploy env vars only for deploy-level secrets, and `oauth_tokens` for OAuth credentials. Settings and application state are readable by the client.
 - **Every Drizzle table with user data must have `owner_email`** — the framework auto-scopes queries in production so users only see their own data. Run `pnpm action db-check-scoping` to verify. See the `security` skill for the full model.
 - **Never return secrets in action responses** — action responses may be visible in the agent chat or sent to the client. Keep credentials server-side only.

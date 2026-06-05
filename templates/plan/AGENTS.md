@@ -7,6 +7,7 @@ review before code changes happen.
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Use actions for app operations and keep frontend/API parity.
@@ -79,6 +80,17 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Do not fork the vocabulary. MDX components must map to the same runtime terms:
   `DesignBoard`, `Section`, `Artboard`, `Screen`, `Annotation`, `Connector`, and
   the wireframe kit primitives from `shared/plan-content.ts`.
+
+## Browser Editing
+
+- Prose in `rich-text` blocks is edited inline with the shared
+  `RichMarkdownEditor`, autosaved through `update-visual-plan` with
+  `contentPatches: [{ op: "update-rich-text", blockId, markdown }]`.
+- Review annotation mode makes prose temporarily read-only so clicks can pin
+  feedback. Leaving review mode restores inline prose editing.
+- Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by
+  comments, source patches, or structured content patches rather than direct
+  rich-text editing.
 
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,

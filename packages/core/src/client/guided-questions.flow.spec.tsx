@@ -4,7 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useGuidedQuestionFlow } from "./guided-questions.js";
+import { askUserQuestion, useGuidedQuestionFlow } from "./guided-questions.js";
 
 // The agent's `ask-question` action writes the guided-questions payload to a
 // per-tab application-state key (`guided-questions:<tabId>`) whenever the run
@@ -179,5 +179,81 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     await flush();
 
     expect(deleted).toContain("guided-questions:tab123");
+  });
+
+  // askUserQuestion() is the client-side twin of the agent's `ask-question`
+  // tool: it writes a payload carrying a `clientResolveId`, and the mounted
+  // hook resolves the caller's promise with the answer instead of forwarding
+  // it to the agent chat. These lock that round-trip.
+  function appStateFetchMock(store: Map<string, string>) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const key = keyFromUrl(String(input));
+      const method = init?.method ?? "GET";
+      if (method === "PUT") {
+        store.set(key, String(init?.body ?? ""));
+        return new Response("", { status: 200 });
+      }
+      if (method === "DELETE") {
+        store.delete(key);
+        return new Response("", { status: 200 });
+      }
+      return new Response(store.get(key) ?? "", { status: 200 });
+    });
+  }
+
+  it("resolves with the selected value when the user submits", async () => {
+    vi.stubGlobal("fetch", appStateFetchMock(new Map<string, string>()));
+
+    const answer = askUserQuestion({
+      question: "How long should this deck be?",
+      options: [
+        { label: "Short", value: "short" },
+        { label: "Medium", value: "medium" },
+      ],
+      allowFreeText: false,
+    });
+    await flush(); // let the PUT land in the store
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    expect(result.current().questions?.length).toBe(1);
+
+    await act(async () => {
+      result.current().handleSubmit({ q1: "medium" });
+      await Promise.resolve();
+    });
+
+    await expect(answer).resolves.toBe("medium");
+  });
+
+  it("resolves null when the user skips", async () => {
+    vi.stubGlobal("fetch", appStateFetchMock(new Map<string, string>()));
+
+    const answer = askUserQuestion({
+      question: "How long should this deck be?",
+      options: [
+        { label: "Short", value: "short" },
+        { label: "Medium", value: "medium" },
+      ],
+      allowFreeText: false,
+    });
+    await flush();
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    expect(result.current().questions?.length).toBe(1);
+
+    await act(async () => {
+      result.current().handleSkip();
+      await Promise.resolve();
+    });
+
+    await expect(answer).resolves.toBeNull();
   });
 });

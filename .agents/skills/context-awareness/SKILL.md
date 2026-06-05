@@ -24,7 +24,7 @@ Without context awareness, the agent is blind. It asks "which email?" when the u
 
 The UI writes a `navigation` key to application-state on every route change. This tells the agent the semantic screen state: view, open IDs, active tab, and focused object.
 
-**UI side** — the `use-navigation-state.ts` hook:
+**UI side** — `useNavigationState`, an app-owned hook (not a framework import) that every template ships at `app/hooks/use-navigation-state.ts`. It is a thin wrapper around the framework primitive `useAgentRouteState`, handling both directions: writing `navigation` on route change and consuming the agent's `navigate` command.
 
 ```tsx
 // app/hooks/use-navigation-state.ts

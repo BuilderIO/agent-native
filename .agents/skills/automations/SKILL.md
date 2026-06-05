@@ -41,10 +41,10 @@ schedule: "0 9 * * 1-5"
 enabled: true
 triggerType: event
 event: calendar.booking.created
-condition: "attendee email ends with @builder.io"
+condition: "attendee email ends with @example.com"
 mode: agentic
 domain: calendar
-createdBy: steve@builder.io
+createdBy: user@example.com
 runAs: creator
 ---
 
@@ -111,7 +111,7 @@ emit("calendar.booking.created", {
   bookingId: "abc",
   attendeeEmail: "jane@co.com",
   startTime: "2025-01-15T10:00:00Z",
-}, { owner: "steve@builder.io" });
+}, { owner: "user@example.com" });
 ```
 
 ### Built-in Events
@@ -151,6 +151,9 @@ Automations use the `web-request` tool for outbound HTTP. It supports `${keys.NA
 - Each key can have a URL allowlist that restricts which origins the key can be sent to.
 - `resolveKeyReferences()` resolves placeholders, falling back from user scope to workspace scope.
 - `validateUrlAllowlist()` checks the resolved URL against per-key allowlists (origin-level matching).
+- Automation definitions, examples, event payloads, and prompts must not
+  hardcode real API keys, webhook URLs, tokens, private Builder/internal data, or
+  customer data. Use `${keys.NAME}` and synthetic `example.com` identities.
 
 ## UI
 
@@ -158,17 +161,17 @@ Automations appear in the settings panel under an "Automations" section. Users c
 
 ## Example
 
-User: "When someone books a meeting with a @builder.io email, message me in Slack."
+User: "When someone books a meeting with a @example.com email, message me in Slack."
 
 Agent flow:
 
 1. Calls `manage-automations` with `action=list-events` to find `calendar.booking.created`.
 2. Confirms the plan with the user.
 3. Calls `manage-automations` with `action=define`:
-   - `name`: `slack-on-builder-booking`
+   - `name`: `slack-on-example-booking`
    - `trigger_type`: `event`
    - `event`: `calendar.booking.created`
-   - `condition`: `attendee email ends with @builder.io`
+   - `condition`: `attendee email ends with @example.com`
    - `mode`: `agentic`
    - `domain`: `calendar`
    - `body`: `Send a Slack message to #sales with the booking details. Use the web-request tool to POST to ${keys.SLACK_WEBHOOK}.`

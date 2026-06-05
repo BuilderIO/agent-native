@@ -16,7 +16,8 @@ pnpm install
 2. Create a project and enable the Google Calendar API
 3. Create OAuth 2.0 credentials (Web application type)
 4. Set the authorized redirect URI to `http://localhost:5173/_agent-native/google/callback`
-5. Add credentials in the app's Settings page, or set in `.env`:
+5. Add credentials in the app's Settings page, or set them only in a local
+   `.env` / deployment secret. Never commit real credential values:
    ```
    GOOGLE_CLIENT_ID=your-client-id
    GOOGLE_CLIENT_SECRET=your-client-secret

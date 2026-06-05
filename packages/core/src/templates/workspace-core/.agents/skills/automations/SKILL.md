@@ -4,6 +4,8 @@ description: >-
   Event-triggered and schedule-triggered automations with natural-language
   conditions. Use when creating automations, wiring events, or understanding
   how triggers fire.
+metadata:
+  internal: true
 ---
 
 # Automations
@@ -42,7 +44,7 @@ event: calendar.booking.created
 condition: "attendee email ends with @example.com"
 mode: agentic
 domain: calendar
-createdBy: owner@example.com
+createdBy: user@example.com
 runAs: creator
 ---
 
@@ -109,7 +111,7 @@ emit("calendar.booking.created", {
   bookingId: "abc",
   attendeeEmail: "jane@co.com",
   startTime: "2025-01-15T10:00:00Z",
-}, { owner: "owner@example.com" });
+}, { owner: "user@example.com" });
 ```
 
 ### Built-in Events
@@ -134,7 +136,7 @@ emit("calendar.booking.created", {
 
 ## Condition Evaluator
 
-When an automation has a `condition`, the dispatcher calls Haiku (claude-haiku-4-5) to classify whether the event payload satisfies the condition. This is a yes/no classification, not a generation task.
+When an automation has a `condition`, the dispatcher calls the configured fast/classification model to classify whether the event payload satisfies the condition. This is a yes/no classification, not a generation task. The exact model ID lives in `condition-evaluator.ts`.
 
 - Empty or missing condition = unconditional (always fires).
 - Results are memoized (SHA-256 of condition + payload) with a 5-minute TTL and 500-entry LRU cache.
@@ -149,6 +151,9 @@ Automations use the `web-request` tool for outbound HTTP. It supports `${keys.NA
 - Each key can have a URL allowlist that restricts which origins the key can be sent to.
 - `resolveKeyReferences()` resolves placeholders, falling back from user scope to workspace scope.
 - `validateUrlAllowlist()` checks the resolved URL against per-key allowlists (origin-level matching).
+- Automation definitions, examples, event payloads, and prompts must not
+  hardcode real API keys, webhook URLs, tokens, private Builder/internal data, or
+  customer data. Use `${keys.NAME}` and synthetic `example.com` identities.
 
 ## UI
 
@@ -163,7 +168,7 @@ Agent flow:
 1. Calls `manage-automations` with `action=list-events` to find `calendar.booking.created`.
 2. Confirms the plan with the user.
 3. Calls `manage-automations` with `action=define`:
-   - `name`: `slack-on-builder-booking`
+   - `name`: `slack-on-example-booking`
    - `trigger_type`: `event`
    - `event`: `calendar.booking.created`
    - `condition`: `attendee email ends with @example.com`

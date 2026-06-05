@@ -71,6 +71,7 @@ interface PendingSend {
   message: string;
   images?: string[];
   submit: boolean;
+  trackInRunsTray?: boolean;
 }
 
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -1638,9 +1639,14 @@ export function MultiTabAssistantChat({
         }
 
         const ref = chatRefs.current.get(threadId);
+        const sendOptions = background ? { trackInRunsTray: true } : undefined;
         if (ref) {
           if (submit) {
-            ref.sendMessage(fullMessage, images);
+            if (sendOptions) {
+              ref.sendMessage(fullMessage, images, sendOptions);
+            } else {
+              ref.sendMessage(fullMessage, images);
+            }
           } else {
             ref.prefillMessage(fullMessage);
           }
@@ -1649,6 +1655,7 @@ export function MultiTabAssistantChat({
             message: fullMessage,
             images,
             submit,
+            ...(sendOptions ? sendOptions : {}),
           });
         }
       };
@@ -1658,6 +1665,12 @@ export function MultiTabAssistantChat({
         createThread(requestedTabId).then((newId) => {
           if (newId) {
             newThreadIds.current.add(newId);
+            if (background) {
+              mountedTabsRef.current.add(newId);
+            }
+            setOpenTabIds((prev) =>
+              prev.includes(newId) ? prev : [...prev, newId],
+            );
             sendToTab(newId);
             if (background && previousTabId) {
               switchThread(previousTabId);
@@ -1703,7 +1716,13 @@ export function MultiTabAssistantChat({
         if (pending) {
           setTimeout(() => {
             if (pending.submit) {
-              ref.sendMessage(pending.message, pending.images);
+              if (pending.trackInRunsTray) {
+                ref.sendMessage(pending.message, pending.images, {
+                  trackInRunsTray: true,
+                });
+              } else {
+                ref.sendMessage(pending.message, pending.images);
+              }
             } else {
               ref.prefillMessage(pending.message);
             }

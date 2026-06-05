@@ -9,6 +9,7 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
 - Recording start/stop/pause are UI gestures because browser media capture needs

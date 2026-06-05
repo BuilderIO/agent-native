@@ -16,7 +16,11 @@ import { pathToFileURL } from "url";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { closeDbExec } from "../db/client.js";
 import { loadEnv } from "./utils.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  runWithRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { resolveDevUserEmail } from "./dev-session.js";
 import { notifyActionChange } from "../server/action-change.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -180,6 +184,20 @@ function parseActionArgs(
   return parsed;
 }
 
+/**
+ * Build the `ctx` passed as the action's second arg for CLI dispatch. The
+ * identity comes from the `runWithRequestContext` wrap in `runScript` (which
+ * resolves `AGENT_USER_EMAIL` / the dev session); we never inject a dev
+ * identity here beyond what that wrap already established.
+ */
+function cliActionCtx(): import("../action.js").ActionRunContext {
+  return {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId() ?? null,
+    caller: "cli",
+  };
+}
+
 async function dispatchAction(
   actionName: string,
   args: string[],
@@ -212,7 +230,7 @@ async function dispatchAction(
         typeof handler.run === "function"
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
-        const result = await handler.run(parsed);
+        const result = await handler.run(parsed, cliActionCtx());
         if (handler.readOnly !== true) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
@@ -240,7 +258,10 @@ async function dispatchAction(
     try {
       await runAppDbPluginIfPresent();
       const parsed = parseActionArgs(args, { coerceBooleans: true });
-      const result = await packageAction.run(parsed as Record<string, string>);
+      const result = await packageAction.run(
+        parsed as Record<string, string>,
+        cliActionCtx(),
+      );
       if (packageAction.readOnly !== true) {
         await notifyActionChange({ actionName }).catch(() => {});
       }

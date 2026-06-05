@@ -11,6 +11,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 3. **Actions for app operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`; `defineAction` also auto-exposes those operations at `/_agent-native/actions/:name` for the UI. Do not create custom REST routes that re-export actions.
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
+6. **No hardcoded secrets or private data** -- Never put API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals in source, docs, tests, fixtures, prompts, screenshots, application state, action responses, or generated content. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 
 ### Database Code
 

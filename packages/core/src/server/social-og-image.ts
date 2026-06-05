@@ -247,6 +247,20 @@ function pngBody(bytes: Uint8Array): ArrayBuffer {
   return body;
 }
 
+function textByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+export function isResvgRuntimeUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    /@resvg\/resvg-js|resvgjs\.[\w-]+\.node|native binding/i.test(message) &&
+    /cannot find|err_module_not_found|dlopen|invalid elf|wrong architecture|not a valid win32|native binding/i.test(
+      message,
+    )
+  );
+}
+
 export function renderAgentNativeOgImageSvg(
   input: AgentNativeOgImageInput = {},
 ): string {
@@ -306,9 +320,10 @@ export async function renderAgentNativeOgImagePng(
 
 export function agentNativeOgImageResponseHeaders(
   byteLength?: number,
+  contentType = "image/png",
 ): Record<string, string> {
   const headers: Record<string, string> = {
-    "Content-Type": "image/png",
+    "Content-Type": contentType,
     "Cache-Control": AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL,
     "CDN-Cache-Control": AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL,
     "Netlify-CDN-Cache-Control": AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL,
@@ -332,13 +347,27 @@ export function createAgentNativeOgImageHandler(
 
     const query = getQuery(event);
     const appName = cleanText(options.appName) || resolveDefaultAppName(event);
-    const png = await renderAgentNativeOgImagePng({
+    const input = {
       ...options,
       appName,
       title: cleanText(options.title) || queryStringValue(query.title, 140),
       accentText:
         cleanText(options.accentText) || queryStringValue(query.accentText, 80),
-    });
+    };
+
+    let png: Uint8Array;
+    try {
+      png = await renderAgentNativeOgImagePng(input);
+    } catch (error) {
+      if (!isResvgRuntimeUnavailableError(error)) throw error;
+      const svg = renderAgentNativeOgImageSvg(input);
+      return new Response(svg, {
+        headers: agentNativeOgImageResponseHeaders(
+          textByteLength(svg),
+          "image/svg+xml; charset=utf-8",
+        ),
+      });
+    }
 
     return new Response(pngBody(png), {
       headers: agentNativeOgImageResponseHeaders(png.byteLength),

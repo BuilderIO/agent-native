@@ -9,6 +9,7 @@ live in `.agents/skills/`.
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for composition lifecycle, files, tracks, folders, design systems,
   export, and sharing. Do not mutate composition tables directly.
 - In dev, call actions with `pnpm action <name>`; in production, call the native

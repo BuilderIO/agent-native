@@ -5,7 +5,7 @@ description: "Server-side analytics with pluggable providers — PostHog, Mixpan
 
 # Analytics Tracking
 
-One function, multiple destinations. Call `track()` from any server-side code — actions, plugins, server routes — and the event fans out to every registered analytics provider. No SDK dependencies, no client-side scripts, no blocking.
+One function, multiple destinations. Call `track()` from any server-side code — actions, plugins, server routes — and the event fans out to every registered analytics provider. No SDK dependencies, no client-side scripts, no blocking. The same `track()` is also available in [browser/app code](#client) and routes to the same providers.
 
 ```ts
 import { track } from "@agent-native/core/tracking";
@@ -172,6 +172,26 @@ export default defineAction({
 ```
 
 Track calls are fire-and-forget — they return immediately and never block the action response.
+
+## Client-side tracking {#client}
+
+`track()` also works from browser/app code. Import the client twin from `@agent-native/core/client` and call it the same way — it POSTs the event to the framework route at `POST /_agent-native/track`, which forwards it to the **same** registered server-side providers (PostHog, Mixpanel, Amplitude, webhook). No analytics SDK ships to the browser and no provider keys are exposed client-side.
+
+```ts
+import { track } from "@agent-native/core/client";
+
+// e.g. inside a click handler or effect
+track("checkout.completed", { total: 49.99, items: 3 });
+```
+
+Key differences from the [server `track()`](#track):
+
+- **No identity argument.** The event is attributed server-side to the signed-in user (and the active org, as `org_id` in `properties`). Browser code never passes a `userId`.
+- **`source: "client"`** is added to every event's properties so you can tell client-originated events apart from server ones.
+- **Fire-and-forget.** It never blocks the UI, never throws, and swallows network errors.
+- **Authenticated, first-party only.** The route requires a session and a same-origin/CSRF marker (set automatically by the helper), so it can't be used as an open analytics relay. `name` is capped at 200 characters and `properties` at ~16KB; oversized or malformed payloads are rejected.
+
+This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults)), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
 
 ## What's next
 

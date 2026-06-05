@@ -23,7 +23,7 @@ Each one is a real app you could use today, and the launching pad for your own v
 | **Slides**    | An agent-native Google Slides. React-based decks the agent generates and edits directly.                       |
 | **Video**     | An agent-native video editor on Remotion. Prompt for a cut, the agent assembles it.                            |
 | **Analytics** | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.                |
-| **Clips**     | An agent-native Loom. Async screen + camera recording with transcription, chapters, AI summaries.              |
+| **Clips**     | Replaces Loom — async screen + camera recording with transcription, chapters, AI summaries.                    |
 | **Design**    | Agent-native HTML prototyping studio for interactive Alpine/Tailwind designs.                                  |
 | **Forms**     | An agent-native Typeform. Build, share, collect, and route submissions to Slack, Sheets, webhooks, or Discord. |
 | **Dispatch**  | The workspace control plane: shared secrets, reusable integrations, Slack/Telegram, scheduled jobs.            |

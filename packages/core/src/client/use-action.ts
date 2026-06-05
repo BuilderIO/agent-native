@@ -139,6 +139,12 @@ async function actionFetch<T>(
   let url = `${ACTION_PREFIX}/${name}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    // Tag browser-originated action calls so the server can set
+    // `ctx.caller = "frontend"` (vs a bare programmatic `"http"` POST).
+    // Mirrors the X-Agent-Native-Tool-Bridge: 1 convention. The header is
+    // safe to expose: CORS allows it (see action-routes.ts) and it carries
+    // no auth weight — it only narrows the caller tag.
+    "X-Agent-Native-Frontend": "1",
   };
   const tz = resolveUserTimezone();
   if (tz) headers["x-user-timezone"] = tz;

@@ -20,9 +20,27 @@
  * Result is cached in module scope so it's only computed once per cold start.
  */
 
+/**
+ * Where a skill is meant to be used:
+ *   - `runtime` — only the in-app agent at runtime (not the human's coding agent).
+ *   - `dev`     — only the human's development/coding agent (e.g. Claude Code).
+ *                 EXCLUDED from the runtime agent's prompt block and docs-search.
+ *   - `both`    — loaded everywhere. This is the default when `scope` is absent
+ *                 or set to an unrecognized value (fully backward compatible).
+ */
+export type SkillScope = "runtime" | "dev" | "both";
+
+export const DEFAULT_SKILL_SCOPE: SkillScope = "both";
+
 export interface SkillMeta {
   name: string;
   description: string;
+  /**
+   * Audience for the skill. Defaults to `both` when the SKILL.md frontmatter
+   * omits `scope` or specifies an unknown value. `dev`-scoped skills are hidden
+   * from the runtime agent everywhere (prompt block + docs-search).
+   */
+  scope: SkillScope;
 }
 
 export interface Skill {
@@ -69,8 +87,31 @@ const EMPTY: AgentsBundle = { agentsMd: "", workspaceAgentsMd: "", skills: {} };
 let cached: AgentsBundle | null = null;
 
 /**
+ * Coerce a raw frontmatter `scope` value into a known `SkillScope`. Unknown,
+ * empty, or malformed values fall back to the default (`both`) so a typo never
+ * silently hides a skill from the runtime agent. Optionally warns once per
+ * distinct bad value to aid debugging without spamming logs.
+ */
+const warnedBadScopes = new Set<string>();
+export function normalizeSkillScope(raw: string | undefined): SkillScope {
+  if (!raw) return DEFAULT_SKILL_SCOPE;
+  const value = raw.trim().toLowerCase();
+  if (value === "runtime" || value === "dev" || value === "both") {
+    return value;
+  }
+  if (value && !warnedBadScopes.has(value)) {
+    warnedBadScopes.add(value);
+    console.warn(
+      `[agents-bundle] Unknown skill scope "${raw}" — treating as "${DEFAULT_SKILL_SCOPE}". Valid values: runtime, dev, both.`,
+    );
+  }
+  return DEFAULT_SKILL_SCOPE;
+}
+
+/**
  * Parse the YAML frontmatter at the top of a skill file.
- * Only pulls out `name` and `description` — deliberately simple, no YAML lib.
+ * Only pulls out `name`, `description`, and `scope` — deliberately simple, no
+ * YAML lib.
  * Handles:
  *   - Inline: `description: Some text`
  *   - Folded scalar: `description: >-\n  multi\n  line` → "multi line"
@@ -120,6 +161,8 @@ export function parseSkillFrontmatter(content: string): Partial<SkillMeta> {
 
     if (key === "name" && value) result.name = value;
     else if (key === "description" && value) result.description = value;
+    else if (key === "scope" && value)
+      result.scope = normalizeSkillScope(value);
   }
 
   return result;
@@ -194,7 +237,11 @@ function readSkillsDir(
       extraFiles.sort();
 
       out[name] = {
-        meta: { name, description: meta.description ?? "" },
+        meta: {
+          name,
+          description: meta.description ?? "",
+          scope: meta.scope ?? DEFAULT_SKILL_SCOPE,
+        },
         content,
         dir: path.relative(rootForRelative, skillDirAbs).replace(/\\/g, "/"),
         extraFiles,
@@ -327,8 +374,21 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
  * no bash; templates that need skill content at runtime should inline the
  * critical parts directly in `AGENTS.md`.
  */
+/**
+ * Skills visible to the agent-native RUNTIME agent. Excludes `scope: dev`
+ * skills (those are for the human's coding agent only). Skills with no scope,
+ * `scope: runtime`, or `scope: both` are all included. Use this anywhere the
+ * runtime agent's view of skills is built (prompt block + docs-search) so a
+ * dev-scoped skill is invisible to the runtime agent everywhere.
+ */
+export function getRuntimeSkills(bundle: AgentsBundle): Skill[] {
+  return Object.values(bundle.skills).filter(
+    (skill) => skill.meta.scope !== "dev",
+  );
+}
+
 export function generateSkillsPromptBlock(bundle: AgentsBundle): string {
-  const entries = Object.values(bundle.skills);
+  const entries = getRuntimeSkills(bundle);
   if (entries.length === 0) return "";
 
   const lines = entries.map((s) => {

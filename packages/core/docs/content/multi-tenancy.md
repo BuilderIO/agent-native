@@ -9,7 +9,7 @@ Every agent-native app is multi-tenant by default. Organizations, team members, 
 
 ## How it works {#how-it-works}
 
-The framework uses [Better Auth](https://better-auth.com)'s organizations plugin to provide full multi-tenancy:
+The framework provides full multi-tenancy through its own built-in organization system — the core `org/` module backed by the `organizations` and `org_members` tables. (This is the framework's own system, not [Better Auth](https://better-auth.com)'s organization plugin, which is intentionally not registered.)
 
 - **Organizations** — users create organizations and invite team members. Each org is a fully isolated tenant.
 - **Roles** — every member has a role: `owner`, `admin`, or `member`. Actions can check roles for authorization.
@@ -20,22 +20,24 @@ All first-party templates (Mail, Calendar, Content, Brain, Assets, Slides, Video
 
 ## Organizations and members {#organizations-and-members}
 
-Users can create organizations, invite members by email, and assign roles:
+Users can create organizations, invite members by email, and assign roles. The org-switcher and members UI drive this through the core org REST routes (no template code required):
+
+```text
+POST /_agent-native/org              # create an organization
+POST /_agent-native/org/invitations  # invite a member by email
+```
+
+Server code can call the same surface directly through the `org/` module. `createOrganization(name, email, role?)` creates an org and adds the caller as a member; membership and roles live in the `org_members` table:
 
 ```typescript
-// Creating an org (from an action or the client)
-const org = await auth.api.createOrganization({
-  body: { name: "Acme Inc", slug: "acme" },
-});
+import { createOrganization } from "@agent-native/core/org";
 
-// Inviting a member
-await auth.api.createInvitation({
-  body: {
-    organizationId: org.id,
-    email: "alice@acme.com",
-    role: "member", // "owner" | "admin" | "member"
-  },
-});
+// Creating an org adds the caller (email) as a member with the given role
+const org = await createOrganization(
+  "Acme Inc",
+  "alice@acme.com",
+  "owner", // "owner" | "admin" | "member", defaults to "owner"
+);
 ```
 
 Org management is a **framework built-in**: the core org plugin auto-mounts REST routes under `/_agent-native/org/*` (create org, switch org, list/invite/remove members, change roles, set allowed email domain), and these back the org-switcher and members UI in every template with no extra code. Agent-callable actions with names like `create-organization` or `invite-member` are **template-authored** on top of this surface, not built-in tools — a template wires its own `defineAction` wrappers when it wants the agent to manage its specific membership model.

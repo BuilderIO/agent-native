@@ -104,6 +104,7 @@ import {
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { track } from "../tracking/index.js";
+import { validateTrackPayload } from "../tracking/route.js";
 import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
@@ -2184,6 +2185,69 @@ export function createCoreRoutesPlugin(
             }
           } catch {}
           return { configured: false };
+        }),
+      );
+
+      // POST /_agent-native/track — client-originated analytics events.
+      // The browser `track()` helper POSTs `{ name, properties }` here so app
+      // code can fan out to the SAME server-side providers (PostHog/Mixpanel/
+      // etc.) that server `track()` reaches. Authenticated + first-party only:
+      // the CSRF middleware above (mounted before route handlers) already
+      // requires the X-Agent-Native-CSRF marker the client helper sends, and we
+      // require a resolved session so this can't become an open relay. Events
+      // are attributed to the resolved user/org — never a client-supplied id.
+      // Best-effort: invalid bodies 400, everything else returns 204 and
+      // provider errors are swallowed by the server `track()`.
+      getH3App(nitroApp).use(
+        `${P}/track`,
+        defineEventHandler(async (event: H3Event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const session = await getSession(event).catch(() => null);
+          const userEmail = session?.email;
+          if (!userEmail) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+          const body = await readBody(event).catch(() => undefined);
+          const validation = validateTrackPayload(body);
+          if (!validation.ok) {
+            setResponseStatus(event, 400);
+            return { error: validation.error ?? "Invalid tracking payload." };
+          }
+
+          // Attribute to the active org when the template uses orgs. The
+          // registry's `track()` only carries `userId` in meta, so org context
+          // rides along in properties — every built-in provider forwards
+          // `properties` verbatim. Client-supplied properties never override
+          // the server-resolved `org_id`.
+          let orgId: string | null = null;
+          try {
+            const orgCtx = await getOrgContext(event);
+            orgId = orgCtx.orgId ?? null;
+          } catch {
+            /* org module not present in this template — keep userEmail-only */
+          }
+
+          const properties: Record<string, unknown> = {
+            ...(validation.properties ?? {}),
+            source: "client",
+          };
+          if (orgId) properties.org_id = orgId;
+
+          // Best-effort — server `track()` swallows provider errors. We still
+          // guard here so an unexpected throw can't surface to the browser.
+          try {
+            track(validation.name as string, properties, {
+              userId: userEmail,
+            });
+          } catch {
+            // best-effort
+          }
+          setResponseStatus(event, 204);
+          return "";
         }),
       );
 

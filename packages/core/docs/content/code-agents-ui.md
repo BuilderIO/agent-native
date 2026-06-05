@@ -80,17 +80,20 @@ pnpm install
 pnpm dev
 ```
 
-Your host can wrap the local run store through normal actions:
+Your host can wrap the local run store through normal actions. These are
+host-owned actions you would define yourself — they are not shipped framework
+actions — mapping each `CodeAgentsHost` method onto the run store, for example:
 
-- `list-code-agent-runs`
-- `list-code-agent-packs`
-- `create-code-agent-run`
-- `read-code-agent-transcript`
-- `append-code-agent-follow-up`
-- `update-code-agent-run`
-- `control-code-agent-run`
+- a "list runs" action backing `listRuns`
+- a "list code packs" action backing `listCodePacks`
+- a "create run" action backing `createRun`
+- a "read transcript" action backing `readTranscript`
+- an "append follow-up" action backing `appendFollowUp`
+- an "update run" action backing `updateRun`
+- a "control run" action backing `controlRun`
 
-It uses `@agent-native/core/code-agents`, which exposes the same file-backed run store and executor used by the CLI.
+Each one calls `@agent-native/core/code-agents`, which exposes the same
+file-backed run store and executor used by the CLI.
 
 ## CLI Run Controls
 
@@ -117,7 +120,10 @@ agent-native code /audit --url https://example.com
 agent-native code /release-check
 ```
 
-Project commands come from `.agents/commands/*.md`; project skills come from
+Here `/migrate` and `/audit` are built-in goals (the built-in goals are
+`task`, `migrate`, and `audit`). `/release-check` is shown as an example of a
+project command — defined in `.agents/commands/`, not a built-in goal. Project
+commands come from `.agents/commands/*.md`; project skills come from
 `.agents/skills/*/SKILL.md`. The control commands operate on the same run
 records that the Desktop Code tab and shared UI display:
 
@@ -270,7 +276,7 @@ Project skills live in:
 .agents/skills/*/SKILL.md
 ```
 
-When the host implements `listCodePacks`, the shared UI shows project commands and skills in the rail. Command rows insert `/<command>`, and skill rows insert a focused “Use the <skill> skill…” prompt so the rail stays actionable. Built-in names such as `/migrate`, `/audit`, `/status`, and `/resume` stay reserved for the global Agent-Native Code controls.
+When the host implements `listCodePacks`, the shared UI shows project commands and skills in the rail. Command rows insert `/<command>`, and skill rows insert a focused “Use the <skill> skill…” prompt so the rail stays actionable. The built-in slash goals `/migrate` and `/audit` stay reserved for the global Agent-Native Code controls, as do run-control names such as `status` and `resume` — those are subcommands invoked without a slash (`agent-native code status`, `agent-native code resume`), not slash goals.
 
 Do not create a separate slash-command registry for a new Code host. Project
 commands and skills are discovered from `.agents/commands/*.md` and

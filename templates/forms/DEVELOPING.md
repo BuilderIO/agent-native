@@ -106,6 +106,8 @@ Works out of the box with local SQLite via `@libsql/client`. This local file is 
 
 Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
 
+Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
+
 ### Cloudflare Pages + D1
 
 1. Set `NITRO_PRESET=cloudflare_pages` in env

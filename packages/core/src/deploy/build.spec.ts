@@ -6,6 +6,7 @@ import {
   addImmutableAssetRouteRulesForClientBuild,
   copyDir,
   findInstalledFfmpegStaticPackage,
+  findInstalledResvgPackages,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
@@ -675,6 +676,72 @@ describe("findInstalledFfmpegStaticPackage", () => {
     expect(shouldBundleFfmpegStaticForServerless("win32", "x64", "x64")).toBe(
       false,
     );
+  });
+});
+
+describe("findInstalledResvgPackages", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  function setupNodeModules() {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-resvg-test-"));
+    dirs.push(cwd);
+    const nodeModules = path.join(cwd, "node_modules");
+    fs.mkdirSync(nodeModules, { recursive: true });
+    return nodeModules;
+  }
+
+  it("finds direct resvg packages", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(nodeModules, "@resvg", "resvg-js");
+    const nativeDir = path.join(
+      nodeModules,
+      "@resvg",
+      "resvg-js-linux-x64-gnu",
+    );
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.mkdirSync(nativeDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(nativeDir, "package.json"), "{}");
+
+    expect(findInstalledResvgPackages([nodeModules])).toEqual([
+      { packageName: "resvg-js", packageDir },
+      { packageName: "resvg-js-linux-x64-gnu", packageDir: nativeDir },
+    ]);
+  });
+
+  it("finds resvg packages in pnpm's nested store layout", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@resvg+resvg-js@2.6.2",
+      "node_modules",
+      "@resvg",
+      "resvg-js",
+    );
+    const nativeDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@resvg+resvg-js-linux-x64-gnu@2.6.2",
+      "node_modules",
+      "@resvg",
+      "resvg-js-linux-x64-gnu",
+    );
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.mkdirSync(nativeDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(nativeDir, "package.json"), "{}");
+
+    expect(findInstalledResvgPackages([nodeModules])).toEqual([
+      { packageName: "resvg-js", packageDir },
+      { packageName: "resvg-js-linux-x64-gnu", packageDir: nativeDir },
+    ]);
   });
 });
 

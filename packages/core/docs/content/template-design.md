@@ -109,7 +109,7 @@ The rest of this doc is for anyone forking the Design template or extending it.
 ### Scaffolding
 
 ```bash
-pnpm dlx @agent-native/core create my-design --template design --standalone
+npx @agent-native/core create my-design --standalone --template design
 ```
 
 ### Data Model
@@ -139,7 +139,7 @@ Every agent-callable operation is a TypeScript file in `templates/design/actions
 - **Export & handoff** — `export-html`, `export-pdf`, `export-svg`, `export-zip`, and `export-coding-handoff` to turn a design into a coding-tool handoff.
 - **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant grid), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
 
-### Customize It
+### Customizing It
 
 Design is a complete, cloneable template. Some practical extension ideas:
 

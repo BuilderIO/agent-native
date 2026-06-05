@@ -14,6 +14,7 @@ import {
   type PlanLegacyWireframeBlock,
   type PlanWireframeBlock,
   type PlanWireframeNode,
+  type PlanWireframeSurface,
   type PlanWireframeRegion,
   type PlanVisualQuestion,
 } from "../shared/plan-content.js";
@@ -248,39 +249,41 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
   const includeComponentContext =
     componentPlan && shouldShowComponentContext(input);
   const stateFlow = shouldUseStateFlow(input, componentPlan);
-  const stateFrames: PlanArtboard[] = states
-    .slice(0, 6)
-    .map((state, index) => ({
+  const stateFrames: PlanArtboard[] = states.slice(0, 6).map((state, index) => {
+    const wireframe = createUiWireframeData({
+      title: state.name,
+      description: state.description,
+      viewport: viewportForState(state, componentPlan, {
+        index,
+        stateFlow,
+      }),
+      component: componentPlan,
+    });
+    return {
       id: `frame-${stateIds[index] ?? index + 1}`,
       label: state.name,
       blockId: stateBlockIds[index]?.wireframe,
-      legacyWireframe: createWireframeData({
-        title: state.name,
-        description: state.description,
-        viewport: viewportForState(state, componentPlan, {
-          index,
-          stateFlow,
-        }),
-        component: componentPlan,
-      }),
+      surface: wireframe.surface,
+      wireframe,
       ...(componentPlan
         ? {
-            x: (includeComponentContext ? 780 : 80) + (index % 2) * 380,
-            y: 96 + Math.floor(index / 2) * 504,
-            width: 340,
-            height: 340,
+            x: (includeComponentContext ? 780 : 80) + (index % 2) * 420,
+            y: 96 + Math.floor(index / 2) * 500,
           }
         : {}),
-    }));
+    };
+  });
+  const contextWireframe = includeComponentContext
+    ? createComponentContextKitWireframe(input)
+    : undefined;
   const contextFrame: PlanArtboard | undefined = includeComponentContext
     ? {
         id: "frame-app-context",
         label: "App context",
-        legacyWireframe: createComponentContextWireframe(input),
+        surface: contextWireframe?.surface,
+        wireframe: contextWireframe,
         x: 80,
         y: 96,
-        width: 640,
-        height: 410,
       }
     : undefined;
   const frames: PlanArtboard[] = contextFrame
@@ -293,7 +296,7 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
         label: `Step ${index + 1}`,
       }))
     : [];
-  const notes = createCanvasNotes({
+  const annotations = createCanvasAnnotations({
     componentPlan,
     includeComponentContext,
     contextFrame,
@@ -336,9 +339,9 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
                     id:
                       stateBlockIds[index]?.wireframe ??
                       createPlanBlockId(`${state.name}-wireframe`),
-                    type: "legacy-wireframe",
+                    type: "wireframe",
                     title: `${state.name} Wireframe`,
-                    data: createWireframeData({
+                    data: createUiWireframeData({
                       title: state.name,
                       description: state.description,
                       viewport: viewportForState(state, componentPlan, {
@@ -395,9 +398,9 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
                   },
                   {
                     id: createPlanBlockId(`${component.name}-sketch`),
-                    type: "legacy-wireframe",
+                    type: "wireframe",
                     title: `${component.name} Sketch`,
-                    data: createWireframeData({
+                    data: createUiWireframeData({
                       title: component.name,
                       description: component.description,
                       viewport: "desktop",
@@ -516,7 +519,7 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
               title: componentPlan ? "Component States" : "UI Flow",
               frames,
               ...(flow.length > 0 ? { flow } : {}),
-              ...(notes.length > 0 ? { notes } : {}),
+              ...(annotations.length > 0 ? { annotations } : {}),
             },
           }
         : {}),
@@ -563,12 +566,477 @@ function createImplementationPlanMarkdown(input: UiPlanContentInput) {
   ].join("\n\n");
 }
 
+function createCanvasAnnotations(input: {
+  componentPlan: boolean;
+  includeComponentContext: boolean;
+  contextFrame?: PlanArtboard;
+  stateFrames: PlanArtboard[];
+}): NonNullable<NonNullable<PlanContent["canvas"]>["annotations"]> {
+  if (input.componentPlan) {
+    const annotations: NonNullable<
+      NonNullable<PlanContent["canvas"]>["annotations"]
+    > = [];
+    if (input.includeComponentContext && input.contextFrame) {
+      annotations.push({
+        id: "canvas-note-app-context",
+        type: "note",
+        targetId: input.contextFrame.id,
+        placement: "bottom",
+        title: "Start in the product.",
+        text: "Show the host chat and agent sidebar first so scale, anchor, and surrounding chrome are reviewable before zooming into the widget.",
+      });
+    }
+    if (input.stateFrames[0]) {
+      annotations.push({
+        id: "canvas-note-focused-states",
+        type: "note",
+        targetId: input.stateFrames[0].id,
+        placement: "bottom",
+        title: "Then focus the component.",
+        text: "Compare compact widget variants. Do not turn component work into a fake desktop/mobile journey unless responsive behavior is the issue.",
+      });
+    }
+    const chatCleanupFrame = input.stateFrames.find((frame) =>
+      /\b(chat|cleanup|step)\b/i.test(frame.label ?? ""),
+    );
+    if (chatCleanupFrame) {
+      annotations.push({
+        id: "canvas-note-chat-cleanup",
+        type: "note",
+        targetId: chatCleanupFrame.id,
+        placement: "bottom",
+        title: "Remove step chrome.",
+        text: "The chat frame should show ordinary messages, thinking status, and composer without step rows above chat or after each turn.",
+      });
+    }
+    return annotations;
+  }
+
+  if (!input.stateFrames[0]) return [];
+  return [
+    {
+      id: "canvas-note-review",
+      type: "note",
+      targetId: input.stateFrames[0].id,
+      placement: "bottom",
+      title: "Read this like a design handoff.",
+      text: "Use the canvas to critique layout and state changes first; use the document below for files, contracts, risks, and validation.",
+    },
+  ];
+}
+
+function createUiWireframeData(input: {
+  title: string;
+  description?: string;
+  viewport?: NonNullable<LegacyWireframeData["viewport"]>;
+  component?: boolean;
+}): PlanWireframeBlock["data"] {
+  if (input.component) {
+    const template = inferComponentWireframeTemplate(input);
+    if (template === "context-xray-expanded") {
+      return createContextXRayExpandedKitWireframe(input);
+    }
+    if (template === "context-xray-map") {
+      return createContextXRayMapKitWireframe(input);
+    }
+    if (template === "context-xray-chat-cleanup") {
+      return createChatCleanupKitWireframe(input);
+    }
+    if (template === "context-xray-default") {
+      return createContextXRayDefaultKitWireframe(input);
+    }
+    return createGenericComponentKitWireframe(input);
+  }
+
+  if (input.viewport === "phone") {
+    return createMobileUiKitWireframe(input);
+  }
+  return createDesktopUiKitWireframe(input);
+}
+
+function createComponentContextKitWireframe(input: {
+  title: string;
+  brief: string;
+}): PlanWireframeBlock["data"] {
+  return createKitWireframe(
+    "browser",
+    [
+      { el: "browserBar", title: "agent" },
+      {
+        el: "row",
+        full: true,
+        children: [
+          {
+            el: "main",
+            children: [
+              { el: "title", text: "Chat thread", script: true },
+              {
+                el: "card",
+                children: [
+                  {
+                    el: "text",
+                    value: "User asks for Context X-Ray cleanup",
+                    weight: "medium",
+                  },
+                  { el: "lines", n: 2, widths: [72, 48] },
+                ],
+              },
+              {
+                el: "box",
+                children: [{ el: "text", value: "Thinking status" }],
+              },
+              { el: "field", value: "Ask the agent..." },
+            ],
+          },
+          {
+            el: "sidebar",
+            children: [
+              {
+                el: "col",
+                full: true,
+                children: [
+                  { el: "title", text: "Agent sidebar", script: true },
+                  {
+                    el: "box",
+                    children: [
+                      {
+                        el: "text",
+                        value: "Context X-Ray popover",
+                        weight: "bold",
+                      },
+                      {
+                        el: "box",
+                        children: [{ el: "text", value: "2.0k used" }],
+                      },
+                      {
+                        el: "chips",
+                        items: [
+                          { label: "List", active: true },
+                          { label: "Map" },
+                        ],
+                      },
+                      {
+                        el: "card",
+                        children: [
+                          {
+                            el: "text",
+                            value: "Conversation",
+                            weight: "medium",
+                          },
+                          { el: "text", value: "Protected context rows" },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              { el: "divider" },
+              { el: "btn", label: "X-Ray", solid: true },
+            ],
+          },
+        ],
+      },
+    ],
+    `Show ${input.title} in the surrounding app before focused component states.`,
+  );
+}
+
+function createContextXRayDefaultKitWireframe(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeBlock["data"] {
+  return createKitWireframe(
+    "popover",
+    [
+      { el: "title", text: "Context X-Ray", script: true },
+      {
+        el: "box",
+        children: [
+          { el: "text", value: "2.0k used", weight: "bold" },
+          { el: "text", value: "1% used - 198k free", color: "muted" },
+        ],
+      },
+      {
+        el: "chips",
+        items: [{ label: "List", active: true }, { label: "Map" }],
+      },
+      {
+        el: "card",
+        children: [
+          { el: "text", value: "Conversation", weight: "bold" },
+          { el: "text", value: "Protected row", color: "muted" },
+          { el: "btn", label: "Pin", solid: false },
+        ],
+      },
+    ],
+    input.description,
+  );
+}
+
+function createContextXRayExpandedKitWireframe(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeBlock["data"] {
+  return createKitWireframe(
+    "popover",
+    [
+      {
+        el: "row",
+        children: [
+          { el: "pill", label: "Conversation", tone: "accent" },
+          { el: "pill", label: "2.0k protected" },
+        ],
+      },
+      {
+        el: "card",
+        children: [
+          { el: "text", value: "User message", weight: "bold" },
+          { el: "text", value: "Original request and current screen snapshot" },
+        ],
+      },
+      {
+        el: "card",
+        children: [
+          { el: "text", value: "Tool result", weight: "bold" },
+          { el: "text", value: "Relevant output kept for the next turn" },
+        ],
+      },
+      { el: "btn", label: "Pin / evict", solid: true },
+    ],
+    input.description,
+  );
+}
+
+function createContextXRayMapKitWireframe(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeBlock["data"] {
+  return createKitWireframe(
+    "popover",
+    [
+      { el: "title", text: "Context map", script: true },
+      {
+        el: "box",
+        children: [
+          { el: "text", value: "Token map", weight: "bold" },
+          {
+            el: "kv",
+            rows: [
+              { k: "Conversation", v: "2.0k" },
+              { k: "Pinned", v: "0" },
+              { k: "Evicted", v: "0" },
+            ],
+          },
+        ],
+      },
+      {
+        el: "row",
+        children: [
+          { el: "pill", label: "Legend" },
+          { el: "pill", label: "Selected 2.0k", tone: "accent" },
+        ],
+      },
+    ],
+    input.description,
+  );
+}
+
+function createChatCleanupKitWireframe(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeBlock["data"] {
+  return createKitWireframe(
+    "panel",
+    [
+      { el: "title", text: "Chat without step chrome", script: true },
+      {
+        el: "card",
+        children: [
+          { el: "text", value: "Chat messages", weight: "bold" },
+          { el: "text", value: "User turn" },
+          { el: "text", value: "Assistant response" },
+        ],
+      },
+      {
+        el: "box",
+        children: [{ el: "text", value: "Thinking status only" }],
+      },
+      { el: "field", value: "Message the agent..." },
+    ],
+    input.description,
+  );
+}
+
+function createGenericComponentKitWireframe(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeBlock["data"] {
+  const title = compactLabel(input.title, 24) || "Component";
+  return createKitWireframe(
+    "panel",
+    [
+      { el: "title", text: title, script: true },
+      {
+        el: "box",
+        children: [
+          { el: "text", value: compactLabel(input.description ?? title, 80) },
+          {
+            el: "chips",
+            items: [{ label: "Default", active: true }, { label: "Focused" }],
+          },
+        ],
+      },
+      {
+        el: "card",
+        children: [
+          { el: "text", value: "Primary content", weight: "bold" },
+          { el: "text", value: "Real labels and controls stay visible" },
+          { el: "btn", label: "Primary", solid: true },
+        ],
+      },
+    ],
+    input.description,
+  );
+}
+
+function createDesktopUiKitWireframe(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeBlock["data"] {
+  const title = compactLabel(input.title, 28) || "Overview";
+  return createKitWireframe(
+    "desktop",
+    [
+      { el: "browserBar", title: slug(title) || "app" },
+      {
+        el: "row",
+        full: true,
+        children: [
+          {
+            el: "sidebar",
+            children: [
+              {
+                el: "col",
+                full: true,
+                children: [
+                  { el: "title", text: "Workspace", script: true },
+                  { el: "searchBar", placeholder: "Search" },
+                  { el: "navItem", label: "Overview", active: true, count: 4 },
+                  { el: "navItem", label: "Today", count: 2 },
+                  { el: "navItem", label: "Done" },
+                  { el: "divider" },
+                  { el: "section", label: "PROJECTS" },
+                  { el: "navItem", label: "Project", dot: true },
+                  { el: "navItem", label: "Review", dot: true },
+                  { el: "navItem", label: "Handoff", dot: true },
+                ],
+              },
+              {
+                el: "box",
+                children: [
+                  { el: "text", value: "Ready for review", weight: "bold" },
+                  { el: "text", value: "Canvas plus implementation notes" },
+                  { el: "btn", label: "Open plan", solid: true, full: true },
+                ],
+              },
+            ],
+          },
+          {
+            el: "main",
+            children: [
+              { el: "title", text: title, script: true },
+              {
+                el: "text",
+                value: compactLabel(input.description ?? title, 86),
+              },
+              {
+                el: "chips",
+                items: [
+                  { label: "All", active: true },
+                  { label: "Active" },
+                  { label: "Done" },
+                ],
+              },
+              { el: "section", label: "TODAY" },
+              {
+                el: "taskRow",
+                title: compactLabel(input.description ?? "Review state", 42),
+                due: "Soon",
+                dueTone: "warn",
+                prio: 1,
+              },
+              {
+                el: "taskRow",
+                title: "Update implementation notes",
+                due: "Later",
+                prio: 2,
+              },
+              { el: "divider" },
+              { el: "section", label: "NEXT" },
+              { el: "taskRow", title: "Verify empty and error states" },
+            ],
+          },
+        ],
+      },
+    ],
+    input.description,
+  );
+}
+
+function createMobileUiKitWireframe(input: {
+  title: string;
+  description?: string;
+}): PlanWireframeBlock["data"] {
+  const title = compactLabel(input.title, 22) || "Today";
+  return createKitWireframe(
+    "mobile",
+    [
+      { el: "statusBar" },
+      { el: "title", text: title, script: true },
+      { el: "text", value: compactLabel(input.description ?? title, 64) },
+      {
+        el: "chips",
+        items: [
+          { label: "All", active: true },
+          { label: "Active" },
+          { label: "Done" },
+        ],
+      },
+      { el: "section", label: "TODAY" },
+      {
+        el: "taskRow",
+        title: compactLabel(input.description ?? "Review item", 34),
+        due: "2 PM",
+        prio: 1,
+      },
+      { el: "taskRow", title: "Reply to feedback", prio: 2 },
+      { el: "taskRow", title: "Check narrow layout", done: true },
+      { el: "fab", icon: "+" },
+    ],
+    input.description,
+  );
+}
+
+function createKitWireframe(
+  surface: PlanWireframeSurface,
+  children: PlanWireframeNode[],
+  caption?: string,
+): PlanWireframeBlock["data"] {
+  return {
+    surface,
+    ...(caption ? { caption } : {}),
+    screen: [{ el: "screen", children }],
+  };
+}
+
 function createCanvasNotes(input: {
   componentPlan: boolean;
   includeComponentContext: boolean;
   contextFrame?: PlanArtboard;
   stateFrames: PlanArtboard[];
 }): NonNullable<NonNullable<PlanContent["canvas"]>["notes"]> {
+  // Back-compat helper retained for old callers; new `/ui-plan` generation uses
+  // canvas.annotations so notes can attach to frames and avoid overlap.
   if (input.componentPlan) {
     if (!input.includeComponentContext || !input.contextFrame) return [];
     return [
@@ -871,10 +1339,10 @@ function blockFromSection(section: SectionLike, index: number): PlanBlock {
   if (section.type === "wireframe" || section.type === "mockup") {
     return {
       id: section.id || createPlanBlockId(section.title),
-      type: "legacy-wireframe",
+      type: "wireframe",
       title: section.title,
       summary: section.body,
-      data: createWireframeData({
+      data: createUiWireframeData({
         title: section.title,
         description: section.body,
         viewport: index === 0 ? "desktop" : "phone",
@@ -916,15 +1384,17 @@ function blockFromSection(section: SectionLike, index: number): PlanBlock {
 
 function findCanvas(blocks: PlanBlock[]): PlanContent["canvas"] | undefined {
   const frames = blocks
-    .filter((block): block is PlanLegacyWireframeBlock => {
-      return block.type === "legacy-wireframe";
+    .filter((block): block is PlanWireframeBlock | PlanLegacyWireframeBlock => {
+      return block.type === "wireframe" || block.type === "legacy-wireframe";
     })
     .slice(0, 6)
     .map<PlanArtboard>((block, index) => ({
       id: `frame-${block.id}`,
       label: block.title || `Frame ${index + 1}`,
       blockId: block.id,
-      legacyWireframe: block.data,
+      ...(block.type === "wireframe"
+        ? { surface: block.data.surface, wireframe: block.data }
+        : { legacyWireframe: block.data }),
     }));
   if (frames.length === 0) return undefined;
   return {
@@ -1172,14 +1642,20 @@ function inferComponentWireframeTemplate(input: {
   description?: string;
 }): LegacyWireframeData["template"] | undefined {
   const text = `${input.title} ${input.description ?? ""}`.toLowerCase();
-  if (/\b(chat|message|composer|thinking|step chrome)\b/.test(text)) {
-    return "context-xray-chat-cleanup";
-  }
-  if (/\b(map|treemap|token distribution)\b/.test(text)) {
+  if (/\b(map view|treemap|token map|token distribution)\b/.test(text)) {
     return "context-xray-map";
   }
-  if (/\b(expanded|segment|detail|pin|evict|protected)\b/.test(text)) {
+  if (
+    /\b(expanded|segment detail|detail|pin\s*\/\s*evict|evict|tool result|user message)\b/.test(
+      text,
+    )
+  ) {
     return "context-xray-expanded";
+  }
+  if (
+    /\b(chat cleanup|chat messages|composer|thinking|step chrome)\b/.test(text)
+  ) {
+    return "context-xray-chat-cleanup";
   }
   if (
     /\b(context\s*x-?ray|x-?ray|popover|usage|meter|list\/?map|conversation group)\b/.test(
@@ -1730,13 +2206,18 @@ function previewToWireframe(
     return {
       surface: preview === "mobile" ? "mobile" : "desktop",
       screen: [
-        { el: "title", script: true, text: label },
-        { el: "lines", n: 3 },
         {
-          el: "row",
+          el: "screen",
           children: [
-            { el: "btn", text: "Primary", tone: "accent" },
-            { el: "btn", text: "Secondary" },
+            { el: "title", script: true, text: label },
+            { el: "text", value: "Preview direction" },
+            {
+              el: "row",
+              children: [
+                { el: "btn", label: "Primary", solid: true },
+                { el: "btn", label: "Secondary" },
+              ],
+            },
           ],
         },
       ],

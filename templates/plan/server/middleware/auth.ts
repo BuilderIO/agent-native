@@ -9,12 +9,11 @@
  */
 import { defineEventHandler } from "h3";
 import { runAuthGuard } from "@agent-native/core/server";
+import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
-const PUBLIC_PLAN_REVIEW_ACTIONS = new Set([
-  "/_agent-native/actions/get-visual-plan",
-  "/_agent-native/actions/update-visual-plan",
-  "/_agent-native/actions/export-visual-plan",
-]);
+const PUBLIC_PLAN_REVIEW_ACTIONS: ReadonlySet<string> = new Set(
+  PUBLIC_PLAN_ACTION_PATHS,
+);
 
 export default defineEventHandler(async (event) => {
   const path = (event.node?.req?.url ?? event.path ?? "/").split("?")[0] ?? "/";
