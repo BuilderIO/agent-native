@@ -1345,6 +1345,10 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           ...(options.fsDeny ?? []),
         ],
       },
+      headers: {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+      },
     },
     build: {
       outDir: options.outDir ?? "dist/spa",
