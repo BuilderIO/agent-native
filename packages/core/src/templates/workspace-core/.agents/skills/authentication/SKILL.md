@@ -39,7 +39,7 @@ Templates with legacy global settings can provide `POST /api/local-migration` fo
 
 ## Organizations
 
-Better Auth's organization plugin is built in. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member).
+Organizations are **framework-managed**, not handled by Better Auth's organization plugin (which is intentionally NOT registered). Org data lives in the framework's own `organizations`, `org_members`, and `org_invitations` tables. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member).
 
 The active org flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
