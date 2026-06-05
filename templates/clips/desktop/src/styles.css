@@ -3744,8 +3744,10 @@ body[data-clips-route="recording-pill"] #root {
     opacity 120ms ease;
 }
 
-/* Reveal on hover (CSS :hover, not React events — works unfocused). */
+/* Reveal on hover. CSS :hover covers the focused case; .pill-hovered is the
+   Rust-polled fallback for when another app is focused (see clips:pill-hover). */
 .pill-inner:hover .pill-controls,
+.pill-inner.pill-hovered .pill-controls,
 /* Always visible when expanded. */
 .pill-inner:not(.pill-inner-compact) .pill-controls {
   max-width: 160px;
@@ -3840,7 +3842,8 @@ body[data-clips-route="recording-pill"] #root {
   transition: background 120ms ease;
 }
 
-.pill-vertical .pill-media:hover {
+.pill-vertical .pill-media:hover,
+.pill-hovered .pill-vertical .pill-media {
   background: rgba(255, 255, 255, 0.08);
 }
 
@@ -3866,7 +3869,8 @@ body[data-clips-route="recording-pill"] #root {
     opacity 120ms ease;
 }
 
-.pill-inner-compact:hover .pill-vertical .pill-vgrip {
+.pill-inner-compact:hover .pill-vertical .pill-vgrip,
+.pill-inner-compact.pill-hovered .pill-vertical .pill-vgrip {
   height: 14px;
   margin-top: 3px;
   opacity: 1;

@@ -71,6 +71,11 @@ export function RecordingPill() {
   // the `clips:pill-detached` event from Rust (toggled by JS via
   // `recording_pill_set_detached`).
   const [detached, setDetached] = useState(false);
+  // Driven by the Rust-side global cursor poll (`clips:pill-hover`). macOS only
+  // delivers hover events to the key window, so while another app is focused
+  // CSS `:hover` never fires on the pill — we mirror the polled state into a
+  // class and key the hover styling off that too.
+  const [hovered, setHovered] = useState(false);
   const startedAtRef = useRef<number>(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Per-source levels. The mic recognizer (native_speech.rs) emits with
@@ -185,6 +190,11 @@ export function RecordingPill() {
     trackListen(
       listen<{ error: string }>("pill:error", (ev) => {
         setError(ev.payload?.error ?? "An error occurred.");
+      }),
+    );
+    trackListen(
+      listen<{ hovered: boolean }>("clips:pill-hover", (ev) => {
+        setHovered(!!ev.payload?.hovered);
       }),
     );
     trackListen(
@@ -475,7 +485,9 @@ export function RecordingPill() {
   return (
     <div className="pill-outer">
       <div
-        className={`pill-inner${expanded ? "" : " pill-inner-compact"}`}
+        className={`pill-inner${expanded ? "" : " pill-inner-compact"}${
+          hovered ? " pill-hovered" : ""
+        }`}
         onMouseDown={handlePillMouseDown}
       >
         <div

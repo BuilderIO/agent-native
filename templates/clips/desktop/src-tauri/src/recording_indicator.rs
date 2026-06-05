@@ -27,9 +27,12 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WebviewWindowBuilder,
+};
 
 use crate::dlog;
 use crate::util::{
@@ -46,6 +49,13 @@ const PILL_LABEL: &str = "recording-pill";
 /// it through every command.
 static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
 static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
+
+/// Hover-tracking loop control. macOS only feeds mouse-moved / hover events to
+/// the *key* window, so the background pill's CSS `:hover` never fires while
+/// another app is focused. We poll the global cursor position against the
+/// pill's frame and emit `clips:pill-hover` so the renderer can drive the
+/// hover styling itself. Gates the single polling task.
+static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 
 /// Collapsed dimensions (logical px). The collapsed pill is a vertical capsule
 /// — clips logo on top, waveform below — so it is taller than it is wide. The
@@ -363,6 +373,7 @@ pub async fn recording_pill_show(
         );
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        start_pill_hover_tracking(&app);
         return Ok(());
     }
 
@@ -390,6 +401,7 @@ pub async fn recording_pill_show(
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    start_pill_hover_tracking(&app);
 
     // Tell the freshly-mounted React side which mode + meeting_id to render.
     use tauri::Emitter;
@@ -402,6 +414,53 @@ pub async fn recording_pill_show(
     );
 
     Ok(())
+}
+
+/// True when the global cursor sits inside the pill window's frame. Cursor and
+/// frame both come from Tauri (physical px, desktop top-left origin), so the
+/// test is a plain point-in-rect with no AppKit hop.
+fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
+    let (Ok(c), Ok(p), Ok(s)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        return false;
+    };
+    c.x >= p.x as f64
+        && c.x <= (p.x + s.width as i32) as f64
+        && c.y >= p.y as f64
+        && c.y <= (p.y + s.height as i32) as f64
+}
+
+/// Start polling the cursor against the pill frame and emitting
+/// `clips:pill-hover` on transitions. Idempotent — a second call is a no-op
+/// while a loop is already running.
+fn start_pill_hover_tracking(app: &AppHandle) {
+    if PILL_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tauri::Emitter;
+        let mut prev = false;
+        while PILL_HOVER_TRACKING.load(Ordering::Relaxed) {
+            let Some(win) = app.get_webview_window(PILL_LABEL) else {
+                break;
+            };
+            let inside = cursor_inside_pill_frame(&win);
+            if inside != prev {
+                prev = inside;
+                let _ = win.emit("clips:pill-hover", serde_json::json!({ "hovered": inside }));
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+        PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
+    });
+}
+
+fn stop_pill_hover_tracking() {
+    PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -423,6 +482,7 @@ pub async fn recording_pill_expand(app: AppHandle, expanded: bool) -> Result<(),
 
 #[tauri::command]
 pub async fn recording_pill_hide(app: AppHandle) -> Result<(), String> {
+    stop_pill_hover_tracking();
     if let Some(w) = app.get_webview_window(PILL_LABEL) {
         // Snapshot current position before close so the next show re-opens
         // at the user's chosen spot.
