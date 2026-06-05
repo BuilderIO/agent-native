@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.37.3
+
+### Patch Changes
+
+- 309ad84: Tighten bundled visual plan guidance for non-redundant documents and aligned sketch wireframes.
+
 ## 0.37.2
 
 ### Patch Changes
