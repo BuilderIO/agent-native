@@ -342,8 +342,12 @@ version: 2
 
     const generatedScreenId = wireframe.data.screen[0]?.id;
     const generatedButtonId = wireframe.data.screen[0]?.children?.[0]?.id;
-    expect(generatedScreenId).toBe("node-screen-screen-0");
-    expect(generatedButtonId).toBe("node-btn-node-screen-screen-0-0");
+    expect(generatedScreenId).toBe(
+      "node-screen-block-inline-wireframe-screen-0",
+    );
+    expect(generatedButtonId).toBe(
+      "node-btn-node-screen-block-inline-wireframe-screen-0-0",
+    );
 
     const exported = await exportPlanContentToMdxFolder({
       content: parsed,
@@ -360,6 +364,50 @@ version: 2
     ]);
 
     expect(patched["plan.mdx"]).toContain('text="Review"');
+  });
+
+  it("keeps generated wireframe node IDs distinct across independent owners", async () => {
+    const parsed = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Independent wireframes"
+version: 2
+---
+
+<WireframeBlock id="doc-wireframe" title="Document wireframe">
+  <Screen surface="browser">
+    <FrameScreen>
+      <Btn text="Document action" />
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+`,
+      "canvas.mdx": `<DesignBoard title="Board">
+  <Artboard id="canvas-artboard" label="Canvas" x={80} y={80}>
+    <Screen surface="browser">
+      <FrameScreen>
+        <Btn text="Canvas action" />
+      </FrameScreen>
+    </Screen>
+  </Artboard>
+</DesignBoard>
+`,
+    });
+    const wireframe = parsed.blocks.find(
+      (block) => block.id === "doc-wireframe",
+    );
+    expect(wireframe?.type).toBe("wireframe");
+    if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
+    const documentButtonId = wireframe.data.screen[0]?.children?.[0]?.id;
+    const canvasButtonId =
+      parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0]?.id;
+
+    expect(documentButtonId).toBe(
+      "node-btn-node-screen-block-doc-wireframe-screen-0-0",
+    );
+    expect(canvasButtonId).toBe(
+      "node-btn-node-screen-artboard-canvas-artboard-screen-0-0",
+    );
+    expect(documentButtonId).not.toBe(canvasButtonId);
   });
 
   it("replaces a single artboard from an MDX fragment", async () => {

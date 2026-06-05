@@ -679,7 +679,11 @@ function parseBlock(node: MdxNode): PlanBlock | null {
       (child) => elementName(child) === "Screen",
     );
     if (!screen) return null;
-    return { ...base, type: "wireframe", data: parseScreen(screen) };
+    return {
+      ...base,
+      type: "wireframe",
+      data: parseScreen(screen, `block-${base.id}`),
+    };
   }
   if (name === "LegacyWireframeBlock") {
     return {
@@ -746,7 +750,10 @@ function parseBlock(node: MdxNode): PlanBlock | null {
   };
 }
 
-function parseScreen(node: MdxNode): {
+function parseScreen(
+  node: MdxNode,
+  idContext = "screen",
+): {
   surface: PlanArtboard["surface"];
   caption?: string;
   screen: PlanWireframeNode[];
@@ -756,7 +763,9 @@ function parseScreen(node: MdxNode): {
       (stringAttr(node, "surface") as PlanArtboard["surface"]) ?? "desktop",
     caption: stringAttr(node, "caption"),
     screen: (node.children ?? [])
-      .map((child, index) => parseWireframeNode(child, `screen-${index}`))
+      .map((child, index) =>
+        parseWireframeNode(child, `${idContext}-screen-${index}`),
+      )
       .filter(Boolean) as PlanWireframeNode[],
   };
 }
@@ -936,6 +945,7 @@ function parseCanvas(source: string): PlanContent["canvas"] {
 }
 
 function parseArtboard(node: MdxNode): PlanArtboard {
+  const id = stringAttr(node, "id") ?? createPlanBlockId("artboard");
   const screen = node.children?.find(
     (child) => elementName(child) === "Screen",
   );
@@ -943,7 +953,7 @@ function parseArtboard(node: MdxNode): PlanArtboard {
     (child) => elementName(child) === "LegacyWireframe",
   );
   return {
-    id: stringAttr(node, "id") ?? createPlanBlockId("artboard"),
+    id,
     label: stringAttr(node, "label"),
     surface: stringAttr(node, "surface") as PlanArtboard["surface"],
     blockId: stringAttr(node, "blockId"),
@@ -952,7 +962,7 @@ function parseArtboard(node: MdxNode): PlanArtboard {
     width: numberAttr(node, "width"),
     height: numberAttr(node, "height"),
     order: numberAttr(node, "order"),
-    wireframe: screen ? parseScreen(screen) : undefined,
+    wireframe: screen ? parseScreen(screen, `artboard-${id}`) : undefined,
     legacyWireframe: legacy
       ? dataAttr<PlanLegacyWireframeBlock["data"]>(legacy, "data")
       : undefined,
