@@ -1819,6 +1819,7 @@ describe("server/auth", () => {
 
       const { getSession } = await import("./auth.js");
       const event = createMockEvent({
+        path: "/_agent-native/actions/import-visual-plan-source",
         headers: { authorization: `Bearer ${token}` },
       });
 
@@ -1827,6 +1828,51 @@ describe("server/auth", () => {
         token,
         orgId: "org-123",
       });
+    });
+
+    it("does not resolve connect-minted MCP OAuth bearer tokens outside action routes", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { signMcpOAuthAccessToken, MCP_OAUTH_DEFAULT_SCOPE } =
+        await import("../mcp/oauth-token.js");
+      const { MCP_CONNECT_OAUTH_CLIENT_ID } =
+        await import("../mcp/connect-store.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "owner@plans.test",
+        orgId: "org-123",
+        orgDomain: "plans.test",
+        clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
+        scope: MCP_OAUTH_DEFAULT_SCOPE,
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+        jti: "jti-connect-non-action-test",
+        expiresIn: "30d",
+      });
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        path: "/api/account",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(await getSession(event)).toBeNull();
     });
 
     it("rejects an MCP OAuth bearer token bound to a different app (wrong audience)", async () => {
@@ -1869,6 +1915,7 @@ describe("server/auth", () => {
 
       const { getSession } = await import("./auth.js");
       const event = createMockEvent({
+        path: "/_agent-native/actions/import-visual-plan-source",
         headers: { authorization: `Bearer ${token}` },
       });
 

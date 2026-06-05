@@ -2,10 +2,10 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   workspaceAppAudience: "internal",
-  // Keep the hosted app homepage private so unauthenticated visitors see the
-  // standard framework signup page, while generated public review links can
-  // still load their shell and resolve data through the public-plan owner gate.
-  workspaceAppPublicPaths: ["/plans/plan_"],
+  // Guest authors can create/list/edit their own plans without signing in.
+  // Generated public review links still resolve data through the public-plan
+  // owner gate.
+  workspaceAppPublicPaths: ["/", "/plans", "/plans/plan_"],
   publicPaths: [
     "/_agent-native/actions/get-visual-plan",
     "/_agent-native/actions/update-visual-plan",

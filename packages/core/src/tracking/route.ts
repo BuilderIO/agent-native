@@ -70,7 +70,7 @@ export function validateTrackPayload(
   if (!trimmed) {
     return { ok: false, error: "`name` must be a non-empty string." };
   }
-  if (name.length > MAX_TRACK_EVENT_NAME_LENGTH) {
+  if (trimmed.length > MAX_TRACK_EVENT_NAME_LENGTH) {
     return {
       ok: false,
       error: `\`name\` must be at most ${MAX_TRACK_EVENT_NAME_LENGTH} characters.`,

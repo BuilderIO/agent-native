@@ -1301,39 +1301,48 @@ export function PlansPage() {
                         <IconFileZip className="size-4" />
                         Download source (.zip)
                       </DropdownMenuItem>
-                      <DropdownMenuLabel className="px-2 pt-2 text-xs font-normal text-muted-foreground">
-                        Export
-                      </DropdownMenuLabel>
-                      <DropdownMenuItem
-                        onClick={() => runPlanExportAction(copyPlanMarkdown)}
-                        className="gap-2"
-                      >
-                        <IconClipboardText className="size-4" />
-                        Copy Markdown
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          runPlanExportAction(downloadPlanMarkdown)
-                        }
-                        className="gap-2"
-                      >
-                        <IconDownload className="size-4" />
-                        Download Markdown
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => runPlanExportAction(copyPlanHtml)}
-                        className="gap-2"
-                      >
-                        <IconCopy className="size-4" />
-                        Copy HTML
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => runPlanExportAction(downloadPlanHtml)}
-                        className="gap-2"
-                      >
-                        <IconDownload className="size-4" />
-                        Download HTML
-                      </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="gap-2">
+                          <IconDownload className="size-4" />
+                          Export
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-56 rounded-xl">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(copyPlanMarkdown)
+                            }
+                            className="gap-2"
+                          >
+                            <IconClipboardText className="size-4" />
+                            Copy Markdown
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(downloadPlanMarkdown)
+                            }
+                            className="gap-2"
+                          >
+                            <IconDownload className="size-4" />
+                            Download Markdown
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => runPlanExportAction(copyPlanHtml)}
+                            className="gap-2"
+                          >
+                            <IconCopy className="size-4" />
+                            Copy HTML
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              runPlanExportAction(downloadPlanHtml)
+                            }
+                            className="gap-2"
+                          >
+                            <IconDownload className="size-4" />
+                            Download HTML
+                          </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                       {bundle.summary.openCommentCount > 0 && (
                         <DropdownMenuItem
                           onClick={copyPlanFeedbackForAgent}

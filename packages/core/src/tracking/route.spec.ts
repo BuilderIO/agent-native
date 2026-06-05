@@ -47,6 +47,10 @@ describe("validateTrackPayload", () => {
     expect(validateTrackPayload({ name: longName }).ok).toBe(false);
     const maxName = "x".repeat(MAX_TRACK_EVENT_NAME_LENGTH);
     expect(validateTrackPayload({ name: maxName }).ok).toBe(true);
+    const paddedMaxName = `  ${maxName}  `;
+    const result = validateTrackPayload({ name: paddedMaxName });
+    expect(result.ok).toBe(true);
+    expect(result.name).toBe(maxName);
   });
 
   it("rejects non-plain-object properties", () => {

@@ -741,15 +741,25 @@ async function getMcpOAuthBearerSession(
   }
 }
 
+function isFrameworkActionRoute(event: H3Event): boolean {
+  const { rawPath } = getRequestPathAndSearch(event);
+  const path = stripAppBasePath(rawPath);
+  return (
+    path === "/_agent-native/actions" ||
+    path.startsWith("/_agent-native/actions/")
+  );
+}
+
 /**
  * Resolve an `Authorization: Bearer` token to a session: first the legacy
- * `sessions` table (desktop/native persisted tokens), then a connect-minted MCP
- * OAuth access token (the local Plans publish credential). Both branches of the
- * resolution chain use this so the two token kinds are honored consistently.
+ * `sessions` table (desktop/native persisted tokens), then, only on the
+ * framework HTTP action surface, a connect-minted MCP OAuth access token (the
+ * local Plans publish credential).
  */
 async function getBearerSession(event: H3Event): Promise<AuthSession | null> {
   const legacy = await getBearerLegacySession(event);
   if (legacy) return legacy;
+  if (!isFrameworkActionRoute(event)) return null;
   return getMcpOAuthBearerSession(event);
 }
 
@@ -1998,9 +2008,9 @@ async function resolveSessionUncached(
     // Fall through to mobile _session check
   } else {
     // 4. Bearer session. Desktop/native clients can persist a legacy session
-    // token outside the WebView cookie jar and attach it to all app requests;
-    // `agent-native connect` clients present a connect-minted MCP OAuth access
-    // token. `getBearerSession` resolves both kinds.
+    // token outside the WebView cookie jar and attach it to all app requests.
+    // `agent-native connect` clients may present a connect-minted MCP OAuth
+    // token, but only the framework action route accepts that fallback.
     const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
 
