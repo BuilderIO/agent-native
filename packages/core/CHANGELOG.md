@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.37.2
+
+### Patch Changes
+
+- ce7f37c: Expose shared Brand Kit helpers for parsing Figma `.fig` local-copy files.
+- ce7f37c: Add the visual-questions Plans skill to the installer and support compact share triggers.
+
 ## 0.37.1
 
 ### Patch Changes
