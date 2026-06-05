@@ -11,6 +11,18 @@ metadata:
 
 # Secrets Registry
 
+## Non-negotiable rule
+
+Never hardcode credential values. Source, docs, tests, fixtures, prompts, seed
+data, and generated extension/app content may mention credential **names** such
+as `OPENAI_API_KEY`, but must not contain real API keys, tokens, webhook URLs,
+signing secrets, OAuth refresh tokens, or private Builder/customer data.
+
+Secret values are supplied at runtime through deployment configuration, the
+encrypted `app_secrets` vault, `saveCredential` / `resolveCredential`, OAuth, or
+`${keys.NAME}` substitution. Examples must use obvious placeholders such as
+`<OPENAI_API_KEY>` or `${keys.SLACK_WEBHOOK}`, not real-looking copied values.
+
 ## When to use
 
 Use this for any external credential your template needs: API keys, service
@@ -115,8 +127,7 @@ export default defineAction({
       scope: "user",
       scopeId: email,
     });
-    // Env var wins if set (useful for hosted deployments).
-    const apiKey = process.env.OPENAI_API_KEY ?? stored?.value;
+    const apiKey = stored?.value;
     if (!apiKey) {
       throw new Error(
         "OPENAI_API_KEY is not set. Configure it in the sidebar settings.",
@@ -132,8 +143,10 @@ Rules:
 
 - **Never log the value.** The read layer enforces this server-side; your
   code must do the same.
-- **Check `process.env[key]` first.** Env vars win so ops teams can set keys
-  via deploy configuration without the user ever visiting the sidebar.
+- **Use env vars only for deploy-level secrets.** If a credential is
+  user-scoped, org-scoped, or workspace-scoped, read the scoped vault/credential
+  store. Do not add a `process.env` fallback that makes every user inherit one
+  deployment's key.
 - **Scope matches the registration.** `scope: "user"` → pass the user email.
   `scope: "workspace"` → pass the active `orgId` from
   `getOrgContext(event).orgId`.

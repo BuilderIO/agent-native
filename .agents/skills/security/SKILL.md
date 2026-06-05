@@ -14,6 +14,25 @@ metadata:
 
 Use the framework's security primitives everywhere. Never bypass them.
 
+## Absolute Secrets Rule
+
+Never hardcode secret values or real private data. This applies to source code,
+docs, tests, fixtures, generated prompts, screenshots, seed data, and extension
+HTML just as much as production code.
+
+Do not paste or invent real-looking API keys, bearer tokens, OAuth refresh
+tokens, webhook URLs, signing secrets, private Builder/internal data, or customer
+data into the repo. Examples must use obvious placeholders such as
+`<OPENAI_API_KEY>`, `${keys.SLACK_WEBHOOK}`, `sk-test-example`, or
+`example.customer@example.com`. Test literals should be clearly fake and must
+not match real provider token formats when an `example` token will do.
+
+Credential values enter the system only through approved runtime channels:
+deployment env vars for deploy-level secrets, the encrypted `app_secrets` vault
+or `saveCredential` / `resolveCredential` for user/org/workspace API keys, and
+`oauth_tokens` for OAuth. Code and instructions may name the credential key
+(`OPENAI_API_KEY`), but must never contain the credential value.
+
 ## Input Validation
 
 Use `defineAction` with a Zod `schema:` for every action. The framework validates input automatically and returns clear 400 errors for HTTP callers and structured error results for agent tool calls.
@@ -71,6 +90,9 @@ For a pre-flight-only check (e.g. before a streaming or one-shot fetch), use `is
 - OAuth tokens go in the `oauth_tokens` store via `saveOAuthTokens()`.
 - Per-user / per-org API keys go through `saveCredential` / `resolveCredential` (`@agent-native/core/credentials`) or the `app_secrets` vault. Both encrypt values at rest with AES-256-GCM (keyed by `SECRETS_ENCRYPTION_KEY`, falling back to `BETTER_AUTH_SECRET`; production refuses to start without one).
 - Never hand-roll secrets into `settings`, `application_state`, source code, or action responses sent to the client. The credential / vault APIs above are the only sanctioned stores.
+- Never commit real keys, tokens, webhook URLs, signing secrets, or private
+  Builder/customer data in examples or fixtures. Use placeholders that cannot be
+  mistaken for working credentials.
 
 ## User Credentials Are Per-User Data — Never `process.env`
 
@@ -205,6 +227,8 @@ Run `pnpm action db-check-scoping` to verify. Use `--require-org` for multi-org 
 - [ ] No `dangerouslySetInnerHTML` with user content
 - [ ] Server-side fetches of user/agent URLs use `ssrfSafeFetch`, not bare `fetch`
 - [ ] Secrets stored via `saveCredential` / the vault (encrypted), never raw in `settings` or responses
+- [ ] No hardcoded API keys, tokens, webhook URLs, signing secrets, real
+      credential-looking strings, private Builder/internal data, or customer data
 - [ ] New env vars in `.env` only, not committed
 - [ ] New user-data tables have `owner_email` column
 - [ ] Custom routes call `getSession` and reject unauthenticated requests

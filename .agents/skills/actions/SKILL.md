@@ -72,6 +72,13 @@ The `schema` field accepts a Zod schema (or any Standard Schema-compatible libra
 
 When an action reads or writes app data, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not use raw SQL, `getDbExec()`, or dialect-specific schema imports in normal actions unless there is a documented reason Drizzle cannot express the query.
 
+When an action calls an external service, never hardcode API keys, bearer
+tokens, webhook URLs, signing secrets, OAuth refresh tokens, private
+Builder/internal data, or customer data. Read user/org/workspace credentials
+from `readAppSecret`, `resolveCredential`, OAuth token helpers, or the provider
+API credential adapter. Use `process.env` only for explicitly deploy-level
+configuration, and keep examples to obvious placeholders.
+
 Tips:
 - Use `.describe()` for parameter descriptions
 - Use `.optional()` for optional params
@@ -262,7 +269,9 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
 - **Use `agentTool: false`** for UI-only / programmatic actions that should NOT be a tool in the model's context window. It stays frontend/HTTP-callable but is hidden from the agent. Distinct from `toolCallable: false`, which only blocks the sandboxed extension iframe bridge.
 - **Document reusable actions.** If a new action should be called by agents outside one narrow screen, update `AGENTS.md` with when to use it, important args, and which return fields to preserve.
 - **Promote workflow-heavy actions to skills.** If the action is part of a provider-backed, cross-app, MCP/A2A, or multi-step workflow, create or update a skill in `.agents/skills/` and add app-skill visibility (`internal`, `exported`, or `both`) when it should ship through a marketplace.
-- **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).
+- **Use `loadEnv()`** only for deploy-level configuration. User/org/workspace
+  credentials belong in the encrypted secrets/credential/OAuth stores, never as
+  hardcoded literals or shared env fallbacks.
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
 - **Do not re-export actions as REST.** The mounted `/_agent-native/actions/:name` endpoint is the REST surface; duplicating it under `/api/*` creates drift and hides the operation from agents.

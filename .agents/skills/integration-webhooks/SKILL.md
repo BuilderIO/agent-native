@@ -194,6 +194,13 @@ prevents the same task from being processed twice.
    `${baseUrl}/_agent-native/integrations/<platform>/webhook`. For platforms
    with a registration API (Telegram), implement `POST /:platform/setup`.
 
+Never hardcode bot tokens, signing secrets, verification tokens, webhook URLs,
+channel/customer identifiers, or copied platform payloads with real private data
+inside the adapter, tests, docs, prompts, or fixtures. `getRequiredEnvKeys()`
+declares credential names only. Values come from deployment configuration,
+registered secrets, OAuth, or scoped credential stores, and tests should use
+obvious fake placeholders.
+
 The adapter is **only** responsible for:
 
 - platform-specific verification (signatures, challenges)

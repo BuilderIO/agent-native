@@ -184,6 +184,22 @@ App instructions should make honesty and verification the default behavior:
 
 Put these as core rules in `AGENTS.md` so they apply to every turn.
 
+## Bake in secrets hygiene
+
+Instruction authors must make credential handling explicit anywhere an app,
+skill, action, webhook, integration, or extension touches external services.
+Write the rule in terms of values, not just files: never hardcode real API keys,
+tokens, webhook URLs, signing secrets, OAuth refresh tokens, private
+Builder/internal data, or customer data in source, docs, tests, fixtures,
+prompts, screenshots, or generated content.
+
+Examples may name credential keys such as `OPENAI_API_KEY` or `SLACK_WEBHOOK`,
+but values must be placeholders (`<OPENAI_API_KEY>`, `${keys.SLACK_WEBHOOK}`) or
+clearly fake test data. Tell agents which approved channel to use instead:
+deployment env vars for deploy-level secrets, `app_secrets` /
+`saveCredential` / `resolveCredential` for scoped API keys, `oauth_tokens` for
+OAuth, and `${keys.NAME}` substitution for extension/automation outbound HTTP.
+
 ## What goes where
 
 - **AGENTS.md** — applies to the whole app, every turn: purpose, core rules,
@@ -207,6 +223,8 @@ Put these as core rules in `AGENTS.md` so they apply to every turn.
 - Don't write vague descriptions ("helps with projects") — they won't trigger.
 - Don't document niche/buried UI behaviors in instructions; let code and UI
   carry those.
+- Don't paste real credentials, credential-looking dummy strings, private
+  Builder/internal data, or customer data into examples. Use placeholders.
 
 ## Related Skills
 
