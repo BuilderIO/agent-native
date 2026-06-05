@@ -5,9 +5,23 @@ description: >-
   they appear in the agent sidebar settings UI and the onboarding checklist.
   Use for any third-party API key (OpenAI, Stripe, Twilio, etc.) and for
   surfacing OAuth connections in the unified settings UI.
+metadata:
+  internal: true
 ---
 
 # Secrets Registry
+
+## Non-negotiable rule
+
+Never hardcode credential values. Source, docs, tests, fixtures, prompts, seed
+data, and generated extension/app content may mention credential **names** such
+as `OPENAI_API_KEY`, but must not contain real API keys, tokens, webhook URLs,
+signing secrets, OAuth refresh tokens, or private Builder/customer data.
+
+Secret values are supplied at runtime through deployment configuration, the
+encrypted `app_secrets` vault, `saveCredential` / `resolveCredential`, OAuth, or
+`${keys.NAME}` substitution. Examples must use obvious placeholders such as
+`<OPENAI_API_KEY>` or `${keys.SLACK_WEBHOOK}`, not real-looking copied values.
 
 ## When to use
 
@@ -96,25 +110,24 @@ row is written — status is derived from `hasOAuthTokens("google")`.
 ## Reading a secret from an action
 
 ```ts
+import { z } from "zod";
 import { defineAction } from "@agent-native/core";
 import { readAppSecret } from "@agent-native/core/secrets";
-import { getSession } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server";
 
 export default defineAction({
-  name: "transcribe-audio",
   description: "Transcribe an audio file with Whisper",
-  input: { fileUrl: "string" },
-  handler: async ({ fileUrl }, ctx) => {
-    const session = await getSession(ctx.event);
-    if (!session?.email) throw new Error("Not signed in");
+  schema: z.object({ fileUrl: z.string() }),
+  run: async ({ fileUrl }) => {
+    const email = await getRequestUserEmail();
+    if (!email) throw new Error("Not signed in");
 
     const stored = await readAppSecret({
       key: "OPENAI_API_KEY",
       scope: "user",
-      scopeId: session.email,
+      scopeId: email,
     });
-    // Env var wins if set (useful for hosted deployments).
-    const apiKey = process.env.OPENAI_API_KEY ?? stored?.value;
+    const apiKey = stored?.value;
     if (!apiKey) {
       throw new Error(
         "OPENAI_API_KEY is not set. Configure it in the sidebar settings.",
@@ -130,8 +143,10 @@ Rules:
 
 - **Never log the value.** The read layer enforces this server-side; your
   code must do the same.
-- **Check `process.env[key]` first.** Env vars win so ops teams can set keys
-  via deploy configuration without the user ever visiting the sidebar.
+- **Use env vars only for deploy-level secrets.** If a credential is
+  user-scoped, org-scoped, or workspace-scoped, read the scoped vault/credential
+  store. Do not add a `process.env` fallback that makes every user inherit one
+  deployment's key.
 - **Scope matches the registration.** `scope: "user"` → pass the user email.
   `scope: "workspace"` → pass the active `orgId` from
   `getOrgContext(event).orgId`.
@@ -187,7 +202,7 @@ with any URL.
 POST /_agent-native/secrets/adhoc
 {
   "name": "SLACK_WEBHOOK",
-  "value": "https://hooks.slack.com/services/T00/B00/xxxx",
+  "value": "<SLACK_WEBHOOK_URL_FROM_SETTINGS>",
   "urlAllowlist": ["https://hooks.slack.com"]
 }
 ```
@@ -208,12 +223,12 @@ import {
 const { resolved, usedKeys } = await resolveKeyReferences(
   "Bearer ${keys.API_TOKEN}",
   "user",
-  "owner@example.com",
+  "user@example.com",
 );
 
 // Validate a URL against a key's allowlist
 const allowed = validateUrlAllowlist(
-  "https://hooks.slack.com/services/T00/B00/xxxx",
+  "https://hooks.slack.com/services/<WORKSPACE>/<CHANNEL>/<SECRET>",
   ["https://hooks.slack.com"],
 );
 ```
@@ -221,6 +236,20 @@ const allowed = validateUrlAllowlist(
 Key resolution falls back from user scope to workspace scope, so users can
 override shared keys without breaking automations that reference workspace
 defaults.
+
+## Dispatch Vault Access
+
+Dispatch workspaces have a vault access policy for workspace app credentials:
+
+- `all-apps` is the default. Every saved Dispatch vault key is available to
+  every workspace app; `sync-vault-to-app` pushes all vault keys to the target
+  app.
+- `manual` requires explicit per-app grants. Use
+  `create-vault-grant` / `grant-vault-secrets-to-app`, then
+  `sync-vault-to-app`.
+
+Use `get-vault-access-settings` before deciding whether to create grants, and
+use `set-vault-access-settings` only when the user asks to change the policy.
 
 ### Key Files (ad-hoc)
 

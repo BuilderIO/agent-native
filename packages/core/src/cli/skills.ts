@@ -334,6 +334,7 @@ direction before you implement.
    or repo-check-in artifacts.
 
 <!-- SHARED-CORE:wireframe-canvas START -->
+
 ## Wireframe & Canvas Core
 
 This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
@@ -353,22 +354,47 @@ content from the kit, and annotate — nothing else.
   "surface": "desktop",
   "screen": [
     { "el": "browserBar", "title": "tasklist" },
-    { "el": "row", "children": [
-      { "el": "sidebar", "children": [
-        { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
-        { "el": "navItem", "label": "Today", "count": 4 },
-        { "el": "navItem", "label": "Done" }
-      ] },
-      { "el": "main", "children": [
-        { "el": "title", "text": "Today", "script": true },
-        { "el": "chips", "items": [
-          { "label": "All", "active": true }, { "label": "Active" }, { "label": "Done" }
-        ] },
-        { "el": "section", "label": "OVERDUE", "tone": "warn" },
-        { "el": "taskRow", "title": "Send invoice to Acme Co.", "due": "Yesterday", "dueTone": "warn", "prio": 1 },
-        { "el": "taskRow", "title": "Reply to design feedback", "due": "Today", "prio": 2 }
-      ] }
-    ] }
+    {
+      "el": "row",
+      "children": [
+        {
+          "el": "sidebar",
+          "children": [
+            { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
+            { "el": "navItem", "label": "Today", "count": 4 },
+            { "el": "navItem", "label": "Done" }
+          ]
+        },
+        {
+          "el": "main",
+          "children": [
+            { "el": "title", "text": "Today", "script": true },
+            {
+              "el": "chips",
+              "items": [
+                { "label": "All", "active": true },
+                { "label": "Active" },
+                { "label": "Done" }
+              ]
+            },
+            { "el": "section", "label": "OVERDUE", "tone": "warn" },
+            {
+              "el": "taskRow",
+              "title": "Send invoice to Acme Co.",
+              "due": "Yesterday",
+              "dueTone": "warn",
+              "prio": 1
+            },
+            {
+              "el": "taskRow",
+              "title": "Reply to design feedback",
+              "due": "Today",
+              "prio": 2
+            }
+          ]
+        }
+      ]
+    }
   ]
 }
 \`\`\`
@@ -442,9 +468,25 @@ Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
 **Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
 
+**Compose like the Claude-style wireframes.** Build from nested flex primitives,
+not visual guesses: a \`screen\` contains chrome and one main \`row\`/\`col\`; use
+\`full: true\` on the row/col that should fill the artboard; then place sidebar,
+main content, cards, rows, and controls inside it. Use one or two realistic
+artboards that explain the feature well before adding more states. For
+component work, start with one real app-context artboard when placement matters,
+then focused popover/panel artboards; skip desktop/mobile variants unless
+responsive behavior is specifically being decided.
+
+**Placeholder bars are last resort.** Prefer real labels, row titles, counts,
+dates, chips, and button text. Use \`lines\` only for body copy that truly does
+not matter, keep it to 1-3 lines, put it inside the content container it
+belongs to, and align it under the label. Never scatter orphan gray bars around
+an artboard or let bars collide with handwritten labels.
+
 <!-- SHARED-CORE:wireframe-canvas END -->
 
 <!-- SHARED-CORE:document-quality START -->
+
 ## Document Quality Core
 
 This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
@@ -498,9 +540,11 @@ cover real plans.
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
 unreadable diagrams before asking for approval.
+
 <!-- SHARED-CORE:document-quality END -->
 
 <!-- SHARED-CORE:exemplar START -->
+
 ## Good vs. Bad Exemplar
 
 **GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard
@@ -519,6 +563,7 @@ bars "insinuating" text, crisp double-bordered rectangles or a heavy scribble, a
 forced desktop + mobile pair for a popover, floating bordered annotation cards
 hugging the frames, and a marketing-style document with a hero heading and value
 props that just restates what the canvas already shows. Never produce this.
+
 <!-- SHARED-CORE:exemplar END -->
 
 ## Tool Guidance
@@ -543,7 +588,43 @@ props that just restates what the canvas already shows. Never produce this.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-${PLAN_SETUP_AUTH_MD}
+## Setup & Authentication
+
+There are two ways into Plans.
+
+**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
+installs the Plans skills, registers the hosted Plans MCP connector, and
+authenticates it in the same step (a one-time browser sign-in at setup — this is
+intended), so the first tool call does not hit an OAuth wall:
+
+\`\`\`bash
+agent-native skills add visual-plan
+\`\`\`
+
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/visual-questions\`,
+\`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
+register the connector without authenticating, then run
+\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
+
+**Browser (people you share with).** Open the Plans editor and create & edit
+with no sign-up — you work as a guest. Sign in only when you want to save or
+share; signing in claims the plans you made as a guest into your account.
+
+Sharing and commenting require an account: public/shared plans are viewable by
+anyone with the link, but commenting on them needs an agent-native account.
+
+For fully offline, no-account use, run the Plans app locally and sync plans to
+your repo as MDX. This local mode is a separate advanced path, not the default
+hosted flow.
+
+If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
+do not keep retrying the tool. Authenticate the connector with
+\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
+instead re-run /mcp and choose Authenticate), then continue once the connector
+is available.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+not put shared secrets in skill files.
 `;
 
 export const UI_PLAN_SKILL_MD = `---
@@ -608,6 +689,7 @@ code changes. Never claim feedback has been applied until \`get-plan-feedback\` 
 the user has supplied it.
 
 <!-- SHARED-CORE:wireframe-canvas START -->
+
 ## Wireframe & Canvas Core
 
 This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
@@ -627,22 +709,47 @@ content from the kit, and annotate — nothing else.
   "surface": "desktop",
   "screen": [
     { "el": "browserBar", "title": "tasklist" },
-    { "el": "row", "children": [
-      { "el": "sidebar", "children": [
-        { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
-        { "el": "navItem", "label": "Today", "count": 4 },
-        { "el": "navItem", "label": "Done" }
-      ] },
-      { "el": "main", "children": [
-        { "el": "title", "text": "Today", "script": true },
-        { "el": "chips", "items": [
-          { "label": "All", "active": true }, { "label": "Active" }, { "label": "Done" }
-        ] },
-        { "el": "section", "label": "OVERDUE", "tone": "warn" },
-        { "el": "taskRow", "title": "Send invoice to Acme Co.", "due": "Yesterday", "dueTone": "warn", "prio": 1 },
-        { "el": "taskRow", "title": "Reply to design feedback", "due": "Today", "prio": 2 }
-      ] }
-    ] }
+    {
+      "el": "row",
+      "children": [
+        {
+          "el": "sidebar",
+          "children": [
+            { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
+            { "el": "navItem", "label": "Today", "count": 4 },
+            { "el": "navItem", "label": "Done" }
+          ]
+        },
+        {
+          "el": "main",
+          "children": [
+            { "el": "title", "text": "Today", "script": true },
+            {
+              "el": "chips",
+              "items": [
+                { "label": "All", "active": true },
+                { "label": "Active" },
+                { "label": "Done" }
+              ]
+            },
+            { "el": "section", "label": "OVERDUE", "tone": "warn" },
+            {
+              "el": "taskRow",
+              "title": "Send invoice to Acme Co.",
+              "due": "Yesterday",
+              "dueTone": "warn",
+              "prio": 1
+            },
+            {
+              "el": "taskRow",
+              "title": "Reply to design feedback",
+              "due": "Today",
+              "prio": 2
+            }
+          ]
+        }
+      ]
+    }
   ]
 }
 \`\`\`
@@ -716,9 +823,25 @@ Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
 **Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
 
+**Compose like the Claude-style wireframes.** Build from nested flex primitives,
+not visual guesses: a \`screen\` contains chrome and one main \`row\`/\`col\`; use
+\`full: true\` on the row/col that should fill the artboard; then place sidebar,
+main content, cards, rows, and controls inside it. Use one or two realistic
+artboards that explain the feature well before adding more states. For
+component work, start with one real app-context artboard when placement matters,
+then focused popover/panel artboards; skip desktop/mobile variants unless
+responsive behavior is specifically being decided.
+
+**Placeholder bars are last resort.** Prefer real labels, row titles, counts,
+dates, chips, and button text. Use \`lines\` only for body copy that truly does
+not matter, keep it to 1-3 lines, put it inside the content container it
+belongs to, and align it under the label. Never scatter orphan gray bars around
+an artboard or let bars collide with handwritten labels.
+
 <!-- SHARED-CORE:wireframe-canvas END -->
 
 <!-- SHARED-CORE:document-quality START -->
+
 ## Document Quality Core
 
 This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
@@ -772,9 +895,11 @@ cover real plans.
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
 unreadable diagrams before asking for approval.
+
 <!-- SHARED-CORE:document-quality END -->
 
 <!-- SHARED-CORE:exemplar START -->
+
 ## Good vs. Bad Exemplar
 
 **GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard
@@ -793,6 +918,7 @@ bars "insinuating" text, crisp double-bordered rectangles or a heavy scribble, a
 forced desktop + mobile pair for a popover, floating bordered annotation cards
 hugging the frames, and a marketing-style document with a hero heading and value
 props that just restates what the canvas already shows. Never produce this.
+
 <!-- SHARED-CORE:exemplar END -->
 
 ## Tool Guidance
@@ -815,7 +941,43 @@ props that just restates what the canvas already shows. Never produce this.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-${PLAN_SETUP_AUTH_MD}
+## Setup & Authentication
+
+There are two ways into Plans.
+
+**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
+installs the Plans skills, registers the hosted Plans MCP connector, and
+authenticates it in the same step (a one-time browser sign-in at setup — this is
+intended), so the first tool call does not hit an OAuth wall:
+
+\`\`\`bash
+agent-native skills add visual-plan
+\`\`\`
+
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/visual-questions\`,
+\`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
+register the connector without authenticating, then run
+\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
+
+**Browser (people you share with).** Open the Plans editor and create & edit
+with no sign-up — you work as a guest. Sign in only when you want to save or
+share; signing in claims the plans you made as a guest into your account.
+
+Sharing and commenting require an account: public/shared plans are viewable by
+anyone with the link, but commenting on them needs an agent-native account.
+
+For fully offline, no-account use, run the Plans app locally and sync plans to
+your repo as MDX. This local mode is a separate advanced path, not the default
+hosted flow.
+
+If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
+do not keep retrying the tool. Authenticate the connector with
+\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
+instead re-run /mcp and choose Authenticate), then continue once the connector
+is available.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+not put shared secrets in skill files.
 `;
 
 export const VISUAL_QUESTIONS_SKILL_MD = `---
@@ -899,7 +1061,43 @@ desktop/mobile pair for a popover, panel, or component.
 - \`read-visual-plan-source\` / \`patch-visual-plan-source\`: inspect or patch the
   MDX source if another agent is operating from checked-in plan files.
 
-${PLAN_SETUP_AUTH_MD}
+## Setup & Authentication
+
+There are two ways into Plans.
+
+**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
+installs the Plans skills, registers the hosted Plans MCP connector, and
+authenticates it in the same step (a one-time browser sign-in at setup — this is
+intended), so the first tool call does not hit an OAuth wall:
+
+\`\`\`bash
+agent-native skills add visual-plan
+\`\`\`
+
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/visual-questions\`,
+\`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
+register the connector without authenticating, then run
+\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
+
+**Browser (people you share with).** Open the Plans editor and create & edit
+with no sign-up — you work as a guest. Sign in only when you want to save or
+share; signing in claims the plans you made as a guest into your account.
+
+Sharing and commenting require an account: public/shared plans are viewable by
+anyone with the link, but commenting on them needs an agent-native account.
+
+For fully offline, no-account use, run the Plans app locally and sync plans to
+your repo as MDX. This local mode is a separate advanced path, not the default
+hosted flow.
+
+If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
+do not keep retrying the tool. Authenticate the connector with
+\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
+instead re-run /mcp and choose Authenticate), then continue once the connector
+is available.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+not put shared secrets in skill files.
 `;
 
 export const VISUALIZE_PLAN_SKILL_MD = `---
@@ -955,6 +1153,7 @@ still reads like a plan, not a marketing page.
    native plan unless the user asks.
 
 <!-- SHARED-CORE:wireframe-canvas START -->
+
 ## Wireframe & Canvas Core
 
 This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
@@ -974,22 +1173,47 @@ content from the kit, and annotate — nothing else.
   "surface": "desktop",
   "screen": [
     { "el": "browserBar", "title": "tasklist" },
-    { "el": "row", "children": [
-      { "el": "sidebar", "children": [
-        { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
-        { "el": "navItem", "label": "Today", "count": 4 },
-        { "el": "navItem", "label": "Done" }
-      ] },
-      { "el": "main", "children": [
-        { "el": "title", "text": "Today", "script": true },
-        { "el": "chips", "items": [
-          { "label": "All", "active": true }, { "label": "Active" }, { "label": "Done" }
-        ] },
-        { "el": "section", "label": "OVERDUE", "tone": "warn" },
-        { "el": "taskRow", "title": "Send invoice to Acme Co.", "due": "Yesterday", "dueTone": "warn", "prio": 1 },
-        { "el": "taskRow", "title": "Reply to design feedback", "due": "Today", "prio": 2 }
-      ] }
-    ] }
+    {
+      "el": "row",
+      "children": [
+        {
+          "el": "sidebar",
+          "children": [
+            { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
+            { "el": "navItem", "label": "Today", "count": 4 },
+            { "el": "navItem", "label": "Done" }
+          ]
+        },
+        {
+          "el": "main",
+          "children": [
+            { "el": "title", "text": "Today", "script": true },
+            {
+              "el": "chips",
+              "items": [
+                { "label": "All", "active": true },
+                { "label": "Active" },
+                { "label": "Done" }
+              ]
+            },
+            { "el": "section", "label": "OVERDUE", "tone": "warn" },
+            {
+              "el": "taskRow",
+              "title": "Send invoice to Acme Co.",
+              "due": "Yesterday",
+              "dueTone": "warn",
+              "prio": 1
+            },
+            {
+              "el": "taskRow",
+              "title": "Reply to design feedback",
+              "due": "Today",
+              "prio": 2
+            }
+          ]
+        }
+      ]
+    }
   ]
 }
 \`\`\`
@@ -1063,9 +1287,25 @@ Never emit geometry, regions, or a standalone HTML document for a new plan —
 compose the kit tree instead.
 **Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
 
+**Compose like the Claude-style wireframes.** Build from nested flex primitives,
+not visual guesses: a \`screen\` contains chrome and one main \`row\`/\`col\`; use
+\`full: true\` on the row/col that should fill the artboard; then place sidebar,
+main content, cards, rows, and controls inside it. Use one or two realistic
+artboards that explain the feature well before adding more states. For
+component work, start with one real app-context artboard when placement matters,
+then focused popover/panel artboards; skip desktop/mobile variants unless
+responsive behavior is specifically being decided.
+
+**Placeholder bars are last resort.** Prefer real labels, row titles, counts,
+dates, chips, and button text. Use \`lines\` only for body copy that truly does
+not matter, keep it to 1-3 lines, put it inside the content container it
+belongs to, and align it under the label. Never scatter orphan gray bars around
+an artboard or let bars collide with handwritten labels.
+
 <!-- SHARED-CORE:wireframe-canvas END -->
 
 <!-- SHARED-CORE:document-quality START -->
+
 ## Document Quality Core
 
 This section is shared, word for word, by \`/visual-plan\`, \`/ui-plan\`, and
@@ -1119,9 +1359,11 @@ cover real plans.
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
 unreadable diagrams before asking for approval.
+
 <!-- SHARED-CORE:document-quality END -->
 
 <!-- SHARED-CORE:exemplar START -->
+
 ## Good vs. Bad Exemplar
 
 **GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard
@@ -1140,6 +1382,7 @@ bars "insinuating" text, crisp double-bordered rectangles or a heavy scribble, a
 forced desktop + mobile pair for a popover, floating bordered annotation cards
 hugging the frames, and a marketing-style document with a hero heading and value
 props that just restates what the canvas already shows. Never produce this.
+
 <!-- SHARED-CORE:exemplar END -->
 
 ## Tool Guidance
@@ -1161,7 +1404,43 @@ props that just restates what the canvas already shows. Never produce this.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-${PLAN_SETUP_AUTH_MD}
+## Setup & Authentication
+
+There are two ways into Plans.
+
+**Coding agent (CLI).** Install once with the Agent-Native CLI. The command
+installs the Plans skills, registers the hosted Plans MCP connector, and
+authenticates it in the same step (a one-time browser sign-in at setup — this is
+intended), so the first tool call does not hit an OAuth wall:
+
+\`\`\`bash
+agent-native skills add visual-plan
+\`\`\`
+
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/visual-questions\`,
+\`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
+register the connector without authenticating, then run
+\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
+
+**Browser (people you share with).** Open the Plans editor and create & edit
+with no sign-up — you work as a guest. Sign in only when you want to save or
+share; signing in claims the plans you made as a guest into your account.
+
+Sharing and commenting require an account: public/shared plans are viewable by
+anyone with the link, but commenting on them needs an agent-native account.
+
+For fully offline, no-account use, run the Plans app locally and sync plans to
+your repo as MDX. This local mode is a separate advanced path, not the default
+hosted flow.
+
+If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
+do not keep retrying the tool. Authenticate the connector with
+\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
+instead re-run /mcp and choose Authenticate), then continue once the connector
+is available.
+
+Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+not put shared secrets in skill files.
 `;
 
 const BUILT_IN_APP_SKILLS = {

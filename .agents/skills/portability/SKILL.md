@@ -12,7 +12,7 @@ metadata:
 
 ## Rule
 
-**Never write code that only works on one database or one hosting platform.** Templates must run on portable SQL backends (SQLite, Postgres, D1, Turso/libSQL, Supabase, Neon, Builder.io-managed environments when available) and any Nitro deploy target (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) without code changes.
+**Never write code that only works on one database or one hosting platform.** Templates must run on portable SQL backends (SQLite, Postgres, D1, Turso/libSQL, Supabase, Neon, managed platform SQL environments when available) and any Nitro deploy target (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) without code changes.
 
 ## Database Agnostic
 
@@ -75,7 +75,7 @@ Never write SQLite-only syntax in product code or docs examples: `INSERT OR REPL
 
 Never write Postgres-only syntax in shared app code either: `ILIKE`, `::type` casts, `jsonb_*`, `RETURNING` assumptions, serial/identity syntax, `ON CONFLICT` upserts, or `ALTER ... TYPE` unless the code is inside a dialect-gated migration block. Prefer Drizzle APIs or framework helpers.
 
-When giving deployment guidance, be precise about durability: local SQLite is the development fallback, while production needs a persistent `DATABASE_URL`. Do not steer users to Turso as the only path; it is one option among Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
+When giving deployment guidance, be precise about durability: local SQLite is the development fallback, while production needs a persistent `DATABASE_URL`. Do not steer users to Turso as the only path; it is one option among Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and managed platform SQL environments when available.
 
 ## Hosting Agnostic
 

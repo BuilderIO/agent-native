@@ -82,9 +82,16 @@ new Function(userInput);                                   // NEVER
 
 ## Secrets Management
 
+Never hardcode credential values or real private data. Source, docs, tests,
+fixtures, prompts, screenshots, seed data, application state, action responses,
+and generated app/extension content may name credential keys, but must never
+contain API key values, tokens, webhook URLs, signing secrets, private
+Builder/internal data, or customer data.
+
 | Secret type | Where to store | Why |
-|-------------|---------------|-----|
-| API keys (OpenAI, Stripe, etc.) | `.env` file (gitignored) | Never committed, server-side only |
+|-------------|----------------|-----|
+| User/org/workspace API keys, service tokens, webhook secrets | Secrets registry / `app_secrets` vault or `saveCredential` / `resolveCredential` | Encrypted, scoped, never sent to the client |
+| Deploy-only infrastructure secrets | Deployment env vars (`.env` only for local dev) | Server-side runtime configuration |
 | OAuth tokens (Google, GitHub) | `oauth_tokens` store | Per-user, per-provider, server-side |
 | App configuration | `settings` store | OK for non-secret config (themes, preferences) |
 | Session tokens | Framework handles | Automatic via Better Auth |
@@ -94,6 +101,8 @@ new Function(userInput);                                   // NEVER
 - Never return secrets in action responses — they may appear in agent chat or client UI
 - Never log secrets (tokens, keys, passwords)
 - Never commit `.env` files — they're gitignored by default
+- Use env vars only for deploy-level secrets. User/org/workspace credentials
+  must use the encrypted secrets/credential/OAuth stores.
 - Access env vars via `process.env` in actions/server code, never send them to the client
 
 ## Auth Patterns
@@ -193,7 +202,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 ```
 
 **How it works:**
-1. App A signs a JWT with `A2A_SECRET` containing `sub: "steve@builder.io"`
+1. App A signs a JWT with `A2A_SECRET` containing `sub: "user@example.com"`
 2. App B receives the call, verifies the JWT signature
 3. App B sets `AGENT_USER_EMAIL` from the verified `sub` claim
 4. Data scoping applies — App B only shows steve's data
@@ -206,7 +215,7 @@ Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev, not pro
 2. **Always use `defineAction` with a Zod `schema:`** for input validation on user-facing actions.
 3. **Never concatenate user input into SQL** — use parameterized queries or Drizzle ORM.
 4. **Never use `dangerouslySetInnerHTML`** or `innerHTML` with user-controlled content.
-5. **Never store secrets outside `.env` or `oauth_tokens`** — no settings, no source code, no responses.
+5. **Never hardcode or expose secrets** — no settings, application state, source code, fixtures, logs, or responses. Use the secrets registry / vault, scoped credentials, OAuth stores, or deploy-level env vars as appropriate.
 6. **Never bypass scoping** — don't raw-query tables without going through `db-query`/`db-exec`.
 7. **Never create unprotected routes that modify data** — use `defineAction` or check `getSession()`.
 8. **Don't hardcode emails** — use `AGENT_USER_EMAIL` environment variable.

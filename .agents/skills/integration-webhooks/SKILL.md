@@ -157,14 +157,16 @@ prevents the same task from being processed twice.
        label: "MyPlatform",
        getRequiredEnvKeys: () => [
          { name: "MYPLATFORM_TOKEN", label: "MyPlatform Bot Token", scope: "global" },
+         { name: "MYPLATFORM_SIGNING_SECRET", label: "MyPlatform Signing Secret", scope: "global" },
        ],
        async handleVerification(event) {
          // Platform-specific challenge response, if any
          return { handled: false };
        },
        async verifyWebhook(event) {
-         // HMAC / signing-secret check — return false on mismatch
-         return true;
+         // Verify HMAC/signature with a server-side secret and constant-time comparison.
+         // Never leave this as a permissive stub in production.
+         return verifyMyPlatformSignature(event);
        },
        async parseIncomingMessage(event) {
          // Map raw payload → IncomingMessage, or null to ignore

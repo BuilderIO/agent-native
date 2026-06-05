@@ -120,7 +120,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src",
-    "prepack": "npm run build && cp ../../README.md ./README.md",
+    "prepack": "tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

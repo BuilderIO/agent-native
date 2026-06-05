@@ -109,7 +109,7 @@ Local SQLite works out of the box for development. To deploy to production or an
 2. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
 3. No code changes should be needed when the schema and queries stay portable.
 
-Turso is one valid option, not the required option. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, Cloudflare D1 bindings, and Builder.io-managed environments when available.
+Turso is one valid option, not the required option. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, Cloudflare D1 bindings, and managed platform SQL environments when available.
 
 ### Real-time Sync
 

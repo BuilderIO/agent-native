@@ -9,6 +9,7 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for deck lifecycle, slide edits, imports, exports, images, design
   systems, and sharing. Do not write deck/slide rows directly.
 - In dev, call actions with `pnpm action <name>`; in production, use native

@@ -5,6 +5,8 @@ description: >-
   (dashboards, documents, forms, decks, etc.). Use when making a resource
   table ownable, wiring list/read/update access checks, or dropping the
   standard share dialog into a template.
+metadata:
+  internal: true
 ---
 
 # Sharing — Private by Default, Explicit Share
@@ -187,7 +189,9 @@ The framework auto-mounts these actions in every template — no per-template bo
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
 | `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |
 
-Both the agent and the UI call these via the same endpoints.
+Both the agent and the UI use these same actions. The agent calls them as tools;
+UI code should use `ShareButton` / `ShareDialog` or the action client hooks
+instead of hand-writing route calls.
 
 ## Migration pattern for existing tables
 

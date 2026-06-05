@@ -50,14 +50,16 @@ Parse the user's invocation to determine:
 
 For each app, check if required credentials exist:
 
-| App      | Check                                          | Can test without? |
-|----------|-------------------------------------------------|-------------------|
-| forms    | No credentials needed                          | Yes               |
-| content  | No credentials needed (Notion is opt-in)       | Yes               |
-| calendar | `templates/calendar/.env` has GOOGLE_CLIENT_ID | Partially — local events work, Google sync won't |
-| mail     | `templates/mail/.env` has GOOGLE_CLIENT_ID     | Partially — UI renders, Gmail features won't |
+| App      | Check                                                    | Can test without? |
+| -------- | -------------------------------------------------------- | ----------------- |
+| forms    | No credentials needed                                    | Yes               |
+| content  | No credentials needed (Notion is opt-in)                 | Yes               |
+| calendar | `templates/calendar/.env` has `GOOGLE_CLIENT_ID` present | Partially — local events work, Google sync won't |
+| mail     | `templates/mail/.env` has `GOOGLE_CLIENT_ID` present     | Partially — UI renders, Gmail features won't |
 
-Read each app's `.env` file (if it exists) to check. If credentials are missing:
+Read each app's `.env` file (if it exists) only to check whether required names
+are present. Never print, copy, summarize, paste, or pass `.env` values into
+tester prompts, reports, screenshots, logs, or chat. If credentials are missing:
 
 - Still test the app — many features work without external APIs
 - Include in the tester's instructions: "No Google credentials found. Test local features. Flag any feature that crashes without credentials as 'needs credentials' rather than a bug."
@@ -323,3 +325,5 @@ This is a known issue. The tester should:
 3. Check the server plugin that loads credentials
 4. Try to fix the credential detection logic
 5. If unfixable, report as "needs review" with details about what the app expects vs. what's configured
+
+Only report variable names and presence/absence. Do not include secret values.

@@ -202,7 +202,7 @@ with any URL.
 POST /_agent-native/secrets/adhoc
 {
   "name": "SLACK_WEBHOOK",
-  "value": "https://hooks.slack.com/services/T00/B00/xxxx",
+  "value": "<SLACK_WEBHOOK_URL_FROM_SETTINGS>",
   "urlAllowlist": ["https://hooks.slack.com"]
 }
 ```
@@ -223,12 +223,12 @@ import {
 const { resolved, usedKeys } = await resolveKeyReferences(
   "Bearer ${keys.API_TOKEN}",
   "user",
-  "steve@builder.io",
+  "user@example.com",
 );
 
 // Validate a URL against a key's allowlist
 const allowed = validateUrlAllowlist(
-  "https://hooks.slack.com/services/T00/B00/xxxx",
+  "https://hooks.slack.com/services/<WORKSPACE>/<CHANNEL>/<SECRET>",
   ["https://hooks.slack.com"],
 );
 ```

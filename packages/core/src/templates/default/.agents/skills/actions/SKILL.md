@@ -171,6 +171,7 @@ Older actions use a bare async function export with `parseArgs`:
 import { parseArgs, loadEnv, fail } from "@agent-native/core";
 
 export default async function myAction(args: string[]) {
+  // Only for deploy-level runtime config. User/org credentials use secrets/OAuth.
   loadEnv();
   const parsed = parseArgs(args);
   // ...
@@ -185,7 +186,9 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
 - **Return structured data.** Return objects/arrays, not `JSON.stringify()`.
 - **Use `http: { method: "GET" }`** for read-only actions. Default is POST.
 - **Use `http: false`** for agent-only actions (`navigate`, `view-screen`).
-- **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).
+- **Use `loadEnv()`** only for deploy-level configuration. User/org/workspace
+  credentials belong in the encrypted secrets/credential/OAuth stores, never as
+  hardcoded literals, shared env fallbacks, logs, or action responses.
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
 
