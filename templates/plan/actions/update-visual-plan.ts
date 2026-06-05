@@ -115,8 +115,10 @@ export default defineAction({
     const now = nowIso();
     let nextContent =
       args.content !== undefined ? normalizePlanContent(args.content) : null;
+    let versionAtLoad: string | null = null;
     if (args.content === undefined && args.contentPatches.length > 0) {
       const bundle = await loadPlanBundle(args.planId);
+      versionAtLoad = bundle.plan.updatedAt;
       if (!bundle.plan.content) {
         throw new Error(
           "Targeted content patches require a structured plan. Pass content for a full conversion, or html for legacy artifacts.",
@@ -141,10 +143,24 @@ export default defineAction({
 
     // guard:allow-unscoped -- gated above by editor access, or by public
     // viewer access plus new-open-human-comment-only validation.
-    await db
+    const updatedRows = await db
       .update(schema.plans)
       .set(planPatch)
-      .where(eq(schema.plans.id, args.planId));
+      .where(
+        versionAtLoad
+          ? and(
+              eq(schema.plans.id, args.planId),
+              eq(schema.plans.updatedAt, versionAtLoad),
+            )
+          : eq(schema.plans.id, args.planId),
+      )
+      .returning({ id: schema.plans.id });
+
+    if (updatedRows.length === 0) {
+      throw new Error(
+        "Plan changed while content patches were being applied. Reload the plan and retry your patch.",
+      );
+    }
 
     for (const [index, section] of args.sections.entries()) {
       const id = section.id ?? newId("sec");

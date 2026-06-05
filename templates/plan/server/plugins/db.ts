@@ -107,6 +107,20 @@ export default runMigrations(
         sqlite: `ALTER TABLE plans ADD COLUMN content TEXT`,
       },
     },
+    {
+      version: 10,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_id TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN hosted_plan_id TEXT`,
+      },
+    },
+    {
+      version: 11,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_url TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN hosted_plan_url TEXT`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

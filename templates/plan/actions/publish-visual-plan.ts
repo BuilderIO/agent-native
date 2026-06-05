@@ -1,12 +1,33 @@
 import { defineAction } from "@agent-native/core";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
-import { loadPlanBundle, planDeepLink, planPath } from "../server/plans.js";
+import { getDb, schema } from "../server/db/index.js";
+import {
+  loadPlanBundle,
+  planDeepLink,
+  planPath,
+  writeEvent,
+} from "../server/plans.js";
 import {
   planConnectCommand,
   resolvePlanHostedUrl,
   resolvePlanPublishAuth,
 } from "../server/lib/plan-publish.js";
+
+function sameHostedOrigin(
+  hostedPlanUrl: string | null | undefined,
+  url: string,
+) {
+  if (!hostedPlanUrl) return false;
+  try {
+    return new URL(hostedPlanUrl).origin === new URL(url).origin;
+  } catch {
+    return hostedPlanUrl
+      .replace(/\/+$/, "")
+      .startsWith(url.replace(/\/+$/, ""));
+  }
+}
 
 /**
  * The share/account bridge for local-first plans.
@@ -75,6 +96,11 @@ export default defineAction({
       url: planPath(bundle.plan.id),
     });
 
+    const existingHostedPlanId =
+      bundle.plan.hostedPlanId &&
+      sameHostedOrigin(bundle.plan.hostedPlanUrl, auth.url)
+        ? bundle.plan.hostedPlanId
+        : undefined;
     const endpoint = `${auth.url}/_agent-native/actions/import-visual-plan-source`;
     let response: Response;
     try {
@@ -85,6 +111,7 @@ export default defineAction({
           authorization: `Bearer ${auth.token}`,
         },
         body: JSON.stringify({
+          ...(existingHostedPlanId ? { planId: existingHostedPlanId } : {}),
           title: bundle.plan.title,
           brief: bundle.plan.brief,
           source: "imported",
@@ -146,9 +173,28 @@ export default defineAction({
       ? hostedPath
       : `${auth.url}${hostedPath.startsWith("/") ? "" : "/"}${hostedPath}`;
 
+    await getDb()
+      .update(schema.plans)
+      .set({
+        hostedPlanId,
+        hostedPlanUrl: url,
+      })
+      .where(eq(schema.plans.id, args.planId));
+
+    await writeEvent({
+      planId: args.planId,
+      type: existingHostedPlanId ? "plan.published.updated" : "plan.published",
+      message: existingHostedPlanId
+        ? "Updated the hosted shareable plan."
+        : "Published the plan to a hosted shareable link.",
+      payload: { hostedPlanId, hostedPlanUrl: url },
+      createdBy: "agent",
+    });
+
     return {
       url,
       hostedPlanId,
+      hostedPlanUrl: url,
       planId: args.planId,
       hostedUrl: auth.url,
       // The hosted copy starts private; sharing is set via the core sharing

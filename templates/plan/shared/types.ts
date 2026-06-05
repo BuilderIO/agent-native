@@ -60,6 +60,8 @@ export interface PlanSummary {
   source: PlanSource;
   repoPath?: string | null;
   currentFocus?: string | null;
+  hostedPlanId?: string | null;
+  hostedPlanUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
@@ -76,6 +78,8 @@ export interface Plan {
   source: PlanSource;
   repoPath?: string | null;
   currentFocus?: string | null;
+  hostedPlanId?: string | null;
+  hostedPlanUrl?: string | null;
   html?: string | null;
   markdown?: string | null;
   content?: PlanContent | null;

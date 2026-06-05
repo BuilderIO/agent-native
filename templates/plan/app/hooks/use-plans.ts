@@ -205,11 +205,15 @@ export type PublishVisualPlanResult =
       needsAuth?: false | undefined;
       url: string;
       hostedPlanId: string;
+      hostedPlanUrl?: string;
+      hostedUrl?: string;
     }
   | {
       needsAuth: true;
       url?: undefined;
       hostedPlanId?: undefined;
+      hostedPlanUrl?: undefined;
+      hostedUrl?: undefined;
       /** CLI command that connects an account (shown for terminal users). */
       connectCommand?: string;
       /** Browser sign-in / account-creation URL to open and then retry. */

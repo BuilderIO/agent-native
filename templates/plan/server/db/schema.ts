@@ -25,6 +25,8 @@ export const plans = table("plans", {
   html: text("html"),
   markdown: text("markdown"),
   content: text("content"),
+  hostedPlanId: text("hosted_plan_id"),
+  hostedPlanUrl: text("hosted_plan_url"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   approvedAt: text("approved_at"),

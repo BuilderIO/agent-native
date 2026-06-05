@@ -18,6 +18,7 @@ import {
   IconClipboardText,
   IconCopy,
   IconDownload,
+  IconExternalLink,
   IconFileZip,
   IconDotsVertical,
   IconLayoutSidebarRight,
@@ -1165,6 +1166,8 @@ export function PlansPage() {
                   planId={bundle.plan.id}
                   planTitle={bundle.plan.title}
                   localShareUrl={planShareUrl}
+                  hostedPlanId={bundle.plan.hostedPlanId}
+                  hostedPlanUrl={bundle.plan.hostedPlanUrl}
                   onOpenChange={(open) => {
                     if (open) closeInlineComment();
                   }}
@@ -1511,26 +1514,42 @@ function PlanShareControl({
   planId,
   planTitle,
   localShareUrl,
+  hostedPlanId,
+  hostedPlanUrl,
   onOpenChange,
 }: {
   planId: string;
   planTitle: string;
   localShareUrl?: string;
+  hostedPlanId?: string | null;
+  hostedPlanUrl?: string | null;
   onOpenChange?: (open: boolean) => void;
 }) {
   const { session, isLoading: sessionLoading } = useSession();
   const publishPlan = usePublishVisualPlan();
   const [publishOpen, setPublishOpen] = useState(false);
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [publishedPlan, setPublishedPlan] = useState<{
+    url: string;
+    hostedPlanId: string;
+  } | null>(null);
   const [authPrompt, setAuthPrompt] = useState<{
     authUrl?: string;
     connectCommand?: string;
   } | null>(null);
 
-  // Once we have an account session (or a hosted share URL from publish), the
-  // resource is shareable, so render the full access-management popover.
-  const accountReady = Boolean(session) || Boolean(publishedUrl);
-  const effectiveShareUrl = publishedUrl ?? localShareUrl;
+  const effectiveHostedPlanId =
+    publishedPlan?.hostedPlanId ?? hostedPlanId ?? null;
+  const effectivePublishedUrl =
+    publishedPlan?.url ??
+    (effectiveHostedPlanId ? hostedPlanUrl : null) ??
+    null;
+  const canManageLocalShares = Boolean(session);
+
+  useEffect(() => {
+    setPublishedPlan(null);
+    setAuthPrompt(null);
+    setPublishOpen(false);
+  }, [planId]);
 
   const openAuthFlow = useCallback((authUrl?: string) => {
     const returnPath = `${window.location.pathname}${window.location.search}`;
@@ -1538,6 +1557,13 @@ function PlanShareControl({
       authUrl ||
       `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`;
     window.location.href = target;
+  }, []);
+
+  const copyPublishedUrl = useCallback((url: string) => {
+    void navigator.clipboard.writeText(url).then(
+      () => toast.success("Shareable link copied"),
+      () => toast.error("Could not copy link"),
+    );
   }, []);
 
   const handlePublish = useCallback(() => {
@@ -1553,27 +1579,26 @@ function PlanShareControl({
             toast.message("Create a free account to publish this plan");
             return;
           }
-          setPublishedUrl(result.url);
+          setPublishedPlan({
+            url: result.hostedPlanUrl ?? result.url,
+            hostedPlanId: result.hostedPlanId,
+          });
           setAuthPrompt(null);
-          void navigator.clipboard.writeText(result.url).then(
-            () => toast.success("Shareable link copied"),
-            () => toast.success("Plan published"),
-          );
-          setPublishOpen(false);
+          copyPublishedUrl(result.hostedPlanUrl ?? result.url);
         },
       },
     );
-  }, [planId, publishPlan]);
+  }, [copyPublishedUrl, planId, publishPlan]);
 
-  // Logged-in / local-dev / already-published: the rich access menu.
-  if (accountReady) {
-    if (!effectiveShareUrl) return null;
+  // Logged-in / local-dev: manage shares for the plan in this app instance.
+  if (canManageLocalShares) {
+    if (!localShareUrl) return null;
     return (
       <ShareButton
         resourceType="plan"
         resourceId={planId}
         resourceTitle={planTitle}
-        shareUrl={effectiveShareUrl}
+        shareUrl={localShareUrl}
         shareUrlLabel="Plan link"
         shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
         shareUrlPlacement="top"
@@ -1624,8 +1649,9 @@ function PlanShareControl({
           Share this plan
         </div>
         <p className="mb-3 text-xs leading-5 text-muted-foreground">
-          Create a free account to publish this plan to a shareable link. You
-          can keep editing locally with your coding agent until you do.
+          {effectivePublishedUrl
+            ? "This local plan has a hosted copy for sharing. Open the hosted plan to manage access."
+            : "Create a free account to publish this plan to a shareable link. You can keep editing locally with your coding agent until you do."}
         </p>
 
         {authPrompt ? (
@@ -1662,6 +1688,55 @@ function PlanShareControl({
                 onClick={() => openAuthFlow(authPrompt.authUrl)}
               >
                 Create account
+              </Button>
+            </div>
+          </div>
+        ) : effectivePublishedUrl ? (
+          <div className="space-y-3">
+            <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/35 px-2.5 py-2">
+              <IconLink className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate text-xs text-muted-foreground">
+                {effectivePublishedUrl}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => copyPublishedUrl(effectivePublishedUrl)}
+              >
+                <IconCopy className="size-3.5" />
+                Copy
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handlePublish}
+                disabled={publishPlan.isPending}
+              >
+                {publishPlan.isPending ? (
+                  <>
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                    Updating
+                  </>
+                ) : (
+                  <>
+                    <IconRefresh className="size-3.5" />
+                    Update link
+                  </>
+                )}
+              </Button>
+              <Button type="button" size="sm" asChild>
+                <a
+                  href={effectivePublishedUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <IconExternalLink className="size-3.5" />
+                  Open hosted plan
+                </a>
               </Button>
             </div>
           </div>
