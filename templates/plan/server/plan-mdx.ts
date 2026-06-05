@@ -11,6 +11,7 @@ import {
   createPlanBlockId,
   planContentSchema,
   type PlanAnnotation,
+  type PlanAnnotationPlacement,
   type PlanArtboard,
   type PlanBlock,
   type PlanBoardSection,
@@ -105,6 +106,17 @@ const planMdxStateSchema = z
   })
   .passthrough();
 
+const ANNOTATION_PLACEMENTS = [
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+] as const satisfies readonly PlanAnnotationPlacement[];
+
 export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-file"),
@@ -136,7 +148,7 @@ export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
       title: z.string().optional(),
       text: z.string().optional(),
       targetId: z.string().optional(),
-      placement: z.string().optional(),
+      placement: z.enum(ANNOTATION_PLACEMENTS).optional(),
       x: z.number().optional(),
       y: z.number().optional(),
     }),
@@ -744,12 +756,26 @@ function parseScreen(node: MdxNode): {
       (stringAttr(node, "surface") as PlanArtboard["surface"]) ?? "desktop",
     caption: stringAttr(node, "caption"),
     screen: (node.children ?? [])
-      .map(parseWireframeNode)
+      .map((child, index) => parseWireframeNode(child, `screen-${index}`))
       .filter(Boolean) as PlanWireframeNode[],
   };
 }
 
-function parseWireframeNode(node: MdxNode): PlanWireframeNode | null {
+function createStableWireframeNodeId(
+  el: PlanWireframeElName,
+  path: string,
+): string {
+  return `node-${el}-${path}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function parseWireframeNode(
+  node: MdxNode,
+  path = "node",
+): PlanWireframeNode | null {
   const component = elementName(node);
   if (!component) return null;
   const el = COMPONENT_TO_NODE[component];
@@ -763,8 +789,11 @@ function parseWireframeNode(node: MdxNode): PlanWireframeNode | null {
       (parsed as Record<string, unknown>)[attr.name] = value;
   }
   parsed.el = el;
+  parsed.id ??= createStableWireframeNodeId(el, path);
   const children = (node.children ?? [])
-    .map(parseWireframeNode)
+    .map((child, index) =>
+      parseWireframeNode(child, `${parsed.id ?? el}-${index}`),
+    )
     .filter(Boolean) as PlanWireframeNode[];
   if (children.length > 0) parsed.children = children;
   return parsed;
@@ -1081,7 +1110,7 @@ export async function applyPlanMdxSourcePatches(
       const filesToSearch: MdxSourceFile[] = next["canvas.mdx"]
         ? ["canvas.mdx", "plan.mdx"]
         : ["plan.mdx"];
-      let changedFile: MdxSourceFile | undefined;
+      const changedFiles: MdxSourceFile[] = [];
       for (const file of filesToSearch) {
         const result = await updateMdxSourceIf(
           requireMdxSource(next, file, `update wireframe node ${patch.nodeId}`),
@@ -1107,11 +1136,10 @@ export async function applyPlanMdxSourcePatches(
         );
         if (result.changed) {
           next[file] = result.source;
-          changedFile = file;
-          break;
+          changedFiles.push(file);
         }
       }
-      if (!changedFile) {
+      if (changedFiles.length === 0) {
         const searched = filesToSearch.join(" or ");
         const missingCanvas = next["canvas.mdx"]
           ? ""

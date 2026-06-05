@@ -254,6 +254,114 @@ describe("plan MDX source adapter", () => {
     expect(parsed.canvas?.annotations?.[0]?.y).toBe(650);
   });
 
+  it("rejects invalid annotation placement values before writing source", async () => {
+    const folder = await exportPlanContentToMdxFolder({
+      content: sampleContent(),
+      title: "Checkout review flow",
+    });
+    const patches = [
+      {
+        op: "update-annotation",
+        annotationId: "overview-note",
+        patch: { placement: "middle" },
+      },
+    ] as unknown as Parameters<typeof applyPlanMdxSourcePatches>[1];
+
+    await expect(applyPlanMdxSourcePatches(folder, patches)).rejects.toThrow(
+      /Invalid option|invalid/i,
+    );
+  });
+
+  it("patches block-linked wireframe nodes in both plan and canvas source", async () => {
+    const folder = {
+      "plan.mdx": `---
+title: "Linked wireframe"
+version: 2
+---
+
+<WireframeBlock id="overview-block" title="Overview state">
+  <Screen surface="browser">
+    <FrameScreen id="shared-screen">
+      <Btn id="shared-cta" text="Old label" />
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+`,
+      "canvas.mdx": `<DesignBoard title="Linked board">
+  <Section id="main" title="Main">
+    <Artboard id="overview-artboard" blockId="overview-block" label="Overview" x={80} y={80}>
+      <Screen surface="browser">
+        <FrameScreen id="shared-screen">
+          <Btn id="shared-cta" text="Old label" />
+        </FrameScreen>
+      </Screen>
+    </Artboard>
+  </Section>
+</DesignBoard>
+`,
+    };
+
+    const patched = await applyPlanMdxSourcePatches(folder, [
+      {
+        op: "update-wireframe-node",
+        nodeId: "shared-cta",
+        patch: { text: "New label", tone: "accent" },
+      },
+    ]);
+
+    expect(patched["plan.mdx"]).toContain('text="New label"');
+    expect(patched["canvas.mdx"]).toContain('text="New label"');
+
+    const parsed = await parsePlanMdxFolder(patched);
+    const frameButton =
+      parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0];
+    expect(frameButton?.text).toBe("New label");
+  });
+
+  it("assigns stable IDs to imported wireframe nodes without ids", async () => {
+    const parsed = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Generated IDs"
+version: 2
+---
+
+<WireframeBlock id="inline-wireframe" title="Inline wireframe">
+  <Screen surface="browser">
+    <FrameScreen>
+      <Btn text="Continue" />
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+`,
+    });
+    const wireframe = parsed.blocks.find(
+      (block) => block.id === "inline-wireframe",
+    );
+    expect(wireframe?.type).toBe("wireframe");
+    if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
+
+    const generatedScreenId = wireframe.data.screen[0]?.id;
+    const generatedButtonId = wireframe.data.screen[0]?.children?.[0]?.id;
+    expect(generatedScreenId).toBe("node-screen-screen-0");
+    expect(generatedButtonId).toBe("node-btn-node-screen-screen-0-0");
+
+    const exported = await exportPlanContentToMdxFolder({
+      content: parsed,
+      title: "Generated IDs",
+    });
+    expect(exported["plan.mdx"]).toContain(`id="${generatedButtonId}"`);
+
+    const patched = await applyPlanMdxSourcePatches(exported, [
+      {
+        op: "update-wireframe-node",
+        nodeId: generatedButtonId ?? "",
+        patch: { text: "Review" },
+      },
+    ]);
+
+    expect(patched["plan.mdx"]).toContain('text="Review"');
+  });
+
   it("replaces a single artboard from an MDX fragment", async () => {
     const folder = await exportPlanContentToMdxFolder({
       content: sampleContent(),
