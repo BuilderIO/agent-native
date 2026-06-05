@@ -32,10 +32,14 @@ import {
 } from "@/components/ui/tooltip";
 import {
   IconArchive,
+  IconClock,
   IconDots,
+  IconEye,
+  IconEyeOff,
   IconPencil,
   IconPlus,
   IconTrash,
+  IconUser,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -55,6 +59,7 @@ import {
   agentNativePath,
   appApiPath,
   useChangeVersions,
+  useActionMutation,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -126,6 +131,11 @@ type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
   archivedAt: string | null;
+  hiddenAt: string | null;
+  hiddenBy: string | null;
+  visibility: "private" | "org" | "public";
+  ownerEmail: string | null;
+  updatedAt: string | null;
 } & ResourceAccess;
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
@@ -143,6 +153,14 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       panels: data.panels ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
+    hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
+    visibility:
+      data.visibility === "org" || data.visibility === "public"
+        ? data.visibility
+        : "private",
+    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
     role: typeof data.role === "string" ? data.role : undefined,
     canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
     canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
@@ -180,6 +198,15 @@ export default function SqlDashboardPage() {
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [hiddenAt, setHiddenAt] = useState<string | null>(null);
+  const [hiddenBy, setHiddenBy] = useState<string | null>(null);
+  const [dashboardVisibility, setDashboardVisibility] = useState<
+    "private" | "org" | "public"
+  >("private");
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
     null,
   );
@@ -192,6 +219,8 @@ export default function SqlDashboardPage() {
   const viewedDashboardIdRef = useRef<string | null>(null);
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
+    useActionMutation("hide-dashboard");
 
   // Refetch the dashboard whenever the `dashboards` source bumps OR any
   // agent action runs. We depend on both because:
@@ -332,6 +361,11 @@ export default function SqlDashboardPage() {
     setLoaded(false);
     setDashboard(null);
     setArchivedAt(null);
+    setHiddenAt(null);
+    setHiddenBy(null);
+    setDashboardVisibility("private");
+    setDashboardOwner(null);
+    setDashboardUpdatedAt(null);
     setResourceAccess(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
@@ -342,6 +376,11 @@ export default function SqlDashboardPage() {
     if (fetched && fetched.id !== dashboardId) return;
     setDashboard(fetched?.config ?? null);
     setArchivedAt(fetched?.archivedAt ?? null);
+    setHiddenAt(fetched?.hiddenAt ?? null);
+    setHiddenBy(fetched?.hiddenBy ?? null);
+    setDashboardVisibility(fetched?.visibility ?? "private");
+    setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setResourceAccess(
       fetched
         ? {
@@ -767,6 +806,34 @@ export default function SqlDashboardPage() {
     dashboard?.name,
   ]);
 
+  const handleUnhide = useCallback(async () => {
+    if (!dashboardId) return;
+    try {
+      const result = (await hideDashboardAction({
+        id: dashboardId,
+        hidden: false,
+      })) as { ownerEmail?: string | null } | undefined;
+      setHiddenAt(null);
+      setHiddenBy(null);
+      if (typeof result?.ownerEmail === "string") {
+        setDashboardOwner(result.ownerEmail);
+      }
+      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
+      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
+      queryClient.removeQueries({
+        queryKey: sqlDashboardPrefetchKey(dashboardId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId],
+      });
+      toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't unhide dashboard",
+      );
+    }
+  }, [dashboardId, dashboard?.name, hideDashboardAction, queryClient]);
+
   const handleSaveView = useCallback(
     async (name: string, filters: Record<string, string>) => {
       const id = name
@@ -962,6 +1029,76 @@ export default function SqlDashboardPage() {
 
   return (
     <div className="space-y-4">
+      {hiddenAt ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+          <IconEyeOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="min-w-0 flex-1">
+            This dashboard is hidden from regular lists. It remains searchable
+            and openable by direct link.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={unhidePending}
+            onClick={() => void handleUnhide()}
+            className="shrink-0 border-amber-300 bg-amber-100 text-amber-950 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/70"
+          >
+            <IconEye className="mr-1.5 h-3.5 w-3.5" />
+            Unhide
+          </Button>
+        </div>
+      ) : null}
+      {/* Author, last updated, and visibility metadata */}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {hiddenAt && (
+          <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+            <IconEyeOff className="h-3 w-3" />
+            Hidden
+          </span>
+        )}
+        {dashboardUpdatedAt && (
+          <span className="flex items-center gap-1">
+            <IconClock className="h-3 w-3" />
+            Updated{" "}
+            {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })}
+          </span>
+        )}
+        {dashboardOwner && (
+          <span className="flex items-center gap-1">
+            <IconUser className="h-3 w-3" />
+            {dashboardOwner.split("@")[0]}
+          </span>
+        )}
+        <span
+          className={`flex items-center gap-1.5 font-medium ${
+            dashboardVisibility === "public"
+              ? "text-green-600"
+              : dashboardVisibility === "org"
+                ? "text-blue-600"
+                : "text-yellow-600"
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              dashboardVisibility === "public"
+                ? "bg-green-500"
+                : dashboardVisibility === "org"
+                  ? "bg-blue-500"
+                  : "bg-yellow-500"
+            }`}
+          />
+          {dashboardVisibility === "public"
+            ? "Public"
+            : dashboardVisibility === "org"
+              ? "Shared with org"
+              : "Private"}
+        </span>
+      </div>
+
       {/* Description (click to edit) */}
       {editingDescription && canEdit ? (
         <Textarea

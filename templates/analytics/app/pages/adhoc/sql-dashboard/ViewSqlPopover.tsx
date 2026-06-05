@@ -23,6 +23,7 @@ import {
   IconRotate,
 } from "@tabler/icons-react";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+import { SqlHighlight } from "@/components/SqlHighlight";
 import type { DataSourceType, SqlPanel } from "./types";
 
 const SOURCE_LABELS: Record<DataSourceType, string> = {
@@ -35,8 +36,6 @@ const SOURCE_LABELS: Record<DataSourceType, string> = {
 
 interface ViewSqlPopoverProps {
   panel: SqlPanel;
-  /** SQL with `{{var}}` placeholders interpolated. Used to show what's actually
-   *  being executed against the data source. */
   resolvedSql?: string;
   /** Persist a SQL-only edit. Should throw on validation failure so the
    *  popover can keep open and surface the error inline. */
@@ -238,9 +237,10 @@ export function ViewSqlPopover({
               {showResolved ? "Hide" : "Show"} resolved SQL (with filter values)
             </button>
             {showResolved && (
-              <pre className="mt-2 p-2.5 rounded bg-muted text-[11px] font-mono whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                {resolvedSql}
-              </pre>
+              <SqlHighlight
+                sql={resolvedSql ?? ""}
+                preClassName="mt-2 p-2.5 rounded bg-muted max-h-48 overflow-y-auto"
+              />
             )}
           </div>
         )}

@@ -45,6 +45,9 @@ export interface DashboardRecord {
   updatedAt: string;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
   archivedAt: string | null;
+  /** ISO timestamp set when the dashboard is hidden from default navigation. */
+  hiddenAt: string | null;
+  hiddenBy: string | null;
   /** Effective role for the caller when loaded by id. List rows omit this. */
   role?: AccessRole;
   canEdit?: boolean;
@@ -52,6 +55,7 @@ export interface DashboardRecord {
 }
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
+export type DashboardHiddenFilter = "visible" | "hidden" | "all";
 
 export interface AnalysisRecord {
   id: string;
@@ -150,6 +154,8 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     archivedAt: row.archivedAt ?? null,
+    hiddenAt: row.hiddenAt ?? null,
+    hiddenBy: row.hiddenBy ?? null,
     ...accessFields(role),
   };
 }
@@ -295,13 +301,20 @@ export async function getDashboard(
  *   - `"all"`: both
  *
  * Legacy settings rows have no archive concept, so they are treated as active.
+ * Legacy settings rows have no hidden concept, so hidden-only queries skip the
+ * legacy scan.
  */
 export async function listDashboards(
   ctx: AccessCtx,
-  filter?: { kind?: DashboardKind; archived?: DashboardArchiveFilter },
+  filter?: {
+    kind?: DashboardKind;
+    archived?: DashboardArchiveFilter;
+    hidden?: DashboardHiddenFilter;
+  },
 ): Promise<DashboardRecord[]> {
   const db = getDb() as any;
   const archived = filter?.archived ?? "active";
+  const hidden = filter?.hidden ?? "visible";
   const conditions: any[] = [
     accessFilter(schema.dashboards, schema.dashboardShares, {
       userEmail: ctx.email,
@@ -313,14 +326,17 @@ export async function listDashboards(
     conditions.push(isNull(schema.dashboards.archivedAt));
   else if (archived === "archived")
     conditions.push(isNotNull(schema.dashboards.archivedAt));
+  if (hidden === "visible") conditions.push(isNull(schema.dashboards.hiddenAt));
+  else if (hidden === "hidden")
+    conditions.push(isNotNull(schema.dashboards.hiddenAt));
   const where = conditions.length === 1 ? conditions[0] : and(...conditions);
   const rows = await db.select().from(schema.dashboards).where(where);
   const out: DashboardRecord[] = rows.map(rowToDashboard);
   const seen = new Set(out.map((r) => r.id));
   // Legacy: scan settings once and surface anything not yet migrated.
-  // Archived state doesn't exist in legacy rows, so skip the legacy scan
-  // entirely when the caller wants archived-only.
-  if (archived === "archived") return out;
+  // Archived/hidden state doesn't exist in legacy rows, so skip the legacy scan
+  // entirely when the caller wants archived-only or hidden-only records.
+  if (archived === "archived" || hidden === "hidden") return out;
   try {
     const all = await getAllSettings();
     for (const [key, value] of Object.entries(all)) {
@@ -476,6 +492,89 @@ export async function unarchiveDashboard(
   await db
     .update(schema.dashboards)
     .set({ archivedAt: null, updatedAt: nowIso() })
+    .where(eq(schema.dashboards.id, id));
+  const [row] = await db
+    .select()
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id));
+  const dashboard = rowToDashboard(row);
+  recordScopedChange(
+    "dashboards",
+    "change",
+    dashboard.id,
+    dashboard.ownerEmail,
+    dashboard.orgId,
+    dashboard.visibility,
+  );
+  return dashboard;
+}
+
+/**
+ * Hide a dashboard from default lists/search-empty states without archiving it.
+ * The dashboard remains accessible by id and can be found by search surfaces
+ * that explicitly include hidden records.
+ */
+export async function hideDashboard(
+  id: string,
+  ctx: AccessCtx,
+): Promise<DashboardRecord | null> {
+  const existing = await getDashboard(id, ctx);
+  if (!existing) return null;
+  if (existing.hiddenAt) return existing;
+  await assertAccess("dashboard", id, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const now = nowIso();
+  await db
+    .update(schema.dashboards)
+    .set({ hiddenAt: now, hiddenBy: ctx.email, updatedAt: now })
+    .where(eq(schema.dashboards.id, id));
+  const [row] = await db
+    .select()
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id));
+  const dashboard = rowToDashboard(row);
+  recordScopedChange(
+    "dashboards",
+    "change",
+    dashboard.id,
+    dashboard.ownerEmail,
+    dashboard.orgId,
+    dashboard.visibility,
+  );
+  return dashboard;
+}
+
+/**
+ * Unhide a dashboard. During cleanup, legacy org-shared dashboards can be left
+ * with a blank owner; the first user to unhide one becomes the owner so future
+ * sharing/editing has a real person behind it.
+ */
+export async function unhideDashboard(
+  id: string,
+  ctx: AccessCtx,
+): Promise<DashboardRecord | null> {
+  const existing = await getDashboard(id, ctx);
+  if (!existing) return null;
+  await assertAccess("dashboard", id, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const now = nowIso();
+  const patch: Record<string, unknown> = {
+    hiddenAt: null,
+    hiddenBy: null,
+    updatedAt: now,
+  };
+  if (!existing.ownerEmail) {
+    patch.ownerEmail = ctx.email;
+  }
+  await db
+    .update(schema.dashboards)
+    .set(patch)
     .where(eq(schema.dashboards.id, id));
   const [row] = await db
     .select()

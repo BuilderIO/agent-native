@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import {
@@ -9,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconFlask, IconClock } from "@tabler/icons-react";
+import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
   appApiPath,
@@ -62,14 +63,38 @@ export default function AnalysesList() {
   });
 
   const { send, codeRequiredDialog } = useSendToAgentChat();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredAnalyses = analyses?.filter((a) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      a.name.toLowerCase().includes(q) ||
+      (a.description && a.description.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <>
       {codeRequiredDialog}
       <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">
-          Ad-hoc analyses that can be re-run anytime for fresh results
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-muted-foreground flex-1">
+            Ad-hoc analyses that can be re-run anytime for fresh results
+          </p>
+          {analyses && analyses.length > 0 && (
+            <div className="relative">
+              <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
+              <input
+                type="search"
+                placeholder="Search analyses…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background pl-8 pr-3 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          )}
+        </div>
 
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -77,35 +102,39 @@ export default function AnalysesList() {
               <Skeleton key={i} className="h-40 w-full rounded-xl" />
             ))}
           </div>
-        ) : !analyses?.length ? (
+        ) : !analyses?.length || filteredAnalyses?.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
                 <IconFlask className="h-7 w-7 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold mb-2">No analyses yet</h3>
+              <h3 className="text-lg font-semibold mb-2">
+                {searchQuery ? "No results" : "No analyses yet"}
+              </h3>
               <p className="text-sm text-muted-foreground max-w-sm mb-4">
-                Ask the AI assistant to run an analysis with your configured
-                data sources, and it will save the results here with the
-                evidence it queried.
+                {searchQuery
+                  ? `No analyses match "${searchQuery}".`
+                  : "Ask the AI assistant to run an analysis with your configured data sources, and it will save the results here with the evidence it queried."}
               </p>
-              <button
-                onClick={() =>
-                  send({
-                    message:
-                      "Run an ad-hoc analysis using my configured data sources and summarize the key findings",
-                    submit: false,
-                  })
-                }
-                className="text-sm text-primary hover:underline"
-              >
-                Try an example prompt
-              </button>
+              {!searchQuery && (
+                <button
+                  onClick={() =>
+                    send({
+                      message:
+                        "Run an ad-hoc analysis using my configured data sources and summarize the key findings",
+                      submit: false,
+                    })
+                  }
+                  className="text-sm text-primary hover:underline"
+                >
+                  Try an example prompt
+                </button>
+              )}
             </CardContent>
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {analyses.map((a) => (
+            {(filteredAnalyses ?? analyses ?? []).map((a) => (
               <Link key={a.id} to={`/analyses/${a.id}`} className="block">
                 <Card className="h-full hover:border-primary/40 transition-colors cursor-pointer">
                   <CardHeader className="pb-3">

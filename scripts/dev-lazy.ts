@@ -240,7 +240,13 @@ const proxyNonHtmlResponseTimeoutMs = Number(
     DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS,
 );
 let gatewayUrl = `http://${gatewayHost}:${requestedGatewayPort}`;
-const defaultApp = selectedById.has("dispatch") ? "dispatch" : apps[0].id;
+const envDefaultApp = process.env.DEV_DEFAULT_APP;
+const defaultApp =
+  envDefaultApp && selectedById.has(envDefaultApp)
+    ? envDefaultApp
+    : selectedById.has("dispatch")
+      ? "dispatch"
+      : apps[0].id;
 const backgroundProcesses: ChildProcess[] = [];
 const proxySocketsWithErrorSink = new WeakSet<net.Socket>();
 let shuttingDown = false;

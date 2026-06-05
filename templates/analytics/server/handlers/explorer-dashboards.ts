@@ -14,6 +14,7 @@ import {
   archiveDashboard,
   unarchiveDashboard,
   type DashboardArchiveFilter,
+  type DashboardHiddenFilter,
 } from "../lib/dashboards-store";
 
 async function ctxFromEvent(event: any) {
@@ -28,11 +29,24 @@ function parseArchivedFilter(raw: unknown): DashboardArchiveFilter {
   return "active";
 }
 
+function parseHiddenFilter(raw: unknown): DashboardHiddenFilter {
+  if (raw === "1" || raw === "true" || raw === "only" || raw === "hidden")
+    return "hidden";
+  if (raw === "all") return "all";
+  return "visible";
+}
+
 export const listExplorerDashboards = defineEventHandler(async (event) => {
   try {
     const ctx = await ctxFromEvent(event);
-    const archived = parseArchivedFilter(getQuery(event).archived);
-    const rows = await listDashboards(ctx, { kind: "explorer", archived });
+    const query = getQuery(event);
+    const archived = parseArchivedFilter(query.archived);
+    const hidden = parseHiddenFilter(query.hidden);
+    const rows = await listDashboards(ctx, {
+      kind: "explorer",
+      archived,
+      hidden,
+    });
     const dashboards = rows.map((d) => ({
       id: d.id,
       ...(d.config as Record<string, unknown>),
@@ -40,6 +54,8 @@ export const listExplorerDashboards = defineEventHandler(async (event) => {
       orgId: d.orgId,
       visibility: d.visibility,
       archivedAt: d.archivedAt,
+      hiddenAt: d.hiddenAt,
+      hiddenBy: d.hiddenBy,
     }));
     return { dashboards };
   } catch (err: any) {
@@ -71,6 +87,8 @@ export const getExplorerDashboard = defineEventHandler(async (event) => {
       canEdit: dash.canEdit,
       canManage: dash.canManage,
       archivedAt: dash.archivedAt,
+      hiddenAt: dash.hiddenAt,
+      hiddenBy: dash.hiddenBy,
     };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;

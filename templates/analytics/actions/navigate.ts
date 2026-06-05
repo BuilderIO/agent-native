@@ -10,7 +10,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (overview, adhoc, analyses, extensions, data-dictionary, data-sources, settings)",
+        "View to navigate to (overview, ask, adhoc, analyses, extensions, data-dictionary, data-sources, settings)",
       ),
     dashboardId: z
       .string()

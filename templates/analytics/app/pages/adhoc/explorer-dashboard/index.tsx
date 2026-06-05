@@ -28,6 +28,8 @@ import {
   IconPencil,
   IconArchive,
   IconDots,
+  IconEye,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -45,6 +47,7 @@ import {
   emailToName,
   useSession,
   useChangeVersions,
+  useActionMutation,
   agentNativePath,
   appApiPath,
   type CollabUser,
@@ -114,6 +117,8 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
 type FetchedExplorerDashboard = {
   data: ExplorerDashboardData;
   archivedAt: string | null;
+  hiddenAt: string | null;
+  hiddenBy: string | null;
 } & ResourceAccess;
 
 async function fetchDashboard(
@@ -128,6 +133,8 @@ async function fetchDashboard(
       charts: data.charts ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
+    hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
     role: typeof data.role === "string" ? data.role : undefined,
     canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
     canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
@@ -160,6 +167,8 @@ export default function ExplorerDashboardPage() {
     null,
   );
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [hiddenAt, setHiddenAt] = useState<string | null>(null);
+  const [hiddenBy, setHiddenBy] = useState<string | null>(null);
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
     null,
   );
@@ -170,6 +179,8 @@ export default function ExplorerDashboardPage() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
+    useActionMutation("hide-dashboard");
 
   // ── Collaborative editing ──────────────────────────────────────────
   const { session } = useSession();
@@ -271,6 +282,8 @@ export default function ExplorerDashboardPage() {
     if (!dashboardId) return;
     setLoaded(false);
     setDashboard(null);
+    setHiddenAt(null);
+    setHiddenBy(null);
     setResourceAccess(null);
     setEditingName(false);
   }, [dashboardId]);
@@ -281,6 +294,8 @@ export default function ExplorerDashboardPage() {
     if (d) {
       setDashboard(d.data);
       setArchivedAt(d.archivedAt);
+      setHiddenAt(d.hiddenAt);
+      setHiddenBy(d.hiddenBy);
       setResourceAccess({
         role: d.role,
         canEdit: d.canEdit,
@@ -289,6 +304,8 @@ export default function ExplorerDashboardPage() {
     } else {
       setDashboard({ name: "Untitled Dashboard", charts: [] });
       setArchivedAt(null);
+      setHiddenAt(null);
+      setHiddenBy(null);
       setResourceAccess(null);
     }
     setLoaded(true);
@@ -324,6 +341,29 @@ export default function ExplorerDashboardPage() {
     navigate,
     dashboard?.name,
   ]);
+
+  const handleUnhide = useCallback(async () => {
+    if (!dashboardId) return;
+    try {
+      await hideDashboardAction({ id: dashboardId, hidden: false });
+      setHiddenAt(null);
+      setHiddenBy(null);
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-sidebar"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-palette"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "explorer-dashboard", dashboardId],
+      });
+      toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't unhide dashboard",
+      );
+    }
+  }, [dashboardId, dashboard?.name, hideDashboardAction, queryClient]);
 
   const persist = useCallback(
     (updated: ExplorerDashboardData) => {
@@ -476,9 +516,34 @@ export default function ExplorerDashboardPage() {
 
   return (
     <div className="space-y-4">
+      {hiddenAt ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+          <IconEyeOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="min-w-0 flex-1">
+            This dashboard is hidden from regular lists. It remains searchable
+            and openable by direct link.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={unhidePending}
+            onClick={() => void handleUnhide()}
+            className="shrink-0 border-amber-300 bg-amber-100 text-amber-950 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/70"
+          >
+            <IconEye className="mr-1.5 h-3.5 w-3.5" />
+            Unhide
+          </Button>
+        </div>
+      ) : null}
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
+          {hiddenAt ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 px-2 py-1 text-xs font-medium text-amber-700 dark:border-amber-900/70 dark:text-amber-300">
+              <IconEyeOff className="h-3 w-3" />
+              Hidden
+            </span>
+          ) : null}
           {editingName && canEdit ? (
             <Input
               value={nameInput}

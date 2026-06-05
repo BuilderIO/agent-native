@@ -15,6 +15,7 @@ import {
   archiveDashboard,
   unarchiveDashboard,
   type DashboardArchiveFilter,
+  type DashboardHiddenFilter,
 } from "../lib/dashboards-store";
 import { dryRunQuery } from "../lib/bigquery";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
@@ -93,6 +94,13 @@ function parseArchivedFilter(raw: unknown): DashboardArchiveFilter {
   return "active";
 }
 
+function parseHiddenFilter(raw: unknown): DashboardHiddenFilter {
+  if (raw === "1" || raw === "true" || raw === "only" || raw === "hidden")
+    return "hidden";
+  if (raw === "all") return "all";
+  return "visible";
+}
+
 function isEmptyDashboardConfig(config: Record<string, unknown>): boolean {
   return !Array.isArray(config.panels) || config.panels.length === 0;
 }
@@ -108,14 +116,18 @@ function seededSqlDashboardResponse(
     orgId: null,
     visibility: "org",
     archivedAt: null,
+    hiddenAt: null,
+    hiddenBy: null,
   };
 }
 
 export const listSqlDashboards = defineEventHandler(async (event) => {
   try {
     const ctx = await ctxFromEvent(event);
-    const archived = parseArchivedFilter(getQuery(event).archived);
-    const rows = await listDashboards(ctx, { kind: "sql", archived });
+    const query = getQuery(event);
+    const archived = parseArchivedFilter(query.archived);
+    const hidden = parseHiddenFilter(query.hidden);
+    const rows = await listDashboards(ctx, { kind: "sql", archived, hidden });
     const dashboards = rows.map((d) => ({
       id: d.id,
       ...(d.config as Record<string, unknown>),
@@ -123,6 +135,10 @@ export const listSqlDashboards = defineEventHandler(async (event) => {
       orgId: d.orgId,
       visibility: d.visibility,
       archivedAt: d.archivedAt,
+      hiddenAt: d.hiddenAt,
+      hiddenBy: d.hiddenBy,
+      updatedAt: d.updatedAt,
+      createdAt: d.createdAt,
     }));
     return { dashboards };
   } catch (err: any) {
@@ -161,6 +177,10 @@ export const getSqlDashboard = defineEventHandler(async (event) => {
       canEdit: dash.canEdit,
       canManage: dash.canManage,
       archivedAt: dash.archivedAt,
+      hiddenAt: dash.hiddenAt,
+      hiddenBy: dash.hiddenBy,
+      createdAt: dash.createdAt,
+      updatedAt: dash.updatedAt,
     };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;

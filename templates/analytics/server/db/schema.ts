@@ -27,6 +27,9 @@ export const dashboards = table("dashboards", {
   /** Archive timestamp. Null = active. Archived rows are hidden from
    *  default list responses but remain accessible by id and can be restored. */
   archivedAt: text("archived_at"),
+  /** Hidden dashboards are omitted from default navigation but remain openable. */
+  hiddenAt: text("hidden_at"),
+  hiddenBy: text("hidden_by"),
   ...ownableColumns(),
 });
 

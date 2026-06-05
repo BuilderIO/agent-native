@@ -37,6 +37,7 @@ interface SavedConfig {
 interface ExplorerDashboard {
   id: string;
   name: string;
+  hiddenAt?: string | null;
 }
 
 interface ExtensionSearchItem {
@@ -98,19 +99,25 @@ async function fetchSavedConfigs(): Promise<SavedConfig[]> {
 
 async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
   const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/explorer-dashboards"), {
+  const res = await fetch(appApiPath("/api/explorer-dashboards?hidden=all"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
   const data = await res.json();
   return (data.dashboards ?? [])
     .filter((d: any) => d.name)
-    .map((d: any) => ({ id: d.id, name: d.name }));
+    .map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
+    }));
 }
 
-async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
+async function fetchSqlDashboards(): Promise<
+  { id: string; name: string; hiddenAt: string | null }[]
+> {
   const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/sql-dashboards"), {
+  const res = await fetch(appApiPath("/api/sql-dashboards?hidden=all"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -123,6 +130,7 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
         typeof d.name === "string" && d.name.trim().length > 0
           ? d.name
           : "Untitled dashboard",
+      hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
     }));
 }
 
@@ -160,6 +168,7 @@ function persistThemePreference(theme: "light" | "dark") {
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -232,10 +241,27 @@ export function CommandPalette() {
     (sqlDashboardsFetching && sqlDashboards.length === 0) ||
     (extensionsFetching && extensions.length === 0) ||
     (savedChartsFetching && savedCharts.length === 0);
+  const showHiddenResults = searchQuery.trim().length > 0;
+  const visibleExplorerDashboards = showHiddenResults
+    ? explorerDashboards
+    : explorerDashboards.filter((dashboard) => !dashboard.hiddenAt);
+  const visibleSqlDashboards = showHiddenResults
+    ? sqlDashboards
+    : sqlDashboards.filter((dashboard) => !dashboard.hiddenAt);
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search dashboards, extensions, charts..." />
+    <CommandDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setSearchQuery("");
+      }}
+    >
+      <CommandInput
+        placeholder="Search dashboards, extensions, charts..."
+        value={searchQuery}
+        onValueChange={setSearchQuery}
+      />
       <CommandList>
         {!asyncGroupsLoading && <CommandEmpty>No results found.</CommandEmpty>}
 
@@ -243,9 +269,9 @@ export function CommandPalette() {
           <CommandLoadingGroup heading="Explorer Dashboards" rows={2} />
         )}
 
-        {explorerDashboards.length > 0 && (
+        {visibleExplorerDashboards.length > 0 && (
           <CommandGroup heading="Explorer Dashboards">
-            {explorerDashboards.map((d) => (
+            {visibleExplorerDashboards.map((d) => (
               <CommandItem
                 key={`ed-${d.id}`}
                 onSelect={() => go(`/adhoc/explorer-dashboard?id=${d.id}`)}
@@ -256,7 +282,12 @@ export function CommandPalette() {
                 )}
               >
                 <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
-                {d.name}
+                <span className="truncate">{d.name}</span>
+                {d.hiddenAt ? (
+                  <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Hidden
+                  </span>
+                ) : null}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -266,9 +297,9 @@ export function CommandPalette() {
           <CommandLoadingGroup heading="SQL Dashboards" rows={3} />
         )}
 
-        {sqlDashboards.length > 0 && (
+        {visibleSqlDashboards.length > 0 && (
           <CommandGroup heading="SQL Dashboards">
-            {sqlDashboards.map((d) => (
+            {visibleSqlDashboards.map((d) => (
               <CommandItem
                 key={`sql-${d.id}`}
                 onSelect={() => go(`/adhoc/${d.id}`)}
@@ -279,7 +310,12 @@ export function CommandPalette() {
                 )}
               >
                 <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
-                {d.name}
+                <span className="truncate">{d.name}</span>
+                {d.hiddenAt ? (
+                  <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Hidden
+                  </span>
+                ) : null}
               </CommandItem>
             ))}
           </CommandGroup>

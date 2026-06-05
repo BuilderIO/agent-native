@@ -62,6 +62,8 @@ export default createAgentChatPlugin({
     const sourceGuidance =
       "<data-source-guidance>\n" +
       "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
+      "SURFACE DIFFERENTIATION — You are the analytics assistant for definitions, deep-dive analysis, and action. For questions about what a metric, model, or table means, use the Data Dictionary and configured schema tools first. For trends, comparisons, anomalies, current data, or anything that requires querying live data, answer directly in chat with the relevant provider query, dashboard analysis, and inline charts when useful. " +
+      "DASHBOARD CREATION RULE — You may create dashboards, analyses, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'create a new analysis', 'add a chart for...'). Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
       "Use configured data sources and actions only. Call `data-source-status` when you need to know which providers are connected, and treat provider actions as unavailable for analysis if they return missing credentials, permission, syntax, quota, or network errors. " +
       "When the user names a provider or tool such as Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or BigQuery, that named source is authoritative for the turn: check that provider and call its action or connected MCP tool first. For HubSpot, call `hubspot-records` or a HubSpot MCP search tool for contacts, companies, tickets, or broad CRM lookup; call `hubspot-deals`, `hubspot-metrics`, or `hubspot-pipelines` for deal pipeline analysis. Do not substitute BigQuery for Pylon, Jira, HubSpot, or another provider unless the user explicitly asks for the warehouse copy or the named provider is unavailable and the user chooses a fallback. " +
       "Provider-specific actions are shortcuts, not limits. If a first-class action cannot express the exact endpoint, object type, filters, request body, pagination mode, or API version needed, call `provider-api-catalog` and `provider-api-docs` as needed, then call `provider-api-request` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the analysis, broadening filters, or claiming the integration cannot do something the underlying API can do. " +
@@ -110,7 +112,7 @@ export default createAgentChatPlugin({
           const ctx = await getOrgContext(event);
           const rows = await listDashboards(
             { email: ctx.email, orgId: ctx.orgId ?? null },
-            { kind: "sql" },
+            { kind: "sql", hidden: query ? "all" : "visible" },
           );
           const items = rows.map((d) => ({ id: d.id, name: d.title }));
 

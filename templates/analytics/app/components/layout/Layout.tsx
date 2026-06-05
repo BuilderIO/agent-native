@@ -71,54 +71,67 @@ export function Layout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const isAskRoute = location.pathname === "/ask";
+
+  const contentFrame = (
+    <div className="flex h-full flex-1 flex-col overflow-hidden">
+      <MobileNav />
+      {!isExtensionsRoute && !isAskRoute && <Header />}
+      <InvitationBanner />
+      <main
+        className={
+          isExtensionsRoute
+            ? "flex-1 overflow-y-auto"
+            : isAskRoute
+              ? "flex-1 overflow-hidden p-0"
+              : "flex-1 overflow-y-auto p-4 md:p-6 lg:p-8"
+        }
+      >
+        {children}
+      </main>
+      {guidedQuestions && (
+        <div className="fixed inset-0 z-[260] bg-background">
+          <GuidedQuestionFlow
+            questions={guidedQuestions}
+            onSubmit={handleGuidedSubmit}
+            onSkip={handleGuidedSkip}
+            title={guidedTitle ?? "Clarify the dashboard"}
+            description={
+              guidedDescription ??
+              "A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
+            }
+            skipLabel={guidedSkipLabel}
+            submitLabel={guidedSubmitLabel}
+          />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
         <div className="hidden shrink-0 md:block">
           <Sidebar />
         </div>
-        <AgentSidebar
-          position="right"
-          defaultOpen
-          emptyStateText="Ask me anything about your data"
-          suggestions={[
-            "Build a dashboard for our pipeline",
-            "Why did signups drop last week?",
-            "Compare this week's revenue to last",
-          ]}
-          scope={analyticsScope}
-        >
-          <div className="flex h-full flex-1 flex-col overflow-hidden">
-            <MobileNav />
-            {!isExtensionsRoute && <Header />}
-            <InvitationBanner />
-            <main
-              className={
-                isExtensionsRoute
-                  ? "flex-1 overflow-y-auto"
-                  : "flex-1 overflow-y-auto p-4 md:p-6 lg:p-8"
-              }
-            >
-              {children}
-            </main>
-            {guidedQuestions && (
-              <div className="fixed inset-0 z-[260] bg-background">
-                <GuidedQuestionFlow
-                  questions={guidedQuestions}
-                  onSubmit={handleGuidedSubmit}
-                  onSkip={handleGuidedSkip}
-                  title={guidedTitle ?? "Clarify the dashboard"}
-                  description={
-                    guidedDescription ??
-                    "A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
-                  }
-                  skipLabel={guidedSkipLabel}
-                  submitLabel={guidedSubmitLabel}
-                />
-              </div>
-            )}
-          </div>
-        </AgentSidebar>
+        {isAskRoute ? (
+          contentFrame
+        ) : (
+          <AgentSidebar
+            position="right"
+            defaultOpen
+            emptyStateText="Ask me to analyze a dashboard, compare trends, or dig into data..."
+            suggestions={[
+              "What's driving ARR growth this quarter?",
+              "Show me churn trends over the last 6 months",
+              "Analyze the HubSpot Sales dashboard for anomalies",
+              "Compare MRR between enterprise and SMB",
+            ]}
+            scope={analyticsScope}
+          >
+            {contentFrame}
+          </AgentSidebar>
+        )}
       </div>
     </HeaderActionsProvider>
   );
