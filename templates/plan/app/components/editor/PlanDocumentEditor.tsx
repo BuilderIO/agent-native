@@ -23,6 +23,21 @@ const TAB_ID = generateTabId();
 const WRAPPER_CLASS = "plan-document-editor";
 
 /**
+ * True when the user's focus is inside the plan editor's prose surface. Used as
+ * the discriminator for the empty-document data-loss guard: a genuine clear
+ * (select-all + delete) keeps the contenteditable focused, while the mount/seed
+ * race that transiently serializes an empty doc fires with focus elsewhere (the
+ * page body). Falls back to `false` in non-DOM contexts so the guard errs toward
+ * preserving content.
+ */
+function isEditorFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  if (!active) return false;
+  return !!active.closest(".plan-document-editor-surface");
+}
+
+/**
  * The single-document plan editor. The whole plan body is ONE ProseMirror/Tiptap
  * document (freeform prose + custom blocks as inline `planBlock` NodeViews), the
  * exact analog of the content app's `VisualEditor` — but the on-disk format stays
@@ -223,12 +238,18 @@ export function PlanDocumentEditor({
     } catch {
       return;
     }
-    // Hard data-loss guard: before the first real seed, the editor can
-    // momentarily serialize empty during a seed/collab race. Ignore only those
-    // pre-seed empties; after seeding, an empty document is an intentional clear
-    // and must persist as `blocks: []`.
+    // Hard data-loss guard: the editor mounts EMPTY (custom `setContent` seeds it
+    // from `content.blocks` a tick later), so it can serialize an empty doc both
+    // before the seed AND in a transient post-seed normalization/extension
+    // transaction. Either empty must never wipe existing blocks unless the user
+    // genuinely cleared the document. A real clear (select-all + delete) keeps the
+    // prose surface focused; the seed-race empty fires with nothing focused. So an
+    // empty serialization is honored as an intentional clear ONLY when the editor
+    // is currently focused — otherwise it is the mount/seed echo and is ignored.
+    // (`hasSeededRef` alone is insufficient: the seed sets it true, then the
+    // transient empty arrives "seeded" and slipped through, wiping the plan.)
     const prevCount = blocksRef.current.length;
-    if (!hasSeededRef.current && next.length === 0 && prevCount > 0) return;
+    if (next.length === 0 && prevCount > 0 && !isEditorFocused()) return;
     if (
       !hasSeededRef.current &&
       prevCount >= 3 &&
