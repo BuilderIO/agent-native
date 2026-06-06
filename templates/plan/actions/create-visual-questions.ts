@@ -21,6 +21,7 @@ import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   buildPlanHtml,
   commentInputSchema,
+  insertInitialPlanComments,
   loadPlanBundle,
   newId,
   nowIso,
@@ -28,7 +29,6 @@ import {
   planPath,
   planSourceSchema,
   planStatusSchema,
-  resolveCommentAuthor,
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
@@ -242,32 +242,13 @@ export default defineAction({
         })),
       );
 
-    if (args.comments.length > 0) {
-      await getDb()
-        .insert(schema.planComments)
-        .values(
-          args.comments.map((comment) => ({
-            ...resolveCommentAuthor({
-              createdBy: comment.createdBy,
-              authorEmail: comment.authorEmail,
-              authorName: comment.authorName,
-              requestEmail: requesterEmail,
-              requestName: requesterName,
-            }),
-            id: comment.id ?? newId("cmt"),
-            planId: id,
-            sectionId: comment.sectionId ?? null,
-            kind: comment.kind,
-            status: comment.status,
-            anchor: comment.anchor ?? null,
-            message: comment.message,
-            createdBy: comment.createdBy,
-            consumedAt: null,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-    }
+    await insertInitialPlanComments({
+      planId: id,
+      comments: args.comments,
+      requestEmail: requesterEmail,
+      requestName: requesterName,
+      now,
+    });
 
     await writeEvent({
       planId: id,

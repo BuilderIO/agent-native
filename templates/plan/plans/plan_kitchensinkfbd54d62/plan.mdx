@@ -1,0 +1,332 @@
+---
+title: "Block Kitchen Sink"
+brief: "A playground plan that exercises every editable block type using a small URL shortener feature so each block reads coherently."
+version: 2
+planId: "plan_kitchensinkfbd54d62"
+source: "agent-native-plan"
+---
+
+<RichText id="rich-text-overview" title="Rich Text">
+
+## URL Shortener — Overview
+
+A tiny service that turns long URLs into short `/s/<code>` links and tracks clicks.
+
+### Why it exists
+
+Sharing raw tracking URLs is ugly and **unmemorable**. We want _short, branded_ links with basic analytics.
+
+Core capabilities:
+
+- Create a short code for any URL
+- Redirect `/s/<code>` to the original target
+- Count clicks per link
+
+Rollout order:
+
+1. Schema + create endpoint
+2. Redirect handler
+3. Click counting
+4. Dashboard
+
+Acceptance checklist:
+
+- [x] Schema designed
+
+- [x] Create endpoint stubbed
+
+- [ ] Redirect handler wired
+
+- [ ] Click analytics surfaced
+
+> Keep codes short and collision-safe — base62 over an auto-increment id beats random retries.
+
+```ts
+function toBase62(n: number): string {
+  const A = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let s = "";
+  do {
+    s = A[n % 62] + s;
+    n = Math.floor(n / 62);
+  } while (n > 0);
+  return s;
+}
+```
+
+| Field     | Type    | Notes                        |
+| --------- | ------- | ---------------------------- |
+| code      | text    | base62, unique, the PK       |
+| targetUrl | text    | original long URL            |
+| clicks    | integer | incremented on each redirect |
+
+</RichText>
+
+<Callout id="callout-decision" title="Callout" tone="decision">
+
+We will generate short codes from a **base62 encoding** of the row id rather than random strings. This makes codes collision-free without a retry loop, and the redirect lookup stays a single `SELECT` on the primary key.
+
+</Callout>
+
+<Checklist
+  id="checklist-build"
+  title="Checklist"
+  items={[
+    {
+      id: "chk-schema",
+      label: "Design links table (code, targetUrl, clicks)",
+      checked: true,
+    },
+    {
+      id: "chk-create",
+      label: "Implement create-link action with URL validation",
+      checked: true,
+      note: "Rejects non-http(s) and over-long URLs.",
+    },
+    {
+      id: "chk-redirect",
+      label: "Wire /s/<code> redirect handler",
+      checked: false,
+    },
+    {
+      id: "chk-analytics",
+      label: "Surface per-link click counts on the dashboard",
+      checked: false,
+    },
+  ]}
+/>
+
+<Table
+  id="table-endpoints"
+  title="Table"
+  columns={["Method", "Path", "Purpose"]}
+  rows={[
+    ["POST", "/api/links", "Create a short link from a target URL"],
+    ["GET", "/s/:code", "Redirect to the target and count a click"],
+    ["GET", "/api/links/:code", "Fetch a link with its click total"],
+  ]}
+/>
+
+<CodeTabs
+  id="code-tabs-impl"
+  title="Code Tabs"
+  tabs={[
+    {
+      id: "tab-schema",
+      label: "schema.ts",
+      language: "ts",
+      code: 'import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";\n\nexport const links = sqliteTable("links", {\n  code: text("code").primaryKey(),\n  targetUrl: text("target_url").notNull(),\n  clicks: integer("clicks").notNull().default(0),\n  createdAt: text("created_at").notNull(),\n});',
+      caption: "Drizzle table for short links.",
+    },
+    {
+      id: "tab-query",
+      label: "query.ts",
+      language: "ts",
+      code: 'import { eq, sql } from "drizzle-orm";\nimport { db } from "./db";\nimport { links } from "./schema";\n\nexport async function resolveAndCount(code: string) {\n  const row = await db.query.links.findFirst({ where: eq(links.code, code) });\n  if (!row) return null;\n  await db.update(links)\n    .set({ clicks: sql`${links.clicks} + 1` })\n    .where(eq(links.code, code));\n  return row.targetUrl;\n}',
+      caption: "Atomic resolve-and-increment on redirect.",
+    },
+    {
+      id: "tab-api",
+      label: "api.ts",
+      language: "ts",
+      code: 'import { resolveAndCount } from "./query";\n\nexport async function GET(req: Request, { code }: { code: string }) {\n  const target = await resolveAndCount(code);\n  if (!target) return new Response("Not found", { status: 404 });\n  return Response.redirect(target, 302);\n}',
+      caption: "Redirect route handler.",
+    },
+  ]}
+/>
+
+<TabsBlock
+  id="tabs-docs"
+  title="Tabs"
+  tabs={[
+    {
+      id: "tab-overview",
+      label: "Overview",
+      blocks: [
+        {
+          id: "tabs-overview-text",
+          type: "rich-text",
+          data: {
+            markdown:
+              "### Overview\n\nThe shortener has **three moving parts**: a create endpoint, a redirect handler, and a click counter. Each is independently testable.",
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-edgecases",
+      label: "Edge Cases",
+      blocks: [
+        {
+          id: "tabs-edge-text",
+          type: "rich-text",
+          data: {
+            markdown:
+              "### Edge Cases\n\n- Duplicate target URLs get **distinct codes** (no dedupe by design).\n- Unknown codes return `404`, never a redirect loop.\n- \n- Expired links (future work) should `410 Gone`.",
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-metrics",
+      label: "Metrics",
+      blocks: [
+        {
+          id: "tabs-metrics-text",
+          type: "rich-text",
+          data: {
+            markdown:
+              "### Metrics\n\nTrack `clicks` per link and a daily rollup. Keep it simple: a single integer counter, incremented in the same transaction as the redirect lookup.",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<HtmlBlock
+  id="custom-html-card"
+  title="Custom HTML"
+  html={
+    '<div class="ks-card">\n  <span class="ks-badge">Live</span>\n  <h3 class="ks-card-title">Short link created</h3>\n  <p class="ks-card-body">Your link <code>/s/a9Qf</code> now points to the campaign landing page.</p>\n  <a class="ks-card-btn" href="#">Copy link</a>\n</div>'
+  }
+  css={
+    ".ks-card{max-width:360px;border:1px solid #e5e7eb;border-radius:12px;padding:20px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);font-family:system-ui,sans-serif}\n.ks-badge{display:inline-block;font-size:11px;font-weight:600;color:#047857;background:#d1fae5;padding:2px 8px;border-radius:999px;letter-spacing:.02em}\n.ks-card-title{margin:10px 0 4px;font-size:18px;color:#111827}\n.ks-card-body{margin:0 0 14px;font-size:14px;color:#4b5563;line-height:1.5}\n.ks-card-body code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:13px}\n.ks-card-btn{display:inline-block;font-size:14px;font-weight:600;color:#fff;background:#4f46e5;padding:8px 16px;border-radius:8px;text-decoration:none}"
+  }
+  caption="A self-contained success card rendered from a custom-html block."
+/>
+
+<Diagram
+  id="diagram-flow"
+  title="Diagram"
+  data={{
+    nodes: [
+      {
+        id: "client",
+        label: "Browser",
+        detail: "Opens /s/<code>",
+        x: 8,
+        y: 40,
+      },
+      {
+        id: "edge",
+        label: "Redirect Handler",
+        detail: "GET /s/:code",
+        x: 32,
+        y: 40,
+      },
+      {
+        id: "db",
+        label: "Links DB",
+        detail: "Lookup + increment",
+        x: 58,
+        y: 20,
+      },
+      {
+        id: "target",
+        label: "Target URL",
+        detail: "302 redirect",
+        x: 58,
+        y: 60,
+      },
+      {
+        id: "analytics",
+        label: "Click Counter",
+        detail: "clicks += 1",
+        x: 84,
+        y: 20,
+      },
+    ],
+    edges: [
+      {
+        from: "client",
+        to: "edge",
+        label: "request",
+      },
+      {
+        from: "edge",
+        to: "db",
+        label: "resolve",
+      },
+      {
+        from: "db",
+        to: "analytics",
+        label: "count",
+      },
+      {
+        from: "edge",
+        to: "target",
+        label: "302",
+      },
+      {
+        from: "target",
+        to: "client",
+        label: "follows",
+      },
+    ],
+    notes: [
+      {
+        id: "note-atomic",
+        text: "Lookup and increment happen in one transaction so counts never drift.",
+        x: 50,
+        y: 88,
+      },
+    ],
+  }}
+/>
+
+<Decision
+  id="decision-codes"
+  title="Decision"
+  question={"How should we generate short codes?"}
+  options={[
+    {
+      id: "opt-base62",
+      label: "Base62 of the row id",
+      detail:
+        "Deterministic, collision-free, shortest possible codes. No retry loop.",
+      recommended: true,
+    },
+    {
+      id: "opt-random",
+      label: "Random 6-char string",
+      detail:
+        "Simple but needs uniqueness checks and retries under contention.",
+    },
+    {
+      id: "opt-hash",
+      label: "Hash of the target URL",
+      detail: "Dedupes identical URLs but leaks that two links share a target.",
+    },
+  ]}
+/>
+
+<ImplementationMap
+  id="impl-map-files"
+  title="Implementation Map"
+  files={[
+    {
+      path: "server/schema.ts",
+      title: "Links schema",
+      note: "Add the links table with code as the primary key and a clicks counter.",
+      language: "ts",
+      snippet:
+        'export const links = sqliteTable("links", {\n  code: text("code").primaryKey(),\n  targetUrl: text("target_url").notNull(),\n  clicks: integer("clicks").notNull().default(0),\n});',
+    },
+    {
+      path: "actions/create-link.ts",
+      title: "Create link action",
+      note: "Validate the URL, insert a row, and return the base62 code.",
+      language: "ts",
+      snippet:
+        "export const createLink = defineAction({\n  input: z.object({ targetUrl: z.string().url() }),\n  async handler({ targetUrl }) {\n    const id = await nextId();\n    const code = toBase62(id);\n    await db.insert(links).values({ code, targetUrl });\n    return { code };\n  },\n});",
+    },
+    {
+      path: "server/routes/s.[code].ts",
+      title: "Redirect route",
+      note: "Resolve the code, increment clicks, and 302 to the target.",
+      language: "ts",
+      snippet:
+        'const target = await resolveAndCount(code);\nreturn target\n  ? Response.redirect(target, 302)\n  : new Response("Not found", { status: 404 });',
+    },
+  ]}
+/>

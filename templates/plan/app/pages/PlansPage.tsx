@@ -1960,9 +1960,6 @@ export function PlansPage() {
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
             />
-          ) : new URLSearchParams(location.search).get("loadingPreview") ===
-            "1" ? (
-            <PlanSkeleton />
           ) : !bundle && planQuery.isError ? (
             <PlanLoadError
               planId={params.id}

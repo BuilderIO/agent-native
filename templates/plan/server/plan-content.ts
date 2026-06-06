@@ -27,16 +27,23 @@ type LegacyWireframeData = PlanLegacyWireframeBlock["data"];
 
 export function parsePlanContent(value: unknown): PlanContent | null {
   if (!value) return null;
+  // Drizzle returns a Buffer for any `content` row stored with BLOB affinity
+  // (e.g. a raw SQL insert via readfile()/a Buffer instead of a JSON string).
+  // Decode it to text so the JSON path below runs — otherwise the Buffer falls
+  // through as an "object", migrate reads undefined version/blocks, and the
+  // plan silently parses to an empty body with no warning.
+  const source =
+    value instanceof Uint8Array ? new TextDecoder().decode(value) : value;
   const parsedValue =
-    typeof value === "string"
+    typeof source === "string"
       ? (() => {
           try {
-            return JSON.parse(value);
+            return JSON.parse(source);
           } catch {
             return null;
           }
         })()
-      : value;
+      : source;
   if (!parsedValue) return null;
   // Upgrade old/raw shapes (region wireframes -> legacy-wireframe, sketch-* ->
   // diagram, version backfill) before validating. Never lossily migrate.

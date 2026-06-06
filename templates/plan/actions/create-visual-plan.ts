@@ -20,6 +20,7 @@ import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   buildPlanHtml,
   commentInputSchema,
+  insertInitialPlanComments,
   loadPlanBundle,
   newId,
   nowIso,
@@ -27,7 +28,6 @@ import {
   planPath,
   planSourceSchema,
   planStatusSchema,
-  resolveCommentAuthor,
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
@@ -190,76 +190,13 @@ export default defineAction({
         })),
       );
 
-    if (args.comments.length > 0) {
-      type NewCommentRow = typeof schema.planComments.$inferInsert;
-      const pendingComments = args.comments.map((comment) => {
-        const row: NewCommentRow = {
-          ...resolveCommentAuthor({
-            createdBy: comment.createdBy,
-            authorEmail: comment.authorEmail,
-            authorName: comment.authorName,
-            requestEmail: requesterEmail,
-            requestName: requesterName,
-          }),
-          id: comment.id ?? newId("cmt"),
-          planId: id,
-          parentCommentId: null,
-          sectionId: comment.sectionId ?? null,
-          kind: comment.kind,
-          status: comment.status,
-          anchor: comment.anchor ?? null,
-          message: comment.message,
-          createdBy: comment.createdBy,
-          consumedAt: null,
-          createdAt: now,
-          updatedAt: now,
-        };
-        return { input: comment, row };
-      });
-      const commentsById = new Map<string, NewCommentRow>();
-      for (const pending of pendingComments) {
-        if (commentsById.has(pending.row.id)) {
-          throw new Error(`Duplicate comment id ${pending.row.id}.`);
-        }
-        commentsById.set(pending.row.id, pending.row);
-      }
-      for (const pending of pendingComments) {
-        if (!pending.input.parentCommentId) continue;
-        const parent = commentsById.get(pending.input.parentCommentId);
-        if (!parent) {
-          throw new Error(
-            `Parent comment ${pending.input.parentCommentId} was not found in initial comments.`,
-          );
-        }
-        pending.row.parentCommentId = parent.id;
-        pending.row.sectionId = pending.input.sectionId ?? parent.sectionId;
-        pending.row.kind = parent.kind;
-        pending.row.anchor = pending.input.anchor ?? parent.anchor;
-      }
-
-      const insertedCommentIds = new Set<string>();
-      const uninserted = new Map(
-        pendingComments.map((pending) => [pending.row.id, pending]),
-      );
-      while (uninserted.size > 0) {
-        let insertedThisPass = false;
-        for (const [commentId, pending] of Array.from(uninserted.entries())) {
-          if (
-            pending.row.parentCommentId &&
-            !insertedCommentIds.has(pending.row.parentCommentId)
-          ) {
-            continue;
-          }
-          await getDb().insert(schema.planComments).values(pending.row);
-          insertedCommentIds.add(commentId);
-          uninserted.delete(commentId);
-          insertedThisPass = true;
-        }
-        if (!insertedThisPass) {
-          throw new Error("Initial comment threads contain a parent cycle.");
-        }
-      }
-    }
+    await insertInitialPlanComments({
+      planId: id,
+      comments: args.comments,
+      requestEmail: requesterEmail,
+      requestName: requesterName,
+      now,
+    });
 
     await writeEvent({
       planId: id,

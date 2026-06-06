@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconCode } from "@tabler/icons-react";
+import { IconCode, IconPlus, IconX } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
@@ -102,25 +102,112 @@ const inputClass =
 const codeAreaClass =
   "flex min-h-[140px] w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs leading-5 shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
+/** Mint a reasonably-unique code-tab id without pulling a dep into core. */
+function newCodeTabId(): string {
+  return `code-tab-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Editor: a file-tab strip (one tab active at a time) whose active tab exposes
+ * label/language/caption/code fields — mirroring the read renderer's tabbed
+ * layout and the standard `tabs` block editor instead of stacking every tab's
+ * full form vertically. Add/remove/rename keep the schema's 1..12 bounds.
+ */
 function CodeTabsEdit({
   data,
   onChange,
   editable,
 }: BlockEditProps<CodeTabsData>) {
-  const updateTab = (id: string, patch: Partial<CodeTabsTab>) => {
-    onChange({
-      tabs: data.tabs.map((tab) =>
-        tab.id === id ? { ...tab, ...patch } : tab,
-      ),
-    });
+  const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
+  const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
+
+  const commit = (tabs: CodeTabsTab[]) => onChange({ tabs });
+
+  const updateTab = (id: string, patch: Partial<CodeTabsTab>) =>
+    commit(
+      data.tabs.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab)),
+    );
+
+  const removeTab = (id: string) => {
+    const next = data.tabs.filter((tab) => tab.id !== id);
+    if (next.length === 0) return; // tabs must keep at least one (schema min 1)
+    commit(next);
+    if (activeId === id) setActiveId(next[0]?.id ?? "");
   };
+
+  const addTab = () => {
+    if (data.tabs.length >= 12) return; // schema max
+    const id = newCodeTabId();
+    commit([
+      ...data.tabs,
+      { id, label: `file-${data.tabs.length + 1}.ts`, code: "" },
+    ]);
+    setActiveId(id);
+  };
+
   return (
-    <div className="an-code-tabs-editor flex flex-col gap-5">
-      {data.tabs.map((tab) => (
-        <div
-          key={tab.id}
-          className="flex flex-col gap-2 rounded-md border border-input p-3"
-        >
+    <div className="an-code-tabs-editor flex flex-col gap-4">
+      <div
+        className="flex max-w-full flex-wrap items-center gap-1 overflow-x-auto"
+        role="tablist"
+        data-plan-interactive
+      >
+        {data.tabs.map((tab) => {
+          const selected = tab.id === active?.id;
+          return (
+            <div
+              key={tab.id}
+              className={cn(
+                "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
+                selected ? "bg-plan-block shadow-sm" : "hover:bg-plan-block/60",
+              )}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActiveId(tab.id)}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-3 py-2 font-mono text-sm font-semibold transition-colors",
+                  selected ? "text-plan-text" : "text-plan-muted",
+                )}
+              >
+                <IconCode className="size-4 shrink-0" />
+                {tab.label}
+              </button>
+              {editable && data.tabs.length > 1 && (
+                <button
+                  type="button"
+                  data-plan-interactive
+                  aria-label={`Remove ${tab.label}`}
+                  className={cn(
+                    "flex size-6 shrink-0 items-center justify-center rounded text-plan-muted transition-opacity",
+                    "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                    "hover:bg-muted hover:text-foreground",
+                  )}
+                  onClick={() => removeTab(tab.id)}
+                >
+                  <IconX className="size-3.5 shrink-0" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        {editable && data.tabs.length < 12 && (
+          <button
+            type="button"
+            data-plan-interactive
+            aria-label="Add tab"
+            className="flex items-center gap-1.5 rounded-md px-2 py-2 text-sm text-plan-muted hover:bg-plan-block/60 hover:text-plan-text"
+            onClick={addTab}
+          >
+            <IconPlus className="size-4" />
+            Add tab
+          </button>
+        )}
+      </div>
+      {active && (
+        <div className="flex flex-col gap-2">
           <div className="grid gap-2 md:grid-cols-2">
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">
@@ -130,10 +217,10 @@ function CodeTabsEdit({
                 type="text"
                 data-plan-interactive
                 className={inputClass}
-                value={tab.label}
+                value={active.label}
                 disabled={!editable}
                 onChange={(event) =>
-                  updateTab(tab.id, { label: event.target.value })
+                  updateTab(active.id, { label: event.target.value })
                 }
               />
             </label>
@@ -145,10 +232,10 @@ function CodeTabsEdit({
                 type="text"
                 data-plan-interactive
                 className={inputClass}
-                value={tab.language ?? ""}
+                value={active.language ?? ""}
                 disabled={!editable}
                 onChange={(event) =>
-                  updateTab(tab.id, {
+                  updateTab(active.id, {
                     language: event.target.value || undefined,
                   })
                 }
@@ -163,10 +250,12 @@ function CodeTabsEdit({
               type="text"
               data-plan-interactive
               className={inputClass}
-              value={tab.caption ?? ""}
+              value={active.caption ?? ""}
               disabled={!editable}
               onChange={(event) =>
-                updateTab(tab.id, { caption: event.target.value || undefined })
+                updateTab(active.id, {
+                  caption: event.target.value || undefined,
+                })
               }
             />
           </label>
@@ -178,15 +267,15 @@ function CodeTabsEdit({
               data-plan-interactive
               spellCheck={false}
               className={codeAreaClass}
-              value={tab.code}
+              value={active.code}
               disabled={!editable}
               onChange={(event) =>
-                updateTab(tab.id, { code: event.target.value })
+                updateTab(active.id, { code: event.target.value })
               }
             />
           </label>
         </div>
-      ))}
+      )}
     </div>
   );
 }

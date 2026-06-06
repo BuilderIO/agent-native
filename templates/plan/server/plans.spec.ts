@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildInitialPlanCommentRows,
   buildPlanHtml,
   deriveSectionsFromText,
   summarizePlan,
@@ -54,6 +55,98 @@ describe("Plans helpers", () => {
     expect(summary.sectionCounts).toEqual({ summary: 1, wireframe: 1 });
     expect(summary.commentCount).toBe(2);
     expect(summary.openCommentCount).toBe(1);
+  });
+
+  it("builds threaded initial comment rows with parent context first", () => {
+    const rows = buildInitialPlanCommentRows({
+      planId: "plan_threaded",
+      now: "2026-06-05T00:00:00.000Z",
+      requestEmail: "reviewer@example.com",
+      requestName: "Reviewer",
+      comments: [
+        {
+          id: "reply",
+          parentCommentId: "root",
+          kind: "comment",
+          status: "open",
+          message: "Inline reply",
+          createdBy: "human",
+        },
+        {
+          id: "root",
+          sectionId: "section-a",
+          kind: "annotation",
+          status: "open",
+          anchor: JSON.stringify({ blockId: "wireframe-a" }),
+          message: "Can we discuss this?",
+          createdBy: "human",
+        },
+      ],
+    });
+
+    expect(rows.map((row) => row.id)).toEqual(["root", "reply"]);
+    expect(rows[0]).toMatchObject({
+      id: "root",
+      parentCommentId: null,
+      sectionId: "section-a",
+      kind: "annotation",
+      anchor: JSON.stringify({ blockId: "wireframe-a" }),
+      authorEmail: "reviewer@example.com",
+      authorName: "Reviewer",
+    });
+    expect(rows[1]).toMatchObject({
+      id: "reply",
+      parentCommentId: "root",
+      sectionId: "section-a",
+      kind: "annotation",
+      anchor: JSON.stringify({ blockId: "wireframe-a" }),
+      authorEmail: "reviewer@example.com",
+      authorName: "Reviewer",
+    });
+  });
+
+  it("rejects missing or cyclic initial comment parents", () => {
+    expect(() =>
+      buildInitialPlanCommentRows({
+        planId: "plan_missing",
+        now: "2026-06-05T00:00:00.000Z",
+        comments: [
+          {
+            id: "reply",
+            parentCommentId: "missing",
+            kind: "comment",
+            status: "open",
+            message: "Reply",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).toThrow("Parent comment missing was not found in initial comments.");
+
+    expect(() =>
+      buildInitialPlanCommentRows({
+        planId: "plan_cycle",
+        now: "2026-06-05T00:00:00.000Z",
+        comments: [
+          {
+            id: "a",
+            parentCommentId: "b",
+            kind: "comment",
+            status: "open",
+            message: "A",
+            createdBy: "human",
+          },
+          {
+            id: "b",
+            parentCommentId: "a",
+            kind: "comment",
+            status: "open",
+            message: "B",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).toThrow("Initial comment threads contain a parent cycle.");
   });
 
   it("turns imported text into visual companion sections", () => {

@@ -183,7 +183,7 @@ export function TabsBlockEditor({
             <div
               key={tab.id}
               className={cn(
-                "flex items-center gap-1 rounded-lg pr-1 transition-colors",
+                "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
                 selected ? "bg-plan-block shadow-sm" : "hover:bg-plan-block/60",
               )}
             >
@@ -204,10 +204,14 @@ export function TabsBlockEditor({
                   type="button"
                   data-plan-interactive
                   aria-label={`Remove ${tab.label}`}
-                  className="flex size-6 shrink-0 items-center justify-center rounded text-plan-muted hover:bg-muted hover:text-foreground"
+                  className={cn(
+                    "flex size-6 shrink-0 items-center justify-center rounded text-plan-muted transition-opacity",
+                    "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                    "hover:bg-muted hover:text-foreground",
+                  )}
                   onClick={() => removeTab(tab.id)}
                 >
-                  <IconX className="size-3.5" />
+                  <IconX className="size-3.5 shrink-0" />
                 </button>
               )}
             </div>
