@@ -347,7 +347,9 @@
   border-top-color: var(--plan-line);
 }
 
-.plan-rich-markdown-editor .an-rich-md-prose code {
+/* Inline code only — never the block code inside <pre>, whose tokens would
+   otherwise each get a stray inline-code background over the dark code surface. */
+.plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
   background: var(--plan-block);
   color: var(--plan-text);
 }

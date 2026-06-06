@@ -144,7 +144,7 @@ ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_name TEXT`,
     },
     {
       version: 16,
-      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT;
+      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT REFERENCES plan_comments(id);
 CREATE INDEX IF NOT EXISTS plan_comments_parent_idx ON plan_comments(parent_comment_id)`,
     },
   ],
