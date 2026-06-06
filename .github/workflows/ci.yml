@@ -198,7 +198,9 @@ jobs:
           node-version: "22"
           cache: "pnpm"
 
-      - run: pnpm install --frozen-lockfile
+      # Guard scripts only need dependencies and should not depend on package
+      # lifecycle builds; skipping scripts avoids native optional builds here.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Run security guards
         run: pnpm guards
