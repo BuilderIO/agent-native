@@ -217,6 +217,9 @@ importers:
       '@tiptap/core':
         specifier: ^3.26.0
         version: 3.26.0(@tiptap/pm@3.26.0)
+      '@tiptap/extension-code-block-lowlight':
+        specifier: ^3.26.0
+        version: 3.26.0(@tiptap/core@3.26.0(@tiptap/pm@3.26.0))(@tiptap/extension-code-block@3.26.0(@tiptap/core@3.26.0(@tiptap/pm@3.26.0))(@tiptap/pm@3.26.0))(@tiptap/pm@3.26.0)(highlight.js@11.11.1)(lowlight@3.3.0)
       '@tiptap/extension-collaboration':
         specifier: ^3.26.0
         version: 3.26.0(@tiptap/core@3.26.0(@tiptap/pm@3.26.0))(@tiptap/pm@3.26.0)(@tiptap/y-tiptap@3.0.4(prosemirror-model@1.25.7)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31))(yjs@13.6.31)
@@ -298,6 +301,9 @@ importers:
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.22(crossws@0.4.5(srvx@0.11.15))
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.11.1
       isbot:
         specifier: ^5
         version: 5.1.40
@@ -310,6 +316,9 @@ importers:
       kiwi-schema:
         specifier: ^0.5.0
         version: 0.5.0
+      lowlight:
+        specifier: ^3.3.0
+        version: 3.3.0
       minimatch:
         specifier: '>=9.0.7'
         version: 10.2.5

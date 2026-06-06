@@ -178,6 +178,103 @@ export function buildInitialPlanCommentRows(input: {
   return rows;
 }
 
+export function buildUpdatedPlanCommentRows(input: {
+  planId: string;
+  comments: PlanCommentInput[];
+  existingComments: Array<
+    Pick<PlanComment, "id" | "sectionId" | "kind" | "anchor">
+  >;
+  requestEmail?: string | null;
+  requestName?: string | null;
+  now: string;
+}): Array<typeof schema.planComments.$inferInsert> {
+  type NewCommentRow = typeof schema.planComments.$inferInsert;
+  type ParentContext = Pick<
+    NewCommentRow,
+    "id" | "sectionId" | "kind" | "anchor"
+  >;
+  const existingParents = new Map<string, ParentContext>(
+    input.existingComments.map((comment) => [comment.id, comment]),
+  );
+  const pendingComments = input.comments.map((comment) => {
+    const row: NewCommentRow = {
+      ...resolveCommentAuthor({
+        createdBy: comment.createdBy,
+        authorEmail: comment.authorEmail,
+        authorName: comment.authorName,
+        requestEmail: input.requestEmail,
+        requestName: input.requestName,
+      }),
+      id: comment.id ?? newId("cmt"),
+      planId: input.planId,
+      parentCommentId: null,
+      sectionId: comment.sectionId ?? null,
+      kind: comment.kind,
+      status: comment.status,
+      anchor: comment.anchor ?? null,
+      message: comment.message,
+      createdBy: comment.createdBy,
+      consumedAt: null,
+      createdAt: input.now,
+      updatedAt: input.now,
+    };
+    return { input: comment, row };
+  });
+
+  const pendingById = new Map<
+    string,
+    { input: PlanCommentInput; row: NewCommentRow }
+  >();
+  for (const pending of pendingComments) {
+    if (pendingById.has(pending.row.id)) {
+      throw new Error(`Duplicate comment id ${pending.row.id}.`);
+    }
+    pendingById.set(pending.row.id, pending);
+  }
+
+  for (const pending of pendingComments) {
+    const parentId = pending.input.parentCommentId;
+    if (!parentId) continue;
+    const parent =
+      pendingById.get(parentId)?.row ?? existingParents.get(parentId);
+    if (!parent) {
+      throw new Error(
+        `Parent comment ${parentId} was not found on plan ${input.planId}.`,
+      );
+    }
+    pending.row.parentCommentId = parent.id;
+    pending.row.sectionId = pending.input.sectionId ?? parent.sectionId;
+    pending.row.kind = parent.kind;
+    pending.row.anchor = pending.input.anchor ?? parent.anchor;
+  }
+
+  const rows: NewCommentRow[] = [];
+  const availableParentIds = new Set(existingParents.keys());
+  const uninserted = new Map(
+    pendingComments.map((pending) => [pending.row.id, pending]),
+  );
+  while (uninserted.size > 0) {
+    let insertedThisPass = false;
+    for (const [commentId, pending] of Array.from(uninserted.entries())) {
+      if (
+        pending.row.parentCommentId &&
+        pendingById.has(pending.row.parentCommentId) &&
+        !availableParentIds.has(pending.row.parentCommentId)
+      ) {
+        continue;
+      }
+      rows.push(pending.row);
+      availableParentIds.add(commentId);
+      uninserted.delete(commentId);
+      insertedThisPass = true;
+    }
+    if (!insertedThisPass) {
+      throw new Error("Updated comment threads contain a parent cycle.");
+    }
+  }
+  return rows;
+}
+
 export async function insertInitialPlanComments(input: {
   planId: string;
   comments: PlanCommentInput[];

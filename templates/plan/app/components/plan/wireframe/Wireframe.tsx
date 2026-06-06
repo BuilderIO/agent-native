@@ -140,6 +140,16 @@ function ArtboardFrame({
   const scale = compact ? Math.min(1, 320 / preset.width) : 1;
   const sketchy = style === "sketchy" && !skeleton;
   const paper = theme === "dark" ? "#201f1c" : "#fbfaf6";
+  // Frame border for clean + skeleton modes (sketchy draws its frame via the
+  // rough overlay). Soft, matching --wf-line — not hard ink. Skeleton uses its
+  // own neutral fill so the loader frame still reads as a frame.
+  const frameBorder = skeleton
+    ? theme === "dark"
+      ? "#322f2b"
+      : "#e7e3db"
+    : theme === "dark"
+      ? "#43403a"
+      : "#d8d3c9";
 
   return (
     <div
@@ -178,14 +188,15 @@ function ArtboardFrame({
           >
             {render({ theme, style })}
           </div>
-          {/* Clean mode draws a crisp rounded frame (un-clipped, so corners are
-              never cut). Sketchy mode gets its frame from the rough overlay. */}
-          {!sketchy && !skeleton && (
+          {/* Clean + skeleton draw a crisp rounded frame (un-clipped, so corners
+              are never cut, and a skeleton frame still reads as a frame). Sketchy
+              mode gets its frame from the rough overlay. */}
+          {!sketchy && (
             <div
               className="pointer-events-none absolute inset-0"
               style={{
                 borderRadius: preset.radius,
-                border: `1.5px solid ${theme === "dark" ? "#46433d" : "#34322e"}`,
+                border: `1.5px solid ${frameBorder}`,
               }}
             />
           )}

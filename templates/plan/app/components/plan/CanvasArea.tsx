@@ -83,7 +83,7 @@ type DraftCallout = {
  * renderer lays them out with flex).
  *
  * Visual quality is owned entirely here: an infinite low-contrast grid that
- * moves on pan, cursor-anchored zoom at the right speed, wheel-pan, fixed 70vh,
+ * moves on pan, cursor-anchored zoom at the right speed, wheel-pan, fixed 65vh,
  * artboard labels above each frame (zoom-invariant), designer annotations
  * spaced off the frames (no bordered/shadowed cards), routed connectors, and
  * small zoom controls bottom-left.
@@ -476,7 +476,7 @@ export function CanvasArea({
 
   return (
     <section
-      className="plan-canvas relative h-[70vh] min-h-[520px] overflow-hidden border-b border-plan-line"
+      className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
       aria-label="Plan artboard canvas"
     >
       <div
@@ -1126,9 +1126,13 @@ function layoutAnnotations(
         height,
       });
       columnTop.set(side, cursor.top);
+      // Shift the note clear of any OTHER frame its gutter would land on (e.g. a
+      // right note on a wide frame that has a popover frame to its right), then
+      // anchor the arrow to the frame edge facing where the note actually landed.
+      const placed = shiftSideClear(slot, side, frameRects, ANNOTATION_GAP);
       resolved.set(note.id, {
-        ...slot,
-        anchor: anchorPoint(frame, note.placement),
+        ...placed,
+        anchor: frameAnchorTowardNote(frameRect(frame), placed),
       });
     }
   }
@@ -1147,10 +1151,15 @@ function layoutAnnotations(
     const height = estimateAnnotationHeight(note);
     if (frame) {
       const base = preferredAnnotationRect(note, frame, height);
+      const placed = shiftSideClear(
+        base,
+        sideOf(note.placement),
+        frameRects,
+        ANNOTATION_GAP,
+      );
       resolved.set(note.id, {
-        ...base,
-        height,
-        anchor: anchorPoint(frame, note.placement),
+        ...placed,
+        anchor: frameAnchorTowardNote(frameRect(frame), placed),
       });
       continue;
     }
@@ -1431,7 +1440,7 @@ function SketchFilter({
       <feDisplacementMap
         in="SourceGraphic"
         in2="noise"
-        scale="2.8"
+        scale="0.9"
         xChannelSelector="R"
         yChannelSelector="G"
       />
@@ -1455,8 +1464,8 @@ function hashSeed(value: string) {
  * filled triangle.
  */
 function sketchHeadPath(ex: number, ey: number, cx: number, cy: number) {
-  const length = 12;
-  const spread = 0.5;
+  const length = 11;
+  const spread = 0.45;
   const angle = Math.atan2(ey - cy, ex - cx);
   const w1x = ex - length * Math.cos(angle - spread);
   const w1y = ey - length * Math.sin(angle - spread);
@@ -1631,6 +1640,60 @@ function boxEdgeToward(
   );
   if (!Number.isFinite(scale)) return { x: cx, y: cy };
   return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+/** Arrow tip on a frame: the frame-perimeter point facing the note box, pulled
+ *  OUT by a small gap so the arrow points AT the frame without touching it, and
+ *  always toward whichever side the note actually landed on (never "away"). */
+const ARROW_FRAME_GAP = 13;
+function frameAnchorTowardNote(
+  frameR: AnnotationRect,
+  noteR: AnnotationRect,
+): { x: number; y: number } {
+  const noteCenter = {
+    x: noteR.left + noteR.width / 2,
+    y: noteR.top + noteR.height / 2,
+  };
+  const edge = boxEdgeToward(frameR, noteCenter);
+  const fcx = frameR.left + frameR.width / 2;
+  const fcy = frameR.top + frameR.height / 2;
+  const dx = edge.x - fcx;
+  const dy = edge.y - fcy;
+  const len = Math.hypot(dx, dy) || 1;
+  return {
+    x: edge.x + (dx / len) * ARROW_FRAME_GAP,
+    y: edge.y + (dy / len) * ARROW_FRAME_GAP,
+  };
+}
+
+/** Axis-aligned rectangle overlap test. */
+function rectsOverlap(a: AnnotationRect, b: AnnotationRect): boolean {
+  return (
+    a.left < b.left + b.width &&
+    a.left + a.width > b.left &&
+    a.top < b.top + b.height &&
+    a.top + a.height > b.top
+  );
+}
+
+/** Slide a gutter note along its side axis until it clears any frame it would
+ *  overlap, so a note never lands on a non-target artboard. Bounded + deterministic. */
+function shiftSideClear(
+  rect: AnnotationRect,
+  side: "left" | "right",
+  frames: AnnotationRect[],
+  gap: number,
+): AnnotationRect {
+  let r = rect;
+  for (let i = 0; i <= frames.length; i++) {
+    const hit = frames.find((f) => rectsOverlap(r, f));
+    if (!hit) break;
+    r =
+      side === "left"
+        ? { ...r, left: hit.left - r.width - gap }
+        : { ...r, left: hit.left + hit.width + gap };
+  }
+  return r;
 }
 
 function CanvasLegacyNoteArrow({

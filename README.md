@@ -49,6 +49,19 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 </td>
 <td width="33%" align="center" valign="top">
 
+**Plans**
+
+<a href="https://agent-native.com/templates/plan"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=800" alt="Plans template" width="100%" /></a>
+
+**Visual plan mode for coding agents**
+
+Install `/visual-plan`, `/ui-plan`, and companion skills so your coding agent can create visual plans with diagrams, wireframes, annotations, and review links.
+
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+
 **Content**
 
 <a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
@@ -58,8 +71,6 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 Write and organize content with an agent that knows your brand and publishing workflow.
 
 </td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Slides**
@@ -82,6 +93,8 @@ Generate and edit React-based presentations via prompt or point-and-click.
 Create and edit Remotion video compositions with agent assistance.
 
 </td>
+</tr>
+<tr>
 <td width="33%" align="center" valign="top">
 
 **Analytics**
@@ -93,8 +106,6 @@ Create and edit Remotion video compositions with agent assistance.
 Connect analytics data sources, prompt for real charts, and build reusable dashboards. Shared workspace connections can provide provider credentials, while Analytics still owns metrics, source-of-truth choices, and saved analyses.
 
 </td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Clips**
@@ -117,6 +128,8 @@ Record your screen with auto-transcripts, shareable links, and an agent that sum
 Create and edit visual designs by prompt or by hand, with the agent as your co-designer.
 
 </td>
+</tr>
+<tr>
 <td width="33%" align="center" valign="top">
 
 **Dispatch**
@@ -128,8 +141,6 @@ Create and edit visual designs by prompt or by hand, with the agent as your co-d
 Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispatch is also the control plane for vault secrets, reusable provider connections, app grants, routing, memory, and approvals.
 
 </td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Forms**
@@ -152,6 +163,8 @@ Generate forms from a prompt, branch logic with the agent, and own every respons
 Ask questions over cited company knowledge from approved Slack, meetings, transcripts, GitHub, and decisions.
 
 </td>
+</tr>
+<tr>
 <td width="33%" align="center" valign="top">
 
 **Assets**

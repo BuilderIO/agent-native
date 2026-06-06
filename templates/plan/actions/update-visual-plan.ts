@@ -23,13 +23,13 @@ import {
 import {
   assertPlanEditor,
   buildPlanHtml,
+  buildUpdatedPlanCommentRows,
   commentInputSchema,
   loadPlanBundle,
   newId,
   nowIso,
   planPath,
   planStatusSchema,
-  resolveCommentAuthor,
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
@@ -257,6 +257,7 @@ export default defineAction({
       });
     }
 
+    const pendingCommentInserts: typeof args.comments = [];
     for (const comment of args.comments) {
       if (comment.id) {
         const [existing] = await db
@@ -288,50 +289,24 @@ export default defineAction({
           continue;
         }
       }
-      const [parentComment] = comment.parentCommentId
-        ? await db
-            .select({
-              id: schema.planComments.id,
-              sectionId: schema.planComments.sectionId,
-              kind: schema.planComments.kind,
-              anchor: schema.planComments.anchor,
-            })
-            .from(schema.planComments)
-            .where(
-              and(
-                eq(schema.planComments.id, comment.parentCommentId),
-                eq(schema.planComments.planId, args.planId),
-              ),
-            )
+      pendingCommentInserts.push(comment);
+    }
+
+    const commentsBeforeInserts =
+      pendingCommentInserts.length > 0
+        ? (await loadPlanBundle(args.planId)).comments
         : [];
-      if (comment.parentCommentId && !parentComment) {
-        throw new Error(
-          `Parent comment ${comment.parentCommentId} was not found on plan ${args.planId}.`,
-        );
-      }
-      const commentId = comment.id ?? newId("cmt");
-      await db.insert(schema.planComments).values({
-        ...resolveCommentAuthor({
-          createdBy: comment.createdBy,
-          authorEmail: comment.authorEmail,
-          authorName: comment.authorName,
-          requestEmail: commentRequestEmail,
-          requestName: requesterName,
-        }),
-        id: commentId,
-        planId: args.planId,
-        parentCommentId: parentComment?.id ?? null,
-        sectionId: comment.sectionId ?? parentComment?.sectionId ?? null,
-        kind: parentComment?.kind ?? comment.kind,
-        status: comment.status,
-        anchor: comment.anchor ?? parentComment?.anchor ?? null,
-        message: comment.message,
-        createdBy: comment.createdBy,
-        consumedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      insertedCommentIds.push(commentId);
+    const commentRows = buildUpdatedPlanCommentRows({
+      planId: args.planId,
+      comments: pendingCommentInserts,
+      existingComments: commentsBeforeInserts,
+      requestEmail: commentRequestEmail,
+      requestName: requesterName,
+      now,
+    });
+    for (const row of commentRows) {
+      await db.insert(schema.planComments).values(row);
+      insertedCommentIds.push(row.id);
     }
 
     if (args.consumedCommentIds.length > 0) {
@@ -358,6 +333,7 @@ export default defineAction({
     await notifyPlanCommentRecipients({
       bundle,
       insertedCommentIds,
+      priorComments: commentsBeforeInserts,
     }).catch((error) => {
       console.warn("[update-visual-plan] comment notification failed:", error);
     });

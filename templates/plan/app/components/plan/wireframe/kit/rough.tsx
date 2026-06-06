@@ -146,10 +146,14 @@ function build(
       : scope.querySelector(".plan-wf, .plan-html-frame")) ?? scope;
   const ink =
     readVar(themed, "--ink") || readVar(themed, "--wf-ink") || "#34322e";
-  // Sketch stroke: prefer the dedicated --wf-sketch token (HTML artboards set it
-  // a touch softer than the text ink so dark-mode borders aren't harsh white);
-  // fall back to ink for the kit path, which has no sketch token.
+  // Sketch stroke: prefer the dedicated --wf-sketch token (set a step more
+  // pronounced than the soft line token, since broken rough strokes read lighter
+  // than a solid clean hairline); fall back to ink for the kit path.
   const sketch = readVar(themed, "--wf-sketch") || ink;
+  // Both neutral border colors (text ink + the soft line token) map to the
+  // sketch stroke so EVERY non-accent border gets the same pronounced sketch
+  // weight. Accent / warn / ok borders keep their own color.
+  const line = readVar(themed, "--wf-line") || readVar(themed, "--line") || "";
 
   const paths: RoughPath[] = [];
   let index = 0;
@@ -198,7 +202,10 @@ function build(
     // controls don't draw harsh near-white outlines. Accent/warn/ok borders
     // keep their own color.
     const rawStroke = elementStroke(node, sketch);
-    const stroke = sameColor(rawStroke, ink) ? sketch : rawStroke;
+    const stroke =
+      sameColor(rawStroke, ink) || (line !== "" && sameColor(rawStroke, line))
+        ? sketch
+        : rawStroke;
     const sw = Number(readVar(node, "--rough-w")) || 1.4;
     const seed = seedFrom(
       kind,

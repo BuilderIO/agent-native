@@ -19,6 +19,9 @@
   --ink: #34322e;
   --ink-soft: #97918a;
   --line: #ddd8ce;
+  /* Sketch stroke = a soft gray a step more pronounced than --line so rough
+     strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */
+  --wf-sketch: #c4beb3;
   --paper: #fbfaf6;
   --card: #ffffff;
   --accent: #3f6cd6;
@@ -90,6 +93,7 @@
   --ink: #ece8e1;
   --ink-soft: #8d877f;
   --line: #3a3833;
+  --wf-sketch: #59554d;
   --paper: #201f1c;
   --card: #2a2825;
   --accent: #6f93e6;

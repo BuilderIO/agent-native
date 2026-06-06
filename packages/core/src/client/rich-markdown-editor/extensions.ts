@@ -10,8 +10,41 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
+import { createLowlight } from "lowlight";
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import markdown from "highlight.js/lib/languages/markdown";
+import python from "highlight.js/lib/languages/python";
+import sql from "highlight.js/lib/languages/sql";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+
+/**
+ * Shared lowlight instance for the editor's syntax-highlighted code blocks. A
+ * curated grammar set (aliases like ts/tsx, js/jsx, html, sh, py, yml, md come
+ * for free from each grammar) keeps the editor bundle lean while matching the
+ * languages the read-side Shiki surfaces (`code-tabs`) support. highlight.js is
+ * synchronous, which is what a live ProseMirror editor needs — Shiki is async
+ * and only used for read-only render paths.
+ */
+const codeLowlight = createLowlight({
+  bash,
+  css,
+  javascript,
+  json,
+  markdown,
+  python,
+  sql,
+  typescript,
+  xml,
+  yaml,
+});
 import type { Doc as YDoc } from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
@@ -239,7 +272,9 @@ export function createSharedEditorExtensions({
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
       link: false,
-      ...(feat.codeBlock ? {} : { codeBlock: false }),
+      // StarterKit's plain code block is always disabled; when enabled we add the
+      // syntax-highlighting `CodeBlockLowlight` (same `codeBlock` node) below.
+      codeBlock: false,
       dropcursor: { color: "hsl(var(--ring))", width: 2 },
       // Yjs owns undo/redo when Collaboration is active; the StarterKit history
       // plugin and the CRDT cannot both track undo without corrupting state.
@@ -250,6 +285,18 @@ export function createSharedEditorExtensions({
       ...(starterKit ?? {}),
     }),
   ];
+
+  // Syntax-highlighted code block (replaces StarterKit's plain one) only when the
+  // embedder opts in via `features.codeBlock`. Content disables it and ships its
+  // own code node, so this affects Plans (and future opt-in apps) alone.
+  if (feat.codeBlock) {
+    exts.push(
+      CodeBlockLowlight.configure({
+        lowlight: codeLowlight,
+        defaultLanguage: null,
+      }),
+    );
+  }
 
   if (feat.placeholder) {
     exts.push(

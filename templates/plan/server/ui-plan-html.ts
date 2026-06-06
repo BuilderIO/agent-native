@@ -760,7 +760,7 @@ html { background: var(--bg); scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--doc-font); line-height: 1.62; }
 button, input, textarea { font: inherit; }
 .rough-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
-.top-canvas-section { position: relative; height: 70vh; border-bottom: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
+.top-canvas-section { position: relative; height: 65vh; border-bottom: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
 .canvas-controls { position: absolute; z-index: 10; left: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: 1px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--paper) 84%, transparent); padding: 2px; box-shadow: 0 10px 28px rgba(0,0,0,.18); backdrop-filter: blur(14px); }
 .canvas-controls button { min-width: 26px; height: 24px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); padding: 0 7px; font-size: 12px; font-weight: 760; cursor: pointer; }
 .canvas-controls button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
@@ -943,7 +943,7 @@ pre code, pre code * { background: transparent !important; }
 .doc-table td { color: var(--soft); }
 .doc-table td:first-child { color: var(--ink); font-weight: 720; }
 @media (max-width: 900px) {
-  .top-canvas-section { height: 70vh; }
+  .top-canvas-section { height: 65vh; }
   .notion-plan { width: min(100vw - 28px, 910px); padding-top: 58px; }
   .state-spec, .component-spec, .file-map-preview { grid-template-columns: 1fr; }
   .file-list { border-right: 0; }

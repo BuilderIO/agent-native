@@ -12,6 +12,7 @@ import type { PlanBundle, PlanComment } from "../../shared/types.js";
 type CommentNotificationInput = {
   bundle: PlanBundle;
   insertedCommentIds: string[];
+  priorComments?: PlanComment[];
 };
 
 type NotificationRecipient = {
@@ -214,6 +215,7 @@ async function sendPlanCommentNotification(input: {
 export async function notifyPlanCommentRecipients({
   bundle,
   insertedCommentIds,
+  priorComments,
 }: CommentNotificationInput): Promise<void> {
   if (insertedCommentIds.length === 0 || !isEmailConfigured()) return;
 
@@ -228,14 +230,23 @@ export async function notifyPlanCommentRecipients({
     .where(eq(schema.plans.id, bundle.plan.id));
   const planOwnerEmail = planRow?.ownerEmail ?? null;
   const planTitle = planRow?.title ?? bundle.plan.title;
-  const inserted = bundle.comments.filter((comment) =>
-    insertedCommentIds.includes(comment.id),
+  const insertedById = new Map(
+    bundle.comments
+      .filter((comment) => insertedCommentIds.includes(comment.id))
+      .map((comment) => [comment.id, comment]),
   );
+  const inserted = insertedCommentIds
+    .map((commentId) => insertedById.get(commentId))
+    .filter((comment): comment is PlanComment => Boolean(comment));
+  const visibleComments = priorComments ? [...priorComments] : bundle.comments;
 
   for (const comment of inserted) {
+    const commentsForRecipients = priorComments
+      ? [...visibleComments, comment]
+      : bundle.comments;
     const recipients = planCommentNotificationRecipients({
       comment,
-      comments: bundle.comments,
+      comments: commentsForRecipients,
       planOwnerEmail,
     });
     for (const recipient of recipients) {
@@ -250,5 +261,6 @@ export async function notifyPlanCommentRecipients({
         console.warn("[plan-comments] email notification failed:", error);
       }
     }
+    if (priorComments) visibleComments.push(comment);
   }
 }

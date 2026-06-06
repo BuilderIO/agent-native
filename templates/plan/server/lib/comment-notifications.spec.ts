@@ -222,6 +222,44 @@ describe("plan comment notification recipients", () => {
     });
   });
 
+  it("does not notify later batch commenters for earlier replies", async () => {
+    const root = comment("root", {
+      authorEmail: "root@example.com",
+      authorName: "Root",
+    });
+    const firstReply = comment("first-reply", {
+      authorEmail: "first@example.com",
+      authorName: "First",
+      parentCommentId: root.id,
+    });
+    const secondReply = comment("second-reply", {
+      authorEmail: "second@example.com",
+      authorName: "Second",
+      parentCommentId: root.id,
+    });
+    selectPlanMock.mockResolvedValue([
+      {
+        id: "plan_1",
+        title: "Launch Plan",
+        ownerEmail: "owner@example.com",
+      },
+    ]);
+
+    await notifyPlanCommentRecipients({
+      bundle: bundle([root, firstReply, secondReply]),
+      insertedCommentIds: [firstReply.id, secondReply.id],
+      priorComments: [root],
+    });
+
+    expect(sendEmailMock.mock.calls.map(([args]) => args.to)).toEqual([
+      "owner@example.com",
+      "root@example.com",
+      "owner@example.com",
+      "root@example.com",
+      "first@example.com",
+    ]);
+  });
+
   it("does nothing when transactional email is not configured", async () => {
     isEmailConfiguredMock.mockReturnValue(false);
 

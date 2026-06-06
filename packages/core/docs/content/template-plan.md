@@ -1,0 +1,118 @@
+---
+title: "Plans"
+description: "Install Agent-Native Plans as an app-backed skill for Codex, Claude Code, and other coding agents. Create structured visual plans with diagrams, wireframes, annotations, comments, and share links."
+---
+
+# Plans
+
+Agent-Native Plans is visual plan mode for coding agents. It turns an ordinary
+Codex, Claude Code, Markdown, or pasted implementation plan into a structured
+review surface with rich text, diagrams, wireframes, prototypes, implementation
+maps, annotations, comments, and shareable links.
+
+![Agent-Native Plans review surface](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=1200)
+
+## Install the skill
+
+Use the Agent-Native CLI. This is the recommended setup because it installs the
+Plans skill instructions, registers the hosted Plans MCP connector, and runs the
+client-specific auth/setup flow in one step:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+If you already have the CLI installed, the shorter command is equivalent:
+
+```bash
+agent-native skills add visual-plan
+```
+
+The command installs `/visual-plan` plus the companion commands:
+
+- `/ui-plan` for UI-first plans with mockups, states, and screen-level review.
+- `/visual-questions` for visual intake before a plan.
+- `/visualize-plan` for turning an existing text plan into a visual companion.
+
+By default the CLI targets Codex. Add `--client claude-code` or `--client all`
+when you want to configure another host:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --client all
+```
+
+If you only want the portable instruction file through the open Skills CLI, use:
+
+```bash
+npx skills add BuilderIO/agent-native --skill visual-plan
+```
+
+That installs the skill instructions only. It does not register the hosted MCP
+connector, so use the Agent-Native CLI path when you want the one-command setup.
+
+## Use it from your coding agent
+
+After installation, ask your agent for the command that fits the work:
+
+- `/visual-plan` creates a structured plan for architecture, backend, refactor,
+  or mixed product work.
+- `/ui-plan` creates a UI-first plan with wireframes, mockups, states, and
+  implementation notes.
+- `/visual-questions` opens a visual intake questionnaire before planning.
+- `/visualize-plan` imports a plan you already have and makes it reviewable.
+
+The agent should inspect the codebase first, then create the visual plan when a
+wrong direction would be costly. The returned Plans link opens the review UI so
+you can annotate, correct, choose options, and ask for updates before code
+changes begin.
+
+## What you can do with it
+
+- **Review before implementation.** React to diagrams, wireframes, option tabs,
+  risk notes, file maps, and code previews before the agent edits files.
+- **Comment directly on the plan.** Pin feedback, request changes, and resolve
+  comments as the plan evolves.
+- **Share with reviewers.** Hosted Plans can create private review links and
+  account-backed sharing. Viewing shared plans works from the browser; saving
+  and sharing require sign-in.
+- **Export the result.** Keep an HTML, Markdown, or JSON receipt of the plan
+  when you need a source-control-friendly handoff.
+- **Run locally when needed.** The template can be self-hosted for development
+  or offline workflows, while the hosted skill is the easiest path for normal
+  coding-agent use.
+
+## Useful prompts
+
+- "Use `/visual-plan` before changing the auth flow."
+- "Create a `/ui-plan` for the new onboarding screen with mobile and desktop states."
+- "Use `/visual-questions` to help me choose the dashboard direction first."
+- "Run `/visualize-plan` on the Markdown plan below and make it easier to review."
+
+## For developers
+
+The rest of this doc is for anyone forking or self-hosting the Plans template.
+Most users should install the skill with the CLI instead of scaffolding the app.
+
+### Scaffold the template
+
+```bash
+npx @agent-native/core create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+The hosted app-backed skill uses:
+
+- App: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+The local template is useful when you are developing Plans itself, testing local
+persistence, or running a fully self-hosted review surface.
+
+## What's next
+
+- [**Visual Plans**](/docs/visual-plans) — the full skill flow and auth details
+- [**Skills**](/docs/skills-guide) — how Agent-Native installs skills
+- [**MCP Clients**](/docs/mcp-clients) — configuring hosted MCP connectors
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model

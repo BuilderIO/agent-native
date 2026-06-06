@@ -8,21 +8,28 @@ HTML export.
 
 ## Install
 
-Use the Agent-Native CLI:
+Use the Agent-Native CLI. This is the recommended setup because it installs the
+Plans skill instructions, registers the hosted Plans MCP connector, and runs the
+client-specific auth/setup flow in one step:
+
+```sh
+npx @agent-native/core@latest skills add visual-plan
+```
+
+If you already have the CLI installed, the shorter command is equivalent:
 
 ```sh
 agent-native skills add visual-plan
 ```
 
-The CLI installs the Plans skills and registers the MCP app connector. You do
-not need to wire the MCP server separately.
+You do not need to wire the MCP server separately.
 
 Supported aliases include:
 
-- `agent-native skills add visual-plan`
-- `agent-native skills add visual-questions`
-- `agent-native skills add ui-plan`
-- `agent-native skills add visualize-plan`
+- `npx @agent-native/core@latest skills add visual-plan`
+- `npx @agent-native/core@latest skills add visual-questions`
+- `npx @agent-native/core@latest skills add ui-plan`
+- `npx @agent-native/core@latest skills add visualize-plan`
 
 Restart or reload the host if the tools are not visible immediately.
 

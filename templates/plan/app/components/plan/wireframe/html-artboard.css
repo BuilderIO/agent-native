@@ -21,7 +21,10 @@
      overlay can run a touch softer than the body text — most important in dark
      mode, where near-white text ink as a stroke makes harsh, eye-straining
      borders. In light mode it matches the ink. */
-  --wf-sketch: #34322e;
+  /* Sketch stroke = a soft gray a step more pronounced than the hairline
+     --wf-line, so rough (broken) strokes still read clearly. Gentle, not hard
+     ink; text stays the dark --wf-ink above. */
+  --wf-sketch: #c4beb3;
   --wf-paper: #fbfaf6;
   --wf-card: #ffffff;
   --wf-accent: #3f6cd6;
@@ -54,7 +57,7 @@
   --wf-line: #43403a;
   /* Softer than the near-white ink so sketched borders read as warm chalk, not
      harsh white lines on the dark paper. */
-  --wf-sketch: #b7b1a6;
+  --wf-sketch: #59554d;
   --wf-paper: #201f1c;
   --wf-card: #2a2825;
   --wf-accent: #6f93e6;
@@ -122,7 +125,7 @@
      a FAB, a sticky toolbar action like "+ Add habit" — never shows the
      content behind it through its body. */
   background: var(--wf-paper);
-  border: 1.4px solid var(--wf-ink);
+  border: 1.4px solid var(--wf-line);
   border-radius: var(--wf-radius);
   padding: 7px 14px;
   cursor: default;

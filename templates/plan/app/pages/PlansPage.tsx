@@ -2728,7 +2728,7 @@ function PlanSkeleton() {
 function PlanCanvasSkeleton() {
   return (
     <section
-      className="plan-canvas relative h-[70vh] min-h-[520px] overflow-hidden border-b border-plan-line"
+      className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
       aria-hidden="true"
     >
       <div

@@ -34,6 +34,18 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800",
   },
   {
+    name: "Plans",
+    slug: "plan",
+    replaces: "Visual plan mode for Codex, Claude Code, and coding agents",
+    cliCommand: "npx @agent-native/core@latest skills add visual-plan",
+    demoUrl: "https://plan.agent-native.com",
+    description:
+      "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
+    color: "#52525B",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=800",
+  },
+  {
     name: "Slides",
     slug: "slides",
     replaces: "Replaces or augments Google Slides, Pitch",
