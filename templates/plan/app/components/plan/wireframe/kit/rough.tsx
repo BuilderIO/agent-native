@@ -49,6 +49,37 @@ function readVar(el: Element, name: string): string {
   return getComputedStyle(el).getPropertyValue(name).trim();
 }
 
+/** Normalize a CSS color (hex or rgb[a]) to "r,g,b" for equality comparison. */
+function toRgbKey(color: string): string | null {
+  const c = color.trim();
+  const hex = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const h = hex[1];
+    const full =
+      h.length === 3
+        ? h
+            .split("")
+            .map((d) => d + d)
+            .join("")
+        : h;
+    const n = parseInt(full, 16);
+    return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+  }
+  const rgb = c.match(/rgba?\(([^)]+)\)/i);
+  if (rgb) {
+    const [r, g, b] = rgb[1].split(",").map((v) => parseInt(v.trim(), 10));
+    return `${r},${g},${b}`;
+  }
+  return null;
+}
+
+/** True when two CSS colors resolve to the same RGB (hex vs rgb tolerant). */
+function sameColor(a: string, b: string): boolean {
+  const ka = toRgbKey(a);
+  const kb = toRgbKey(b);
+  return ka !== null && ka === kb;
+}
+
 /** A rounded-rect SVG path (so the frame stroke follows the artboard radius and
  *  isn't clipped at the corners). */
 function roundedRectPath(
@@ -145,9 +176,9 @@ function build(
     push(
       gen.path(
         roundedRectPath(2, 2, layoutW - 4, layoutH - 4, opts.frameRadius),
-        makeOpts(ink, sw, seedFrom("frame", layoutW, layoutH)),
+        makeOpts(sketch, sw, seedFrom("frame", layoutW, layoutH)),
       ),
-      ink,
+      sketch,
       sw,
     );
   }
@@ -160,7 +191,12 @@ function build(
     const h = r.height / zoom;
     if (w < 2 || h < 2) return;
     const kind = node.getAttribute("data-rough") || "rect";
-    const stroke = elementStroke(node, ink);
+    // Element border color, but soften any ink-colored border (e.g. default
+    // buttons border with `var(--wf-ink)`) to the sketch stroke so dark-mode
+    // controls don't draw harsh near-white outlines. Accent/warn/ok borders
+    // keep their own color.
+    const rawStroke = elementStroke(node, sketch);
+    const stroke = sameColor(rawStroke, ink) ? sketch : rawStroke;
     const sw = Number(readVar(node, "--rough-w")) || 1.4;
     const seed = seedFrom(
       kind,

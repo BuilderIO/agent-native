@@ -255,7 +255,10 @@ snippets, migration or implementation phases, risks, and validation. Repeat a
 wireframe in the document only for a genuinely new detail view or comparison.
 Skip the canvas entirely for non-visual work and write a clean rich document.
 
-**Use the right block, and make it carry substance:**
+**Use the right block, and make it carry substance.** For the authoritative,
+machine-checked list of block types and their data schemas, call `get-plan-blocks`
+— it returns the live registry vocabulary (type, MDX tag, placement, key fields)
+so you never emit a block the editor cannot render or round-trip:
 
 - `rich-text` for plan prose with real bold/italic/code/links and nested lists.
 - `implementation-map` / `code-tabs` for the file map: file path, the
