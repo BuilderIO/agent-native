@@ -84,6 +84,7 @@ function asUser(
 }
 
 async function rawPlan(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads the row just created.
   const [row] = await db
     .select()
     .from(planSchema.plans)
@@ -92,6 +93,7 @@ async function rawPlan(planId: string) {
 }
 
 async function countPlans() {
+  // guard:allow-unscoped -- test-only fixture count verifies rejected creates persist nothing.
   const rows = await db.select().from(planSchema.plans);
   return rows.length;
 }
@@ -115,7 +117,7 @@ async function createPrototypeAs(
         {
           title: "Start",
           summary: "first",
-          html: "<button data-goto=\"finish\">Go</button>",
+          html: '<button data-goto="finish">Go</button>',
         },
         { title: "Finish", summary: "second", html: "<p>Done</p>" },
       ],
@@ -180,6 +182,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
+  // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
   await client.executeMultiple(`
     DELETE FROM plan_events; DELETE FROM plan_comments; DELETE FROM plan_sections;
     DELETE FROM plan_shares; DELETE FROM plans;
@@ -222,7 +225,9 @@ describe("create-prototype-plan: owner scoping", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
     // Same 403 for a truly non-existent id (no existence leak).
     await expect(
-      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: "plan_nope" })),
+      asUser({ userEmail: OTHER }, () =>
+        getVisualPlan.run({ id: "plan_nope" }),
+      ),
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
@@ -245,7 +250,8 @@ describe("create-prototype-plan: owner scoping", () => {
   });
 
   it("a legacy guest-author identity cannot create a prototype plan on a hosted deploy", async () => {
-    const guest = "guest-123e4567-e89b-12d3-a456-426614174000@agent-native.guest";
+    const guest =
+      "guest-123e4567-e89b-12d3-a456-426614174000@agent-native.guest";
     await expect(
       asUser({ userEmail: guest }, () =>
         createPrototypePlan.run({

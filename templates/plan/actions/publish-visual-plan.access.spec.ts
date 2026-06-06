@@ -96,6 +96,7 @@ async function setVisibility(
   planId: string,
   visibility: "private" | "org" | "public",
 ) {
+  // guard:allow-unscoped -- test-only fixture setup mutates the row just created.
   await db
     .update(planSchema.plans)
     .set({ visibility })
@@ -115,6 +116,7 @@ async function shareViewer(planId: string, principalId: string) {
 }
 
 async function rawPlan(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads the row just created.
   const [row] = await db
     .select()
     .from(planSchema.plans)
@@ -167,6 +169,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
+  // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
   await client.executeMultiple(`
     DELETE FROM plan_events; DELETE FROM plan_comments; DELETE FROM plan_sections;
     DELETE FROM plan_shares; DELETE FROM plans;

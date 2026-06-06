@@ -81,6 +81,7 @@ const ORG = "org-1";
 const OTHER_ORG = "org-2";
 
 async function resetTables() {
+  // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
   await client.executeMultiple(`
     DELETE FROM plan_events;
     DELETE FROM plan_comments;
@@ -133,6 +134,7 @@ async function setVisibility(
 }
 
 async function rawPlan(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads the row just created.
   const [row] = await db
     .select()
     .from(planSchema.plans)
