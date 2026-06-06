@@ -5,6 +5,7 @@ import {
   type Page,
   type Locator,
 } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 /*
  * PROTOTYPE PLAN — deep, adversarial E2E for the prototype-first plan feature
@@ -55,7 +56,16 @@ import {
  *  - goToScreen() guards unknown ids, so dead hotspots are no-ops, never crashes.
  */
 
-const REVIEWER_EMAIL = process.env.PLAN_E2E_EMAIL || "e2e-tester@plan.test";
+const REVIEWER_EMAIL =
+  process.env.PLAN_E2E_EMAIL ||
+  (() => {
+    try {
+      // global-setup writes the actual per-run authed identity here.
+      return readFileSync("e2e/.auth/email.txt", "utf8").trim();
+    } catch {
+      return "e2e-tester@plan.test";
+    }
+  })();
 
 type ActionResult = Record<string, any>;
 

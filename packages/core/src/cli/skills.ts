@@ -642,9 +642,8 @@ done-criteria, an \`implementation-map\` naming the real components and actions
 with short highlighted snippets, a \`decision\` card weighing two real approaches,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
-whose HTML uses the same labels and states as the canvas artboards, with safe
-prototype directives for local behavior and \`data-goto\` only for true
-screen/route changes. This is the bar.
+whose screens use the same labels and states as the canvas artboards, with
+\`data-goto\` controls for the sequence. This is the bar.
 
 **BAD.** A \`data.html\` with hard-coded hex colors, a \`font-family\`, or fixed
 pixel width/height; gray placeholder bars "insinuating" text on a non-skeleton
@@ -1790,9 +1789,8 @@ done-criteria, an \`implementation-map\` naming the real components and actions
 with short highlighted snippets, a \`decision\` card weighing two real approaches,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
-whose HTML uses the same labels and states as the canvas artboards, with safe
-prototype directives for local behavior and \`data-goto\` only for true
-screen/route changes. This is the bar.
+whose screens use the same labels and states as the canvas artboards, with
+\`data-goto\` controls for the sequence. This is the bar.
 
 **BAD.** A \`data.html\` with hard-coded hex colors, a \`font-family\`, or fixed
 pixel width/height; gray placeholder bars "insinuating" text on a non-skeleton

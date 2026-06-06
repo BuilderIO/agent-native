@@ -1,5 +1,5 @@
 import { chromium, type FullConfig } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 /*
  * Establish a reusable authed session for the "authed" project.
@@ -87,6 +87,13 @@ async function globalSetup(_config: FullConfig) {
   // eslint-disable-next-line no-console
   console.log("[global-setup] auth:", JSON.stringify(result));
   await ctx.storageState({ path: "e2e/.auth/state.json" });
+  // Record the ACTUAL authed identity so specs that assert reviewer/owner email
+  // read the real session email (the account email is generated per run to avoid
+  // a fixed-account/secret-rotation deadlock) instead of a hardcoded default.
+  writeFileSync(
+    "e2e/.auth/email.txt",
+    String(result.sessionEmail || EMAIL).trim(),
+  );
   await browser.close();
   if (!result.sessionEmail) {
     // eslint-disable-next-line no-console

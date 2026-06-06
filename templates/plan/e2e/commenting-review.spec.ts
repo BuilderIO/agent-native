@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 /*
  * COMMENTING + REVIEW MODE — deep, adversarial E2E.
@@ -19,7 +20,16 @@ import {
  * broken, the assertion fails and that failure IS the reported bug.
  */
 
-const REVIEWER_EMAIL = process.env.PLAN_E2E_EMAIL || "e2e-tester@plan.test";
+const REVIEWER_EMAIL =
+  process.env.PLAN_E2E_EMAIL ||
+  (() => {
+    try {
+      // global-setup writes the actual per-run authed identity here.
+      return readFileSync("e2e/.auth/email.txt", "utf8").trim();
+    } catch {
+      return "e2e-tester@plan.test";
+    }
+  })();
 
 type ActionResult = Record<string, any>;
 

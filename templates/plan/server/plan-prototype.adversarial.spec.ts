@@ -123,7 +123,7 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
         "<div class='card'><button data-goto='next'>Go</button></div>",
       jsonBraces:
         '<div x-data="{ items: [1,2,3], open: false }"><span x-text="items.length"></span></div>',
-      entities: '<div>A &amp; B &lt; C &gt; D &quot;E&quot;</div>',
+      entities: "<div>A &amp; B &lt; C &gt; D &quot;E&quot;</div>",
     };
     for (const [label, html] of Object.entries(payloads)) {
       const result = await roundTrip({
@@ -298,7 +298,11 @@ describe("prototype patch ops (idempotency, bad ids, sanitize)", () => {
       blocks: [],
     });
     const next = applyPlanContentPatches(base, [
-      { op: "update-prototype-screen", screenId: "s1", patch: { summary: "new" } },
+      {
+        op: "update-prototype-screen",
+        screenId: "s1",
+        patch: { summary: "new" },
+      },
     ]);
     expect(next.prototype?.initialScreenId).toBe("s1");
     expect(next.prototype?.screens).toHaveLength(2);
@@ -445,7 +449,10 @@ describe("generated prototype content round-trips", () => {
             id: "f1",
             label: "A",
             surface: "browser",
-            wireframe: { surface: "browser", html: '<div data-goto="f2">A</div>' },
+            wireframe: {
+              surface: "browser",
+              html: '<div data-goto="f2">A</div>',
+            },
           },
           {
             id: "f2",
