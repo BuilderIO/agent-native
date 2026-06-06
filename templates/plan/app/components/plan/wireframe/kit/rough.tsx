@@ -115,6 +115,10 @@ function build(
       : scope.querySelector(".plan-wf, .plan-html-frame")) ?? scope;
   const ink =
     readVar(themed, "--ink") || readVar(themed, "--wf-ink") || "#34322e";
+  // Sketch stroke: prefer the dedicated --wf-sketch token (HTML artboards set it
+  // a touch softer than the text ink so dark-mode borders aren't harsh white);
+  // fall back to ink for the kit path, which has no sketch token.
+  const sketch = readVar(themed, "--wf-sketch") || ink;
 
   const paths: RoughPath[] = [];
   let index = 0;

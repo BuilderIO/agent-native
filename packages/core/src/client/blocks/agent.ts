@@ -45,3 +45,50 @@ function safeJsonSchema(schema: z.ZodType<unknown>): unknown {
     return undefined;
   }
 }
+
+/**
+ * Render the registry into a compact markdown block-vocabulary reference for the
+ * agent (skill / action surface). Lists each block's runtime `type`, MDX tag,
+ * placement, the key data fields (pulled from the converted JSON schema), and the
+ * one-line description — generated from the live registry so the agent's
+ * vocabulary can never drift from what the app actually renders and serializes.
+ */
+export function renderBlockVocabularyReference(
+  registry: BlockRegistry,
+  options: { heading?: string } = {},
+): string {
+  const docs = describeBlocksForAgent(registry);
+  const lines: string[] = [];
+  if (options.heading) lines.push(options.heading, "");
+  lines.push(
+    "| type | mdx tag | placement | key data fields | description |",
+    "| --- | --- | --- | --- | --- |",
+  );
+  for (const doc of docs) {
+    lines.push(
+      `| \`${doc.type}\` | \`<${doc.mdxTag}>\` | ${doc.placement.join("+")} | ${
+        summarizeFields(doc.dataSchema) || "—"
+      } | ${escapeCell(doc.description)} |`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** Pull a short `field`/`field?` list out of a converted JSON schema object. */
+function summarizeFields(jsonSchema: unknown): string {
+  if (!jsonSchema || typeof jsonSchema !== "object") return "";
+  const obj = jsonSchema as {
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  if (!obj.properties) return "";
+  const required = new Set(obj.required ?? []);
+  return Object.keys(obj.properties)
+    .map((key) => `\`${key}${required.has(key) ? "" : "?"}\``)
+    .join(", ");
+}
+
+/** Escape pipe/newline so a description never breaks the markdown table. */
+function escapeCell(text: string): string {
+  return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
+}

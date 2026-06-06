@@ -17,6 +17,11 @@
   --wf-ink: #34322e;
   --wf-muted: #8a857d;
   --wf-line: #d8d3c9;
+  /* Hand-drawn sketch stroke. Separate from --wf-ink (text) so the rough.js
+     overlay can run a touch softer than the body text — most important in dark
+     mode, where near-white text ink as a stroke makes harsh, eye-straining
+     borders. In light mode it matches the ink. */
+  --wf-sketch: #34322e;
   --wf-paper: #fbfaf6;
   --wf-card: #ffffff;
   --wf-accent: #3f6cd6;
@@ -47,6 +52,9 @@
   --wf-ink: #ece8e1;
   --wf-muted: #9a948b;
   --wf-line: #43403a;
+  /* Softer than the near-white ink so sketched borders read as warm chalk, not
+     harsh white lines on the dark paper. */
+  --wf-sketch: #b7b1a6;
   --wf-paper: #201f1c;
   --wf-card: #2a2825;
   --wf-accent: #6f93e6;

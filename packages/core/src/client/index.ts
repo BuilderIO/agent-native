@@ -641,6 +641,7 @@ export {
   parseSpecBlock,
   createAttrReader,
   describeBlocksForAgent,
+  renderBlockVocabularyReference,
   type BlockSpec,
   type BlockPlacement,
   type BlockMdxConfig,

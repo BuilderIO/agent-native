@@ -44,7 +44,11 @@ export {
   type ParsedBlockBase,
 } from "./mdx.js";
 
-export { describeBlocksForAgent, type BlockAgentDoc } from "./agent.js";
+export {
+  describeBlocksForAgent,
+  renderBlockVocabularyReference,
+  type BlockAgentDoc,
+} from "./agent.js";
 
 // Standard block library — React-free schema + MDX config only. The React
 // `Read`/`Edit` live in `./library/checklist.tsx` (imported from the full

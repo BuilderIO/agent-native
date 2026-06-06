@@ -65,7 +65,11 @@ export {
 } from "./mdx.js";
 
 // Agent schema export
-export { describeBlocksForAgent, type BlockAgentDoc } from "./agent.js";
+export {
+  describeBlocksForAgent,
+  renderBlockVocabularyReference,
+  type BlockAgentDoc,
+} from "./agent.js";
 
 // Standard block library (React specs). Apps register these in their browser
 // registry alongside their own app-specific blocks.

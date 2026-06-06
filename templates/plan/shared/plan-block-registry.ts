@@ -2,6 +2,9 @@ import {
   BlockRegistry,
   defineBlock,
   registerBlocks,
+  describeBlocksForAgent,
+  renderBlockVocabularyReference,
+  type BlockAgentDoc,
 } from "@agent-native/core/blocks/server";
 import {
   calloutSchema,
@@ -140,4 +143,37 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
         "A horizontal pill-tab container; each tab holds its own list of blocks.",
     }),
   ]);
+}
+
+/**
+ * A shared, React-free registry of every converted plan block, built once for
+ * the agent-facing schema export. Uses the same `registerPlanBlocks` config the
+ * MDX adapter uses, so the vocabulary the agent reads can never drift from what
+ * the app serializes/renders.
+ */
+let cachedAgentRegistry: BlockRegistry | null = null;
+function planAgentRegistry(): BlockRegistry {
+  if (!cachedAgentRegistry) {
+    cachedAgentRegistry = new BlockRegistry();
+    registerPlanBlocks(cachedAgentRegistry);
+  }
+  return cachedAgentRegistry;
+}
+
+/**
+ * Structured per-block agent docs (type, label, placement, MDX tag, JSON schema,
+ * example) for the registered plan blocks. Exposed to the agent so `/visual-plan`
+ * generates only blocks the app can actually render and round-trip.
+ */
+export function describePlanBlocksForAgent(): BlockAgentDoc[] {
+  return describeBlocksForAgent(planAgentRegistry());
+}
+
+/**
+ * A compact markdown block-vocabulary reference for the plan agent, generated
+ * from the live registry. Surfaced through the `get-plan-blocks` action and
+ * referenced by the plan skills so the agent's block vocabulary stays accurate.
+ */
+export function renderPlanBlockVocabulary(): string {
+  return renderBlockVocabularyReference(planAgentRegistry());
 }
