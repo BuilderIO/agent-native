@@ -14,6 +14,7 @@ import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
 import { PlanBlockView } from "../plan/DocumentArea";
+import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
 /** One tab id per browser tab, shared by every plan document editor instance. */
 const TAB_ID = generateTabId();
@@ -267,6 +268,11 @@ export function PlanDocumentEditor({
     () => ({
       editable,
       notionSync: notionCompatibleOnly,
+      // In Notion-sync mode, the shared NodeView badges blocks with no NFM
+      // analog. Plan's single allowlist (`isNotionCompatibleBlockType`) drives
+      // the policy; core stays policy-free.
+      isNotionIncompatibleType: (blockType: string) =>
+        !isNotionCompatibleBlockType(blockType),
       getBlock: (blockId: string) =>
         blocksRef.current.find((block) => block.id === blockId),
       onBlockDataChange: (blockId: string, nextData: unknown) => {

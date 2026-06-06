@@ -190,7 +190,17 @@ export {
   proseJSONToGfm,
   DragHandle,
   DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  // Generic registry-block Tiptap NodeView + side-map provider + dedupe plugin.
+  // Hosts mount the node from `createRegistryBlockNode` as an extra extension
+  // and wrap the editor in `RegistryBlockDataProvider`.
+  createRegistryBlockNode,
+  RegistryBlockNodeView,
+  RegistryBlockDataProvider,
+  useRegistryBlockData,
   type DragHandleOptions,
+  type CreateRegistryBlockNodeOptions,
+  type RegistryBlockDataValue,
+  type RegistryBlockSideMapBlock,
   type SharedRichEditorProps,
   type SharedEditorCollab,
   type SharedEditorFeatures,

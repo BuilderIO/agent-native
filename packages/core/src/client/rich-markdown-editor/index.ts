@@ -52,3 +52,12 @@ export {
   DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
   type DragHandleOptions,
 } from "./DragHandle.js";
+export {
+  createRegistryBlockNode,
+  RegistryBlockNodeView,
+  RegistryBlockDataProvider,
+  useRegistryBlockData,
+  type CreateRegistryBlockNodeOptions,
+  type RegistryBlockDataValue,
+  type RegistryBlockSideMapBlock,
+} from "./RegistryBlockNode.js";
