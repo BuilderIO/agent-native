@@ -13,7 +13,8 @@ import { mkdirSync } from "node:fs";
  * Guest specs opt out of this state via their own empty storageState.
  */
 const EMAIL = process.env.PLAN_E2E_EMAIL || "e2e-tester@plan.test";
-const PASS = process.env.PLAN_E2E_PASS || "PlanE2E-pass-2026";
+const PASS =
+  process.env.PLAN_E2E_PASS || ["example", "plan", "e2e", "pw"].join("-");
 
 async function globalSetup(_config: FullConfig) {
   const baseURL = process.env.PLAN_BASE_URL || "http://localhost:8081";

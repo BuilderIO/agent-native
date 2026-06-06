@@ -5,6 +5,10 @@ import {
   type BrowserContext,
 } from "@playwright/test";
 
+function makeE2ePassword(label: string): string {
+  return ["example", label, Date.now().toString(36), "pw"].join("-");
+}
+
 /*
  * SHARING + PUBLISH + ACCESS CONTROL (security-critical) — adversarial E2E.
  *
@@ -52,7 +56,7 @@ async function registerUser(
   tag: string,
 ): Promise<RegisteredUser> {
   const email = uniqueEmail(tag);
-  const password = `PlanE2E-${tag}-pass-2026`;
+  const password = makeE2ePassword(tag);
   const context = await browser.newContext();
   const page = await context.newPage();
 

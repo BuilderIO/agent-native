@@ -26,6 +26,10 @@ import {
 
 const APP_ORIGIN = process.env.PLAN_BASE_URL || "http://localhost:8081";
 
+function makeE2ePassword(label: string): string {
+  return ["example", label, Date.now().toString(36), "pw"].join("-");
+}
+
 /** Authed helper context (the plan owner) — used only to mint fixtures. */
 async function createOwnerContext(page: Page): Promise<{
   request: APIRequestContext;
@@ -34,7 +38,7 @@ async function createOwnerContext(page: Page): Promise<{
   const email = `guestspec-owner-${Date.now()}-${Math.floor(
     Math.random() * 1e6,
   )}@plan.test`;
-  const password = "GuestSpec-owner-2026";
+  const password = makeE2ePassword("guest-owner");
   // Same-origin register+login via the page's request context (shares cookies,
   // passes Better Auth origin check). Mirrors e2e/global-setup.ts.
   const reg = await page.request.post("/_agent-native/auth/register", {
@@ -305,7 +309,7 @@ test.describe("guest mode + claim", () => {
     const email = `guest-claim-${Date.now()}-${Math.floor(
       Math.random() * 1e6,
     )}@plan.test`;
-    const password = "GuestClaim-pass-2026";
+    const password = makeE2ePassword("guest-claim");
     const reg = await page.request.post("/_agent-native/auth/register", {
       data: { email, password, name: "Guest Claimer", callbackURL: "/plans" },
     });
@@ -374,16 +378,17 @@ test.describe("guest mode + claim", () => {
 
     // Owner re-authenticates as a different account in the same context.
     const owner2Email = `guestspec-owner2-${Date.now()}@plan.test`;
+    const owner2Password = makeE2ePassword("guest-owner-two");
     await ownerPage.request.post("/_agent-native/auth/register", {
       data: {
         email: owner2Email,
-        password: "GuestSpec-owner2-2026",
+        password: owner2Password,
         name: "Owner Two",
         callbackURL: "/plans",
       },
     });
     await ownerPage.request.post("/_agent-native/auth/login", {
-      data: { email: owner2Email, password: "GuestSpec-owner2-2026" },
+      data: { email: owner2Email, password: owner2Password },
     });
     await ownerCtx.close();
 

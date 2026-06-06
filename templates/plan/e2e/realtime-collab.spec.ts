@@ -6,6 +6,10 @@ import {
   type Page,
 } from "@playwright/test";
 
+function makeE2ePassword(label: string): string {
+  return ["example", label, Date.now().toString(36), "pw"].join("-");
+}
+
 /*
  * REAL-TIME COLLAB — adversarial coverage for the SINGLE-DOCUMENT plan editor.
  *
@@ -233,7 +237,7 @@ async function registerSecondUser(
   const email = `plan-collab-${Date.now()}-${Math.floor(
     Math.random() * 1e6,
   )}@plan.test`;
-  const password = "CollabE2E-pass-2026";
+  const password = makeE2ePassword("collab");
   await page.goto("/");
   await page.waitForTimeout(800);
   const out = await page.evaluate(

@@ -1,5 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 
+function makeE2ePassword(label: string): string {
+  return ["example", label, Date.now().toString(36), "pw"].join("-");
+}
+
 /*
  * NAVIGATION / ROUTING / ERROR + LOADING STATES (authed).
  *
@@ -486,7 +490,7 @@ test.describe("nav / routing — plan you don't own", () => {
     const email = `other-${Date.now()}-${Math.random()
       .toString(16)
       .slice(2, 8)}@plan.test`;
-    const password = "OtherUser-pass-2026";
+    const password = makeE2ePassword("other-user");
     let otherPlanId = "";
     let provisioned = false;
     try {
