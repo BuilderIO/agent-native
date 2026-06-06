@@ -50,6 +50,16 @@ export {
   type BlockAgentDoc,
 } from "./agent.js";
 
+// Standard library registration (React-free). Server / shared registries call
+// `registerLibraryBlockConfigs(registry)` to register the whole standard library
+// as `Read: () => null` config stubs in one place, then add their app-specific
+// block configs on top. `libraryBlockConfigs` is the underlying ordered array.
+export {
+  libraryBlockConfigs,
+  registerLibraryBlockConfigs,
+  type LibraryBlockConfigOverrides,
+} from "./library/server-specs.js";
+
 // Standard block library — React-free schema + MDX config only. The React
 // `Read`/`Edit` live in `./library/checklist.tsx` (imported from the full
 // `@agent-native/core/blocks` entry), never from here.

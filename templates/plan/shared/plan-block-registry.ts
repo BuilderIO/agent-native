@@ -4,6 +4,12 @@ import {
   registerBlocks,
   describeBlocksForAgent,
   renderBlockVocabularyReference,
+  // The React-free standard library (checklist, table, code-tabs, html, tabs +
+  // the eight dev-doc blocks) is registered once via `registerLibraryBlockConfigs`
+  // — the SAME shared list content's server registry uses. Plan adds only its
+  // plan-specific block configs (callout/diagram/wireframe/question-form) on top.
+  registerLibraryBlockConfigs,
+  type LibraryBlockConfigOverrides,
   type BlockAgentDoc,
 } from "@agent-native/core/blocks/server";
 import {
@@ -26,50 +32,6 @@ import {
   questionFormMdx,
   type QuestionFormData,
 } from "./blocks/question-form.config.js";
-import {
-  checklistSchema,
-  checklistMdx,
-  type ChecklistData,
-  tableSchema,
-  tableMdx,
-  type TableData,
-  codeTabsSchema,
-  codeTabsMdx,
-  type CodeTabsData,
-  htmlSchema,
-  htmlMdx,
-  type HtmlBlockData,
-  tabsSchema,
-  tabsMdx,
-  type TabsData,
-  // Dev-doc block config (schema + MDX round-trip) now lives in core, shared
-  // with the client registry (`planBlocks.tsx`) — same objects, so source
-  // round-trip can never drift.
-  mermaidSchema,
-  mermaidMdx,
-  type MermaidData,
-  apiEndpointSchema,
-  apiEndpointMdx,
-  type ApiEndpointData,
-  openApiSpecSchema,
-  openApiSpecMdx,
-  type OpenApiSpecData,
-  dataModelSchema,
-  dataModelMdx,
-  type DataModelData,
-  diffSchema,
-  diffMdx,
-  type DiffData,
-  fileTreeSchema,
-  fileTreeMdx,
-  type FileTreeData,
-  jsonExplorerSchema,
-  jsonExplorerMdx,
-  type JsonExplorerData,
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
-} from "@agent-native/core/blocks/server";
 
 /**
  * Server / shared plan block registry. Registers the React-free parts of each
@@ -84,7 +46,28 @@ import {
  * (`() => null`) that is never invoked on the server. Unregistered block types
  * keep using the legacy `serializeBlock`/`parseBlock` path unchanged.
  */
+
+/**
+ * Plan's agent-facing overrides for the shared library config: the Mermaid
+ * description is phrased for the plan's hand-drawn render style, and the file-tree
+ * description carries the plan's detailed phrasing. Everything else (schema, MDX
+ * config, labels, the `table` type, `notionCompatible` flags) uses the canonical
+ * core value, so these configs live in exactly one place.
+ */
+const PLAN_SERVER_LIBRARY_OVERRIDES: LibraryBlockConfigOverrides = {
+  mermaid: {
+    description:
+      "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
+  },
+  "file-tree": {
+    description:
+      "A VS Code / GitHub-explorer file and change tree derived from slash-delimited paths, with per-file change badges (added/modified/removed/renamed), notes, and code snippets.",
+  },
+};
+
 export function registerPlanBlocks(registry: BlockRegistry): void {
+  // Plan-specific block configs (callout/diagram/wireframe/question-form). The
+  // standard library is registered once via `registerLibraryBlockConfigs` below.
   registerBlocks(registry, [
     defineBlock<CalloutData>({
       type: "callout",
@@ -108,45 +91,6 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       description:
         "A sketch flow diagram of labeled nodes connected by edges, with optional notes.",
     }),
-    defineBlock<ChecklistData>({
-      type: "checklist",
-      schema: checklistSchema,
-      mdx: checklistMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      // Mirrors core's `checklistBlock` flag so the single-sourced Notion
-      // allowlist (`notion-compat.ts`) is the same on server and client.
-      notionCompatible: true,
-      label: "Checklist",
-      description:
-        "A list of toggleable items, each with a label and an optional note.",
-    }),
-    defineBlock<CodeTabsData>({
-      type: "code-tabs",
-      schema: codeTabsSchema,
-      mdx: codeTabsMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Code tabs",
-      description:
-        "A vertical file tab rail of syntax-highlighted code snippets, one tab per file with an optional language and caption.",
-    }),
-    defineBlock<TableData>({
-      type: "table",
-      schema: tableSchema,
-      mdx: tableMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      // Mirrors core's `tableBlock` flag so the single-sourced Notion allowlist
-      // (`notion-compat.ts`) is the same on server and client.
-      notionCompatible: true,
-      label: "Table",
-      description:
-        "A simple grid with header columns and string rows for comparisons, parameters, or structured lists.",
-    }),
     defineBlock<WireframeData>({
       type: "wireframe",
       schema: wireframeSchema,
@@ -157,17 +101,6 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       label: "Wireframe",
       description:
         "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface frame (desktop/mobile/popover/panel/browser).",
-    }),
-    defineBlock<HtmlBlockData>({
-      type: "custom-html",
-      schema: htmlSchema,
-      mdx: htmlMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "HTML / Tailwind",
-      description:
-        "An author-supplied HTML (with optional CSS) fragment rendered in a sandboxed iframe, with inline source editing.",
     }),
     defineBlock<QuestionFormData>({
       type: "question-form",
@@ -180,106 +113,18 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       description:
         "An interactive form block for open questions, single-choice or multi-choice chips, freeform answers, recommended options, and optional wireframe/diagram previews.",
     }),
-    defineBlock<TabsData>({
-      type: "tabs",
-      schema: tabsSchema,
-      mdx: tabsMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block", "inline"],
-      label: "Tabs",
-      description:
-        "A horizontal pill-tab container; each tab holds its own list of blocks.",
-    }),
-    defineBlock<MermaidData>({
-      type: "mermaid",
-      schema: mermaidSchema,
-      mdx: mermaidMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Diagram (Mermaid)",
-      description:
-        "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
-    }),
-    defineBlock<ApiEndpointData>({
-      type: "api-endpoint",
-      schema: apiEndpointSchema,
-      mdx: apiEndpointMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "API endpoint",
-      description:
-        "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
-    }),
-    defineBlock<OpenApiSpecData>({
-      type: "openapi-spec",
-      schema: openApiSpecSchema,
-      mdx: openApiSpecMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "OpenAPI spec",
-      description:
-        "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON): operations grouped by tag, each a collapsible row expanding to params, request body, and per-status responses, with $ref models resolved.",
-    }),
-    defineBlock<DataModelData>({
-      type: "data-model",
-      schema: dataModelSchema,
-      mdx: dataModelMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Data model",
-      description:
-        "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
-    }),
-    defineBlock<DiffData>({
-      type: "diff",
-      schema: diffSchema,
-      mdx: diffMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Diff",
-      description:
-        "A GitHub-style before/after line diff for a file, with unified or split (side-by-side) view, added/removed line highlighting, and collapsible unchanged runs.",
-    }),
-    defineBlock<FileTreeData>({
-      type: "file-tree",
-      schema: fileTreeSchema,
-      mdx: fileTreeMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "File tree",
-      description:
-        "A VS Code / GitHub-explorer file and change tree derived from slash-delimited paths, with per-file change badges (added/modified/removed/renamed), notes, and code snippets.",
-    }),
-    defineBlock<JsonExplorerData>({
-      type: "json-explorer",
-      schema: jsonExplorerSchema,
-      mdx: jsonExplorerMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "JSON explorer",
-      description:
-        "A collapsible browser-devtools / Postman-style JSON tree with type-colored values and expand/collapse.",
-    }),
-    defineBlock<AnnotatedCodeData>({
-      type: "annotated-code",
-      schema: annotatedCodeSchema,
-      mdx: annotatedCodeMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Annotated code",
-      description:
-        "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes (Stripe-docs / Sourcegraph 'explain this code' style).",
-    }),
   ]);
+
+  // Standard library config stubs (checklist, table, code-tabs, custom-html, tabs
+  // + the eight dev-doc blocks), shared with content's server registry. Plan's
+  // only agent-facing tweaks: the Mermaid description is phrased for its
+  // hand-drawn render style and the file-tree description is the detailed plan
+  // phrasing. Table keeps the core default `type` (`table`). `notionCompatible`
+  // on checklist/table comes from the shared config, so the single-sourced Notion
+  // allowlist (`notion-compat.ts`) stays the same on server and client.
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
 }
 
 /**

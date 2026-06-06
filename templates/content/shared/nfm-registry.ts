@@ -10,66 +10,28 @@
  * READ and (b) re-serialize an edited block's typed `data` on WRITE, while an
  * untouched block round-trips byte-exact from its preserved `__raw` source.
  *
- * It is React-free: it registers only the pure (`schema` + `mdx`) part of each
- * core block via `defineBlock` with a render-only `Read: () => null` stub — the
- * browser editor registers the same blocks WITH their real `Read`/`Edit`. Both
- * use the identical core `mdx` config, so the inline source can never drift from
- * what the editor renders. Mirrors `templates/plan/shared/plan-block-registry.ts`.
+ * It is React-free: it registers the pure (`schema` + `mdx`) standard-library
+ * configs from core with render-only stubs, while the browser editor registers
+ * the same blocks WITH their real `Read`/`Edit`. Both use the identical core
+ * `mdx` config, so the inline source can never drift from what the editor
+ * renders. Mirrors `templates/plan/shared/plan-block-registry.ts`.
  */
 import {
   BlockRegistry,
-  defineBlock,
-  registerBlocks,
   serializeSpecBlock,
   parseSpecBlock,
   createAttrReader,
   attributeValue,
+  // The whole standard library config (checklist, table, code-tabs, html, tabs +
+  // the eight dev-doc blocks) is registered once via `registerLibraryBlockConfigs`
+  // — the SAME shared list plan's server registry uses. Content's only override
+  // is the table `type` rename (see `registerContentBlocks`).
+  registerLibraryBlockConfigs,
   type BlockSpec,
   type MdxJsxNode,
   type MdxAttrNode,
   type ParsedBlockBase,
   type SerializableBlock,
-} from "@agent-native/core/blocks/server";
-import {
-  checklistSchema,
-  checklistMdx,
-  type ChecklistData,
-  tableSchema,
-  tableMdx,
-  type TableData,
-  codeTabsSchema,
-  codeTabsMdx,
-  type CodeTabsData,
-  htmlSchema,
-  htmlMdx,
-  type HtmlBlockData,
-  tabsSchema,
-  tabsMdx,
-  type TabsData,
-  mermaidSchema,
-  mermaidMdx,
-  type MermaidData,
-  apiEndpointSchema,
-  apiEndpointMdx,
-  type ApiEndpointData,
-  openApiSpecSchema,
-  openApiSpecMdx,
-  type OpenApiSpecData,
-  dataModelSchema,
-  dataModelMdx,
-  type DataModelData,
-  diffSchema,
-  diffMdx,
-  type DiffData,
-  fileTreeSchema,
-  fileTreeMdx,
-  type FileTreeData,
-  jsonExplorerSchema,
-  jsonExplorerMdx,
-  type JsonExplorerData,
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
 } from "@agent-native/core/blocks/server";
 
 /**
@@ -85,140 +47,15 @@ import {
  * PascalCase names, leaving the Notion tag set untouched.
  */
 export function registerContentBlocks(registry: BlockRegistry): void {
-  registerBlocks(registry, [
-    defineBlock<ChecklistData>({
-      type: "checklist",
-      schema: checklistSchema,
-      mdx: checklistMdx,
-      Read: () => null,
-      placement: ["block"],
-      notionCompatible: true,
-      label: "Checklist",
-      description:
-        "A list of toggleable items, each with a label and an optional note.",
-    }),
-    defineBlock<TableData>({
-      type: "table-block",
-      schema: tableSchema,
-      mdx: tableMdx,
-      Read: () => null,
-      placement: ["block"],
-      notionCompatible: true,
-      label: "Table",
-      description:
-        "A simple grid with header columns and string rows for comparisons, parameters, or structured lists.",
-    }),
-    defineBlock<CodeTabsData>({
-      type: "code-tabs",
-      schema: codeTabsSchema,
-      mdx: codeTabsMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "Code tabs",
-      description:
-        "A vertical file tab rail of syntax-highlighted code snippets, one tab per file with an optional language and caption.",
-    }),
-    defineBlock<HtmlBlockData>({
-      type: "custom-html",
-      schema: htmlSchema,
-      mdx: htmlMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "HTML / Tailwind",
-      description:
-        "An author-supplied HTML (with optional CSS) fragment rendered in a sandboxed iframe, with inline source editing.",
-    }),
-    defineBlock<TabsData>({
-      type: "tabs",
-      schema: tabsSchema,
-      mdx: tabsMdx,
-      Read: () => null,
-      placement: ["block", "inline"],
-      label: "Tabs",
-      description:
-        "A horizontal pill-tab container; each tab holds its own list of blocks.",
-    }),
-    defineBlock<MermaidData>({
-      type: "mermaid",
-      schema: mermaidSchema,
-      mdx: mermaidMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "Diagram (Mermaid)",
-      description:
-        "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered as a diagram.",
-    }),
-    defineBlock<ApiEndpointData>({
-      type: "api-endpoint",
-      schema: apiEndpointSchema,
-      mdx: apiEndpointMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "API endpoint",
-      description:
-        "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
-    }),
-    defineBlock<OpenApiSpecData>({
-      type: "openapi-spec",
-      schema: openApiSpecSchema,
-      mdx: openApiSpecMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "OpenAPI spec",
-      description:
-        "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON).",
-    }),
-    defineBlock<DataModelData>({
-      type: "data-model",
-      schema: dataModelSchema,
-      mdx: dataModelMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "Data model",
-      description:
-        "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
-    }),
-    defineBlock<DiffData>({
-      type: "diff",
-      schema: diffSchema,
-      mdx: diffMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "Diff",
-      description:
-        "A GitHub-style before/after line diff for a file, with unified or split view and added/removed line highlighting.",
-    }),
-    defineBlock<FileTreeData>({
-      type: "file-tree",
-      schema: fileTreeSchema,
-      mdx: fileTreeMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "File tree",
-      description:
-        "A VS Code / GitHub-explorer file and change tree with per-file change badges, notes, and code snippets.",
-    }),
-    defineBlock<JsonExplorerData>({
-      type: "json-explorer",
-      schema: jsonExplorerSchema,
-      mdx: jsonExplorerMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "JSON explorer",
-      description:
-        "A collapsible browser-devtools / Postman-style JSON tree with type-colored values and expand/collapse.",
-    }),
-    defineBlock<AnnotatedCodeData>({
-      type: "annotated-code",
-      schema: annotatedCodeSchema,
-      mdx: annotatedCodeMdx,
-      Read: () => null,
-      placement: ["block"],
-      label: "Annotated code",
-      description:
-        "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes.",
-    }),
-  ]);
+  // Register the whole standard library config in one shared call (the same list
+  // plan's server registry uses). Content's only override is the table `type`
+  // rename to `table-block` (it already owns a Notion lowercase `table` node, so
+  // the registry block can't reuse the bare `table` type). The core `tableBlock`
+  // schema/mdx is reused verbatim; only the discriminating `type` changes, and
+  // `notionCompatible` is carried from the shared config.
+  registerLibraryBlockConfigs(registry, {
+    overrides: { table: { type: "table-block" } },
+  });
 }
 
 /**
