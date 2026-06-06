@@ -507,29 +507,29 @@ export function RecordingPill() {
           >
             <PillLogo className="pill-logo" />
             {hasSystemAudio ? (
-            <div
-              className="pill-wave-dual"
-              aria-hidden
-              title="Top: you. Bottom: speaker."
-            >
+              <div
+                className="pill-wave-dual"
+                aria-hidden
+                title="Top: you. Bottom: speaker."
+              >
+                <canvas
+                  ref={micCanvasRef}
+                  className="pill-wave-canvas-half"
+                  aria-label="Microphone level"
+                />
+                <canvas
+                  ref={sysCanvasRef}
+                  className="pill-wave-canvas-half"
+                  aria-label="System audio level"
+                />
+              </div>
+            ) : (
               <canvas
                 ref={micCanvasRef}
-                className="pill-wave-canvas-half"
-                aria-label="Microphone level"
+                className="pill-wave-canvas"
+                aria-hidden
               />
-              <canvas
-                ref={sysCanvasRef}
-                className="pill-wave-canvas-half"
-                aria-label="System audio level"
-              />
-            </div>
-          ) : (
-            <canvas
-              ref={micCanvasRef}
-              className="pill-wave-canvas"
-              aria-hidden
-            />
-          )}
+            )}
           </div>
           <div className="pill-controls">
             <span className="pill-timer">
