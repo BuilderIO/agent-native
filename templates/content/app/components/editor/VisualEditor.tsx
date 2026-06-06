@@ -1327,8 +1327,13 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
   const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
   const pendingRef = useRef<Set<string>>(new Set());
   // Bumping this state forces the NodeViews to re-read the cache once async
-  // hydration (or an edit) lands.
-  const [, setVersion] = useState(0);
+  // hydration (or an edit) lands. The `version` is surfaced to the side-map
+  // value so the context reference changes on each bump — otherwise the Tiptap
+  // NodeView (a separate React subtree reading the side-map through context)
+  // never re-renders after the async `parseRegistryBlockData` resolves, leaving
+  // a freshly-opened block stuck on its "Loading…" placeholder until some other
+  // edit/HMR happens to re-render it.
+  const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
   // Find the live `registryBlock` node (and its position) for a blockId.
@@ -1482,8 +1487,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
   );
 
   return useMemo(
-    () => ({ getBlock, onBlockDataChange }),
-    [getBlock, onBlockDataChange],
+    () => ({ getBlock, onBlockDataChange, version }),
+    [getBlock, onBlockDataChange, version],
   );
 }
 
