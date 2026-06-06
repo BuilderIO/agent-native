@@ -71,6 +71,16 @@ export {
   type BlockAgentDoc,
 } from "./agent.js";
 
+// Standard library registration. Apps call `registerLibraryBlocks(registry)` to
+// register the whole standard library (the five pre-built specs + the eight
+// dev-doc specs) in one place, then register only their app-specific blocks on
+// top. `libraryBlockSpecs` is the underlying ordered array.
+export {
+  libraryBlockSpecs,
+  registerLibraryBlocks,
+  type LibraryBlockOverrides,
+} from "./library/specs.js";
+
 // Standard block library (React specs). Apps register these in their browser
 // registry alongside their own app-specific blocks.
 export {

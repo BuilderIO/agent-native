@@ -2,54 +2,13 @@ import {
   BlockRegistry,
   defineBlock,
   registerBlocks,
-  checklistBlock,
-  tableBlock,
-  codeTabsBlock,
-  htmlBlock,
-  tabsBlock,
-  // Dev-doc block library now lives in core (config + React Read/Edit). Plan
-  // composes the app-specific specs (label/description/editSurface/empty) below
-  // with `defineBlock`, but the schema/MDX config and renderers are shared.
-  mermaidSchema,
-  mermaidMdx,
-  type MermaidData,
-  apiEndpointSchema,
-  apiEndpointMdx,
-  type ApiEndpointData,
-  openApiSpecSchema,
-  openApiSpecMdx,
+  // The standard library (checklist, table, code-tabs, html, tabs + the eight
+  // dev-doc blocks) is registered in ONE shared place. Plan registers it via
+  // `registerLibraryBlocks` and then registers only its plan-specific blocks
+  // (callout/diagram/wireframe/question-form) below.
+  registerLibraryBlocks,
+  type LibraryBlockOverrides,
   type OpenApiSpecData,
-  dataModelSchema,
-  dataModelMdx,
-  type DataModelData,
-  diffSchema,
-  diffMdx,
-  type DiffData,
-  fileTreeSchema,
-  fileTreeMdx,
-  type FileTreeData,
-  jsonExplorerSchema,
-  jsonExplorerMdx,
-  type JsonExplorerData,
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
-  MermaidRead,
-  MermaidEdit,
-  ApiEndpointRead,
-  ApiEndpointEdit,
-  OpenApiSpecRead,
-  OpenApiSpecEdit,
-  DataModelRead,
-  DataModelEdit,
-  DiffRead,
-  DiffEdit,
-  FileTreeRead,
-  FileTreeEdit,
-  JsonExplorerRead,
-  JsonExplorerEdit,
-  AnnotatedCodeRead,
-  AnnotatedCodeEdit,
   type BlockRenderContext,
   type BlockReadProps,
   type NestedBlock,
@@ -129,6 +88,10 @@ function QuestionFormRead({
 export const planBlockRegistry = new BlockRegistry();
 
 registerBlocks(planBlockRegistry, [
+  // Plan-specific blocks (callout/diagram/wireframe/question-form). The standard
+  // library (checklist, table, code-tabs, html, tabs + the eight dev-doc blocks)
+  // is registered once via `registerLibraryBlocks` below — adding a library block
+  // there lands in plan and content together.
   defineBlock<CalloutData>({
     type: "callout",
     schema: calloutSchema,
@@ -178,27 +141,6 @@ registerBlocks(planBlockRegistry, [
     // desktop surface with an empty screen so the canvas/agent can fill it in.
     empty: () => ({ surface: "desktop", screen: [] }),
   }),
-  // Standard checklist block from the core library. Its `Read`/`Edit`
-  // (toggle/add/remove) and schema + MDX config all come from core; the same
-  // React-free config is registered server-side in `shared/plan-block-registry`.
-  checklistBlock,
-  // Standard table block from the core library. Its `Read` (the legacy
-  // `<Table>` grid markup) and `Edit` (an editable column/row grid) and the
-  // schema + MDX config all come from core; the same React-free config is
-  // registered server-side in `shared/plan-block-registry`.
-  tableBlock,
-  // Standard code-tabs block from the core library: a vertical file tab rail of
-  // Shiki-highlighted code. Its `Read` (moved verbatim from the legacy plan
-  // `CodeTabsBlock`), its `Edit` (a code-style text area per tab), and the
-  // schema + MDX config all come from core; the same React-free config is
-  // registered server-side in `shared/plan-block-registry`.
-  codeTabsBlock,
-  // Standard HTML / Tailwind block from the core library (the registry form of
-  // the legacy `custom-html` block): an author-supplied HTML (+ optional CSS)
-  // fragment rendered in a sandboxed iframe, with an inline source editor. Its
-  // `Read`/`Edit` and the schema + MDX config all come from core; the same
-  // React-free config is registered server-side in `shared/plan-block-registry`.
-  htmlBlock,
   defineBlock<QuestionFormData>({
     type: "question-form",
     schema: questionFormSchema,
@@ -220,58 +162,22 @@ registerBlocks(planBlockRegistry, [
       ],
     }),
   }),
-  // Standard horizontal-tabs block from the core library (the registry form of
-  // the legacy plan `tabs` block): a pill-tab container whose tabs each hold a
-  // list of child blocks. Children render RECURSIVELY through `ctx.renderBlock`
-  // (wired to `PlanBlockView` below), so registered children render via their
-  // spec and unconverted children still fall through the legacy switch. Its
-  // `Read`/`Edit` and the schema + MDX config all come from core; the same
-  // React-free config is registered server-side in `shared/plan-block-registry`.
-  tabsBlock,
-  // Dev-doc blocks: Mermaid diagram (hand-drawn, theme-aware), Swagger-style API
-  // endpoint, ERD data model, and a GitHub-style diff. Each renders differently
-  // from its props, so they edit through a corner button + panel popover.
-  defineBlock<MermaidData>({
-    type: "mermaid",
-    schema: mermaidSchema,
-    mdx: mermaidMdx,
-    Read: MermaidRead,
-    Edit: MermaidEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "Diagram (Mermaid)",
+]);
+
+/**
+ * Plan's per-block overrides for the shared standard library: the Mermaid
+ * description is phrased for the plan's hand-drawn render style, and the OpenAPI
+ * example seeds a richer spec (with a POST + `$ref` model). Everything else
+ * (schema, MDX config, React `Read`/`Edit`, labels, placement) is the canonical
+ * core value, so the library lives in exactly one place.
+ */
+const PLAN_LIBRARY_OVERRIDES: LibraryBlockOverrides = {
+  mermaid: {
     description:
       "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
-    empty: () => ({
-      source:
-        "flowchart TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Do it]\n  B -->|No| D[Skip]",
-    }),
-  }),
-  defineBlock<ApiEndpointData>({
-    type: "api-endpoint",
-    schema: apiEndpointSchema,
-    mdx: apiEndpointMdx,
-    Read: ApiEndpointRead,
-    Edit: ApiEndpointEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "API endpoint",
-    description:
-      "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
-    empty: () => ({ method: "GET", path: "/api/resource" }),
-  }),
-  defineBlock<OpenApiSpecData>({
-    type: "openapi-spec",
-    schema: openApiSpecSchema,
-    mdx: openApiSpecMdx,
-    Read: OpenApiSpecRead,
-    Edit: OpenApiSpecEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "OpenAPI spec",
-    description:
-      "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON): operations grouped by tag, each a collapsible row expanding to params, request body, and per-status responses, with $ref models resolved.",
-    empty: () => ({
+  },
+  "openapi-spec": {
+    empty: (): OpenApiSpecData => ({
       spec: JSON.stringify(
         {
           openapi: "3.0.0",
@@ -326,118 +232,15 @@ registerBlocks(planBlockRegistry, [
         2,
       ),
     }),
-  }),
-  defineBlock<DataModelData>({
-    type: "data-model",
-    schema: dataModelSchema,
-    mdx: dataModelMdx,
-    Read: DataModelRead,
-    Edit: DataModelEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "Data model",
-    description:
-      "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
-    empty: () => ({
-      entities: [
-        {
-          id: "e_user",
-          name: "User",
-          fields: [
-            { name: "id", type: "uuid", pk: true },
-            { name: "email", type: "text" },
-          ],
-        },
-      ],
-    }),
-  }),
-  defineBlock<DiffData>({
-    type: "diff",
-    schema: diffSchema,
-    mdx: diffMdx,
-    Read: DiffRead,
-    Edit: DiffEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "Diff",
-    description:
-      "A GitHub-style before/after line diff for a file, with unified or split (side-by-side) view, added/removed line highlighting, and collapsible unchanged runs.",
-    empty: () => ({
-      before: "function add(a, b) {\n  return a + b;\n}",
-      after: "function add(a: number, b: number): number {\n  return a + b;\n}",
-      language: "ts",
-    }),
-  }),
-  defineBlock<FileTreeData>({
-    type: "file-tree",
-    schema: fileTreeSchema,
-    mdx: fileTreeMdx,
-    Read: FileTreeRead,
-    Edit: FileTreeEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "File tree",
-    description:
-      "A VS Code / GitHub-explorer file and change tree derived from slash-delimited paths, with per-file change badges (added/modified/removed/renamed), notes, and code snippets.",
-    empty: () => ({
-      entries: [
-        {
-          path: "src/index.ts",
-          change: "modified",
-          note: "Wire the new route here.",
-        },
-        { path: "src/routes/git.ts", change: "added" },
-      ],
-    }),
-  }),
-  defineBlock<JsonExplorerData>({
-    type: "json-explorer",
-    schema: jsonExplorerSchema,
-    mdx: jsonExplorerMdx,
-    Read: JsonExplorerRead,
-    Edit: JsonExplorerEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "JSON explorer",
-    description:
-      "A collapsible browser-devtools / Postman-style JSON tree with type-colored values and expand/collapse.",
-    empty: () => ({
-      json: JSON.stringify(
-        {
-          id: "abc123",
-          active: true,
-          tags: ["alpha", "beta"],
-          meta: { count: 2, owner: null },
-        },
-        null,
-        2,
-      ),
-    }),
-  }),
-  defineBlock<AnnotatedCodeData>({
-    type: "annotated-code",
-    schema: annotatedCodeSchema,
-    mdx: annotatedCodeMdx,
-    Read: AnnotatedCodeRead,
-    Edit: AnnotatedCodeEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "Annotated code",
-    description:
-      "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes (Stripe-docs / Sourcegraph 'explain this code' style).",
-    empty: () => ({
-      language: "ts",
-      code: "export function resolveAuth(provider: string) {\n  const cfg = providers[provider];\n  return cfg.token;\n}",
-      annotations: [
-        {
-          lines: "2",
-          label: "Lookup",
-          note: "Resolves the provider config by key.",
-        },
-      ],
-    }),
-  }),
-]);
+  },
+};
+
+// Standard library (checklist, table, code-tabs, html, tabs + the eight dev-doc
+// blocks). Registered AFTER the plan-specific blocks above; the same React-free
+// schema/MDX config is registered server-side in `shared/plan-block-registry`.
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
 
 /**
  * Build the {@link BlockRenderContext} that the auto-editor and block `Read`
