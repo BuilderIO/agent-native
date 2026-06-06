@@ -19,6 +19,9 @@
   --ink: #34322e;
   --ink-soft: #97918a;
   --line: #ddd8ce;
+  /* Sketch stroke = a soft gray a step more pronounced than --line so rough
+     strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */
+  --wf-sketch: #c4beb3;
   --paper: #fbfaf6;
   --card: #ffffff;
   --accent: #3f6cd6;
@@ -36,6 +39,8 @@
     "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
   --font-script:
     "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  --font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
 
   /* ---- Density (regular default) ----------------------------------------- */
   /* Density is selected via [data-density]; individual tokens below. */
@@ -75,11 +80,20 @@
   --stroke: 1.6px;
 }
 
+/* ---- Clean style: drop the hand-drawn font for a normal sans ------------- */
+/* In clean mode the rough overlay is off and frames get crisp CSS borders, so
+   the handwriting font reads as out of place — switch to the sans stack. */
+.plan-wf[data-style="clean"] {
+  --font-hand: var(--font-clean);
+  --font-script: var(--font-clean);
+}
+
 /* ---- Dark palette -------------------------------------------------------- */
 .plan-wf[data-theme="dark"] {
   --ink: #ece8e1;
   --ink-soft: #8d877f;
   --line: #3a3833;
+  --wf-sketch: #59554d;
   --paper: #201f1c;
   --card: #2a2825;
   --accent: #6f93e6;
@@ -89,4 +103,61 @@
   --ok: #79a98c;
   --ok-soft: color-mix(in srgb, var(--ok) 22%, #201f1c);
   --plan-wf-page-bg: #161513;
+}
+
+/* ---- Rough sketch layer -------------------------------------------------- */
+/* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).
+   Once it has measured + drawn, hide the crisp CSS borders so there is never a
+   doubled border — fills and text stay, only the outline is replaced. */
+.plan-wf[data-rough-ready] [data-rough] {
+  border-color: transparent !important;
+}
+
+/* ---- Skeleton / neutral loading register --------------------------------- */
+/* One block flips the WHOLE kit to a textless skeleton: no ink, no rough, no
+   color — every primitive already reads these vars, so nothing else changes.
+   A skeleton is boxes + bars only; real labels collapse to transparent so the
+   silhouette is preserved without readable copy. */
+.plan-wf[data-skeleton="true"] {
+  --ink: var(--skeleton-fill);
+  --ink-soft: var(--skeleton-fill);
+  --line: var(--skeleton-fill);
+  --card: var(--skeleton-block);
+  --accent: var(--skeleton-fill);
+  --accent-soft: var(--skeleton-block);
+  --warn: var(--skeleton-fill);
+  --warn-soft: var(--skeleton-block);
+  --ok: var(--skeleton-fill);
+  --ok-soft: var(--skeleton-block);
+  --stroke: 0px;
+  --skeleton-fill: #e2ded5;
+  --skeleton-block: #ece8e1;
+}
+.plan-wf[data-theme="dark"][data-skeleton="true"] {
+  --skeleton-fill: #322f2b;
+  --skeleton-block: #2a2825;
+}
+/* Textless: hide real labels but keep their layout footprint. */
+.plan-wf[data-skeleton="true"] * {
+  color: transparent !important;
+  border-color: transparent !important;
+}
+/* Soft rounded placeholder bars in skeleton mode. */
+.plan-wf[data-skeleton="true"] {
+  --radius: 7px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .plan-wf[data-skeleton="true"] {
+    animation: plan-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes plan-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }

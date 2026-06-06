@@ -1,13 +1,10 @@
 /**
- * Abuse mitigation for HOSTED guest authoring.
+ * Legacy abuse mitigation for hosted guest authoring.
  *
- * Hosted deploys mint a stable `guest-<uuid>@agent-native.guest` identity for an
- * unauthenticated visitor (see `resolvePlanGuestAuthorOwner` in
- * `./public-plans.ts`) so they can create/edit their own plans with no account.
- * That convenience opens an abuse vector: a guest can create unbounded plans,
- * and an attacker can rotate/drop the `plan_guest_author` cookie to mint
- * unbounded distinct guest identities — a cheap way to flood the hosted plans DB
- * with anonymous rows.
+ * Older hosted deploys minted a stable `guest-<uuid>@agent-native.guest`
+ * identity for an unauthenticated visitor (see `resolvePlanGuestAuthorOwner` in
+ * `./public-plans.ts`). This module is retained for legacy helpers/tests and as
+ * a guard if a guest identity reaches a create path.
  *
  * This module adds three additive, dialect-agnostic guards. EVERY guard is a
  * no-op unless the resolved owner is a guest identity (`isGuestAuthorIdentity`),

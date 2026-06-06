@@ -22,6 +22,22 @@ import {
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import { normalizePlanContent } from "./plan-content.js";
+import {
+  BlockRegistry,
+  prop,
+  attributeValue,
+  serializeSpecBlock,
+  parseSpecBlock,
+  type MdxJsxNode,
+} from "@agent-native/core/blocks/server";
+import { registerPlanBlocks } from "../shared/plan-block-registry.js";
+
+// Server-side plan block registry. Registered specs (currently the editable
+// callout) drive serialize/parse via the registry; every other block type still
+// falls through to the legacy `serializeBlock`/`parseBlock` below, so stored
+// `.mdx` round-trips byte-compatibly. See `plan-block-registry.ts`.
+const planMdxRegistry = new BlockRegistry();
+registerPlanBlocks(planMdxRegistry);
 
 type MdxNode = {
   type: string;
@@ -250,32 +266,11 @@ async function formatMdx(source: string): Promise<string> {
   }
 }
 
-function jsonExpression(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
-
-function escapeAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function prop(name: string, value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "boolean") {
-    return value ? ` ${name}` : ` ${name}={false}`;
-  }
-  if (typeof value === "number") return ` ${name}={${value}}`;
-  if (typeof value === "string") {
-    if (/^[\w .:/@#,+()[\]-]+$/.test(value) && value.length < 140) {
-      return ` ${name}="${escapeAttr(value)}"`;
-    }
-    return ` ${name}={${jsonExpression(value)}}`;
-  }
-  return ` ${name}={${jsonExpression(value)}}`;
-}
+// `prop`, `escapeAttr`, `jsonExpression`, and the attribute reader
+// (`attributeValue` + its estree literal walker) now live in
+// `@agent-native/core/blocks` and are imported above. They are the MDX
+// round-trip contract — shared verbatim so registry-driven and legacy blocks
+// encode/decode identically.
 
 function serializeNode(node: PlanWireframeNode, indent = ""): string {
   const name = NODE_TO_COMPONENT[node.el] ?? "Box";
@@ -293,15 +288,28 @@ function serializeNode(node: PlanWireframeNode, indent = ""): string {
 function serializeScreen(data: {
   surface: string;
   caption?: string;
-  screen: PlanWireframeNode[];
+  screen?: PlanWireframeNode[];
 }): string {
-  const children = data.screen
+  const children = (data.screen ?? [])
     .map((node) => serializeNode(node, "  "))
     .join("\n");
   return `<Screen${prop("surface", data.surface)}${prop("caption", data.caption)}>\n${children}\n</Screen>`;
 }
 
 function serializeBlock(block: PlanBlock): string {
+  // Registry-first: a registered block type serializes through its spec's `mdx`
+  // config (byte-identical to the legacy branch below). Unregistered types fall
+  // through to the hand-written switch, so unconverted blocks are unchanged.
+  const registered = planMdxRegistry.get(block.type);
+  if (registered) {
+    return serializeSpecBlock(registered, {
+      id: block.id,
+      title: block.title,
+      summary: block.summary,
+      editable: block.editable,
+      data: (block as { data: unknown }).data,
+    });
+  }
   const title = prop("title", block.title);
   const summary = prop("summary", block.summary);
   const editable = prop("editable", block.editable);
@@ -541,68 +549,8 @@ function findAttribute(node: MdxNode, name: string): MdxAttribute | undefined {
   );
 }
 
-function attributeValue(attr: MdxAttribute | undefined): unknown {
-  if (!attr) return undefined;
-  if (attr.value === null || attr.value === undefined) return true;
-  if (typeof attr.value === "string") return attr.value;
-  const astValue = literalExpressionValue(attr.value);
-  if (astValue !== undefined) return astValue;
-  const expression = attr.value.value.trim();
-  if (!expression) return undefined;
-  if (expression === "undefined") return undefined;
-  try {
-    return JSON.parse(expression);
-  } catch {
-    throw new Error(
-      `Unsupported MDX attribute expression for "${attr.name}": {${expression}}. Use literal values or valid JSON.`,
-    );
-  }
-}
-
-function literalExpressionValue(expression: MdxExpression): unknown {
-  const estree = (expression.data as { estree?: EstreeNode } | undefined)
-    ?.estree;
-  const statement = estree?.body?.[0];
-  if (!statement || statement.type !== "ExpressionStatement") return undefined;
-  return literalNodeValue(statement.expression);
-}
-
-function literalNodeValue(node: EstreeNode | undefined | null): unknown {
-  if (!node) return undefined;
-  if (node.type === "Literal") return node.value;
-  if (node.type === "ArrayExpression") {
-    return (node.elements ?? []).map((item) => literalNodeValue(item));
-  }
-  if (node.type === "ObjectExpression") {
-    const out: Record<string, unknown> = {};
-    for (const property of node.properties ?? []) {
-      if (property.type !== "Property" || property.computed) return undefined;
-      const key = property.key;
-      const rawKey =
-        key?.type === "Identifier"
-          ? key.name
-          : key?.type === "Literal" && typeof key.value === "string"
-            ? key.value
-            : undefined;
-      if (!rawKey) return undefined;
-      const value = literalNodeValue(property.value as EstreeNode | undefined);
-      if (value !== undefined) out[rawKey] = value;
-    }
-    return out;
-  }
-  if (node.type === "UnaryExpression") {
-    const value = literalNodeValue(node.argument);
-    if (typeof value !== "number") return undefined;
-    if (node.operator === "-") return -value;
-    if (node.operator === "+") return value;
-  }
-  if (node.type === "Identifier") {
-    if (node.name === "undefined") return undefined;
-    if (node.name === "NaN") return Number.NaN;
-    if (node.name === "Infinity") return Infinity;
-  }
-  return undefined;
-}
+// `attributeValue` and its estree literal walker now come from
+// `@agent-native/core/blocks` (imported above) — the shared parse-side contract.
 
 function stringAttr(node: MdxNode, name: string): string | undefined {
   const value = attributeValue(findAttribute(node, name));
@@ -640,6 +588,22 @@ function baseBlock(node: MdxNode) {
 
 function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const name = elementName(node);
+  // Registry-first: a registered MDX tag parses through its spec. The shared
+  // attribute reader resolves props the same way the legacy readers do, and the
+  // stringified prose children feed the spec's `fromAttrs` (callout/rich-text).
+  if (name && planMdxRegistry.hasTag(name)) {
+    const base = baseBlock(node);
+    const parsed = parseSpecBlock(
+      planMdxRegistry,
+      node as unknown as MdxJsxNode,
+      base,
+      stringifyChildren(node.children),
+      idContext,
+    );
+    if (parsed) {
+      return { ...base, type: parsed.type, data: parsed.data } as PlanBlock;
+    }
+  }
   if (!name || !BLOCK_COMPONENTS.has(name)) return null;
   const base = baseBlock(node);
   if (name === "RichText") {

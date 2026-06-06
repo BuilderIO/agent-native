@@ -115,23 +115,16 @@ export function resolvePlanOwnerEmail(
 }
 
 /**
- * Resolve the owner email for a plan WRITE (create / import / patch / visualize),
- * including the hosted guest-author identity.
+ * Resolve the owner email for a plan WRITE (create / import / patch / visualize).
  *
  * Resolution priority:
- *   1. The authenticated request user — always honored, hosted and local. This
- *      INCLUDES the hosted guest-author identity (`guest-*@agent-native.guest`),
- *      which the `anonymousOwner` resolver injects into the request context for
- *      unauthenticated hosted visitors: by the time an action runs,
- *      `getRequestUserEmail()` already returns that guest email, so passing it
- *      straight through is all that's needed to let a guest author their own
- *      plans (scoped by exact `ownerEmail` match).
+ *   1. The authenticated request user — always honored, hosted and local,
+ *      except for the legacy hosted guest-author identity
+ *      (`guest-*@agent-native.guest`), which is no longer allowed to write.
  *   2. The local single-user identity, ONLY when `isLocalPlanRuntime()`.
  *
  * Anonymous public-plan VIEWERS (`public-*@agent-native.local`) must never reach
- * this path — they are read-only. The `anonymousOwner` resolver prefers the
- * public viewer over the guest author, and `resolvePlanGuestAuthorOwner` skips
- * minting whenever the request already resolved to a public viewer.
+ * this path — they are read-only.
  *
  * Returns `undefined` when no identity is available (hosted + truly
  * unidentified), so callers reject exactly as before.
@@ -139,23 +132,20 @@ export function resolvePlanOwnerEmail(
 export function resolvePlanOwnerEmailForWrite(
   authenticatedEmail: string | undefined,
 ): string | undefined {
-  // Shares the same core as `resolvePlanOwnerEmail` (no copy-paste): a real
-  // user OR the hosted guest-author identity arrives in `authenticatedEmail`
-  // (injected by the anonymousOwner resolver), and both are valid plan owners
-  // for a write. The local single-user fallback applies only in local mode. The
-  // separate name documents the write contract and gives the future claim agent
-  // a stable entry point.
-  return resolvePlanOwnerEmail(authenticatedEmail);
+  if (authenticatedEmail && !isGuestAuthorIdentity(authenticatedEmail)) {
+    return authenticatedEmail;
+  }
+  if (isLocalPlanRuntime()) return LOCAL_PLAN_OWNER_EMAIL;
+  return undefined;
 }
 
 /**
  * Resolve the owner email for a plan write and throw a friendly error when no
  * identity is available. Use at the top of create-style actions.
  *
- * Accepts a real account, the hosted guest-author identity, or the local
- * single-user identity (local mode). On a hosted deploy with no authenticated
- * user and no guest cookie it throws, preserving the previous "requires an
- * authenticated user" contract for truly-unidentified requests.
+ * Accepts a real account or the local single-user identity (local mode). On a
+ * hosted deploy with no authenticated user it throws, preserving the
+ * "requires an authenticated user" contract for unidentified requests.
  */
 export function requirePlanOwnerEmailForWrite(
   authenticatedEmail: string | undefined,
@@ -172,11 +162,8 @@ export function requirePlanOwnerEmailForWrite(
  * Legacy require helper retained for backward compatibility. Behaves exactly as
  * before (authenticated user OR local single-user identity; throws otherwise).
  *
- * Note: the guest-author write path uses `requirePlanOwnerEmailForWrite`, not
- * this. Since the hosted guest identity arrives in `authenticatedEmail`, this
- * function would also pass it through — but the in-tree plan actions all call
- * the `...ForWrite` variant so the guest contract stays explicit at the call
- * site.
+ * Note: create-style actions use `requirePlanOwnerEmailForWrite`, which rejects
+ * legacy hosted guest-author identities.
  */
 export function requirePlanOwnerEmail(
   authenticatedEmail: string | undefined,

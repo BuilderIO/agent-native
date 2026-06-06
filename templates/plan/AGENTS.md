@@ -37,17 +37,21 @@ review before code changes happen.
 - `navigation.planId` identifies the active visual plan when present.
 - `navigate` moves the UI to the plan list or a specific visual plan.
 
-## Visual-Question Preflight
+## Normal Planning Flow
 
-`/visual-plan` is the main command. Before creating a plan, automatically use
-`create-visual-questions` when 2-6 visual answers would materially change the
-plan: fuzzy UI direction, form factor, layout model, feature scope, visual
-style, architecture shape, flow depth, or multiple plausible visual options.
+`/visual-plan` is the main command. Treat it like the host agent's standard
+planning mode: inspect the codebase, use parallel agents when useful, gather the
+information needed, ask clarifying questions through the host's native
+ask-user-question tools when needed, then call `create-visual-plan` to publish
+the plan.
 
-Skip preflight for tiny or unambiguous work, when the codebase makes the answer
-clear, or when the missing detail can be safely stated as an assumption in the
-plan. If the user types `/visual-questions`, treat it as a manual override and
-start visual intake first.
+The markdown/document portion should stay close to the plan the agent would
+normally produce. Diagrams, wireframes, mockups, and annotations are additive
+review aids, not a separate intake flow.
+
+Do not automatically call `create-visual-questions` from `/visual-plan` or
+`/ui-plan`. If the user types `/visual-questions`, treat it as an explicit visual
+intake command before a later plan.
 
 ## Skills
 
@@ -91,6 +95,15 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by
   comments, source patches, or structured content patches rather than direct
   rich-text editing.
+- Plan comments include reviewer identity and Figma-style threads. When adding
+  human feedback through `update-visual-plan`, preserve `authorEmail` and
+  `authorName` when known; pass `parentCommentId` to reply inline to an
+  existing comment thread. `get-plan-feedback` returns both flat comments and
+  grouped threads for multi-reviewer triage.
+- New human comments send best-effort transactional email when email is
+  configured: root comments and replies notify the plan owner, and replies also
+  notify prior human participants in that thread. Reuse the shared `renderEmail`
+  template; do not invent a separate plan-specific email style.
 
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,

@@ -1,0 +1,209 @@
+/*
+ * HTML artboard styling.
+ *
+ * The model writes a plain, semantic HTML mockup of a screen. This stylesheet
+ * gives that HTML the wireframe look WITHOUT the model having to specify colors,
+ * fonts, or borders: it themes bare elements via tokens that flip on
+ * [data-theme], swaps the font on [data-style] (sketchy handwriting vs clean
+ * sans), and exposes --wf-* tokens + a few helper classes the model can lean on.
+ * The rough.js overlay then redraws the bordered boxes as hand-drawn strokes.
+ *
+ * Scope: `.plan-html-frame`. Everything is contained so model HTML can't leak
+ * into the app chrome.
+ */
+
+.plan-html-frame {
+  /* Light tokens (default). */
+  --wf-ink: #34322e;
+  --wf-muted: #8a857d;
+  --wf-line: #d8d3c9;
+  /* Hand-drawn sketch stroke. Separate from --wf-ink (text) so the rough.js
+     overlay can run a touch softer than the body text — most important in dark
+     mode, where near-white text ink as a stroke makes harsh, eye-straining
+     borders. In light mode it matches the ink. */
+  /* Sketch stroke = a soft gray a step more pronounced than the hairline
+     --wf-line, so rough (broken) strokes still read clearly. Gentle, not hard
+     ink; text stays the dark --wf-ink above. */
+  --wf-sketch: #c4beb3;
+  --wf-paper: #fbfaf6;
+  --wf-card: #ffffff;
+  --wf-accent: #3f6cd6;
+  --wf-accent-fg: #ffffff;
+  --wf-accent-soft: #eaf0fb;
+  --wf-warn: #b5503a;
+  --wf-ok: #5b8c6e;
+  --wf-radius: 9px;
+
+  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;
+  --wf-font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --wf-font: var(--wf-font-hand);
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--wf-paper);
+  color: var(--wf-ink);
+  font-family: var(--wf-font);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.plan-html-frame[data-theme="dark"] {
+  --wf-ink: #ece8e1;
+  --wf-muted: #9a948b;
+  --wf-line: #43403a;
+  /* Softer than the near-white ink so sketched borders read as warm chalk, not
+     harsh white lines on the dark paper. */
+  --wf-sketch: #59554d;
+  --wf-paper: #201f1c;
+  --wf-card: #2a2825;
+  --wf-accent: #6f93e6;
+  --wf-accent-fg: #ffffff;
+  --wf-accent-soft: #2a3550;
+  --wf-warn: #d7745d;
+  --wf-ok: #79a98c;
+}
+
+.plan-html-frame[data-style="clean"] {
+  --wf-font: var(--wf-font-clean);
+}
+
+.plan-html-frame * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* Bare semantic elements get the wireframe look from tokens. */
+.plan-html-frame h1 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 8px;
+}
+.plan-html-frame h2 {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 6px;
+}
+.plan-html-frame h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.plan-html-frame p {
+  margin: 0 0 8px;
+}
+.plan-html-frame small,
+.plan-html-frame .wf-muted {
+  color: var(--wf-muted);
+  font-size: 12.5px;
+}
+.plan-html-frame a {
+  color: var(--wf-accent);
+  text-decoration: none;
+}
+.plan-html-frame hr {
+  border: 0;
+  border-top: 1.4px solid var(--wf-line);
+  margin: 10px 0;
+}
+
+.plan-html-frame button,
+.plan-html-frame .wf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--wf-ink);
+  /* Opaque paper fill (not transparent) so a floating / overlapping button —
+     a FAB, a sticky toolbar action like "+ Add habit" — never shows the
+     content behind it through its body. */
+  background: var(--wf-paper);
+  border: 1.4px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  padding: 7px 14px;
+  cursor: default;
+}
+.plan-html-frame button.primary,
+.plan-html-frame .wf-btn.primary,
+.plan-html-frame [data-primary] {
+  background: var(--wf-accent);
+  border-color: var(--wf-accent);
+  color: var(--wf-accent-fg);
+}
+
+.plan-html-frame input,
+.plan-html-frame textarea,
+.plan-html-frame select {
+  font: inherit;
+  color: var(--wf-ink);
+  background: var(--wf-card);
+  border: 1.4px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  padding: 8px 10px;
+  width: 100%;
+}
+.plan-html-frame input[type="checkbox"],
+.plan-html-frame input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--wf-accent);
+  flex: 0 0 auto;
+}
+
+.plan-html-frame .wf-card,
+.plan-html-frame .wf-box {
+  background: var(--wf-card);
+  border: 1.4px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  padding: 12px;
+}
+.plan-html-frame .wf-pill,
+.plan-html-frame .wf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1.4px solid var(--wf-line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12.5px;
+}
+.plan-html-frame .wf-pill.accent {
+  border-color: var(--wf-accent);
+  color: var(--wf-accent);
+  background: var(--wf-accent-soft);
+}
+
+/* Once rough has drawn, hide the crisp borders so there's no doubling. Pills
+   keep their rounded crisp border (the rough overlay rounds them too). */
+.plan-html-frame[data-rough-ready]
+  :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
+  border-color: transparent !important;
+}
+
+/* Skeleton register: neutral textless geometry. */
+.plan-html-frame[data-skeleton="true"] {
+  --wf-ink: #e2ded5;
+  --wf-muted: #e2ded5;
+  --wf-line: #e7e3db;
+  --wf-card: #ece8e1;
+  --wf-accent: #e2ded5;
+  --wf-accent-soft: #ece8e1;
+}
+.plan-html-frame[data-skeleton="true"][data-theme="dark"] {
+  --wf-ink: #322f2b;
+  --wf-muted: #322f2b;
+  --wf-line: #322f2b;
+  --wf-card: #2a2825;
+  --wf-accent: #322f2b;
+}
+.plan-html-frame[data-skeleton="true"] * {
+  color: transparent !important;
+}

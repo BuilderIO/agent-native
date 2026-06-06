@@ -161,10 +161,44 @@ export {
 } from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
 export {
+  // Shared editor core (Phase 1): the ONE configurable surface both the plan
+  // and content editors build on.
+  SharedRichEditor,
+  createSharedEditorExtensions,
+  MARKDOWN_DIALECT_CONFIG,
+  useCollabReconcile,
+  getEditorMarkdown,
+  SlashCommandMenu,
+  DEFAULT_SLASH_COMMANDS,
+  createImageSlashCommand,
+  // Shared block-level image node + injectable upload contract. Plans opt in
+  // via `features.image` + `onImageUpload`; Content keeps its own image block.
+  SharedImage,
+  createImageExtension,
+  pickAndInsertImage,
+  uploadEditorImage,
+  BubbleToolbar,
+  buildDefaultBubbleItems,
+  // Back-compat alias + factory kept for existing embedders and specs.
   RichMarkdownEditor,
+  createRichMarkdownExtensions,
+  type SharedRichEditorProps,
+  type SharedEditorCollab,
+  type SharedEditorFeatures,
+  type CreateSharedEditorExtensionsOptions,
+  type UseCollabReconcileOptions,
+  type UseCollabReconcileResult,
+  type SlashCommandItem,
+  type SlashCommandMenuProps,
+  type ImageUploadFn,
+  type SharedImageOptions,
+  type BubbleToolbarItem,
+  type BubbleToolbarProps,
   type RichMarkdownDialect,
   type RichMarkdownEditorPreset,
   type RichMarkdownEditorProps,
+  type RichMarkdownCollabUser,
+  type CreateRichMarkdownExtensionsOptions,
 } from "./rich-markdown-editor/index.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
@@ -589,3 +623,38 @@ export {
   type UseCollaborativeArrayResult,
 } from "../collab/client-struct.js";
 export { NotificationsBell } from "./notifications/index.js";
+// Block registry (also available as the dedicated `@agent-native/core/blocks`
+// subpath, which server/agent code should prefer via `/blocks/server`).
+export {
+  defineBlock,
+  BlockRegistry,
+  registerBlocks,
+  BlockRegistryProvider,
+  useBlockRegistry,
+  useOptionalBlockRegistry,
+  BlockView,
+  SchemaBlockEditor,
+  markdown,
+  richtext,
+  introspect,
+  serializeSpecBlock,
+  parseSpecBlock,
+  createAttrReader,
+  describeBlocksForAgent,
+  renderBlockVocabularyReference,
+  type BlockSpec,
+  type BlockPlacement,
+  type BlockMdxConfig,
+  type BlockAttrReader,
+  type BlockRenderContext,
+  type BlockReadProps,
+  type BlockEditProps,
+  type MdxAttrValue,
+  type FieldKind,
+  type FieldDescriptor,
+  type MdxJsxNode,
+  type MdxAttrNode,
+  type SerializableBlock,
+  type ParsedBlockBase,
+  type BlockAgentDoc,
+} from "./blocks/index.js";

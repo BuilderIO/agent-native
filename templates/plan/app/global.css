@@ -347,7 +347,9 @@
   border-top-color: var(--plan-line);
 }
 
-.plan-rich-markdown-editor .an-rich-md-prose code {
+/* Inline code only — never the block code inside <pre>, whose tokens would
+   otherwise each get a stray inline-code background over the dark code surface. */
+.plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
   background: var(--plan-block);
   color: var(--plan-text);
 }
@@ -1094,34 +1096,6 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
-.plans-workspace {
-  container: plans-workspace / inline-size;
-}
-
-.plans-rail-pane {
-  max-height: 16rem;
-}
-
-@container plans-workspace (min-width: 760px) {
-  .plans-grid {
-    height: 100%;
-  }
-
-  .plans-grid[data-rail="expanded"] {
-    grid-template-columns: 300px minmax(0, 1fr);
-  }
-
-  .plans-grid[data-rail="collapsed"] {
-    grid-template-columns: 56px minmax(0, 1fr);
-  }
-
-  .plans-grid[data-view="immersive"] {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .plans-rail-pane {
-    max-height: none;
-    border-right-width: 1px;
-    border-bottom-width: 0;
-  }
+.plans-grid {
+  height: 100%;
 }

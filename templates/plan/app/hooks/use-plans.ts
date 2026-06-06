@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
@@ -25,12 +25,15 @@ export type PlanSectionInput = {
 
 export type PlanCommentInput = {
   id?: string;
+  parentCommentId?: string;
   sectionId?: string;
   kind?: PlanCommentKind;
   status?: PlanCommentStatus;
   anchor?: string;
   message: string;
   createdBy?: PlanAuthor;
+  authorEmail?: string;
+  authorName?: string;
 };
 
 export type CreatePlanInput = {
@@ -125,8 +128,13 @@ function showActionError(message: string) {
   };
 }
 
-export function usePlans() {
-  return useActionQuery<PlanSummary[]>("list-visual-plans", {});
+type UsePlansOptions = Omit<
+  UseQueryOptions<PlanSummary[]>,
+  "queryKey" | "queryFn"
+>;
+
+export function usePlans(options?: UsePlansOptions) {
+  return useActionQuery<PlanSummary[]>("list-visual-plans", {}, options);
 }
 
 export function usePlan(id?: string) {

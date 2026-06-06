@@ -41,7 +41,7 @@
       "id": "visual-questions",
       "action": "create-visual-questions",
       "path": "/plans",
-      "description": "Create a rich visual intake questionnaire that feeds answers into a UI or visual plan prompt."
+      "description": "Create a rich visual intake questionnaire for explicit /visual-questions workflows."
     },
     {
       "id": "visualize-plan",

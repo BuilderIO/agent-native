@@ -27,16 +27,23 @@ type LegacyWireframeData = PlanLegacyWireframeBlock["data"];
 
 export function parsePlanContent(value: unknown): PlanContent | null {
   if (!value) return null;
+  // Drizzle returns a Buffer for any `content` row stored with BLOB affinity
+  // (e.g. a raw SQL insert via readfile()/a Buffer instead of a JSON string).
+  // Decode it to text so the JSON path below runs — otherwise the Buffer falls
+  // through as an "object", migrate reads undefined version/blocks, and the
+  // plan silently parses to an empty body with no warning.
+  const source =
+    value instanceof Uint8Array ? new TextDecoder().decode(value) : value;
   const parsedValue =
-    typeof value === "string"
+    typeof source === "string"
       ? (() => {
           try {
-            return JSON.parse(value);
+            return JSON.parse(source);
           } catch {
             return null;
           }
         })()
-      : value;
+      : source;
   if (!parsedValue) return null;
   // Upgrade old/raw shapes (region wireframes -> legacy-wireframe, sketch-* ->
   // diagram, version backfill) before validating. Never lossily migrate.
@@ -2359,7 +2366,7 @@ const CONTENT_EXPORT_CSS = `
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
 main { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 72px 0 96px; }
-.canvas-export { height: 70vh; min-height: 520px; overflow: hidden; background-color: var(--canvas); background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 28px 28px; border-bottom: 1px solid var(--line); }
+.canvas-export { height: 65vh; overflow: hidden; background-color: var(--canvas); background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 28px 28px; border-bottom: 1px solid var(--line); }
 .canvas-inner { position: relative; width: 2400px; height: 1400px; }
 .canvas-frame, .canvas-note { position: absolute; }
 .canvas-frame h3 { margin: 0 0 8px; font-size: 14px; }

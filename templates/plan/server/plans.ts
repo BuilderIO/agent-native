@@ -12,6 +12,7 @@ import {
   PLAN_SOURCES,
   PLAN_STATUSES,
   type PlanBundle,
+  type PlanAuthor,
   type PlanComment,
   type PlanEvent,
   type PlanSection,
@@ -49,13 +50,18 @@ export const sectionInputSchema = z.object({
 
 export const commentInputSchema = z.object({
   id: z.string().optional(),
+  parentCommentId: z.string().optional(),
   sectionId: z.string().optional(),
   kind: planCommentKindSchema.optional().default("comment"),
   status: planCommentStatusSchema.optional().default("open"),
   anchor: z.string().optional(),
   message: z.string().min(1),
   createdBy: planAuthorSchema.optional().default("human"),
+  authorEmail: z.string().trim().optional(),
+  authorName: z.string().trim().optional(),
 });
+
+export type PlanCommentInput = z.infer<typeof commentInputSchema>;
 
 export function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -63,6 +69,224 @@ export function newId(prefix: string): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function resolveCommentAuthor(input: {
+  createdBy: PlanAuthor;
+  authorEmail?: string | null;
+  authorName?: string | null;
+  requestEmail?: string | null;
+  requestName?: string | null;
+}): { authorEmail: string | null; authorName: string | null } {
+  const requestEmail = nonEmpty(input.requestEmail);
+  const requestName = nonEmpty(input.requestName);
+  return {
+    authorEmail:
+      input.createdBy === "human"
+        ? (requestEmail ?? nonEmpty(input.authorEmail))
+        : nonEmpty(input.authorEmail),
+    authorName:
+      input.createdBy === "human"
+        ? (requestName ?? nonEmpty(input.authorName))
+        : nonEmpty(input.authorName),
+  };
+}
+
+export function buildInitialPlanCommentRows(input: {
+  planId: string;
+  comments: PlanCommentInput[];
+  requestEmail?: string | null;
+  requestName?: string | null;
+  now: string;
+}): Array<typeof schema.planComments.$inferInsert> {
+  type NewCommentRow = typeof schema.planComments.$inferInsert;
+  const pendingComments = input.comments.map((comment) => {
+    const row: NewCommentRow = {
+      ...resolveCommentAuthor({
+        createdBy: comment.createdBy,
+        authorEmail: comment.authorEmail,
+        authorName: comment.authorName,
+        requestEmail: input.requestEmail,
+        requestName: input.requestName,
+      }),
+      id: comment.id ?? newId("cmt"),
+      planId: input.planId,
+      parentCommentId: null,
+      sectionId: comment.sectionId ?? null,
+      kind: comment.kind,
+      status: comment.status,
+      anchor: comment.anchor ?? null,
+      message: comment.message,
+      createdBy: comment.createdBy,
+      consumedAt: null,
+      createdAt: input.now,
+      updatedAt: input.now,
+    };
+    return { input: comment, row };
+  });
+
+  const commentsById = new Map<string, NewCommentRow>();
+  for (const pending of pendingComments) {
+    if (commentsById.has(pending.row.id)) {
+      throw new Error(`Duplicate comment id ${pending.row.id}.`);
+    }
+    commentsById.set(pending.row.id, pending.row);
+  }
+
+  for (const pending of pendingComments) {
+    if (!pending.input.parentCommentId) continue;
+    const parent = commentsById.get(pending.input.parentCommentId);
+    if (!parent) {
+      throw new Error(
+        `Parent comment ${pending.input.parentCommentId} was not found in initial comments.`,
+      );
+    }
+    pending.row.parentCommentId = parent.id;
+    pending.row.sectionId = pending.input.sectionId ?? parent.sectionId;
+    pending.row.kind = parent.kind;
+    pending.row.anchor = pending.input.anchor ?? parent.anchor;
+  }
+
+  const rows: NewCommentRow[] = [];
+  const insertedCommentIds = new Set<string>();
+  const uninserted = new Map(
+    pendingComments.map((pending) => [pending.row.id, pending]),
+  );
+  while (uninserted.size > 0) {
+    let insertedThisPass = false;
+    for (const [commentId, pending] of Array.from(uninserted.entries())) {
+      if (
+        pending.row.parentCommentId &&
+        !insertedCommentIds.has(pending.row.parentCommentId)
+      ) {
+        continue;
+      }
+      rows.push(pending.row);
+      insertedCommentIds.add(commentId);
+      uninserted.delete(commentId);
+      insertedThisPass = true;
+    }
+    if (!insertedThisPass) {
+      throw new Error("Initial comment threads contain a parent cycle.");
+    }
+  }
+  return rows;
+}
+
+export function buildUpdatedPlanCommentRows(input: {
+  planId: string;
+  comments: PlanCommentInput[];
+  existingComments: Array<
+    Pick<PlanComment, "id" | "sectionId" | "kind" | "anchor">
+  >;
+  requestEmail?: string | null;
+  requestName?: string | null;
+  now: string;
+}): Array<typeof schema.planComments.$inferInsert> {
+  type NewCommentRow = typeof schema.planComments.$inferInsert;
+  type ParentContext = Pick<
+    NewCommentRow,
+    "id" | "sectionId" | "kind" | "anchor"
+  >;
+  const existingParents = new Map<string, ParentContext>(
+    input.existingComments.map((comment) => [comment.id, comment]),
+  );
+  const pendingComments = input.comments.map((comment) => {
+    const row: NewCommentRow = {
+      ...resolveCommentAuthor({
+        createdBy: comment.createdBy,
+        authorEmail: comment.authorEmail,
+        authorName: comment.authorName,
+        requestEmail: input.requestEmail,
+        requestName: input.requestName,
+      }),
+      id: comment.id ?? newId("cmt"),
+      planId: input.planId,
+      parentCommentId: null,
+      sectionId: comment.sectionId ?? null,
+      kind: comment.kind,
+      status: comment.status,
+      anchor: comment.anchor ?? null,
+      message: comment.message,
+      createdBy: comment.createdBy,
+      consumedAt: null,
+      createdAt: input.now,
+      updatedAt: input.now,
+    };
+    return { input: comment, row };
+  });
+
+  const pendingById = new Map<
+    string,
+    { input: PlanCommentInput; row: NewCommentRow }
+  >();
+  for (const pending of pendingComments) {
+    if (pendingById.has(pending.row.id)) {
+      throw new Error(`Duplicate comment id ${pending.row.id}.`);
+    }
+    pendingById.set(pending.row.id, pending);
+  }
+
+  for (const pending of pendingComments) {
+    const parentId = pending.input.parentCommentId;
+    if (!parentId) continue;
+    const parent =
+      pendingById.get(parentId)?.row ?? existingParents.get(parentId);
+    if (!parent) {
+      throw new Error(
+        `Parent comment ${parentId} was not found on plan ${input.planId}.`,
+      );
+    }
+    pending.row.parentCommentId = parent.id;
+    pending.row.sectionId = pending.input.sectionId ?? parent.sectionId;
+    pending.row.kind = parent.kind;
+    pending.row.anchor = pending.input.anchor ?? parent.anchor;
+  }
+
+  const rows: NewCommentRow[] = [];
+  const availableParentIds = new Set(existingParents.keys());
+  const uninserted = new Map(
+    pendingComments.map((pending) => [pending.row.id, pending]),
+  );
+  while (uninserted.size > 0) {
+    let insertedThisPass = false;
+    for (const [commentId, pending] of Array.from(uninserted.entries())) {
+      if (
+        pending.row.parentCommentId &&
+        pendingById.has(pending.row.parentCommentId) &&
+        !availableParentIds.has(pending.row.parentCommentId)
+      ) {
+        continue;
+      }
+      rows.push(pending.row);
+      availableParentIds.add(commentId);
+      uninserted.delete(commentId);
+      insertedThisPass = true;
+    }
+    if (!insertedThisPass) {
+      throw new Error("Updated comment threads contain a parent cycle.");
+    }
+  }
+  return rows;
+}
+
+export async function insertInitialPlanComments(input: {
+  planId: string;
+  comments: PlanCommentInput[];
+  requestEmail?: string | null;
+  requestName?: string | null;
+  now: string;
+}) {
+  const rows = buildInitialPlanCommentRows(input);
+  const db = getDb();
+  for (const row of rows) {
+    await db.insert(schema.planComments).values(row);
+  }
 }
 
 export function planPath(id: string): string {
@@ -113,12 +337,15 @@ export function toComment(
   return {
     id: row.id,
     planId: row.planId,
+    parentCommentId: row.parentCommentId,
     sectionId: row.sectionId,
     kind: row.kind,
     status: row.status,
     anchor: row.anchor,
     message: row.message,
     createdBy: row.createdBy,
+    authorEmail: row.authorEmail,
+    authorName: row.authorName,
     consumedAt: row.consumedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

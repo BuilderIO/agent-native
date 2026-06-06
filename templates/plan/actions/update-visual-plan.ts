@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -12,12 +12,18 @@ import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
+  resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import {
   assertPlanEditor,
   buildPlanHtml,
+  buildUpdatedPlanCommentRows,
   commentInputSchema,
   loadPlanBundle,
   newId,
@@ -25,7 +31,6 @@ import {
   planPath,
   planStatusSchema,
   sectionInputSchema,
-  writeEvent,
 } from "../server/plans.js";
 import {
   applyPlanContentPatches,
@@ -35,7 +40,7 @@ import {
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one wireframe kit-tree node, a whole wireframe screen, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
+    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one element/text/color inside an html mockup via patch-wireframe-html, one legacy wireframe kit-tree node, a whole wireframe, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional(),
@@ -48,7 +53,7 @@ export default defineAction({
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, update-wireframe-node (one kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single node without regenerating the plan.",
+        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, patch-wireframe-html (change one element/text/color inside an html mockup via find/replace edits — read the current html first with get-visual-plan), update-wireframe-node (one legacy kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single mockup or node without regenerating the plan. The renderer owns all visual styling; emit lean content, not pixels — never supply geometry or coordinates.",
       ),
     markdown: z.string().optional(),
     sections: z.array(sectionInputSchema).optional().default([]),
@@ -66,6 +71,8 @@ export default defineAction({
       "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
   },
   run: async (args) => {
+    const requesterEmail = getRequestUserEmail();
+    const requesterName = getRequestUserName();
     const onlyAddsNewComments =
       !args.title &&
       !args.brief &&
@@ -85,6 +92,11 @@ export default defineAction({
           comment.createdBy === "human",
       );
 
+    const commentRequestEmail =
+      onlyAddsNewComments && !isAnonymousPublicViewer(requesterEmail)
+        ? resolvePlanOwnerEmailForWrite(requesterEmail)
+        : requesterEmail;
+
     if (onlyAddsNewComments) {
       // Commenting on a plan (including a public-link plan) requires an
       // agent-native account. The two synthetic anonymous identities must NOT be
@@ -93,19 +105,24 @@ export default defineAction({
       //   - Anonymous public-link viewers (`public-*@agent-native.local`, minted
       //     by resolvePublicPlanViewerOwner) can read a public plan but not
       //     comment.
-      //   - Hosted guest authors (`guest-*@agent-native.guest`, minted by
-      //     resolvePlanGuestAuthorOwner) can author their OWN plans but must make
-      //     an account to comment.
-      // This keeps "anyone with the link can view, guests can author, accounts
-      // can comment and share".
-      const requesterEmail = getRequestUserEmail();
+      //   - Legacy hosted guest authors (`guest-*@agent-native.guest`) cannot
+      //     comment; create/update authoring now requires a real account.
+      // This keeps "anyone with the link can view; accounts can create, comment,
+      // and share".
       if (isAnonymousPublicViewer(requesterEmail)) {
-        throw new Error(
+        throw new ForbiddenError(
           "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
         );
       }
       if (isGuestAuthorIdentity(requesterEmail)) {
-        throw new Error("Commenting requires an account. Sign in to comment.");
+        throw new ForbiddenError(
+          "Commenting requires an account. Sign in to comment.",
+        );
+      }
+      if (!commentRequestEmail) {
+        throw new ForbiddenError(
+          "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
+        );
       }
       const access = await resolveAccess("plan", args.planId);
       if (!access) throw new Error(`Plan ${args.planId} not found`);
@@ -115,6 +132,7 @@ export default defineAction({
 
     const db = getDb();
     const now = nowIso();
+    const insertedCommentIds: string[] = [];
     let nextContent =
       args.content !== undefined ? normalizePlanContent(args.content) : null;
     let versionAtLoad: string | null = null;
@@ -171,73 +189,9 @@ export default defineAction({
       updatedAt: now,
     };
 
-    // guard:allow-unscoped -- gated above by editor access, or by public
-    // viewer access plus new-open-human-comment-only validation.
-    const updatedRows = await db
-      .update(schema.plans)
-      .set(planPatch)
-      .where(
-        versionAtLoad
-          ? and(
-              eq(schema.plans.id, args.planId),
-              eq(schema.plans.updatedAt, versionAtLoad),
-            )
-          : eq(schema.plans.id, args.planId),
-      )
-      .returning({ id: schema.plans.id });
-
-    if (updatedRows.length === 0) {
-      throw new Error(
-        "Plan changed while content patches were being applied. Reload the plan and retry your patch.",
-      );
-    }
-
-    for (const [index, section] of args.sections.entries()) {
-      const id = section.id ?? newId("sec");
-      if (section.id) {
-        const [existing] = await db
-          .select({ id: schema.planSections.id })
-          .from(schema.planSections)
-          .where(
-            and(
-              eq(schema.planSections.id, section.id),
-              eq(schema.planSections.planId, args.planId),
-            ),
-          );
-        if (existing) {
-          await db
-            .update(schema.planSections)
-            .set({
-              type: section.type,
-              title: section.title,
-              body: section.body,
-              html: section.html ?? null,
-              order: section.order ?? index,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(schema.planSections.id, section.id),
-                eq(schema.planSections.planId, args.planId),
-              ),
-            );
-          continue;
-        }
-      }
-      await db.insert(schema.planSections).values({
-        id,
-        planId: args.planId,
-        type: section.type,
-        title: section.title,
-        body: section.body,
-        html: section.html ?? null,
-        order: section.order ?? index,
-        createdBy: section.createdBy,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
+    type CommentInput = (typeof args.comments)[number];
+    const existingCommentUpdates: Array<CommentInput & { id: string }> = [];
+    const pendingCommentInserts: typeof args.comments = [];
     for (const comment of args.comments) {
       if (comment.id) {
         const [existing] = await db
@@ -250,61 +204,151 @@ export default defineAction({
             ),
           );
         if (existing) {
-          await db
-            .update(schema.planComments)
-            .set({
-              sectionId: comment.sectionId ?? null,
-              kind: comment.kind,
-              status: comment.status,
-              anchor: comment.anchor ?? null,
-              message: comment.message,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(schema.planComments.id, comment.id),
-                eq(schema.planComments.planId, args.planId),
-              ),
-            );
+          existingCommentUpdates.push({ ...comment, id: comment.id });
           continue;
         }
       }
-      await db.insert(schema.planComments).values({
-        id: comment.id ?? newId("cmt"),
-        planId: args.planId,
-        sectionId: comment.sectionId ?? null,
-        kind: comment.kind,
-        status: comment.status,
-        anchor: comment.anchor ?? null,
-        message: comment.message,
-        createdBy: comment.createdBy,
-        consumedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      });
+      pendingCommentInserts.push(comment);
     }
 
-    if (args.consumedCommentIds.length > 0) {
-      await db
-        .update(schema.planComments)
-        .set({ consumedAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(schema.planComments.planId, args.planId),
-            inArray(schema.planComments.id, args.consumedCommentIds),
-          ),
-        );
-    }
-
-    await writeEvent({
+    const commentsBeforeInserts =
+      pendingCommentInserts.length > 0
+        ? (await loadPlanBundle(args.planId)).comments
+        : [];
+    const commentRows = buildUpdatedPlanCommentRows({
       planId: args.planId,
-      type: "plan.updated",
-      message:
-        args.note ||
-        `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
-      createdBy: onlyAddsNewComments ? "human" : "agent",
+      comments: pendingCommentInserts,
+      existingComments: commentsBeforeInserts,
+      requestEmail: commentRequestEmail,
+      requestName: requesterName,
+      now,
+    });
+
+    await db.transaction(async (tx) => {
+      // guard:allow-unscoped -- gated above by editor access, or by public
+      // viewer access plus new-open-human-comment-only validation.
+      const updatedRows = await tx
+        .update(schema.plans)
+        .set(planPatch)
+        .where(
+          versionAtLoad
+            ? and(
+                eq(schema.plans.id, args.planId),
+                eq(schema.plans.updatedAt, versionAtLoad),
+              )
+            : eq(schema.plans.id, args.planId),
+        )
+        .returning({ id: schema.plans.id });
+
+      if (updatedRows.length === 0) {
+        throw new Error(
+          "Plan changed while content patches were being applied. Reload the plan and retry your patch.",
+        );
+      }
+
+      for (const [index, section] of args.sections.entries()) {
+        const id = section.id ?? newId("sec");
+        if (section.id) {
+          const [existing] = await tx
+            .select({ id: schema.planSections.id })
+            .from(schema.planSections)
+            .where(
+              and(
+                eq(schema.planSections.id, section.id),
+                eq(schema.planSections.planId, args.planId),
+              ),
+            );
+          if (existing) {
+            await tx
+              .update(schema.planSections)
+              .set({
+                type: section.type,
+                title: section.title,
+                body: section.body,
+                html: section.html ?? null,
+                order: section.order ?? index,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(schema.planSections.id, section.id),
+                  eq(schema.planSections.planId, args.planId),
+                ),
+              );
+            continue;
+          }
+        }
+        await tx.insert(schema.planSections).values({
+          id,
+          planId: args.planId,
+          type: section.type,
+          title: section.title,
+          body: section.body,
+          html: section.html ?? null,
+          order: section.order ?? index,
+          createdBy: section.createdBy,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      for (const comment of existingCommentUpdates) {
+        await tx
+          .update(schema.planComments)
+          .set({
+            sectionId: comment.sectionId ?? null,
+            kind: comment.kind,
+            status: comment.status,
+            anchor: comment.anchor ?? null,
+            message: comment.message,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.planComments.id, comment.id),
+              eq(schema.planComments.planId, args.planId),
+            ),
+          );
+      }
+
+      for (const row of commentRows) {
+        await tx.insert(schema.planComments).values(row);
+        insertedCommentIds.push(row.id);
+      }
+
+      if (args.consumedCommentIds.length > 0) {
+        await tx
+          .update(schema.planComments)
+          .set({ consumedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(schema.planComments.planId, args.planId),
+              inArray(schema.planComments.id, args.consumedCommentIds),
+            ),
+          );
+      }
+
+      await tx.insert(schema.planEvents).values({
+        id: newId("evt"),
+        planId: args.planId,
+        type: "plan.updated",
+        message:
+          !onlyAddsNewComments && args.note
+            ? args.note
+            : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
+        payload: null,
+        createdBy: onlyAddsNewComments ? "human" : "agent",
+        createdAt: now,
+      });
     });
     const bundle = await loadPlanBundle(args.planId);
+    await notifyPlanCommentRecipients({
+      bundle,
+      insertedCommentIds,
+      priorComments: commentsBeforeInserts,
+    }).catch((error) => {
+      console.warn("[update-visual-plan] comment notification failed:", error);
+    });
     const local = isLocalPlanRuntime()
       ? await writePlanLocalFiles({
           planId: bundle.plan.id,

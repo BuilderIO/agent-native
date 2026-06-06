@@ -8,21 +8,28 @@ HTML export.
 
 ## Install
 
-Use the Agent-Native CLI:
+Use the Agent-Native CLI. This is the recommended setup because it installs the
+Plans skill instructions, registers the hosted Plans MCP connector, and runs the
+client-specific auth/setup flow in one step:
+
+```sh
+npx @agent-native/core@latest skills add visual-plan
+```
+
+If you already have the CLI installed, the shorter command is equivalent:
 
 ```sh
 agent-native skills add visual-plan
 ```
 
-The CLI installs the Plans skills and registers the MCP app connector. You do
-not need to wire the MCP server separately.
+You do not need to wire the MCP server separately.
 
 Supported aliases include:
 
-- `agent-native skills add visual-plan`
-- `agent-native skills add visual-questions`
-- `agent-native skills add ui-plan`
-- `agent-native skills add visualize-plan`
+- `npx @agent-native/core@latest skills add visual-plan`
+- `npx @agent-native/core@latest skills add visual-questions`
+- `npx @agent-native/core@latest skills add ui-plan`
+- `npx @agent-native/core@latest skills add visualize-plan`
 
 Restart or reload the host if the tools are not visible immediately.
 
@@ -30,7 +37,7 @@ Restart or reload the host if the tools are not visible immediately.
 
 Type `/visual-plan` when you want a fresh plan before the agent builds.
 
-Type `/visual-questions` when you want to force visual intake before a plan.
+Type `/visual-questions` when you explicitly want visual intake before a plan.
 
 Type `/ui-plan` when UI direction is the center of the work and you want
 high-fidelity mockups and states reviewed before implementation details.
@@ -54,20 +61,17 @@ Command behavior:
 - `/visualize-plan` imports an existing text plan, preserves its intent, and
   adds visual structure so the user can annotate and react before implementation.
 
-## Visual-Question Preflight
+## Normal Planning Flow
 
-`/visual-plan` remains the main planning command. Before creating the plan, the
-agent should automatically run a visual-question preflight when 2-6 visual
-answers would materially change the result.
+`/visual-plan` remains the main planning command. Agents should use their normal
+planning flow first: inspect the codebase, gather context, ask clarifying
+questions through the host's native ask-user-question tools when needed, then
+create the visual plan.
 
-Good preflight triggers include fuzzy UI direction, form factor, layout model,
-feature scope, visual style, architecture shape, or flow depth; multiple
-plausible visual options; or a user request to see choices before planning.
-
-Skip preflight for tiny or unambiguous work, when the codebase makes the answer
-clear, or when the missing detail can be safely stated as an assumption in the
-plan. `/visual-questions` is the manual override when a user explicitly wants
-intake first.
+The document should stay close to the Markdown plan a coding agent would
+normally produce. Diagrams, wireframes, mockups, and annotations are additive
+review aids. `/visual-questions` is the explicit command when a user wants
+visual intake first.
 
 Plans should be visual by default:
 

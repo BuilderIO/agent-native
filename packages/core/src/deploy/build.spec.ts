@@ -10,6 +10,7 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  NITRO_RUNTIME_IGNORE_PATTERNS,
   runNitroBuildPipeline,
   shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
@@ -540,6 +541,19 @@ export default {
       ok: true,
       echo: { hello: "again" },
     });
+  });
+});
+
+describe("Nitro runtime scan ignores", () => {
+  it("excludes test files from Nitro route, middleware, and plugin scanning", () => {
+    expect(NITRO_RUNTIME_IGNORE_PATTERNS).toEqual(
+      expect.arrayContaining([
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.spec.mjs",
+        "**/*.test.cjs",
+      ]),
+    );
   });
 });
 

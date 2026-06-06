@@ -8,6 +8,8 @@ import {
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import type { RichMarkdownCollabUser } from "@agent-native/core/client";
+import { BlockView, useOptionalBlockRegistry } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
 import type { PlanBlock, PlanVisualQuestion } from "@shared/plan-content";
 import {
@@ -31,6 +33,8 @@ export function PlanBlockView({
   compactVisuals,
   contentUpdatedAt,
   editingDisabled = false,
+  planId,
+  collabUser,
 }: {
   block: PlanBlock;
   onChange?: (block: PlanBlock) => Promise<void> | void;
@@ -42,7 +46,56 @@ export function PlanBlockView({
   compactVisuals?: boolean;
   contentUpdatedAt?: string | null;
   editingDisabled?: boolean;
+  planId?: string | null;
+  collabUser?: RichMarkdownCollabUser | null;
 }) {
+  // Registry-first dispatch. If the block type is registered, render through the
+  // block registry (`BlockView` → spec `Read`, or in edit mode the spec `Edit`
+  // or the schema-driven auto-editor). Unregistered types fall through to the
+  // legacy branches below unchanged, so existing blocks keep working. The spec's
+  // `Read` owns its own block container; the editor path is wrapped in a titled
+  // `plan-block` section here so editing matches the document chrome.
+  const blockRegistry = useOptionalBlockRegistry();
+  const spec = blockRegistry?.registry.get(block.type);
+  if (blockRegistry && spec) {
+    const editable = block.editable !== false && !!onChange;
+    const editing = editable && !editingDisabled;
+    const view = (
+      <BlockView
+        spec={spec}
+        block={{
+          id: block.id,
+          title: block.title,
+          summary: block.summary,
+          data: (block as { data: unknown }).data,
+        }}
+        editing={editing}
+        editable={editable}
+        onChange={(nextData) =>
+          onChange?.({
+            ...block,
+            data: nextData,
+          } as PlanBlock)
+        }
+        ctx={blockRegistry.ctx}
+      />
+    );
+    // In edit mode the auto-editor / custom Edit renders bare fields — wrap them
+    // in the standard titled block section. In read mode the spec's Read already
+    // provides its own section, so render it directly to avoid double-nesting.
+    return editing && spec.placement.includes("block") ? (
+      <section className="plan-block" data-block-id={block.id}>
+        {block.title && <h2>{block.title}</h2>}
+        {view}
+        {block.summary && (
+          <p className="mt-5 text-plan-muted">{block.summary}</p>
+        )}
+      </section>
+    ) : (
+      view
+    );
+  }
+
   if (block.type === "rich-text") {
     return (
       <RichTextBlock
@@ -51,6 +104,8 @@ export function PlanBlockView({
         onRichTextChange={onRichTextChange}
         contentUpdatedAt={contentUpdatedAt}
         editingDisabled={editingDisabled}
+        planId={planId}
+        collabUser={collabUser}
       />
     );
   }
@@ -58,7 +113,7 @@ export function PlanBlockView({
     return (
       <section className="plan-block plan-callout" data-block-id={block.id}>
         {block.title && <h2>{block.title}</h2>}
-        <p>{block.data.body}</p>
+        <PlanMarkdownReader markdown={block.data.body} />
       </section>
     );
   }
@@ -227,6 +282,8 @@ export function PlanBlockView({
         onVisualQuestionsSubmit={onVisualQuestionsSubmit}
         contentUpdatedAt={contentUpdatedAt}
         editingDisabled={editingDisabled}
+        planId={planId}
+        collabUser={collabUser}
       />
     );
   }
@@ -251,6 +308,8 @@ function RichTextBlock({
   onRichTextChange,
   contentUpdatedAt,
   editingDisabled,
+  planId,
+  collabUser,
 }: {
   block: Extract<PlanBlock, { type: "rich-text" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
@@ -260,16 +319,22 @@ function RichTextBlock({
   ) => Promise<void> | void;
   contentUpdatedAt?: string | null;
   editingDisabled?: boolean;
+  planId?: string | null;
+  collabUser?: RichMarkdownCollabUser | null;
 }) {
-  const editable = block.editable !== false && !!onChange && !editingDisabled;
+  const canUseInlineEditor = block.editable !== false && !!onChange;
+  const editable = canUseInlineEditor && !editingDisabled;
   return (
     <section className="plan-block group" data-block-id={block.id}>
       {block.title && <h2>{block.title}</h2>}
-      {editable ? (
+      {canUseInlineEditor ? (
         <PlanMarkdownEditor
           markdown={block.data.markdown}
-          editable
+          editable={editable}
           contentUpdatedAt={contentUpdatedAt}
+          planId={planId}
+          blockId={block.id}
+          user={collabUser}
           onSave={(markdown) =>
             onRichTextChange
               ? onRichTextChange(block.id, markdown)
@@ -429,6 +494,8 @@ function TabsBlock({
   onVisualQuestionsSubmit,
   contentUpdatedAt,
   editingDisabled,
+  planId,
+  collabUser,
 }: {
   block: Extract<PlanBlock, { type: "tabs" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
@@ -439,6 +506,8 @@ function TabsBlock({
   onVisualQuestionsSubmit?: (summary: string) => void;
   contentUpdatedAt?: string | null;
   editingDisabled?: boolean;
+  planId?: string | null;
+  collabUser?: RichMarkdownCollabUser | null;
 }) {
   const [activeId, setActiveId] = useState(block.data.tabs[0]?.id ?? "");
   const active =
@@ -486,6 +555,8 @@ function TabsBlock({
               compactVisuals={compactTabVisuals}
               contentUpdatedAt={contentUpdatedAt}
               editingDisabled={editingDisabled}
+              planId={planId}
+              collabUser={collabUser}
               onChange={(nextChild) => {
                 onChange?.({
                   ...block,

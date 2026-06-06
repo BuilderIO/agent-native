@@ -104,12 +104,15 @@ export interface PlanSection {
 export interface PlanComment {
   id: string;
   planId: string;
+  parentCommentId?: string | null;
   sectionId?: string | null;
   kind: PlanCommentKind;
   status: PlanCommentStatus;
   anchor?: string | null;
   message: string;
   createdBy: PlanAuthor;
+  authorEmail?: string | null;
+  authorName?: string | null;
   consumedAt?: string | null;
   createdAt: string;
   updatedAt: string;

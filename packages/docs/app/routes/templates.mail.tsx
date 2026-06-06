@@ -187,17 +187,12 @@ export default function MailTemplate() {
       <section className="border-t border-[var(--docs-border)] py-8">
         <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
           <h2 className="mb-2 text-base font-semibold">
-            Google may show warnings on hosted Mail
+            Google may show a warning
           </h2>
           <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-            The hosted demo uses Agent-Native's shared Google OAuth client.
-            Because Mail asks for Gmail access, Google may show extra consent or
-            warning screens before continuing.
-          </p>
-          <p className="mt-3 text-sm leading-relaxed text-[var(--fg-secondary)]">
-            Self-hosted Mail apps use your own Google OAuth client and avoid
-            this hosted-demo warning. Use the run-local command above when you
-            want that path.
+            The hosted demo uses Agent-Native's shared Google app for Gmail
+            access, so Google may ask you to confirm before continuing. Run
+            locally to use your own Google OAuth client.
           </p>
         </div>
       </section>

@@ -128,7 +128,10 @@
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.86em;
-  background: hsl(var(--muted));
+  /* Fixed dark code surface (theme-independent) so the github-dark token palette
+     below stays legible — matches the read-side Shiki convention. */
+  background: hsl(220 13% 11%);
+  color: hsl(220 14% 90%);
   border-radius: 6px;
   padding: 0.8em 1em;
   margin: 0.55em 0;
@@ -141,6 +144,62 @@
   border: none;
   padding: 0;
   font-size: inherit;
+  color: inherit;
+}
+
+/* highlight.js (lowlight) token palette — github-dark. Scoped to block code so
+   inline `code` keeps its own background. No highlight.js base theme is imported;
+   these rules are the entire theme, so the dark `pre` surface above is safe. */
+.an-rich-md-prose pre code .hljs-comment,
+.an-rich-md-prose pre code .hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+.an-rich-md-prose pre code .hljs-keyword,
+.an-rich-md-prose pre code .hljs-selector-tag,
+.an-rich-md-prose pre code .hljs-literal,
+.an-rich-md-prose pre code .hljs-doctag,
+.an-rich-md-prose pre code .hljs-deletion {
+  color: #ff7b72;
+}
+.an-rich-md-prose pre code .hljs-string,
+.an-rich-md-prose pre code .hljs-regexp,
+.an-rich-md-prose pre code .hljs-addition {
+  color: #a5d6ff;
+}
+.an-rich-md-prose pre code .hljs-number,
+.an-rich-md-prose pre code .hljs-symbol,
+.an-rich-md-prose pre code .hljs-meta {
+  color: #79c0ff;
+}
+.an-rich-md-prose pre code .hljs-title,
+.an-rich-md-prose pre code .hljs-title.function_,
+.an-rich-md-prose pre code .hljs-section {
+  color: #d2a8ff;
+}
+.an-rich-md-prose pre code .hljs-built_in,
+.an-rich-md-prose pre code .hljs-type,
+.an-rich-md-prose pre code .hljs-title.class_,
+.an-rich-md-prose pre code .hljs-variable.language_ {
+  color: #ffa657;
+}
+.an-rich-md-prose pre code .hljs-attr,
+.an-rich-md-prose pre code .hljs-attribute,
+.an-rich-md-prose pre code .hljs-property,
+.an-rich-md-prose pre code .hljs-params {
+  color: #79c0ff;
+}
+.an-rich-md-prose pre code .hljs-name,
+.an-rich-md-prose pre code .hljs-tag,
+.an-rich-md-prose pre code .hljs-selector-id,
+.an-rich-md-prose pre code .hljs-selector-class {
+  color: #7ee787;
+}
+.an-rich-md-prose pre code .hljs-emphasis {
+  font-style: italic;
+}
+.an-rich-md-prose pre code .hljs-strong {
+  font-weight: 600;
 }
 
 .an-rich-md-prose hr {
@@ -353,4 +412,28 @@
   display: block;
   font-size: 11px;
   color: hsl(var(--muted-foreground));
+}
+
+/* Shared block-level image node (the editor's `.an-rich-md-image` and the
+   read-only markdown renderer's <img>). Constrained to the prose width and
+   responsive; a still-uploading placeholder (empty src) shows a subtle frame. */
+.an-rich-md-prose img,
+.an-rich-md-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border-radius: 8px;
+}
+
+.an-rich-md-image[src=""],
+.an-rich-md-image:not([src]) {
+  min-height: 64px;
+  background: hsl(var(--muted));
+  border: 1px dashed hsl(var(--border));
+}
+
+.ProseMirror-selectednode.an-rich-md-image {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }

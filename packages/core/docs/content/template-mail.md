@@ -34,9 +34,7 @@ When you open the app, you'll see your inbox on the left, the open thread in the
 
 Live demo: [mail.agent-native.com](https://mail.agent-native.com).
 
-> **Hosted demo warning:** The hosted Mail demo uses Agent-Native's shared Google OAuth client. Because Mail asks for Gmail access, Google may show extra consent or warning screens before continuing.
->
-> Self-hosted Mail apps use your own Google OAuth client and avoid this hosted-demo warning. Use the run-local command when you want that path.
+> **Google may show a warning:** The hosted demo uses Agent-Native's shared Google app for Gmail access, so Google may ask you to confirm before continuing. Run locally to use your own Google OAuth client.
 
 When you first open the app:
 

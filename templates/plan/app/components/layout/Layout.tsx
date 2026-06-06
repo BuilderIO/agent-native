@@ -35,9 +35,9 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return true;
+    if (typeof window === "undefined") return false;
     const stored = window.localStorage.getItem("plans.sidebarCollapsed.v2");
-    return stored ? stored === "true" : true;
+    return stored ? stored === "true" : false;
   });
   const [planReaderImmersive, setPlanReaderImmersive] = useState(() => {
     if (typeof window === "undefined") return false;

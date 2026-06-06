@@ -83,7 +83,7 @@ type DraftCallout = {
  * renderer lays them out with flex).
  *
  * Visual quality is owned entirely here: an infinite low-contrast grid that
- * moves on pan, cursor-anchored zoom at the right speed, wheel-pan, fixed 70vh,
+ * moves on pan, cursor-anchored zoom at the right speed, wheel-pan, fixed 65vh,
  * artboard labels above each frame (zoom-invariant), designer annotations
  * spaced off the frames (no bordered/shadowed cards), routed connectors, and
  * small zoom controls bottom-left.
@@ -145,7 +145,16 @@ export function CanvasArea({
     });
   }, []);
 
-  const frames = useMemo(() => layoutArtboards(canvas.frames), [canvas.frames]);
+  // Skip label-only artboards (no inline wireframe, no legacy region data, and
+  // no blockId resolving to a wireframe block). They render as empty dashed
+  // boxes and waste layout space, so they never reach the board at all.
+  const frames = useMemo(
+    () =>
+      layoutArtboards(
+        canvas.frames.filter((frame) => frameHasContent(frame, blockLookup)),
+      ),
+    [canvas.frames, blockLookup],
+  );
   const frameById = useMemo(
     () => new Map(frames.map((frame) => [frame.id, frame])),
     [frames],
@@ -186,6 +195,50 @@ export function CanvasArea({
     return { byFrame, loose };
   }, [annotations, frameById]);
 
+  // Resolve every annotation's board position once with flex auto-layout, so
+  // anchored notes flow down a per-side gutter column beside the measured frame
+  // and never overlap by construction. Both the text layer and its arrow read
+  // from this map, so the arrow always connects the rendered box to the frame.
+  const resolvedAnnotations = useMemo(
+    () =>
+      layoutAnnotations(
+        annsByFrame.byFrame,
+        annsByFrame.loose,
+        measuredFrameById,
+      ),
+    [annsByFrame, measuredFrameById],
+  );
+
+  // Section container rects: union of each section's measured member frames,
+  // padded, computed once so the container and any snap/clamp arrow share the
+  // same box. Sections with no resolvable members are dropped.
+  const sectionRects = useMemo(
+    () =>
+      sections
+        .map((section) => ({
+          section,
+          rect: sectionRect(section, measuredFrameById),
+        }))
+        .filter(
+          (
+            entry,
+          ): entry is { section: PlanBoardSection; rect: AnnotationRect } =>
+            entry.rect !== null,
+        ),
+    [sections, measuredFrameById],
+  );
+
+  // Boxes a point-arrow / callout endpoint can snap-clamp to: every measured
+  // artboard plus every section container. Ordered frames-first so a tip inside
+  // a section still prefers the nearer artboard edge.
+  const snapTargets = useMemo<AnnotationRect[]>(
+    () => [
+      ...Array.from(measuredFrameById.values()).map(frameRect),
+      ...sectionRects.map((entry) => entry.rect),
+    ],
+    [measuredFrameById, sectionRects],
+  );
+
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
@@ -213,7 +266,6 @@ export function CanvasArea({
   }, [frames, annotations, legacyNotes]);
 
   const { zoom, pan } = view;
-  const invZoom = 1 / zoom;
   const isCanvasMarkupMode =
     (markupMode === "text" || markupMode === "callout") &&
     Boolean(onCanvasMarkupCreate);
@@ -424,7 +476,7 @@ export function CanvasArea({
 
   return (
     <section
-      className="plan-canvas relative h-[70vh] min-h-[520px] overflow-hidden border-b border-plan-line"
+      className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
       aria-label="Plan artboard canvas"
     >
       <div
@@ -440,7 +492,6 @@ export function CanvasArea({
             backgroundSize: `${GRID_CELL * zoom}px ${GRID_CELL * zoom}px`,
             overscrollBehavior: "contain",
             touchAction: "none",
-            "--dc-inv-zoom": invZoom,
           } as CSSProperties
         }
         onPointerDown={onPointerDown}
@@ -508,12 +559,10 @@ export function CanvasArea({
             willChange: "transform",
           }}
         >
-          {sections.map((section) => (
-            <CanvasSectionLabel
-              key={section.id}
-              section={section}
-              frameById={frameById}
-            />
+          {/* Section containers sit BEHIND the frames (lowest layer) so each
+              group reads as one bounded region the artboards rest inside. */}
+          {sectionRects.map(({ section, rect }) => (
+            <CanvasSection key={section.id} section={section} rect={rect} />
           ))}
 
           {connectors.map((edge, index) => (
@@ -524,15 +573,15 @@ export function CanvasArea({
             />
           ))}
 
-          {Array.from(annsByFrame.byFrame.values())
-            .flat()
-            .map((note) => (
+          {/* Arrows draw from each resolved note box to the measured frame edge. */}
+          {Array.from(resolvedAnnotations.entries()).map(([id, resolved]) =>
+            resolved.anchor ? (
               <CanvasAnnotationArrow
-                key={`annotation-arrow-${note.id}`}
-                note={note}
-                frameById={measuredFrameById}
+                key={`annotation-arrow-${id}`}
+                resolved={resolved}
               />
-            ))}
+            ) : null,
+          )}
           {legacyNotes.map((note) => (
             <CanvasLegacyNoteArrow
               key={`legacy-note-arrow-${note.id}`}
@@ -546,7 +595,6 @@ export function CanvasArea({
               key={frame.id}
               frame={frame}
               block={frame.blockId ? blockLookup.get(frame.blockId) : undefined}
-              annotations={annsByFrame.byFrame.get(frame.id)}
               onMeasure={reportFrameHeight}
             />
           ))}
@@ -565,26 +613,26 @@ export function CanvasArea({
             />
           )}
 
-          {annsByFrame.loose.map((note) => (
-            <CanvasAnnotation
-              key={note.id}
-              note={note}
-              frameById={measuredFrameById}
-            />
-          ))}
+          {/* All structured annotations render at their resolved (collision-free)
+              board positions; markup notes (text/callout/arrow) keep their own
+              point-based placement. */}
+          {annotations.map((note) =>
+            isCanvasMarkupAnnotation(note) ? (
+              <CanvasMarkupAnnotation
+                key={note.id}
+                note={note}
+                snapTargets={snapTargets}
+              />
+            ) : (
+              <CanvasAnnotation
+                key={note.id}
+                note={note}
+                resolved={resolvedAnnotations.get(note.id)}
+              />
+            ),
+          )}
           {legacyNotes.map((note) => (
-            <CanvasAnnotation
-              key={note.id}
-              frameById={measuredFrameById}
-              note={{
-                id: note.id,
-                title: note.title,
-                text: note.body,
-                targetId: note.arrowToFrameId,
-                x: note.x,
-                y: note.y,
-              }}
-            />
+            <CanvasLegacyNote key={note.id} note={note} />
           ))}
         </div>
       </div>
@@ -667,6 +715,22 @@ function surfaceOf(frame: PlanArtboard): PlanWireframeSurface {
 }
 
 /**
+ * True when a frame actually has wireframe content to render: inline kit-tree
+ * data, inline legacy region data, or a `blockId` that resolves to a wireframe /
+ * legacy-wireframe block. Label-only artboards (no interior content) are skipped
+ * so the board never reserves space for an empty dashed box.
+ */
+function frameHasContent(
+  frame: PlanArtboard,
+  blockLookup: Map<string, PlanBlock>,
+): boolean {
+  if (frame.wireframe || frame.legacyWireframe) return true;
+  if (!frame.blockId) return false;
+  const block = blockLookup.get(frame.blockId);
+  return block?.type === "wireframe" || block?.type === "legacy-wireframe";
+}
+
+/**
  * Resolve placement for artboards. Geometry kept here on purpose. Frames with
  * explicit x/y are honored; the rest flow left→right by surface, wrapping wide
  * surfaces onto a second row and lining narrow surfaces up in a side column.
@@ -682,8 +746,10 @@ function layoutArtboards(frames: PlanArtboard[]): PlanArtboard[] {
   return frames.map((frame) => {
     const surface = surfaceOf(frame);
     const preset = SURFACE_SIZE[surface];
-    const width = frame.width ?? preset.width;
-    const height = frame.height ?? preset.height;
+    // SURFACE owns the footprint/aspect — ignore any model-supplied width/height
+    // so a popover is always ~square and can never render "too wide".
+    const width = preset.width;
+    const height = preset.height;
 
     if (frame.x !== undefined || frame.y !== undefined) {
       return {
@@ -726,18 +792,17 @@ function layoutArtboards(frames: PlanArtboard[]): PlanArtboard[] {
 function CanvasArtboard({
   frame,
   block,
-  annotations = [],
   onMeasure,
 }: {
   frame: PlanArtboard;
   block?: PlanBlock;
-  annotations?: PlanAnnotation[];
   onMeasure?: (id: string, height: number) => void;
 }) {
   const surface = surfaceOf(frame);
   const preset = SURFACE_SIZE[surface];
-  const width = frame.width ?? preset.width;
-  const height = frame.height ?? preset.height;
+  // SURFACE-locked footprint (see layoutArtboards) — model width/height ignored.
+  const width = preset.width;
+  const height = preset.height;
   const label = frame.label ?? block?.title;
   // Report the frame's real rendered height so board connectors can anchor to
   // the content box (frames are capped at `height` but usually shorter).
@@ -751,14 +816,12 @@ function CanvasArtboard({
     observer.observe(el);
     return () => observer.disconnect();
   }, [frame.id, onMeasure]);
-  // Annotations attached to this frame flow with its real (content) height:
-  // below it for top/bottom placements, beside it for left/right.
-  const belowAnns = annotations.filter((a) => !isSidePlacement(a.placement));
-  const sideAnns = annotations.filter((a) => isSidePlacement(a.placement));
 
   // Prefer the inline kit-tree wireframe; fall back to the legacy region shape
   // (kept for old / imported plans). Pull from the referenced block if the
-  // frame itself doesn't carry inline data.
+  // frame itself doesn't carry inline data. Annotations are NOT rendered inside
+  // the artboard — they live as board-level layers positioned by
+  // layoutAnnotations() so each note's box and its arrow share one coordinate.
   const kitData =
     frame.wireframe ?? (block?.type === "wireframe" ? block.data : undefined);
   const legacyData =
@@ -772,13 +835,9 @@ function CanvasArtboard({
       style={{ left: frame.x ?? 96, top: frame.y ?? 96, width }}
     >
       {label && (
-        <div
-          className="plan-artboard-label pointer-events-none absolute bottom-full left-0 origin-bottom-left pb-2 text-sm font-semibold text-plan-text"
-          style={{
-            transform: "scale(var(--dc-inv-zoom, 1))",
-            transformOrigin: "bottom left",
-          }}
-        >
+        // Canvas text scales WITH the board (no inverse-zoom counter-scale), so
+        // a label's footprint always matches its frame at every zoom level.
+        <div className="plan-artboard-label pointer-events-none absolute bottom-full left-0 pb-2 text-sm font-semibold text-plan-text">
           {label}
         </div>
       )}
@@ -795,6 +854,7 @@ function CanvasArtboard({
           <Wireframe
             data={kitData as unknown as Parameters<typeof Wireframe>[0]["data"]}
             canvasSize={height}
+            canvasWidth={width}
           />
         ) : legacyData ? (
           <Wireframe data={legacyData} canvasSize={height} />
@@ -802,29 +862,6 @@ function CanvasArtboard({
           <div className="plan-artboard-empty" style={{ height }} />
         )}
       </div>
-      {belowAnns.length > 0 && (
-        <div className="mt-4 flex flex-col gap-3">
-          {belowAnns.map((note) => (
-            <AnnotationBody key={note.id} note={note} />
-          ))}
-        </div>
-      )}
-      {sideAnns.map((note) => {
-        const right = (note.placement ?? "").includes("right");
-        return (
-          <div
-            key={note.id}
-            className="plan-canvas-annotation absolute"
-            style={
-              right
-                ? { left: width + ANNOTATION_GAP, top: 0 }
-                : { left: -(ANNOTATION_W + ANNOTATION_GAP), top: 0 }
-            }
-          >
-            <AnnotationBody note={note} />
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -833,41 +870,74 @@ function CanvasArtboard({
 /* Sections                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function CanvasSectionLabel({
-  section,
-  frameById,
-}: {
-  section: PlanBoardSection;
-  frameById: Map<string, PlanArtboard>;
-}) {
-  const ids = section.artboardIds ?? [];
-  const members = ids
+/** Padding the section container holds around its member artboards. */
+const SECTION_PAD_X = 56;
+const SECTION_PAD_TOP = 128;
+const SECTION_PAD_BOTTOM = 64;
+
+/**
+ * Bounding box of a section: the union of its member frames, expanded by padding
+ * so the container reads as a real region wrapping the group (label row + the
+ * frame labels that hang above each frame both fit inside the top padding).
+ * Returns null when the section has no resolvable members.
+ */
+function sectionRect(
+  section: PlanBoardSection,
+  frameById: Map<string, PlanArtboard>,
+): AnnotationRect | null {
+  const members = (section.artboardIds ?? [])
     .map((id) => frameById.get(id))
     .filter((frame): frame is PlanArtboard => Boolean(frame));
   if (members.length === 0) return null;
-  const left = Math.min(...members.map((frame) => frame.x ?? 96));
-  const top = Math.min(...members.map((frame) => frame.y ?? 96));
+  const left = Math.min(...members.map((f) => f.x ?? 96));
+  const top = Math.min(...members.map((f) => f.y ?? 96));
+  const right = Math.max(
+    ...members.map((f) => (f.x ?? 96) + (f.width ?? DESK_W)),
+  );
+  const bottom = Math.max(
+    ...members.map((f) => (f.y ?? 96) + (f.height ?? DESK_H)),
+  );
+  return {
+    left: left - SECTION_PAD_X,
+    top: top - SECTION_PAD_TOP,
+    width: right - left + SECTION_PAD_X * 2,
+    height: bottom - top + SECTION_PAD_TOP + SECTION_PAD_BOTTOM,
+  };
+}
 
+/**
+ * A section is now a real layout CONTAINER: a subtle rounded region that bounds
+ * its member artboards (so a group reads as one unit), with the title/subtitle
+ * sitting inside the top padding. It scales with the board and stays
+ * non-interactive so panning still works through it.
+ */
+function CanvasSection({
+  rect,
+  section,
+}: {
+  rect: AnnotationRect;
+  section: PlanBoardSection;
+}) {
   return (
     <div
-      className="plan-canvas-section pointer-events-none absolute origin-bottom-left"
+      className="plan-canvas-section pointer-events-none absolute rounded-[20px] border border-dashed border-plan-line/70 bg-plan-text/[0.015]"
       style={{
-        left,
-        // Sit clear above both the artboard and its label row (which hangs at
-        // the frame's bottom-full); enough room for a 2-line section header.
-        top: top - 116,
-        transform: "scale(var(--dc-inv-zoom, 1))",
-        transformOrigin: "bottom left",
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
       }}
     >
-      {section.title && (
-        <p className="text-2xl font-semibold tracking-[-0.01em] text-plan-text">
-          {section.title}
-        </p>
-      )}
-      {section.subtitle && (
-        <p className="mt-1 text-base text-plan-muted">{section.subtitle}</p>
-      )}
+      <div className="absolute left-7 top-6">
+        {section.title && (
+          <p className="text-2xl font-semibold tracking-[-0.01em] text-plan-text">
+            {section.title}
+          </p>
+        )}
+        {section.subtitle && (
+          <p className="mt-1 text-base text-plan-muted">{section.subtitle}</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -877,38 +947,240 @@ function CanvasSectionLabel({
 /* -------------------------------------------------------------------------- */
 
 const ANNOTATION_GAP = 32;
+/** Box width used for layout math; the body renders at 260 with breathing room. */
+const ANNOTATION_BOX_W = 280;
+/** Vertical gap between two notes stacked on the same side of a frame. */
+const ANNOTATION_STACK_GAP = 20;
+/** Min height assumed for a note (heading + one line). */
+const ANNOTATION_MIN_H = 64;
+
+type AnnotationRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+/** Resolved board position for a single annotation, plus its arrow endpoint. */
+export type ResolvedAnnotation = AnnotationRect & {
+  /** Arrow endpoint on the target frame (measured), if this note has a target. */
+  anchor?: { x: number; y: number };
+};
+
+/** Rough height estimate from the note's text so layout can stack/avoid notes. */
+function estimateAnnotationHeight(note: PlanAnnotation): number {
+  const bullets = parseBullets(note.text);
+  const headingH = note.title ? 26 : 0;
+  if (bullets) return headingH + bullets.length * 24 + 16;
+  // ~38 chars per line at 260px; one prose paragraph.
+  const lines = Math.max(1, Math.ceil(note.text.length / 38));
+  return Math.max(ANNOTATION_MIN_H, headingH + lines * 24 + 16);
+}
+
+/** Measured bounds of a frame (declared x/y; measured height threaded in). */
+function frameRect(frame: PlanArtboard): AnnotationRect {
+  return {
+    left: frame.x ?? 96,
+    top: frame.y ?? 96,
+    width: frame.width ?? DESK_W,
+    height: frame.height ?? DESK_H,
+  };
+}
 
 /**
- * Geometry-derived placement: park the annotation just OUTSIDE its target frame
- * on the requested side with clearance, so it never lands on a frame (no
- * overlap, no white-on-white ghost text). Falls back to free x/y only when the
- * annotation has no target frame.
+ * Arrow endpoint on a MEASURED frame: the requested edge/corner, or the measured
+ * center when placement is undefined. `frame` already carries the measured
+ * height (threaded in via `measuredFrameById`), so the tip lands on the real
+ * rendered box, never below it.
  */
-function annotationPosition(
-  note: PlanAnnotation,
-  frameById: Map<string, PlanArtboard>,
-): { left: number; top: number } {
-  const frame = note.targetId ? frameById.get(note.targetId) : undefined;
-  if (!frame) return { left: note.x ?? 80, top: note.y ?? 80 };
+function anchorPoint(
+  frame: PlanArtboard,
+  placement: PlanAnnotationPlacement | undefined,
+) {
   const x = frame.x ?? 96;
   const y = frame.y ?? 96;
   const w = frame.width ?? DESK_W;
   const h = frame.height ?? DESK_H;
-  switch (note.placement) {
-    case "right":
-    case "top-right":
-    case "bottom-right":
-      return { left: x + w + ANNOTATION_GAP, top: y };
-    case "left":
-    case "top-left":
-    case "bottom-left":
-      return { left: x - ANNOTATION_W - ANNOTATION_GAP, top: y };
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  switch (placement) {
     case "top":
-      return { left: x, top: y - 130 };
+      return { x: cx, y };
     case "bottom":
+      return { x: cx, y: y + h };
+    case "left":
+      return { x, y: cy };
+    case "right":
+      return { x: x + w, y: cy };
+    case "top-left":
+      return { x, y };
+    case "top-right":
+      return { x: x + w, y };
+    case "bottom-left":
+      return { x, y: y + h };
+    case "bottom-right":
+      return { x: x + w, y: y + h };
     default:
-      return { left: x, top: y + h + ANNOTATION_GAP };
+      return { x: cx, y: cy };
   }
+}
+
+/**
+ * Unanchored starting box for a note on its requested side of the MEASURED
+ * frame, before collision resolution. Side placements sit beside the frame; top/
+ * bottom sit above/below it; the default parks to the right gutter.
+ */
+function preferredAnnotationRect(
+  note: PlanAnnotation,
+  frame: PlanArtboard,
+  height: number,
+): AnnotationRect {
+  const r = frameRect(frame);
+  const place = note.placement;
+  const width = ANNOTATION_BOX_W;
+  if (place === "left" || place === "top-left" || place === "bottom-left") {
+    return {
+      left: r.left - width - ANNOTATION_GAP,
+      top: r.top,
+      width,
+      height,
+    };
+  }
+  if (place === "top") {
+    return {
+      left: r.left,
+      top: r.top - height - ANNOTATION_GAP,
+      width,
+      height,
+    };
+  }
+  if (place === "bottom") {
+    return {
+      left: r.left,
+      top: r.top + r.height + ANNOTATION_GAP,
+      width,
+      height,
+    };
+  }
+  // right / top-right / bottom-right / undefined → right gutter.
+  return { left: r.left + r.width + ANNOTATION_GAP, top: r.top, width, height };
+}
+
+/** Which gutter a placement flows into: left of the frame, or the right gutter. */
+function sideOf(
+  placement: PlanAnnotationPlacement | undefined,
+): "left" | "right" {
+  return placement === "left" ||
+    placement === "top-left" ||
+    placement === "bottom-left"
+    ? "left"
+    : "right";
+}
+
+/**
+ * Resolve every annotation's board position with deterministic FLEX AUTO-LAYOUT
+ * instead of an iterative collision solver. Each frame owns two vertical gutter
+ * columns (one on its left edge, one on its right); same-side notes flow down
+ * that column with a constant gap, exactly like a flex `column` with `gap`. The
+ * column is the frame's own height-tracking flow, so notes never overlap their
+ * frame or each other by construction — no nudge-until-clear search, no 60-step
+ * fallback. Loose (untargeted) notes flow down a single shared right-hand gutter
+ * past the widest frame. Every position is a pure function of the measured frame
+ * boxes, so the arrow (derived from the resolved box edge → frame anchor) always
+ * connects the rendered note to the rendered frame.
+ */
+function layoutAnnotations(
+  byFrame: Map<string, PlanAnnotation[]>,
+  loose: PlanAnnotation[],
+  measuredFrameById: Map<string, PlanArtboard>,
+): Map<string, ResolvedAnnotation> {
+  const resolved = new Map<string, ResolvedAnnotation>();
+  const frameRects = Array.from(measuredFrameById.values()).map(frameRect);
+
+  // Flex-style flow: place each box at the running cursor for its column, then
+  // advance the cursor by the box height + gap. Top/bottom placements seed the
+  // column above/below the frame; side placements align to the frame top.
+  const flowDown = (
+    cursor: { top: number },
+    rect: Omit<AnnotationRect, "top">,
+  ): AnnotationRect => {
+    const placed: AnnotationRect = { ...rect, top: cursor.top };
+    cursor.top = placed.top + placed.height + ANNOTATION_STACK_GAP;
+    return placed;
+  };
+
+  // Frame-anchored notes: one flex column per (frame, side). Each column starts
+  // at the frame's preferred edge and flows down with a constant gap.
+  for (const [frameId, notes] of byFrame) {
+    const frame = measuredFrameById.get(frameId);
+    if (!frame) continue;
+    const columnTop = new Map<"left" | "right", number>();
+    for (const note of notes) {
+      const height = estimateAnnotationHeight(note);
+      const base = preferredAnnotationRect(note, frame, height);
+      const side = sideOf(note.placement);
+      const cursor = { top: columnTop.get(side) ?? base.top };
+      const slot = flowDown(cursor, {
+        left: base.left,
+        width: base.width,
+        height,
+      });
+      columnTop.set(side, cursor.top);
+      // Shift the note clear of any OTHER frame its gutter would land on (e.g. a
+      // right note on a wide frame that has a popover frame to its right), then
+      // anchor the arrow to the frame edge facing where the note actually landed.
+      const placed = shiftSideClear(slot, side, frameRects, ANNOTATION_GAP);
+      resolved.set(note.id, {
+        ...placed,
+        anchor: frameAnchorTowardNote(frameRect(frame), placed),
+      });
+    }
+  }
+
+  // Loose notes: a single shared right-hand gutter column, past the widest
+  // frame, flowing straight down. Targeted-but-offscreen notes anchor to their
+  // frame; the rest are pure free-canvas text.
+  const gutterLeft =
+    Math.max(96, ...frameRects.map((f) => f.left + f.width)) + ANNOTATION_GAP;
+  const gutterCursor = { top: 96 };
+  for (const note of loose) {
+    if (isCanvasMarkupAnnotation(note)) continue;
+    const frame = note.targetId
+      ? measuredFrameById.get(note.targetId)
+      : undefined;
+    const height = estimateAnnotationHeight(note);
+    if (frame) {
+      const base = preferredAnnotationRect(note, frame, height);
+      const placed = shiftSideClear(
+        base,
+        sideOf(note.placement),
+        frameRects,
+        ANNOTATION_GAP,
+      );
+      resolved.set(note.id, {
+        ...placed,
+        anchor: frameAnchorTowardNote(frameRect(frame), placed),
+      });
+      continue;
+    }
+    // Free note with explicit coordinates keeps them; otherwise flow the gutter.
+    const slot =
+      note.x !== undefined || note.y !== undefined
+        ? {
+            left: note.x ?? gutterLeft,
+            top: note.y ?? gutterCursor.top,
+            width: ANNOTATION_BOX_W,
+            height,
+          }
+        : flowDown(gutterCursor, {
+            left: gutterLeft,
+            width: ANNOTATION_BOX_W,
+            height,
+          });
+    resolved.set(note.id, { ...slot, anchor: undefined });
+  }
+
+  return resolved;
 }
 
 /** Presentational annotation text (title + bullets/prose). No positioning. */
@@ -934,25 +1206,21 @@ function AnnotationBody({ note }: { note: PlanAnnotation }) {
   );
 }
 
-/** True for left/right-family placements (rendered beside the frame). */
-function isSidePlacement(placement: PlanAnnotationPlacement | undefined) {
-  return (
-    !!placement && (placement.includes("left") || placement.includes("right"))
-  );
-}
-
-/** Loose / legacy annotations with no attached frame: absolute by x/y. */
+/**
+ * A structured annotation rendered at its resolved (collision-free) board
+ * position. The position is computed once by layoutAnnotations() so the note's
+ * box and its arrow share one coordinate; if (defensively) no resolved entry
+ * exists, fall back to the note's own x/y.
+ */
 function CanvasAnnotation({
   note,
-  frameById,
+  resolved,
 }: {
   note: PlanAnnotation;
-  frameById: Map<string, PlanArtboard>;
+  resolved?: ResolvedAnnotation;
 }) {
-  if (isCanvasMarkupAnnotation(note)) {
-    return <CanvasMarkupAnnotation note={note} />;
-  }
-  const { left, top } = annotationPosition(note, frameById);
+  const left = resolved?.left ?? note.x ?? 80;
+  const top = resolved?.top ?? note.y ?? 80;
   return (
     <div className="plan-canvas-annotation absolute" style={{ left, top }}>
       <AnnotationBody note={note} />
@@ -969,9 +1237,22 @@ function isCanvasMarkupAnnotation(note: PlanAnnotation) {
   );
 }
 
-function CanvasMarkupAnnotation({ note }: { note: PlanAnnotation }) {
+function CanvasMarkupAnnotation({
+  note,
+  snapTargets = [],
+}: {
+  note: PlanAnnotation;
+  snapTargets?: AnnotationRect[];
+}) {
   const origin = note.points?.[0] ?? { x: note.x ?? 80, y: note.y ?? 80 };
-  const target = note.points?.[1];
+  const rawTarget = note.points?.[1];
+  // Snap the arrow TIP onto the nearest box edge when it lands on/near a frame
+  // or section, so a point-arrow visually grabs the thing it points at instead
+  // of floating just inside or outside it. The origin keeps its hand-placed
+  // spot (it's where the note text sits).
+  const target = rawTarget
+    ? snapPointToBoxes(rawTarget, snapTargets)
+    : undefined;
   return (
     <>
       {target && (
@@ -1123,38 +1404,6 @@ function parseBullets(text: string): string[] | null {
 /* Arrows + connectors — routed at the BOARD level (geometry kept on purpose) */
 /* -------------------------------------------------------------------------- */
 
-function anchorPoint(
-  frame: PlanArtboard,
-  placement: PlanAnnotationPlacement | undefined,
-) {
-  const x = frame.x ?? 96;
-  const y = frame.y ?? 96;
-  const w = frame.width ?? DESK_W;
-  const h = frame.height ?? DESK_H;
-  const cx = x + w / 2;
-  const cy = y + h / 2;
-  switch (placement) {
-    case "top":
-      return { x: cx, y };
-    case "bottom":
-      return { x: cx, y: y + h };
-    case "left":
-      return { x, y: cy };
-    case "right":
-      return { x: x + w, y: cy };
-    case "top-left":
-      return { x, y };
-    case "top-right":
-      return { x: x + w, y };
-    case "bottom-left":
-      return { x, y: y + h };
-    case "bottom-right":
-      return { x: x + w, y: y + h };
-    default:
-      return { x: cx, y: cy };
-  }
-}
-
 /**
  * Shared hand-drawn wobble filter (Excalidraw / wireframe house style). A single
  * turbulence + displacement pass jitters the whole stroke so straight segments
@@ -1191,7 +1440,7 @@ function SketchFilter({
       <feDisplacementMap
         in="SourceGraphic"
         in2="noise"
-        scale="2.8"
+        scale="0.9"
         xChannelSelector="R"
         yChannelSelector="G"
       />
@@ -1215,8 +1464,8 @@ function hashSeed(value: string) {
  * filled triangle.
  */
 function sketchHeadPath(ex: number, ey: number, cx: number, cy: number) {
-  const length = 12;
-  const spread = 0.5;
+  const length = 11;
+  const spread = 0.45;
   const angle = Math.atan2(ey - cy, ex - cx);
   const w1x = ex - length * Math.cos(angle - spread);
   const w1y = ey - length * Math.sin(angle - spread);
@@ -1288,33 +1537,163 @@ function ArrowSvg({
   );
 }
 
-function CanvasAnnotationArrow({
-  note,
-  frameById,
-}: {
-  note: PlanAnnotation;
-  frameById: Map<string, PlanArtboard>;
-}) {
-  if (!note.targetId) return null;
-  const frame = frameById.get(note.targetId);
-  if (!frame) return null;
-  // Arrow only when an annotation points at a specific spot. Start from the
-  // note's anchor box edge nearest the target.
-  const target = anchorPoint(frame, note.placement);
-  const pos = annotationPosition(note, frameById);
-  const start = {
-    x: pos.left + ANNOTATION_W / 2,
-    y: pos.top + 16,
-  };
+function CanvasAnnotationArrow({ resolved }: { resolved: ResolvedAnnotation }) {
+  const target = resolved.anchor;
+  if (!target) return null;
+  // Both endpoints come from the resolved layout: the END is the measured frame
+  // edge/center (so the tip lands on the real content box, never below it), and
+  // the START is the edge of the resolved note box facing that target — so the
+  // arrow always visually connects the rendered box to the rendered frame.
+  const start = boxEdgeToward(resolved, target);
   return (
     <ArrowSvg
       fromX={start.x}
       fromY={start.y}
       toX={target.x}
       toY={target.y}
-      id={`annotation-arrow-${note.id}`}
+      id={`annotation-arrow-${resolved.left}-${resolved.top}`}
     />
   );
+}
+
+/** How close (board px) a point must be to a box for the arrow tip to snap. */
+const SNAP_RADIUS = 40;
+
+/** Clamp a point onto a rectangle's perimeter (the nearest edge point). */
+function clampToRectPerimeter(
+  point: { x: number; y: number },
+  box: AnnotationRect,
+): { x: number; y: number } {
+  const cx = clamp(point.x, box.left, box.left + box.width);
+  const cy = clamp(point.y, box.top, box.top + box.height);
+  const inside =
+    point.x > box.left &&
+    point.x < box.left + box.width &&
+    point.y > box.top &&
+    point.y < box.top + box.height;
+  if (!inside) return { x: cx, y: cy };
+  // Inside the box: push out to whichever edge is closest.
+  const dLeft = point.x - box.left;
+  const dRight = box.left + box.width - point.x;
+  const dTop = point.y - box.top;
+  const dBottom = box.top + box.height - point.y;
+  const min = Math.min(dLeft, dRight, dTop, dBottom);
+  if (min === dLeft) return { x: box.left, y: point.y };
+  if (min === dRight) return { x: box.left + box.width, y: point.y };
+  if (min === dTop) return { x: point.x, y: box.top };
+  return { x: point.x, y: box.top + box.height };
+}
+
+/** Squared distance from a point to the nearest perimeter point of a box. */
+function distToRectPerimeter(
+  point: { x: number; y: number },
+  box: AnnotationRect,
+): number {
+  const edge = clampToRectPerimeter(point, box);
+  return Math.hypot(point.x - edge.x, point.y - edge.y);
+}
+
+/**
+ * Snap-clamp an arrow endpoint onto the nearest snap target (artboard or section
+ * box) when it lands inside or within SNAP_RADIUS of one. Returns the point
+ * unchanged when nothing is close, so a free-floating arrow stays free. This is
+ * what makes point arrows "grab" the frame/section they point at without the
+ * model having to land the coordinate exactly on the edge.
+ */
+function snapPointToBoxes(
+  point: { x: number; y: number },
+  boxes: AnnotationRect[],
+): { x: number; y: number } {
+  let best: AnnotationRect | null = null;
+  let bestDist = Infinity;
+  for (const box of boxes) {
+    const inside =
+      point.x >= box.left &&
+      point.x <= box.left + box.width &&
+      point.y >= box.top &&
+      point.y <= box.top + box.height;
+    const dist = inside ? 0 : distToRectPerimeter(point, box);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = box;
+    }
+  }
+  if (!best || bestDist > SNAP_RADIUS) return point;
+  return clampToRectPerimeter(point, best);
+}
+
+/** The point on a box's perimeter that faces a target point. */
+function boxEdgeToward(
+  box: AnnotationRect,
+  target: { x: number; y: number },
+): { x: number; y: number } {
+  const cx = box.left + box.width / 2;
+  const cy = box.top + box.height / 2;
+  const dx = target.x - cx;
+  const dy = target.y - cy;
+  // Clamp the box-center→target ray to the box rectangle.
+  const hx = box.width / 2;
+  const hy = box.height / 2;
+  const scale = Math.min(
+    dx !== 0 ? hx / Math.abs(dx) : Infinity,
+    dy !== 0 ? hy / Math.abs(dy) : Infinity,
+  );
+  if (!Number.isFinite(scale)) return { x: cx, y: cy };
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+/** Arrow tip on a frame: the frame-perimeter point facing the note box, pulled
+ *  OUT by a small gap so the arrow points AT the frame without touching it, and
+ *  always toward whichever side the note actually landed on (never "away"). */
+const ARROW_FRAME_GAP = 13;
+function frameAnchorTowardNote(
+  frameR: AnnotationRect,
+  noteR: AnnotationRect,
+): { x: number; y: number } {
+  const noteCenter = {
+    x: noteR.left + noteR.width / 2,
+    y: noteR.top + noteR.height / 2,
+  };
+  const edge = boxEdgeToward(frameR, noteCenter);
+  const fcx = frameR.left + frameR.width / 2;
+  const fcy = frameR.top + frameR.height / 2;
+  const dx = edge.x - fcx;
+  const dy = edge.y - fcy;
+  const len = Math.hypot(dx, dy) || 1;
+  return {
+    x: edge.x + (dx / len) * ARROW_FRAME_GAP,
+    y: edge.y + (dy / len) * ARROW_FRAME_GAP,
+  };
+}
+
+/** Axis-aligned rectangle overlap test. */
+function rectsOverlap(a: AnnotationRect, b: AnnotationRect): boolean {
+  return (
+    a.left < b.left + b.width &&
+    a.left + a.width > b.left &&
+    a.top < b.top + b.height &&
+    a.top + a.height > b.top
+  );
+}
+
+/** Slide a gutter note along its side axis until it clears any frame it would
+ *  overlap, so a note never lands on a non-target artboard. Bounded + deterministic. */
+function shiftSideClear(
+  rect: AnnotationRect,
+  side: "left" | "right",
+  frames: AnnotationRect[],
+  gap: number,
+): AnnotationRect {
+  let r = rect;
+  for (let i = 0; i <= frames.length; i++) {
+    const hit = frames.find((f) => rectsOverlap(r, f));
+    if (!hit) break;
+    r =
+      side === "left"
+        ? { ...r, left: hit.left - r.width - gap }
+        : { ...r, left: hit.left + hit.width + gap };
+  }
+  return r;
 }
 
 function CanvasLegacyNoteArrow({
@@ -1327,6 +1706,8 @@ function CanvasLegacyNoteArrow({
   if (!note.arrowToFrameId) return null;
   const frame = frameById.get(note.arrowToFrameId);
   if (!frame) return null;
+  // anchorPoint reads the MEASURED frame (threaded in via measuredFrameById), so
+  // the tip lands on the real content box.
   const target = anchorPoint(frame, undefined);
   const noteX = note.x ?? 80;
   const noteY = note.y ?? 80;
@@ -1341,6 +1722,20 @@ function CanvasLegacyNoteArrow({
   );
 }
 
+/** Deprecated note shape (canvas.notes); rendered as a plain text layer. */
+function CanvasLegacyNote({ note }: { note: PlanCanvasNote }) {
+  return (
+    <div
+      className="plan-canvas-annotation absolute"
+      style={{ left: note.x ?? 80, top: note.y ?? 80 }}
+    >
+      <AnnotationBody
+        note={{ id: note.id, title: note.title, text: note.body }}
+      />
+    </div>
+  );
+}
+
 function CanvasConnector({
   edge,
   frameById,
@@ -1352,14 +1747,14 @@ function CanvasConnector({
   const to = frameById.get(edge.to);
   if (!from || !to) return null;
 
-  // Route facing-edge → facing-edge (heights are measured, so the line sits at
-  // each frame's real vertical center). A tiny gap at each end keeps the dash
-  // off the borders; the arrowhead tip lands just shy of the target edge.
+  // Route nearest/facing sides, not blindly right-edge -> left-edge. This keeps
+  // wrapped rows and vertical flows from sweeping through unrelated artboards.
   const PAD = 18;
-  const fromX = (from.x ?? 0) + (from.width ?? DESK_W) + 3;
-  const fromY = (from.y ?? 0) + (from.height ?? DESK_H) / 2;
-  const toX = (to.x ?? 0) - 7;
-  const toY = (to.y ?? 0) + (to.height ?? DESK_H) / 2;
+  const route = connectorRoute(from, to);
+  const fromX = route.from.x;
+  const fromY = route.from.y;
+  const toX = route.to.x;
+  const toY = route.to.y;
   const left = Math.min(fromX, toX) - PAD;
   const top = Math.min(fromY, toY) - PAD;
   const width = Math.abs(toX - fromX) + PAD * 2;
@@ -1369,6 +1764,12 @@ function CanvasConnector({
   const ex = toX - left;
   const ey = toY - top;
   const midX = (sx + ex) / 2;
+  const midY = (sy + ey) / 2;
+  const isHorizontal = route.axis === "horizontal";
+  const path = isHorizontal
+    ? `M ${sx} ${sy} L ${midX} ${sy} L ${midX} ${ey} L ${ex} ${ey}`
+    : `M ${sx} ${sy} L ${sx} ${midY} L ${ex} ${midY} L ${ex} ${ey}`;
+  const headBase = isHorizontal ? { x: midX, y: ey } : { x: ex, y: midY };
   const filterId = `connector-rough-${edge.from}-${edge.to}`;
 
   return (
@@ -1393,13 +1794,13 @@ function CanvasConnector({
         strokeLinejoin="round"
         strokeWidth={2.4}
       >
-        <path d={`M ${sx} ${sy} C ${midX} ${sy}, ${midX} ${ey}, ${ex} ${ey}`} />
-        <path d={sketchHeadPath(ex, ey, midX, ey)} />
+        <path d={path} />
+        <path d={sketchHeadPath(ex, ey, headBase.x, headBase.y)} />
       </g>
       {edge.label && (
         <text
-          x={midX}
-          y={Math.min(sy, ey) - 9}
+          x={isHorizontal ? midX : (sx + ex) / 2}
+          y={isHorizontal ? Math.min(sy, ey) - 9 : midY - 9}
           textAnchor="middle"
           className="fill-[hsl(var(--ring))] text-[15px] font-semibold"
         >
@@ -1408,6 +1809,55 @@ function CanvasConnector({
       )}
     </svg>
   );
+}
+
+function connectorRoute(
+  from: PlanArtboard,
+  to: PlanArtboard,
+): {
+  axis: "horizontal" | "vertical";
+  from: WorldPoint;
+  to: WorldPoint;
+} {
+  const gap = 8;
+  const fromRect = frameRect(from);
+  const toRect = frameRect(to);
+  const fromCenter = {
+    x: fromRect.left + fromRect.width / 2,
+    y: fromRect.top + fromRect.height / 2,
+  };
+  const toCenter = {
+    x: toRect.left + toRect.width / 2,
+    y: toRect.top + toRect.height / 2,
+  };
+  const dx = toCenter.x - fromCenter.x;
+  const dy = toCenter.y - fromCenter.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const toRight = dx >= 0;
+    return {
+      axis: "horizontal",
+      from: {
+        x: toRight ? fromRect.left + fromRect.width + gap : fromRect.left - gap,
+        y: fromCenter.y,
+      },
+      to: {
+        x: toRight ? toRect.left - gap : toRect.left + toRect.width + gap,
+        y: toCenter.y,
+      },
+    };
+  }
+  const toBelow = dy >= 0;
+  return {
+    axis: "vertical",
+    from: {
+      x: fromCenter.x,
+      y: toBelow ? fromRect.top + fromRect.height + gap : fromRect.top - gap,
+    },
+    to: {
+      x: toCenter.x,
+      y: toBelow ? toRect.top - gap : toRect.top + toRect.height + gap,
+    },
+  };
 }
 
 function distance(a: WorldPoint, b: WorldPoint) {

@@ -25,5 +25,7 @@ describe("PlanMarkdownEditor inline editing", () => {
     expect(renderer).toContain('op: "update-rich-text"');
     expect(documentArea).toContain("editingDisabled={editingDisabled}");
     expect(documentArea).toContain("contentUpdatedAt={contentUpdatedAt}");
+    expect(documentArea).toContain("const canUseInlineEditor");
+    expect(documentArea).toContain("editable={editable}");
   });
 });
