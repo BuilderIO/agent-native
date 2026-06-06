@@ -1,5 +1,63 @@
 # @agent-native/core
 
+## 0.39.0
+
+### Minor Changes
+
+- d82d5f7: Add a "panel" edit surface for config-driven blocks. A block spec can set
+  `editSurface: "panel"` (the default when it ships no custom `Edit`) to render its
+  `Read` view with a hover corner edit button that opens its editor — the custom
+  `Edit` or the schema-driven auto-form — in an app-provided panel
+  (`ctx.renderEditSurface`, e.g. a popover), instead of always-inline fields.
+  Direct-manipulation blocks (prose, checklist, table, tabs) stay inline. The core
+  `custom-html` block opts into the panel.
+
+  Also completes the schema auto-editor (`SchemaBlockEditor`): array fields now
+  render as add/remove repeating rows (object elements → nested field groups,
+  scalar elements → per-item inputs) and object fields render as nested fieldsets,
+  instead of falling back to a "needs custom Edit" hint.
+
+- d82d5f7: Move the eight "dev-doc" structured blocks into the core block library so any app can register them, mirroring how `checklist` / `code-tabs` / `html` / `table` / `tabs` already live in core.
+  - **New shared blocks** — `mermaid` (hand-drawn Mermaid diagram), `api-endpoint` (Swagger / Stripe-style endpoint reference), `openapi-spec` (whole-document OpenAPI / Swagger reference), `data-model` (interactive dbdiagram-style ERD), `diff` (GitHub-style before/after with unified + split views), `file-tree` (VS Code / GitHub explorer with change badges), `json-explorer` (collapsible devtools JSON tree), and `annotated-code` (Stripe-docs "explain this code" walkthrough). Their React-free schema + MDX round-trip config export from `@agent-native/core/blocks/server`; their `Read` / `Edit` React renderers export from `@agent-native/core/blocks`.
+  - **App-agnostic** — the renderers no longer depend on a host app's shadcn/ui components or `next-themes`. Form controls use minimal inline primitives styled with the same Tailwind tokens, dark mode is detected from the document root's `.dark` class, and the diff line-differ is inlined so core carries no extra runtime dependency. Rendered output (dark/light, collapse, FK-highlight interactivity, panel editing) is unchanged.
+
+- d82d5f7: Export shared registry-block Tiptap node utilities so app editors can render registered block specs through a common NodeView, side-map provider, and duplicate-id reminting plugin.
+- d82d5f7: Add single-document editor primitives to the shared rich-markdown editor so the
+  plan app can render its whole document as one editable Notion-style ProseMirror
+  doc (custom blocks as inline NodeViews) while keeping its `blocks[]` format:
+  `gfmToProseJSON`/`proseJSONToGfm` (GFM↔ProseMirror via a headless editor), a
+  `RunId` extension (stable per-block prose ids), the shared `DragHandle` extension
+  (block grip + drag-reorder, moved from the content app and parameterized via
+  `wrapperSelector`), and serializer-injection props on `SharedRichEditor`
+  (`getMarkdown`/`setContent`/`normalizeValue`/`shouldSeed`/`wrapperClassName`).
+
+  The `DragHandle` grip now attaches lazily on first hover (re-homing to the
+  wrapper once it exists) instead of only at plugin init, so the grip reliably
+  appears even when the editor DOM mounts into its wrapper after the ProseMirror
+  view is constructed (the React mount order in `SharedRichEditor`).
+
+### Patch Changes
+
+- d82d5f7: Expose shared library block spec registration for template editors.
+- d82d5f7: Add a `notionCompatible` block-spec flag and registry helper so apps can derive Notion-sync block allowlists from registered block metadata.
+- d82d5f7: Add a shared registry-block slash-command builder for template editors.
+- d82d5f7: Fix rich-text editing data loss in the shared collab reconcile. The reconcile now
+  remembers a small bounded ring of recent local emissions, so a stale-but-recent
+  poll echo — e.g. a debounced autosave that persisted only a partial burst, then
+  re-supplied by the next poll with a newer timestamp — can no longer clobber the
+  freshly-typed tail. Previously only the single latest emission was recognized as
+  an echo, so the trailing characters typed during the save→poll window were
+  reverted. External (agent/peer) edits never byte-match a local emission, so
+  agent resync is unaffected.
+- d82d5f7: Make the unified editor's block library "add a block in ONE place" by sharing the two pieces that were still duplicated between the plan and content editors.
+  - **`buildRegistryBlockSlashItems(registry, options)`** (exported from `@agent-native/core/client`) — the shared builder for the registry-derived block slash commands both editors offer. It owns the `registry.list("block")` source, the Notion-compatibility filter, and the one-item-per-spec mapping; each app injects only the parts that legitimately differ (its item shape, its Notion-compat predicate, and how it inserts the block node). Plan's `buildPlanSlashCommands` and content's `buildRegistrySlashItems` are now thin adapters over it.
+  - **`registerLibraryBlocks(registry, { overrides? })` + `libraryBlockSpecs`** (from `@agent-native/core/blocks`) — register the whole standard browser library (checklist, table, code-tabs, html, tabs + the eight dev-doc blocks: mermaid, api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer, annotated-code) in one call. Apps register it, then add only their app-specific blocks on top, passing small per-block `overrides` (e.g. content re-types `table` → `table-block`).
+  - **`registerLibraryBlockConfigs(registry, { overrides? })` + `libraryBlockConfigs`** (from `@agent-native/core/blocks/server`) — the React-free twin for server / shared registries, registering the same library as `Read: () => null` config stubs so the agent schema export and MDX round-trip share one source too.
+
+  Adding a 14th standard library block now means editing one core list instead of four app files. The set of registered blocks and the Notion-gating behavior in each app are unchanged.
+
+- d82d5f7: Update bundled Visual Plans skill guidance to use bottom Open Questions form blocks.
+
 ## 0.38.0
 
 ### Minor Changes
