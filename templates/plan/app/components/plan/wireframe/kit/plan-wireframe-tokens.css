@@ -36,6 +36,8 @@
     "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
   --font-script:
     "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  --font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
 
   /* ---- Density (regular default) ----------------------------------------- */
   /* Density is selected via [data-density]; individual tokens below. */
@@ -73,6 +75,14 @@
   --fs: 15px;
   --radius: 9px;
   --stroke: 1.6px;
+}
+
+/* ---- Clean style: drop the hand-drawn font for a normal sans ------------- */
+/* In clean mode the rough overlay is off and frames get crisp CSS borders, so
+   the handwriting font reads as out of place — switch to the sans stack. */
+.plan-wf[data-style="clean"] {
+  --font-hand: var(--font-clean);
+  --font-script: var(--font-clean);
 }
 
 /* ---- Dark palette -------------------------------------------------------- */

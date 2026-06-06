@@ -118,7 +118,10 @@
   font: inherit;
   font-weight: 700;
   color: var(--wf-ink);
-  background: transparent;
+  /* Opaque paper fill (not transparent) so a floating / overlapping button —
+     a FAB, a sticky toolbar action like "+ Add habit" — never shows the
+     content behind it through its body. */
+  background: var(--wf-paper);
   border: 1.4px solid var(--wf-ink);
   border-radius: var(--wf-radius);
   padding: 7px 14px;
