@@ -85,6 +85,7 @@ export default defineAction({
       args.markdown === undefined &&
       args.sections.length === 0 &&
       args.consumedCommentIds.length === 0 &&
+      !args.note &&
       args.comments.length > 0 &&
       args.comments.every(
         (comment) =>
@@ -190,6 +191,41 @@ export default defineAction({
       updatedAt: now,
     };
 
+    type CommentInput = (typeof args.comments)[number];
+    const existingCommentUpdates: Array<CommentInput & { id: string }> = [];
+    const pendingCommentInserts: typeof args.comments = [];
+    for (const comment of args.comments) {
+      if (comment.id) {
+        const [existing] = await db
+          .select({ id: schema.planComments.id })
+          .from(schema.planComments)
+          .where(
+            and(
+              eq(schema.planComments.id, comment.id),
+              eq(schema.planComments.planId, args.planId),
+            ),
+          );
+        if (existing) {
+          existingCommentUpdates.push({ ...comment, id: comment.id });
+          continue;
+        }
+      }
+      pendingCommentInserts.push(comment);
+    }
+
+    const commentsBeforeInserts =
+      pendingCommentInserts.length > 0
+        ? (await loadPlanBundle(args.planId)).comments
+        : [];
+    const commentRows = buildUpdatedPlanCommentRows({
+      planId: args.planId,
+      comments: pendingCommentInserts,
+      existingComments: commentsBeforeInserts,
+      requestEmail: commentRequestEmail,
+      requestName: requesterName,
+      now,
+    });
+
     // guard:allow-unscoped -- gated above by editor access, or by public
     // viewer access plus new-open-human-comment-only validation.
     const updatedRows = await db
@@ -257,53 +293,25 @@ export default defineAction({
       });
     }
 
-    const pendingCommentInserts: typeof args.comments = [];
-    for (const comment of args.comments) {
-      if (comment.id) {
-        const [existing] = await db
-          .select({ id: schema.planComments.id })
-          .from(schema.planComments)
-          .where(
-            and(
-              eq(schema.planComments.id, comment.id),
-              eq(schema.planComments.planId, args.planId),
-            ),
-          );
-        if (existing) {
-          await db
-            .update(schema.planComments)
-            .set({
-              sectionId: comment.sectionId ?? null,
-              kind: comment.kind,
-              status: comment.status,
-              anchor: comment.anchor ?? null,
-              message: comment.message,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(schema.planComments.id, comment.id),
-                eq(schema.planComments.planId, args.planId),
-              ),
-            );
-          continue;
-        }
-      }
-      pendingCommentInserts.push(comment);
+    for (const comment of existingCommentUpdates) {
+      await db
+        .update(schema.planComments)
+        .set({
+          sectionId: comment.sectionId ?? null,
+          kind: comment.kind,
+          status: comment.status,
+          anchor: comment.anchor ?? null,
+          message: comment.message,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.planComments.id, comment.id),
+            eq(schema.planComments.planId, args.planId),
+          ),
+        );
     }
 
-    const commentsBeforeInserts =
-      pendingCommentInserts.length > 0
-        ? (await loadPlanBundle(args.planId)).comments
-        : [];
-    const commentRows = buildUpdatedPlanCommentRows({
-      planId: args.planId,
-      comments: pendingCommentInserts,
-      existingComments: commentsBeforeInserts,
-      requestEmail: commentRequestEmail,
-      requestName: requesterName,
-      now,
-    });
     for (const row of commentRows) {
       await db.insert(schema.planComments).values(row);
       insertedCommentIds.push(row.id);
