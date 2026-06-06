@@ -16,6 +16,9 @@ import {
   apiEndpointSchema,
   apiEndpointMdx,
   type ApiEndpointData,
+  openApiSpecSchema,
+  openApiSpecMdx,
+  type OpenApiSpecData,
   dataModelSchema,
   dataModelMdx,
   type DataModelData,
@@ -35,6 +38,8 @@ import {
   MermaidEdit,
   ApiEndpointRead,
   ApiEndpointEdit,
+  OpenApiSpecRead,
+  OpenApiSpecEdit,
   DataModelRead,
   DataModelEdit,
   DiffRead,
@@ -254,6 +259,73 @@ registerBlocks(planBlockRegistry, [
     description:
       "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
     empty: () => ({ method: "GET", path: "/api/resource" }),
+  }),
+  defineBlock<OpenApiSpecData>({
+    type: "openapi-spec",
+    schema: openApiSpecSchema,
+    mdx: openApiSpecMdx,
+    Read: OpenApiSpecRead,
+    Edit: OpenApiSpecEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "OpenAPI spec",
+    description:
+      "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON): operations grouped by tag, each a collapsible row expanding to params, request body, and per-status responses, with $ref models resolved.",
+    empty: () => ({
+      spec: JSON.stringify(
+        {
+          openapi: "3.0.0",
+          info: { title: "Example API", version: "1.0.0" },
+          tags: [{ name: "widgets", description: "Manage widgets" }],
+          paths: {
+            "/widgets": {
+              get: {
+                tags: ["widgets"],
+                summary: "List widgets",
+                responses: {
+                  "200": {
+                    description: "OK",
+                    content: {
+                      "application/json": {
+                        schema: {
+                          type: "array",
+                          items: { $ref: "#/components/schemas/Widget" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              post: {
+                tags: ["widgets"],
+                summary: "Create a widget",
+                requestBody: {
+                  content: {
+                    "application/json": {
+                      schema: { $ref: "#/components/schemas/Widget" },
+                    },
+                  },
+                },
+                responses: { "201": { description: "Created" } },
+              },
+            },
+          },
+          components: {
+            schemas: {
+              Widget: {
+                type: "object",
+                properties: {
+                  id: { type: "string", format: "uuid" },
+                  name: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    }),
   }),
   defineBlock<DataModelData>({
     type: "data-model",

@@ -41,6 +41,7 @@ export type PlanBlockType =
   | "visual-questions"
   | "mermaid"
   | "api-endpoint"
+  | "openapi-spec"
   | "data-model"
   | "diff"
   | "file-tree"
@@ -478,6 +479,15 @@ export type PlanApiEndpointBlock = PlanBlockBase & {
   };
 };
 
+export type PlanOpenApiSpecBlock = PlanBlockBase & {
+  type: "openapi-spec";
+  data: {
+    /** Raw OpenAPI 3 / Swagger 2 document text (JSON in v1). */
+    spec: string;
+    title?: string;
+  };
+};
+
 export type PlanDataModelBlock = PlanBlockBase & {
   type: "data-model";
   data: {
@@ -566,6 +576,7 @@ export type PlanBlock =
   | PlanVisualQuestionsBlock
   | PlanMermaidBlock
   | PlanApiEndpointBlock
+  | PlanOpenApiSpecBlock
   | PlanDataModelBlock
   | PlanDiffBlock
   | PlanFileTreeBlock
@@ -1410,6 +1421,13 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
           )
           .max(40)
           .optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("openapi-spec"),
+      data: z.object({
+        spec: z.string().max(400_000),
+        title: z.string().trim().max(200).optional(),
       }),
     }),
     baseBlockSchema.extend({

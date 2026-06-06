@@ -183,3 +183,12 @@ export {
   type AnnotatedCodeData,
   type AnnotatedCodeAnnotation,
 } from "./library/annotated-code.config.js";
+export {
+  OpenApiSpecRead,
+  OpenApiSpecEdit,
+} from "./library/OpenApiSpecBlock.js";
+export {
+  openApiSpecSchema,
+  openApiSpecMdx,
+  type OpenApiSpecData,
+} from "./library/openapi-spec.config.js";

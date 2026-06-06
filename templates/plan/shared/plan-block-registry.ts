@@ -51,6 +51,9 @@ import {
   apiEndpointSchema,
   apiEndpointMdx,
   type ApiEndpointData,
+  openApiSpecSchema,
+  openApiSpecMdx,
+  type OpenApiSpecData,
   dataModelSchema,
   dataModelMdx,
   type DataModelData,
@@ -203,6 +206,17 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       label: "API endpoint",
       description:
         "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
+    }),
+    defineBlock<OpenApiSpecData>({
+      type: "openapi-spec",
+      schema: openApiSpecSchema,
+      mdx: openApiSpecMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "OpenAPI spec",
+      description:
+        "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON): operations grouped by tag, each a collapsible row expanding to params, request body, and per-status responses, with $ref models resolved.",
     }),
     defineBlock<DataModelData>({
       type: "data-model",
