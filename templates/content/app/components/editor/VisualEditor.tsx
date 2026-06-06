@@ -43,10 +43,18 @@ import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
+  serializeRegistryBlockToMdx,
+  parseRegistryBlockData,
+} from "@shared/nfm-registry";
+import {
   createSharedEditorExtensions,
   useCollabReconcile,
+  RegistryBlockDataProvider,
+  type RegistryBlockSideMapBlock,
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
+import { RegistryBlockNode } from "./extensions/registryBlocks";
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import {
   getImageFiles,
   getAudioFiles,
@@ -724,6 +732,13 @@ interface VisualEditorProps {
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
+  /**
+   * The open document's linked Notion page id, when it has one. Drives Notion
+   * gating for the registry-block slash menu (offer only NFM-compatible blocks)
+   * and lights up the "Won't sync to Notion" badge on any already-present block
+   * whose type has no NFM analog (via the shared registry-block side-map).
+   */
+  notionPageId?: string | null;
 }
 
 export type { NotionPageLink };
@@ -1215,6 +1230,12 @@ export function createVisualEditorExtensions({
         onOpenPageLink: onOpenNotionPageLink,
       }),
       ...notionFidelityExtensions,
+      // Core's generic registry-block atom node (`registryBlock`). Renders any
+      // registered content block spec via the shared NodeView + side-map; content
+      // sources block `data` lazily from the node's `__raw` NFM in
+      // `VisualEditor` below. Mounted after the Notion nodes and before the
+      // Markdown extension so the NFM <-> doc round-trip recognizes the node.
+      RegistryBlockNode,
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
@@ -1233,6 +1254,239 @@ export function createVisualEditorExtensions({
   });
 }
 
+/**
+ * One cached registry block: its runtime `type` (resolved from the NFM source on
+ * first parse) and its current typed `data`. `edited` marks blocks the author has
+ * changed in this session, so the serializer re-emits them from `data` rather
+ * than the node's stale `__raw`.
+ */
+interface RegistryBlockStoreEntry {
+  type: string;
+  base?: {
+    title?: string;
+    summary?: string;
+    editable?: boolean;
+  };
+  data: unknown;
+  edited: boolean;
+}
+
+function serializeRegistryBlockRaw(
+  type: string,
+  blockId: string,
+  node: ProseMirrorNode,
+  data: unknown,
+  base?: RegistryBlockStoreEntry["base"],
+): string {
+  return serializeRegistryBlockToMdx(type, {
+    id: blockId,
+    title:
+      typeof node.attrs.title === "string" ? node.attrs.title : base?.title,
+    summary:
+      typeof node.attrs.summary === "string"
+        ? node.attrs.summary
+        : base?.summary,
+    editable: base?.editable,
+    data,
+  });
+}
+
+/**
+ * A registry block is Notion-incompatible when its spec does NOT declare
+ * `notionCompatible` — i.e. it is not in the registry's single
+ * `notionCompatibleTypes()` allowlist (T3). The shared registry-block NodeView
+ * consults this (only when the side-map's `notionSync` flag is on) to badge
+ * blocks that won't survive a Notion push. Unknown types are treated as
+ * incompatible so an unrecognized block is flagged rather than silently assumed
+ * to sync.
+ */
+const NOTION_COMPATIBLE_BLOCK_TYPES =
+  contentBlockRegistry.notionCompatibleTypes();
+function isNotionIncompatibleBlockType(blockType: string): boolean {
+  return !NOTION_COMPATIBLE_BLOCK_TYPES.has(blockType);
+}
+
+/**
+ * Side-map store for the editor's `registryBlock` nodes.
+ *
+ * Content has NO sidecar block table — a registry block's authority is the inline
+ * MDX in the single `documents.content` NFM string, preserved verbatim on each
+ * node as `__raw`. The shared NodeView needs typed `data` to render, so this hook
+ * lazily parses `__raw` (via the async `parseRegistryBlockData`) the first time a
+ * block is rendered, caching the result keyed by blockId. An edit updates the
+ * cache AND rewrites the node's `__raw` to the freshly serialized MDX, so the
+ * existing NFM save path persists the change with no extra plumbing — `docToNfm`
+ * emits `__raw` verbatim for every untouched-and-edited block alike, keeping the
+ * single-string round-trip byte-exact.
+ *
+ * A document with no registry blocks never touches this store: `getBlock` is only
+ * called from a mounted `registryBlock` NodeView, so the editor renders and
+ * serializes identically to before.
+ */
+function useRegistryBlockStore(editor: CoreEditor | null) {
+  const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
+  const pendingRef = useRef<Set<string>>(new Set());
+  // Bumping this state forces the NodeViews to re-read the cache once async
+  // hydration (or an edit) lands.
+  const [, setVersion] = useState(0);
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
+
+  // Find the live `registryBlock` node (and its position) for a blockId.
+  const findNode = useCallback(
+    (blockId: string) => {
+      if (!editor || editor.isDestroyed) return null;
+      let result: { pos: number; node: ProseMirrorNode } | null = null;
+      editor.state.doc.descendants((node, pos) => {
+        if (result) return false;
+        if (
+          node.type.name === "registryBlock" &&
+          String(node.attrs.blockId ?? "") === blockId
+        ) {
+          result = { pos, node };
+          return false;
+        }
+        return true;
+      });
+      return result;
+    },
+    [editor],
+  );
+
+  const getBlock = useCallback(
+    (blockId: string): RegistryBlockSideMapBlock | undefined => {
+      const found = findNode(blockId);
+      if (!found) return undefined;
+      const { node } = found;
+      const title =
+        typeof node.attrs.title === "string" ? node.attrs.title : undefined;
+      const summary =
+        typeof node.attrs.summary === "string" ? node.attrs.summary : undefined;
+
+      const cached = cacheRef.current.get(blockId);
+      if (cached) {
+        return { id: blockId, title, summary, data: cached.data };
+      }
+
+      // Not hydrated yet: kick off a one-shot async parse of the verbatim MDX.
+      const raw = typeof node.attrs.__raw === "string" ? node.attrs.__raw : "";
+      if (raw && !pendingRef.current.has(blockId)) {
+        pendingRef.current.add(blockId);
+        void parseRegistryBlockData(raw)
+          .then((parsed) => {
+            if (parsed) {
+              const existing = cacheRef.current.get(blockId);
+              // A concurrent edit may have populated the cache first — don't
+              // clobber it with the stale parse.
+              if (!existing) {
+                cacheRef.current.set(blockId, {
+                  type: parsed.type,
+                  base: parsed.base,
+                  data: parsed.data,
+                  edited: false,
+                });
+
+                // The core duplicate-id pass remints the node attr when a block
+                // is pasted/duplicated, but content's persisted source is the
+                // inline MDX stored in `__raw`. If the raw MDX still carries the
+                // source id, refresh it now so the next normal editor update
+                // persists the duplicate with its fresh id instead of writing a
+                // second copy of the original id.
+                if (parsed.base.id && parsed.base.id !== blockId) {
+                  const live = findNode(blockId);
+                  if (
+                    live &&
+                    typeof live.node.attrs.__raw === "string" &&
+                    live.node.attrs.__raw === raw &&
+                    editor &&
+                    !editor.isDestroyed
+                  ) {
+                    try {
+                      const refreshedRaw = serializeRegistryBlockRaw(
+                        parsed.type,
+                        blockId,
+                        live.node,
+                        parsed.data,
+                        parsed.base,
+                      );
+                      const tr = editor.state.tr.setNodeMarkup(
+                        live.pos,
+                        undefined,
+                        {
+                          ...live.node.attrs,
+                          blockType: parsed.type,
+                          __raw: refreshedRaw,
+                        },
+                      );
+                      editor.view.dispatch(tr);
+                    } catch {
+                      /* Keep the parsed cache; leave raw untouched if invalid. */
+                    }
+                  }
+                }
+                bump();
+              }
+            }
+          })
+          .catch(() => {
+            /* Leave uncached; the NodeView keeps showing its placeholder. */
+          })
+          .finally(() => {
+            pendingRef.current.delete(blockId);
+          });
+      }
+      return undefined;
+    },
+    [editor, findNode, bump],
+  );
+
+  const onBlockDataChange = useCallback(
+    (blockId: string, nextData: unknown) => {
+      if (!editor || editor.isDestroyed) return;
+      const found = findNode(blockId);
+      if (!found) return;
+      const { pos, node } = found;
+      const prior = cacheRef.current.get(blockId);
+      const type =
+        prior?.type ||
+        (typeof node.attrs.blockType === "string" ? node.attrs.blockType : "");
+      if (!type) return;
+
+      const base = prior?.base;
+      cacheRef.current.set(blockId, {
+        type,
+        base,
+        data: nextData,
+        edited: true,
+      });
+
+      // Re-serialize the edited block to MDX and write it back onto the node's
+      // `__raw`, so the existing NFM save path emits the new source verbatim.
+      let raw: string;
+      try {
+        raw = serializeRegistryBlockRaw(type, blockId, node, nextData, base);
+      } catch {
+        // Unknown type or invalid data — keep the cache update so the UI reflects
+        // the edit, but don't corrupt `__raw`.
+        bump();
+        return;
+      }
+
+      const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        __raw: raw,
+      });
+      editor.view.dispatch(tr);
+      bump();
+    },
+    [editor, findNode, bump],
+  );
+
+  return useMemo(
+    () => ({ getBlock, onBlockDataChange }),
+    [getBlock, onBlockDataChange],
+  );
+}
+
 export function VisualEditor({
   documentId,
   content,
@@ -1246,6 +1500,7 @@ export function VisualEditor({
   onJoinTitle,
   notionPageLinks = [],
   onOpenNotionPageLink,
+  notionPageId,
 }: VisualEditorProps) {
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const onChangeRef = useRef(onChange);
@@ -1494,6 +1749,26 @@ export function VisualEditor({
   });
   guardsRef.current = collabState;
 
+  // Side-map that feeds the shared registry-block NodeView its typed `data`,
+  // lazily parsed from each node's verbatim `__raw` NFM. Edits write the
+  // re-serialized MDX back onto the node so the existing NFM save path persists
+  // them. A document with no `registryBlock` nodes never touches this store.
+  const registryBlockStore = useRegistryBlockStore(editor);
+  const registryBlockDataValue = useMemo(
+    () => ({
+      editable,
+      getBlock: registryBlockStore.getBlock,
+      onBlockDataChange: registryBlockStore.onBlockDataChange,
+      // When the document is linked to a Notion page, badge any present block
+      // whose type has no NFM analog so the author sees what won't push. The
+      // shared NodeView only consults `isNotionIncompatibleType` while
+      // `notionSync` is on, so a non-linked document never badges anything.
+      notionSync: !!notionPageId,
+      isNotionIncompatibleType: isNotionIncompatibleBlockType,
+    }),
+    [editable, registryBlockStore, notionPageId],
+  );
+
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
@@ -1518,7 +1793,11 @@ export function VisualEditor({
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
-        <SlashCommandMenu editor={editor} documentId={documentId} />
+        <SlashCommandMenu
+          editor={editor}
+          documentId={documentId}
+          notionPageId={notionPageId}
+        />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable ? <TableHoverControls editor={editor} /> : null}
@@ -1532,7 +1811,9 @@ export function VisualEditor({
           </div>
         </div>
       ) : null}
-      <EditorContent editor={editor} />
+      <RegistryBlockDataProvider value={registryBlockDataValue}>
+        <EditorContent editor={editor} />
+      </RegistryBlockDataProvider>
     </div>
   );
 }
