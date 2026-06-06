@@ -233,7 +233,24 @@ export type PlanWireframeBlock = PlanBlockBase & {
   data: {
     surface: PlanWireframeSurface;
     caption?: string;
-    screen: PlanWireframeNode[];
+    /**
+     * Neutral, textless loading register. The renderer drops borders, the sketch
+     * outline, and color, rendering soft placeholder geometry only — a real
+     * skeleton loader, not a sketch of boxes.
+     */
+    skeleton?: boolean;
+    /**
+     * PRIMARY content: a self-contained HTML mockup of the screen (sanitized
+     * fragment — no document/script/style tags). Write semantic HTML + layout
+     * utility classes; the RENDERER owns the surface aspect, the dark/light
+     * theme, the hand-drawn font, and the rough sketch overlay. Emit content,
+     * never pixels/coordinates. When `html` is set, `screen` is ignored.
+     */
+    html?: string;
+    /** Optional scoped CSS for the html mockup (sanitized fragment). */
+    css?: string;
+    /** LEGACY kit-tree screen. Kept as a fallback; new plans emit `html`. */
+    screen?: PlanWireframeNode[];
   };
 };
 
@@ -605,6 +622,17 @@ export type PlanContentPatch =
       screen: PlanWireframeNode[];
     }
   | {
+      /**
+       * Surgically edit a wireframe block's `html` mockup via find/replace
+       * snippets, so one element/text/color can change without regenerating the
+       * whole frame. Each `find` must be present; a `find` that matches more than
+       * once needs `all: true`. The result is re-sanitized.
+       */
+      op: "patch-wireframe-html";
+      blockId: string;
+      edits: Array<{ find: string; replace: string; all?: boolean }>;
+    }
+  | {
       op: "update-canvas-frame";
       frameId: string;
       patch: Partial<Omit<PlanArtboard, "id">>;
@@ -762,13 +790,31 @@ const wireframeSurfaceSchema = z.enum([
   "browser",
 ]);
 
-const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
+export const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
   .object({
     surface: wireframeSurfaceSchema,
     caption: z.string().trim().max(400).optional(),
+    skeleton: z.boolean().optional(),
+    html: z
+      .string()
+      .max(40_000)
+      .refine(noFullHtmlDocument, {
+        message:
+          "Wireframe html must be a bounded fragment without html/head/body/script/style tags.",
+      })
+      .optional(),
+    css: z
+      .string()
+      .max(20_000)
+      .refine(noFullHtmlDocument, {
+        message: "Wireframe css must not include document or script tags.",
+      })
+      .optional(),
     screen: z
       .array(wireframeNodeSchema)
       .max(WIREFRAME_MAX_NODES)
+      .optional()
+      .default([])
       .superRefine((nodes, ctx) => {
         let total = 0;
         const seenNodeIds = new Set<string>();
@@ -1091,19 +1137,35 @@ const annotationStyleSchema: z.ZodType<PlanAnnotationStyle> = z.object({
   width: z.number().min(1).max(12).optional(),
 });
 
-const artboardSchema: z.ZodType<PlanArtboard> = z.object({
-  id: idSchema,
-  label: z.string().trim().max(180).optional(),
-  surface: wireframeSurfaceSchema.optional(),
-  blockId: idSchema.optional(),
-  wireframe: wireframeDataSchema.optional(),
-  legacyWireframe: legacyWireframeDataSchema.optional(),
-  x: z.number().optional(),
-  y: z.number().optional(),
-  width: z.number().min(80).optional(),
-  height: z.number().min(80).optional(),
-  order: z.number().optional(),
-});
+const artboardSchema: z.ZodType<PlanArtboard> = z
+  .object({
+    id: idSchema,
+    label: z.string().trim().max(180).optional(),
+    surface: wireframeSurfaceSchema.optional(),
+    blockId: idSchema.optional(),
+    wireframe: wireframeDataSchema.optional(),
+    legacyWireframe: legacyWireframeDataSchema.optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.number().min(80).optional(),
+    height: z.number().min(80).optional(),
+    order: z.number().optional(),
+  })
+  // An artboard is a titled frame on the canvas; a label with no interior
+  // wireframe renders as an empty dashed box (a label-only artboard). Reject
+  // those at parse time so generation can never emit a frame with no content:
+  // the artboard must carry inline kit-tree wireframe data, legacy region data,
+  // or a `blockId` reference to a wireframe/legacy-wireframe block.
+  .refine(
+    (frame) =>
+      !frame.label ||
+      Boolean(frame.wireframe || frame.legacyWireframe || frame.blockId),
+    {
+      message:
+        "Artboard has a label but no wireframe content. Add a `wireframe` (kit tree), `legacyWireframe`, or a `blockId` referencing a wireframe block — never emit a titled artboard with no interior content.",
+      path: ["wireframe"],
+    },
+  ) as unknown as z.ZodType<PlanArtboard>;
 
 const annotationSchema: z.ZodType<PlanAnnotation> = z.object({
   id: idSchema,
@@ -1447,6 +1509,23 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       screen: z.array(wireframeNodeSchema).max(WIREFRAME_MAX_NODES),
     }),
     z.object({
+      op: z.literal("patch-wireframe-html"),
+      blockId: idSchema,
+      edits: z
+        .array(
+          z.object({
+            find: z.string().min(1).max(20_000),
+            replace: z.string().max(40_000).refine(noFullHtmlDocument, {
+              message:
+                "Wireframe html replacement must be a bounded fragment without html/head/body/script/style tags.",
+            }),
+            all: z.boolean().optional(),
+          }),
+        )
+        .min(1)
+        .max(40),
+    }),
+    z.object({
       op: z.literal("update-canvas-frame"),
       frameId: idSchema,
       patch: canvasFramePatchSchema,
@@ -1601,6 +1680,44 @@ export function applyPlanContentPatches(
       }).blocks;
       continue;
     }
+    if (patch.op === "patch-wireframe-html") {
+      next.blocks = updateBlock(next.blocks, patch.blockId, (block) => {
+        if (block.type !== "wireframe") {
+          throw new Error(
+            `Block ${patch.blockId} is ${block.type}, not wireframe.`,
+          );
+        }
+        if (typeof block.data.html !== "string") {
+          throw new Error(
+            `Block ${patch.blockId} has no html mockup to patch (it is a kit-tree wireframe).`,
+          );
+        }
+        let html = block.data.html;
+        for (const edit of patch.edits) {
+          const count = html.split(edit.find).length - 1;
+          if (count === 0) {
+            throw new Error(
+              `patch-wireframe-html: find snippet not present: ${truncateSnippet(edit.find)}`,
+            );
+          }
+          if (count > 1 && !edit.all) {
+            throw new Error(
+              `patch-wireframe-html: find snippet matched ${count} times; make it unique or set all:true — ${truncateSnippet(edit.find)}`,
+            );
+          }
+          html = edit.all
+            ? html.split(edit.find).join(edit.replace)
+            : html.replace(edit.find, edit.replace);
+        }
+        // Re-parse so the html refine (no script/style/etc.) re-sanitizes the
+        // result — a patch can never smuggle active content in.
+        return planBlockSchema.parse({
+          ...block,
+          data: { ...block.data, html },
+        });
+      }).blocks;
+      continue;
+    }
     if (patch.op === "update-canvas-frame") {
       const frame = next.canvas?.frames.find(
         (candidate) => candidate.id === patch.frameId,
@@ -1692,6 +1809,12 @@ export function applyPlanContentPatches(
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** Compact a snippet for find/replace error messages. */
+function truncateSnippet(value: string): string {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  return trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed;
 }
 
 function updateBlock(

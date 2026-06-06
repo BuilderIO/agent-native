@@ -1,9 +1,33 @@
 import { useCallback, useEffect, useRef } from "react";
-import { RichMarkdownEditor } from "@agent-native/core/client";
+import {
+  RichMarkdownEditor,
+  useCollaborativeDoc,
+  generateTabId,
+  uploadEditorImage,
+  createImageSlashCommand,
+  DEFAULT_SLASH_COMMANDS,
+  type RichMarkdownCollabUser,
+  type CollabUser,
+} from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
+
+// Plans get the shared block-level image node: the `/image` slash command, plus
+// paste / drag-drop of image files. Each image uploads through the framework
+// `upload-image` action (`uploadEditorImage`) and is inserted as a standard
+// `![alt](url)` markdown image, so it autosaves through the existing
+// `update-rich-text` path and stays source-syncable.
+const PLAN_SLASH_COMMANDS = [
+  ...DEFAULT_SLASH_COMMANDS,
+  createImageSlashCommand(uploadEditorImage),
+];
+const PLAN_EDITOR_FEATURES = { image: true } as const;
 
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_RETRY_MS = 120;
+
+// Stable per-tab request source so this client ignores its own collab updates
+// echoing back through the poll ring buffer.
+const TAB_ID = generateTabId();
 
 type PlanMarkdownEditorProps = {
   markdown: string;
@@ -11,6 +35,17 @@ type PlanMarkdownEditorProps = {
   editable?: boolean;
   className?: string;
   contentUpdatedAt?: string | null;
+  /**
+   * When both `planId` and `blockId` are present, prose for this block is edited
+   * collaboratively against a shared Y.Doc keyed `plan:${planId}:${blockId}`.
+   * Markdown still autosaves through `onSave` (the `update-rich-text` patch), so
+   * the canonical content in `plans.content` is unchanged. When absent (public
+   * read, SSR, or missing session) the editor falls back to today's controlled
+   * single-user editing.
+   */
+  planId?: string | null;
+  blockId?: string | null;
+  user?: RichMarkdownCollabUser | null;
 };
 
 export function PlanMarkdownEditor({
@@ -19,6 +54,9 @@ export function PlanMarkdownEditor({
   editable = true,
   className,
   contentUpdatedAt,
+  planId,
+  blockId,
+  user,
 }: PlanMarkdownEditorProps) {
   const onSaveRef = useRef(onSave);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -29,6 +67,21 @@ export function PlanMarkdownEditor({
   const flushSaveRef = useRef<() => Promise<void>>(async () => {});
 
   onSaveRef.current = onSave;
+
+  // Gate collab on an editable block with a real plan/block id and a known user
+  // with an email (cursors need a stable label + identity). Anything missing
+  // keeps the non-collab single-user path.
+  const collabUser: CollabUser | null =
+    user && user.email
+      ? { name: user.name, email: user.email, color: user.color }
+      : null;
+  const collabEnabled = !!(editable && planId && blockId && collabUser);
+  const docId = collabEnabled ? `plan:${planId}:${blockId}` : null;
+  const { ydoc, awareness } = useCollaborativeDoc({
+    docId,
+    requestSource: TAB_ID,
+    user: collabUser ?? undefined,
+  });
 
   const queueFlush = useCallback((delay = SAVE_DEBOUNCE_MS) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -102,8 +155,14 @@ export function PlanMarkdownEditor({
       contentUpdatedAt={contentUpdatedAt}
       dialect="gfm"
       preset="plan"
+      features={PLAN_EDITOR_FEATURES}
+      onImageUpload={uploadEditorImage}
+      slashItems={PLAN_SLASH_COMMANDS}
       className={cn("plan-rich-markdown-editor mt-4", className)}
       interactive={editable}
+      ydoc={collabEnabled ? ydoc : null}
+      awareness={collabEnabled ? awareness : null}
+      user={collabEnabled ? collabUser : null}
     />
   );
 }

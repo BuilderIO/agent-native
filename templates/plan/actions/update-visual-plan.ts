@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -14,7 +14,11 @@ import {
   isLocalPlanRuntime,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -24,6 +28,7 @@ import {
   nowIso,
   planPath,
   planStatusSchema,
+  resolveCommentAuthor,
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
@@ -35,7 +40,7 @@ import {
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one wireframe kit-tree node, a whole wireframe screen, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
+    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one element/text/color inside an html mockup via patch-wireframe-html, one legacy wireframe kit-tree node, a whole wireframe, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional(),
@@ -48,7 +53,7 @@ export default defineAction({
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, update-wireframe-node (one kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single node without regenerating the plan.",
+        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, patch-wireframe-html (change one element/text/color inside an html mockup via find/replace edits — read the current html first with get-visual-plan), update-wireframe-node (one legacy kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single mockup or node without regenerating the plan. The renderer owns all visual styling; emit lean content, not pixels — never supply geometry or coordinates.",
       ),
     markdown: z.string().optional(),
     sections: z.array(sectionInputSchema).optional().default([]),
@@ -66,6 +71,8 @@ export default defineAction({
       "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
   },
   run: async (args) => {
+    const requesterEmail = getRequestUserEmail();
+    const requesterName = getRequestUserName();
     const onlyAddsNewComments =
       !args.title &&
       !args.brief &&
@@ -93,19 +100,19 @@ export default defineAction({
       //   - Anonymous public-link viewers (`public-*@agent-native.local`, minted
       //     by resolvePublicPlanViewerOwner) can read a public plan but not
       //     comment.
-      //   - Hosted guest authors (`guest-*@agent-native.guest`, minted by
-      //     resolvePlanGuestAuthorOwner) can author their OWN plans but must make
-      //     an account to comment.
-      // This keeps "anyone with the link can view, guests can author, accounts
-      // can comment and share".
-      const requesterEmail = getRequestUserEmail();
+      //   - Legacy hosted guest authors (`guest-*@agent-native.guest`) cannot
+      //     comment; create/update authoring now requires a real account.
+      // This keeps "anyone with the link can view; accounts can create, comment,
+      // and share".
       if (isAnonymousPublicViewer(requesterEmail)) {
-        throw new Error(
+        throw new ForbiddenError(
           "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
         );
       }
       if (isGuestAuthorIdentity(requesterEmail)) {
-        throw new Error("Commenting requires an account. Sign in to comment.");
+        throw new ForbiddenError(
+          "Commenting requires an account. Sign in to comment.",
+        );
       }
       const access = await resolveAccess("plan", args.planId);
       if (!access) throw new Error(`Plan ${args.planId} not found`);
@@ -115,6 +122,7 @@ export default defineAction({
 
     const db = getDb();
     const now = nowIso();
+    const insertedCommentIds: string[] = [];
     let nextContent =
       args.content !== undefined ? normalizePlanContent(args.content) : null;
     let versionAtLoad: string | null = null;
@@ -269,19 +277,50 @@ export default defineAction({
           continue;
         }
       }
+      const [parentComment] = comment.parentCommentId
+        ? await db
+            .select({
+              id: schema.planComments.id,
+              sectionId: schema.planComments.sectionId,
+              kind: schema.planComments.kind,
+              anchor: schema.planComments.anchor,
+            })
+            .from(schema.planComments)
+            .where(
+              and(
+                eq(schema.planComments.id, comment.parentCommentId),
+                eq(schema.planComments.planId, args.planId),
+              ),
+            )
+        : [];
+      if (comment.parentCommentId && !parentComment) {
+        throw new Error(
+          `Parent comment ${comment.parentCommentId} was not found on plan ${args.planId}.`,
+        );
+      }
+      const commentId = comment.id ?? newId("cmt");
       await db.insert(schema.planComments).values({
-        id: comment.id ?? newId("cmt"),
+        ...resolveCommentAuthor({
+          createdBy: comment.createdBy,
+          authorEmail: comment.authorEmail,
+          authorName: comment.authorName,
+          requestEmail: requesterEmail,
+          requestName: requesterName,
+        }),
+        id: commentId,
         planId: args.planId,
-        sectionId: comment.sectionId ?? null,
-        kind: comment.kind,
+        parentCommentId: parentComment?.id ?? null,
+        sectionId: comment.sectionId ?? parentComment?.sectionId ?? null,
+        kind: parentComment?.kind ?? comment.kind,
         status: comment.status,
-        anchor: comment.anchor ?? null,
+        anchor: comment.anchor ?? parentComment?.anchor ?? null,
         message: comment.message,
         createdBy: comment.createdBy,
         consumedAt: null,
         createdAt: now,
         updatedAt: now,
       });
+      insertedCommentIds.push(commentId);
     }
 
     if (args.consumedCommentIds.length > 0) {
@@ -305,6 +344,12 @@ export default defineAction({
       createdBy: onlyAddsNewComments ? "human" : "agent",
     });
     const bundle = await loadPlanBundle(args.planId);
+    await notifyPlanCommentRecipients({
+      bundle,
+      insertedCommentIds,
+    }).catch((error) => {
+      console.warn("[update-visual-plan] comment notification failed:", error);
+    });
     const local = isLocalPlanRuntime()
       ? await writePlanLocalFiles({
           planId: bundle.plan.id,

@@ -11,6 +11,7 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+import { docToNfm } from "@shared/nfm";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
@@ -752,16 +753,13 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      expect(editor.getJSON()).toMatchObject({
-        type: "doc",
-        content: [
-          {
-            type: "heading",
-            attrs: { level: 4 },
-            content: [{ type: "text", text: "A precise subheading" }],
-          },
-        ],
+      const json = editor.getJSON();
+      expect(json.content?.[0]).toMatchObject({
+        type: "heading",
+        attrs: { level: 4 },
+        content: [{ type: "text", text: "A precise subheading" }],
       });
+      expect(docToNfm(json as any)).toBe("#### A precise subheading");
       expect(
         serializeEditorToNfm((editor.storage as any).markdown.getMarkdown()),
       ).toBe("#### A precise subheading");

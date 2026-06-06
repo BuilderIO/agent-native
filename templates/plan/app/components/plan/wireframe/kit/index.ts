@@ -8,7 +8,7 @@
 import "./plan-wireframe-tokens.css";
 
 export * from "./primitives";
-export * from "./wobble";
+export * from "./rough";
 export {
   NODE_REGISTRY,
   renderNode,

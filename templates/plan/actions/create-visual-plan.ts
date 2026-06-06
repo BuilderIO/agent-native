@@ -2,6 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -26,6 +27,7 @@ import {
   planPath,
   planSourceSchema,
   planStatusSchema,
+  resolveCommentAuthor,
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
@@ -55,7 +57,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable plan content. Prefer this for rich text, top canvas wireframes (semantic kit-tree screens — no geometry or CSS), diagrams, code tabs, implementation maps, images, bounded custom HTML fragments, and visual questions. The renderer owns all visual styling; emit lean content, not pixels.",
+          "Structured editable plan content. Prefer this for rich text, top canvas wireframes (HTML mockups: set the wireframe's data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex), diagrams, code tabs, implementation maps, images, bounded custom HTML fragments, and visual questions. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()
@@ -96,8 +98,10 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    const requesterEmail = getRequestUserEmail();
+    const requesterName = getRequestUserName();
     const ownerEmail = requirePlanOwnerEmailForWrite(
-      getRequestUserEmail(),
+      requesterEmail,
       "Creating a visual plan",
     );
     await assertGuestCreateWithinLimits(ownerEmail);
@@ -191,6 +195,13 @@ export default defineAction({
         .insert(schema.planComments)
         .values(
           args.comments.map((comment) => ({
+            ...resolveCommentAuthor({
+              createdBy: comment.createdBy,
+              authorEmail: comment.authorEmail,
+              authorName: comment.authorName,
+              requestEmail: requesterEmail,
+              requestName: requesterName,
+            }),
             id: comment.id ?? newId("cmt"),
             planId: id,
             sectionId: comment.sectionId ?? null,

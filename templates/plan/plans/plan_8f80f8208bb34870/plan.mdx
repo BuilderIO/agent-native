@@ -1,0 +1,81 @@
+---
+title: "Plan-mode skeleton loader refresh"
+brief: "Mock up the plan-mode loading state as a true skeleton loader: neutral placeholder boxes and bars that preserve the real Plans canvas/document silhouette without readable UI copy inside the loader."
+version: 2
+planId: "plan_8f80f8208bb34870"
+source: "agent-native-plan"
+---
+
+<RichText id="objective" title="Objective">
+
+Replace the selected-plan loading state with a true skeleton loader. The visual target is a loading surface that mirrors real Plans: canvas/review area above the document header and block rhythm. The loader itself contains no readable UI copy.
+
+The primary mockup belongs in the top canvas. Document blocks are for implementation notes and validation only.
+
+</RichText>
+
+<Callout id="why-it-was-hard" title="Why the earlier versions fought us" tone="warning">
+
+The current canvas wireframe kit is intentionally low-fi and semantic. It renders boxes, lines, chrome, and annotations with a hand-drawn style, but it cannot render custom CSS/HTML skeleton surfaces in artboards yet. That limitation should be fixed in the canvas path, not bypassed by putting mockups in the document.
+
+</Callout>
+
+<ImplementationMap
+  id="implementation-map"
+  title="Implementation Map"
+  files={[
+    {
+      path: "templates/plan/app/pages/PlansPage.tsx",
+      title: "Rebuild PlanSkeleton as a textless loader",
+      note: "Replace the current generic card/dashboard skeleton with local helpers such as PlanCanvasSkeleton and PlanDocumentSkeleton. Compose only Skeleton rectangles and icon-size blocks inside those helpers.",
+      language: "tsx",
+      snippet:
+        'function PlanSkeleton() {\n  return (\n    <div className="plan-content-surface h-full min-h-0 overflow-auto bg-plan-document text-plan-text">\n      <PlanCanvasSkeleton />\n      <PlanDocumentSkeleton />\n    </div>\n  );\n}',
+    },
+    {
+      path: "templates/plan/app/global.css",
+      title: "Use plan surface tokens",
+      note: "If helper classes are needed, scope them to the plan skeleton and use the existing plan canvas, grid, document, line, and placeholder tokens. The loader should inherit light/dark theme surfaces from the loaded renderer.",
+      language: "css",
+      snippet:
+        ".plan-skeleton-canvas {\n  background-color: var(--plan-canvas);\n  background-image:\n    linear-gradient(var(--plan-grid-line) 1px, transparent 1px),\n    linear-gradient(90deg, var(--plan-grid-line) 1px, transparent 1px);\n}",
+    },
+    {
+      path: "templates/plan/app/components/ui/skeleton.tsx",
+      title: "Keep Skeleton generic",
+      note: "Do not change the shared primitive. Compose the plan-specific shape in PlansPage so other templates do not inherit plan-only behavior.",
+      language: "tsx",
+      snippet: '<Skeleton className="bg-[var(--plan-placeholder-line)]" />',
+    },
+  ]}
+/>
+
+<Checklist
+  id="validation"
+  title="Validation"
+  items={[
+    {
+      id: "desktop",
+      label:
+        "Desktop screenshot reads as a loading Plans canvas/document, not a labeled wireframe.",
+    },
+    {
+      id: "no-text",
+      label: "No readable fake text appears inside the skeleton loader area.",
+    },
+    {
+      id: "canvas-home",
+      label:
+        "The primary mockup renders in the top canvas, not as a document HtmlBlock.",
+    },
+    {
+      id: "responsive",
+      label:
+        "Narrow viewport stacks and crops intentionally without overlap or clipped placeholders.",
+    },
+    {
+      id: "theme",
+      label: "Light and dark themes both use plan tokens with enough contrast.",
+    },
+  ]}
+/>

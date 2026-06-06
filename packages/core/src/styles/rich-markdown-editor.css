@@ -354,3 +354,27 @@
   font-size: 11px;
   color: hsl(var(--muted-foreground));
 }
+
+/* Shared block-level image node (the editor's `.an-rich-md-image` and the
+   read-only markdown renderer's <img>). Constrained to the prose width and
+   responsive; a still-uploading placeholder (empty src) shows a subtle frame. */
+.an-rich-md-prose img,
+.an-rich-md-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border-radius: 8px;
+}
+
+.an-rich-md-image[src=""],
+.an-rich-md-image:not([src]) {
+  min-height: 64px;
+  background: hsl(var(--muted));
+  border: 1px dashed hsl(var(--border));
+}
+
+.ProseMirror-selectednode.an-rich-md-image {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}

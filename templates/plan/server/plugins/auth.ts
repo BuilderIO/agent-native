@@ -3,9 +3,8 @@ import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
 export default createAuthPlugin({
   workspaceAppAudience: "internal",
-  // Guest authors can create/list/edit their own plans without signing in.
-  // Generated public review links still resolve data through the public-plan
-  // owner gate.
+  // Public review links can load without a session. Plan creation stays behind
+  // auth so the UI does not create placeholder plans for signed-out visitors.
   workspaceAppPublicPaths: ["/", "/plans", "/plans/plan_"],
   publicPaths: [...PUBLIC_PLAN_ACTION_PATHS],
   marketing: {

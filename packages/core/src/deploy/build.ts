@@ -56,6 +56,24 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+export const NITRO_RUNTIME_IGNORE_PATTERNS = [
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+  "**/*.spec.mts",
+  "**/*.spec.cts",
+  "**/*.spec.js",
+  "**/*.spec.jsx",
+  "**/*.spec.mjs",
+  "**/*.spec.cjs",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.test.mts",
+  "**/*.test.cts",
+  "**/*.test.js",
+  "**/*.test.jsx",
+  "**/*.test.mjs",
+  "**/*.test.cjs",
+];
 
 function normalizeConfiguredAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
@@ -1783,6 +1801,7 @@ export default bundle;
     baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
+    ignore: NITRO_RUNTIME_IGNORE_PATTERNS,
     alias: {
       ...pathAliases,
       ...(fs.existsSync(rrServerBuild)

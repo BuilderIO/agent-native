@@ -2,6 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -27,6 +28,7 @@ import {
   planPath,
   planSourceSchema,
   planStatusSchema,
+  resolveCommentAuthor,
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
@@ -78,7 +80,7 @@ const visualQuestionsSchema = z
 
 export default defineAction({
   description:
-    "Create a visual intake questionnaire as an Agent-Native Plan. Use this as the /visual-plan preflight or /visual-questions manual override when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before the final plan.",
+    "Create a visual intake questionnaire as an Agent-Native Plan. Use this for explicit /visual-questions workflows when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before a later plan.",
   schema: z
     .object({
       title: z.string().optional().describe("Short questionnaire title"),
@@ -139,7 +141,7 @@ export default defineAction({
     isConsequential: true,
     title: "Create Visual Questions",
     description:
-      "Create a rich visual intake form that feeds answers into a UI or visual plan prompt.",
+      "Create a rich visual intake form for explicit /visual-questions workflows.",
   },
   mcpApp: {
     compactCatalog: true,
@@ -153,8 +155,10 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    const requesterEmail = getRequestUserEmail();
+    const requesterName = getRequestUserName();
     const ownerEmail = requirePlanOwnerEmailForWrite(
-      getRequestUserEmail(),
+      requesterEmail,
       "Creating visual questions",
     );
     await assertGuestCreateWithinLimits(ownerEmail);
@@ -243,6 +247,13 @@ export default defineAction({
         .insert(schema.planComments)
         .values(
           args.comments.map((comment) => ({
+            ...resolveCommentAuthor({
+              createdBy: comment.createdBy,
+              authorEmail: comment.authorEmail,
+              authorName: comment.authorName,
+              requestEmail: requesterEmail,
+              requestName: requesterName,
+            }),
             id: comment.id ?? newId("cmt"),
             planId: id,
             sectionId: comment.sectionId ?? null,

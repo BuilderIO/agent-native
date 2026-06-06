@@ -675,3 +675,80 @@ describe("back-compat parsing and migration", () => {
     expect(parsePlanContent("{not json")).toBeNull();
   });
 });
+
+describe("patch-wireframe-html (granular html mockup edits)", () => {
+  const htmlContent = (html: string): PlanContent =>
+    planContentSchema.parse({
+      version: 2,
+      brief: "html wireframe",
+      blocks: [{ id: "wf1", type: "wireframe", data: { surface: "browser", html } }],
+    });
+  const htmlOf = (content: PlanContent): string => {
+    const block = content.blocks[0];
+    if (block?.type !== "wireframe" || typeof block.data.html !== "string") {
+      throw new Error("expected an html wireframe block");
+    }
+    return block.data.html;
+  };
+
+  it("applies a unique find/replace without regenerating the frame", () => {
+    const next = applyPlanContentPatches(
+      htmlContent('<button class="primary">Sign in</button><span>keep</span>'),
+      [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: ">Sign in<", replace: ">Continue<" }],
+        },
+      ],
+    );
+    expect(htmlOf(next)).toBe(
+      '<button class="primary">Continue</button><span>keep</span>',
+    );
+  });
+
+  it("throws when the find snippet is missing", () => {
+    expect(() =>
+      applyPlanContentPatches(htmlContent("<button>Sign in</button>"), [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: "Log out", replace: "Continue" }],
+        },
+      ]),
+    ).toThrow(/not present/i);
+  });
+
+  it("requires all:true when a find matches more than once", () => {
+    const content = htmlContent("<i></i><i></i>");
+    expect(() =>
+      applyPlanContentPatches(content, [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: "<i></i>", replace: "<b></b>" }],
+        },
+      ]),
+    ).toThrow(/matched 2 times/i);
+    const next = applyPlanContentPatches(content, [
+      {
+        op: "patch-wireframe-html",
+        blockId: "wf1",
+        edits: [{ find: "<i></i>", replace: "<b></b>", all: true }],
+      },
+    ]);
+    expect(htmlOf(next)).toBe("<b></b><b></b>");
+  });
+
+  it("rejects a replacement that smuggles a script tag", () => {
+    expect(() =>
+      applyPlanContentPatches(htmlContent("<div>x</div>"), [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: "x", replace: "<script>alert(1)</script>" }],
+        },
+      ]),
+    ).toThrow();
+  });
+});

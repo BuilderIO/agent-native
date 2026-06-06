@@ -37,13 +37,10 @@ export default createAuthPlugin({
   },
   googleSignInNotice: {
     host: "mail.agent-native.com",
-    title: "Hosted Mail may show Google warnings",
-    body: [
-      "This demo uses Agent-Native's shared Google OAuth client. Because Mail asks for Gmail access, Google may show extra consent or warning screens before continuing.",
-      "Self-hosting Mail with your own Google OAuth client avoids this hosted-demo warning. Use Run Locally on the left to start that path.",
-    ],
+    title: "Google may show a warning",
+    body: "This hosted demo uses Agent-Native's shared Google app for Gmail access, so Google may ask you to confirm before continuing.",
     continueLabel: "Continue to Google",
-    cancelLabel: "Not now",
+    cancelLabel: "Run locally",
   },
   // Gmail Pub/Sub push notifications POST here from Google's servers — no
   // user session. The handler itself verifies the OIDC token when

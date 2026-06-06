@@ -169,6 +169,35 @@ describe("nfm converter — canonical fixpoints", () => {
     const doc = FIXTURES.map((f) => f.nfm).join("\n");
     expect(canonicalizeNfm(canonicalizeNfm(doc))).toBe(canonicalizeNfm(doc));
   });
+
+  it("drops the terminal empty paragraph TipTap adds after non-paragraph blocks", () => {
+    expect(
+      docToNfm({
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 2, color: null, indent: 0 },
+            content: [{ type: "text", text: "Heading" }],
+          },
+          { type: "paragraph", attrs: { color: null, indent: 0 } },
+        ],
+      }),
+    ).toBe("## Heading");
+  });
+
+  it("preserves interior empty paragraphs", () => {
+    expect(
+      docToNfm({
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Top" }] },
+          { type: "paragraph", attrs: { color: null, indent: 0 } },
+          { type: "paragraph", content: [{ type: "text", text: "Bottom" }] },
+        ],
+      }),
+    ).toBe("Top\n<empty-block/>\nBottom");
+  });
 });
 
 describe("nfm converter — structural parsing", () => {

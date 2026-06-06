@@ -521,10 +521,28 @@ export function docToNfm(doc: PMDoc | PMNode | null | undefined): string {
   return lines.join("\n");
 }
 
+function isEmptyParagraphNode(node: PMNode | undefined): boolean {
+  if (!node || node.type !== "paragraph") return false;
+  if (node.content?.length) return false;
+  if (isColor(node.attrs?.color)) return false;
+  return (Number(node.attrs?.indent) || 0) === 0;
+}
+
+function trimEditorTerminalFiller(blocks: PMNode[]): PMNode[] {
+  if (blocks.length < 2) return blocks;
+  const last = blocks[blocks.length - 1];
+  const previous = blocks[blocks.length - 2];
+  if (!isEmptyParagraphNode(last) || previous?.type === "paragraph") {
+    return blocks;
+  }
+  return blocks.slice(0, -1);
+}
+
 function serializeBlocks(blocks: PMNode[], indent: number): string[] {
   const out: string[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i];
+  const serializableBlocks = trimEditorTerminalFiller(blocks);
+  for (let i = 0; i < serializableBlocks.length; i++) {
+    const block = serializableBlocks[i];
     if (block.type === "bulletList" || block.type === "orderedList") {
       out.push(...serializeList(block, indent));
     } else if (block.type === "taskList") {

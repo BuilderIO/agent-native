@@ -55,6 +55,7 @@ export const planComments = table("plan_comments", {
   planId: text("plan_id")
     .notNull()
     .references(() => plans.id),
+  parentCommentId: text("parent_comment_id"),
   sectionId: text("section_id").references(() => planSections.id),
   kind: text("kind", { enum: PLAN_COMMENT_KINDS }).notNull().default("comment"),
   status: text("status", { enum: PLAN_COMMENT_STATUSES })
@@ -65,6 +66,8 @@ export const planComments = table("plan_comments", {
   createdBy: text("created_by", { enum: PLAN_AUTHORS })
     .notNull()
     .default("human"),
+  authorEmail: text("author_email"),
+  authorName: text("author_name"),
   consumedAt: text("consumed_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

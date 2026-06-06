@@ -90,3 +90,60 @@
   --ok-soft: color-mix(in srgb, var(--ok) 22%, #201f1c);
   --plan-wf-page-bg: #161513;
 }
+
+/* ---- Rough sketch layer -------------------------------------------------- */
+/* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).
+   Once it has measured + drawn, hide the crisp CSS borders so there is never a
+   doubled border — fills and text stay, only the outline is replaced. */
+.plan-wf[data-rough-ready] [data-rough] {
+  border-color: transparent !important;
+}
+
+/* ---- Skeleton / neutral loading register --------------------------------- */
+/* One block flips the WHOLE kit to a textless skeleton: no ink, no rough, no
+   color — every primitive already reads these vars, so nothing else changes.
+   A skeleton is boxes + bars only; real labels collapse to transparent so the
+   silhouette is preserved without readable copy. */
+.plan-wf[data-skeleton="true"] {
+  --ink: var(--skeleton-fill);
+  --ink-soft: var(--skeleton-fill);
+  --line: var(--skeleton-fill);
+  --card: var(--skeleton-block);
+  --accent: var(--skeleton-fill);
+  --accent-soft: var(--skeleton-block);
+  --warn: var(--skeleton-fill);
+  --warn-soft: var(--skeleton-block);
+  --ok: var(--skeleton-fill);
+  --ok-soft: var(--skeleton-block);
+  --stroke: 0px;
+  --skeleton-fill: #e2ded5;
+  --skeleton-block: #ece8e1;
+}
+.plan-wf[data-theme="dark"][data-skeleton="true"] {
+  --skeleton-fill: #322f2b;
+  --skeleton-block: #2a2825;
+}
+/* Textless: hide real labels but keep their layout footprint. */
+.plan-wf[data-skeleton="true"] * {
+  color: transparent !important;
+  border-color: transparent !important;
+}
+/* Soft rounded placeholder bars in skeleton mode. */
+.plan-wf[data-skeleton="true"] {
+  --radius: 7px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .plan-wf[data-skeleton="true"] {
+    animation: plan-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes plan-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}

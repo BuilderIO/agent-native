@@ -32,14 +32,14 @@ const dbRecorder = {
     };
   },
 };
-vi.mock("../db/index.js", () => ({
+vi.mock("./db/index.js", () => ({
   getDb: () => dbRecorder,
   schema: { plans: { ownerEmail: "plans.owner_email", orgId: "plans.org_id" } },
 }));
 
 const readGuestAuthorEmailMock = vi.fn();
 const clearGuestAuthorCookieMock = vi.fn();
-vi.mock("../lib/public-plans.js", () => ({
+vi.mock("./lib/public-plans.js", () => ({
   readGuestAuthorEmail: (event: unknown) => readGuestAuthorEmailMock(event),
   clearGuestAuthorCookie: (event: unknown) => clearGuestAuthorCookieMock(event),
   isGuestAuthorIdentity: (email: unknown) =>
@@ -47,7 +47,7 @@ vi.mock("../lib/public-plans.js", () => ({
     /^guest-[0-9a-f-]+@agent-native\.guest$/i.test(email),
 }));
 
-const { default: handler } = await import("./claim-guest-plans.js");
+const { default: handler } = await import("./middleware/claim-guest-plans.js");
 
 const EVENT = {} as never;
 const GUEST = "guest-11111111-1111-1111-1111-111111111111@agent-native.guest";

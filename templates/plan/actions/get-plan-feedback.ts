@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { loadPlanBundle } from "../server/plans.js";
+import type { PlanComment } from "../shared/types.js";
 
 type FeedbackAnchor = {
   x?: number;
@@ -62,6 +63,88 @@ function summarizeFeedbackAnchor(anchor: unknown) {
   return section ? section.replace(/: $/, "") : null;
 }
 
+function commentTime(comment: PlanComment) {
+  const time = Date.parse(comment.createdAt);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortComments(comments: PlanComment[]) {
+  return [...comments].sort((a, b) => {
+    const delta = commentTime(a) - commentTime(b);
+    return delta === 0 ? a.id.localeCompare(b.id) : delta;
+  });
+}
+
+function threadRootFor(comment: PlanComment, byId: Map<string, PlanComment>) {
+  let current = comment;
+  const seen = new Set<string>();
+  while (current.parentCommentId) {
+    if (seen.has(current.id)) break;
+    seen.add(current.id);
+    const parent = byId.get(current.parentCommentId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current;
+}
+
+function buildFeedbackThreads(
+  allComments: PlanComment[],
+  feedbackComments: PlanComment[],
+) {
+  const byId = new Map(allComments.map((comment) => [comment.id, comment]));
+  const feedbackIds = new Set(feedbackComments.map((comment) => comment.id));
+  const threads = new Map<
+    string,
+    { root: PlanComment; comments: PlanComment[] }
+  >();
+
+  for (const comment of sortComments(allComments)) {
+    const root = threadRootFor(comment, byId);
+    const thread =
+      threads.get(root.id) ??
+      ({ root, comments: [] } satisfies {
+        root: PlanComment;
+        comments: PlanComment[];
+      });
+    thread.comments.push(comment);
+    threads.set(root.id, thread);
+  }
+
+  return Array.from(threads.values())
+    .filter((thread) =>
+      thread.comments.some((comment) => feedbackIds.has(comment.id)),
+    )
+    .map((thread) => {
+      const comments = sortComments(thread.comments);
+      const root =
+        comments.find((comment) => comment.id === thread.root.id) ??
+        thread.root;
+      return {
+        id: root.id,
+        root: {
+          ...root,
+          anchorContext: summarizeFeedbackAnchor(root.anchor),
+        },
+        replies: comments
+          .filter((comment) => comment.id !== root.id)
+          .map((comment) => ({
+            ...comment,
+            anchorContext: summarizeFeedbackAnchor(comment.anchor),
+          })),
+        comments: comments.map((comment) => ({
+          ...comment,
+          anchorContext: summarizeFeedbackAnchor(comment.anchor),
+        })),
+        status: comments.some((comment) => comment.status === "open")
+          ? "open"
+          : "resolved",
+        commentCount: comments.length,
+        anchorContext: summarizeFeedbackAnchor(root.anchor),
+      };
+    });
+}
+
 export default defineAction({
   description:
     "Get unconsumed human comments, corrections, questions, and annotations for an active Agent-Native Plan.",
@@ -90,6 +173,7 @@ export default defineAction({
       plan: bundle.plan,
       sections: bundle.sections,
       comments,
+      threads: buildFeedbackThreads(bundle.comments, comments),
       summary: bundle.summary,
     };
   },

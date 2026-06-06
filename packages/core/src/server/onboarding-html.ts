@@ -134,17 +134,30 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   const googleSignInNotice = opts.googleSignInNotice;
-  const googleNoticeBodyHtml = googleSignInNotice
+  const googleNoticeBodyParts = googleSignInNotice
     ? (Array.isArray(googleSignInNotice.body)
         ? googleSignInNotice.body
         : [googleSignInNotice.body]
-      )
-        .filter((body) => body.trim().length > 0)
-        .map(
-          (body, index) =>
-            `<p class="google-preflight-copy"${index === 0 ? ' id="google-preflight-copy"' : ""}>${esc(body)}</p>`,
-        )
-        .join("\n")
+      ).filter((body) => body.trim().length > 0)
+    : [];
+  const googleNoticeBodyHtml = googleNoticeBodyParts
+    .map(
+      (body, index) =>
+        `<p class="google-preflight-copy"${index === 0 ? ' id="google-preflight-copy"' : ""}>${esc(body)}</p>`,
+    )
+    .join("\n");
+  const googleNoticeRunLocalHtml = runLocalCommand
+    ? `
+      <button type="button" class="btn-secondary google-preflight-local" id="google-preflight-run-local" onclick="__anChooseRunLocalFromGoogleNotice()">${esc(googleSignInNotice?.cancelLabel ?? "Run locally")}</button>`
+    : `
+      <button type="button" class="btn-secondary" onclick="__anHideGoogleNotice()">${esc(googleSignInNotice?.cancelLabel ?? "Close")}</button>`;
+  const googleNoticeRunLocalPanelHtml = runLocalCommand
+    ? `
+    <div class="google-preflight-command" id="google-preflight-run-local-panel" hidden data-command="${esc(runLocalCommand)}">
+      <p class="google-preflight-command-label">Use your own Google OAuth client:</p>
+      <code>${esc(runLocalCommand)}</code>
+      <button type="button" class="copy-run-local" id="copy-google-preflight-run-local" onclick="__anCopyGoogleNoticeRunLocalCommand()">Copy command</button>
+    </div>`
     : "";
   const googleNoticeHtml =
     showGoogle && googleSignInNotice
@@ -156,13 +169,18 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     role="dialog"
     aria-labelledby="google-preflight-title"
     aria-describedby="google-preflight-copy"
+    tabindex="-1"
   >
-    <p class="google-preflight-title" id="google-preflight-title">${esc(googleSignInNotice.title)}</p>
+    <div class="google-preflight-heading">
+      <p class="google-preflight-title" id="google-preflight-title">${esc(googleSignInNotice.title)}</p>
+      <button type="button" class="google-preflight-close" aria-label="Close Google sign-in choices" onclick="__anHideGoogleNotice()">&times;</button>
+    </div>
 ${googleNoticeBodyHtml}
     <div class="google-preflight-actions">
       <button type="button" class="btn-primary" id="google-preflight-continue" onclick="__anAcceptGoogleNotice()">${esc(googleSignInNotice.continueLabel ?? "Continue")}</button>
-      <button type="button" class="btn-secondary" onclick="__anHideGoogleNotice()">${esc(googleSignInNotice.cancelLabel ?? "Cancel")}</button>
+${googleNoticeRunLocalHtml}
     </div>
+${googleNoticeRunLocalPanelHtml}
   </div>`
       : "";
 
@@ -813,6 +831,10 @@ ${
   .btn-google:hover { background: #e5e5e5; }
   .btn-google:disabled { opacity: 0.5; cursor: wait; }
   .btn-google svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .google-signin {
+    position: relative;
+    width: 100%;
+  }
   .google-error { margin-top: 0.5rem; font-size: 0.8125rem; color: #f87171; display: none; }
   .google-error.show { display: block; }
   .google-debug {
@@ -826,20 +848,58 @@ ${
   .google-debug.show { display: block; }
   .google-preflight {
     display: none;
-    margin-top: 0.75rem;
+    position: absolute;
+    top: calc(100% + 0.625rem);
+    left: 0;
+    right: 0;
+    z-index: 20;
     padding: 0.875rem;
     border: 1px solid rgba(255,255,255,0.12);
     border-radius: 10px;
-    background: rgba(255,255,255,0.05);
-    box-shadow: 0 14px 36px rgba(0,0,0,0.28);
+    background: #1b1b1b;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.48);
   }
   .google-preflight.show { display: block; }
-  .google-preflight-title {
+  .google-preflight::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    transform: translateX(-50%) rotate(45deg);
+    background: #1b1b1b;
+    border-left: 1px solid rgba(255,255,255,0.12);
+    border-top: 1px solid rgba(255,255,255,0.12);
+  }
+  .google-preflight-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
     margin-bottom: 0.375rem;
+  }
+  .google-preflight-title {
     color: #fff;
     font-size: 0.8125rem;
     font-weight: 600;
   }
+  .google-preflight-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: -0.25rem -0.25rem 0 0;
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    color: #888;
+    cursor: pointer;
+    font-size: 1.125rem;
+    line-height: 1;
+  }
+  .google-preflight-close:hover { color: #fff; background: rgba(255,255,255,0.07); }
   .google-preflight-copy {
     color: #b4b4b8;
     font-size: 0.75rem;
@@ -856,6 +916,39 @@ ${
     flex: 1;
     width: auto;
     margin-top: 0;
+  }
+  .google-preflight-command {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    background: rgba(0,0,0,0.24);
+  }
+  .google-preflight-command[hidden] { display: none; }
+  .google-preflight-command-label {
+    margin-bottom: 0.5rem;
+    color: #d4d4d8;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .google-preflight-command code {
+    display: block;
+    overflow-x: auto;
+    color: #e5e5e5;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.71875rem;
+    line-height: 1.45;
+    white-space: nowrap;
+  }
+  @media (max-width: 480px) {
+    .google-preflight {
+      position: static;
+      margin-top: 0.625rem;
+    }
+    .google-preflight::before { display: none; }
+    .google-preflight-actions { flex-direction: column; }
+    .google-preflight-actions .btn-primary,
+    .google-preflight-actions .btn-secondary { width: 100%; }
   }
   .local-note {
     display: none;
@@ -891,13 +984,15 @@ ${identitySsoLoginButtonHtml()}
 ${
   showGoogle
     ? `
-  <button class="btn-google" id="google-btn" onclick="signInWithGoogle()">
+  <div class="google-signin" id="google-signin">
+  <button class="btn-google" id="google-btn" onclick="signInWithGoogle()"${googleSignInNotice ? ' aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"' : ""}>
     <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
     Sign in with Google
   </button>
   <p class="google-error" id="google-err"></p>
   <p class="google-debug" id="google-debug"></p>
 ${googleNoticeHtml}
+  </div>
 ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider">or</div>\n`}
 `
     : googleOnly
@@ -1882,22 +1977,55 @@ ${
     var host = notice.getAttribute('data-host');
     return !host || window.location.hostname === host;
   }
+  function __anSetGoogleNoticeOpen(open) {
+    var notice = document.getElementById('google-preflight');
+    var trigger = document.getElementById('google-btn');
+    if (!notice) return;
+    if (open) {
+      notice.classList.add('show');
+      if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    } else {
+      notice.classList.remove('show');
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+  }
   function __anShowGoogleNotice() {
     var notice = document.getElementById('google-preflight');
     if (!notice) return;
-    notice.classList.add('show');
+    __anSetGoogleNoticeOpen(true);
     var continueBtn = document.getElementById('google-preflight-continue');
     if (continueBtn) continueBtn.focus();
   }
   function __anHideGoogleNotice() {
-    var notice = document.getElementById('google-preflight');
-    if (notice) notice.classList.remove('show');
+    __anSetGoogleNoticeOpen(false);
+  }
+  function __anChooseRunLocalFromGoogleNotice() {
+    var panel = document.getElementById('google-preflight-run-local-panel');
+    if (!panel) {
+      __anHideGoogleNotice();
+      return;
+    }
+    panel.removeAttribute('hidden');
+    var copy = document.getElementById('copy-google-preflight-run-local');
+    if (copy) copy.focus();
   }
   function __anAcceptGoogleNotice() {
     window.__anGoogleNoticeAccepted = true;
     __anHideGoogleNotice();
     __anStartGoogleSignIn();
-  }`
+  }
+  (function __anInstallGoogleNoticeDismissal() {
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') __anHideGoogleNotice();
+    });
+    document.addEventListener('click', function(event) {
+      var notice = document.getElementById('google-preflight');
+      if (!notice || !notice.classList.contains('show')) return;
+      var wrapper = document.getElementById('google-signin');
+      if (wrapper && wrapper.contains(event.target)) return;
+      __anHideGoogleNotice();
+    });
+  })();`
     : `
   function __anShouldShowGoogleNotice() { return false; }`
 }
@@ -1905,21 +2033,25 @@ ${starfieldScript}
 ${
   runLocalCommand
     ? `
-  function __anToggleRunLocalCommand() {
+  function __anSetRunLocalCommandOpen(open) {
     var panel = document.getElementById('run-local-panel');
     var button = document.getElementById('run-local-button');
     if (!panel || !button) return;
-    var nextOpen = panel.hasAttribute('hidden');
-    if (nextOpen) {
+    if (open) {
       panel.removeAttribute('hidden');
     } else {
       panel.setAttribute('hidden', '');
     }
-    button.setAttribute('aria-expanded', String(nextOpen));
+    button.setAttribute('aria-expanded', String(open));
   }
-  function __anCopyRunLocalCommand() {
+  function __anToggleRunLocalCommand() {
     var panel = document.getElementById('run-local-panel');
-    var button = document.getElementById('copy-run-local');
+    if (!panel) return;
+    __anSetRunLocalCommandOpen(panel.hasAttribute('hidden'));
+  }
+  function __anCopyCommandFromPanel(panelId, buttonId) {
+    var panel = document.getElementById(panelId);
+    var button = document.getElementById(buttonId);
     if (!panel || !button) return;
     var command = panel.getAttribute('data-command') || '';
     var original = button.textContent || 'Copy command';
@@ -1930,6 +2062,12 @@ ${
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(command).then(markCopied).catch(function() {});
     }
+  }
+  function __anCopyRunLocalCommand() {
+    __anCopyCommandFromPanel('run-local-panel', 'copy-run-local');
+  }
+  function __anCopyGoogleNoticeRunLocalCommand() {
+    __anCopyCommandFromPanel('google-preflight-run-local-panel', 'copy-google-preflight-run-local');
   }`
     : ""
 }

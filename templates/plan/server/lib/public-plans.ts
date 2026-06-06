@@ -20,9 +20,9 @@ const PUBLIC_PLAN_VIEWER_COOKIE = "plan_public_viewer";
 const PUBLIC_PLAN_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 /**
- * Cookie that pins a hosted unauthenticated visitor to a stable guest-author
- * identity (`guest-<uuid>@agent-native.guest`). Same lifetime/flags as the
- * public-viewer cookie. Exported so the future claim agent can read/clear it.
+ * Legacy cookie that pinned a hosted unauthenticated visitor to a stable
+ * guest-author identity (`guest-<uuid>@agent-native.guest`). Exported so the
+ * claim middleware can still read/clear older cookies.
  */
 export const GUEST_AUTHOR_COOKIE = "plan_guest_author";
 const GUEST_AUTHOR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -121,13 +121,7 @@ function isSecureRequest(event: H3Event): boolean {
  *      mint/return a stable `public-<uuid>@agent-native.local` identity so the
  *      viewer can read (but, per the comment gate, not comment) without an
  *      account. Honored in every environment, hosted and local. Read-only.
- *   2. Hosted guest author — on a HOSTED deploy (NOT local), mint/return a
- *      stable `guest-<uuid>@agent-native.guest` identity from the
- *      `plan_guest_author` cookie so an unauthenticated visitor can create,
- *      read, list, and edit THEIR OWN plans with no login. Skipped in local mode
- *      (local keeps the single-user identity below) and skipped whenever the
- *      request already resolved to a public viewer (viewing stays read-only).
- *   3. Local single-user identity — in local mode only (`isLocalPlanRuntime()`),
+ *   2. Local single-user identity — in local mode only (`isLocalPlanRuntime()`),
  *      fall back to `LOCAL_PLAN_OWNER_EMAIL` so the no-login local workflow can
  *      create, read, list, and edit its own plans without signing in. This MUST
  *      NOT fire on a hosted/production deploy; `isLocalPlanRuntime()` enforces
@@ -140,12 +134,7 @@ export async function resolvePlanAnonymousOwner(
 ): Promise<string | null> {
   const publicViewer = await resolvePublicPlanViewerOwner(event);
   if (publicViewer) return publicViewer;
-  // Hosted guest authoring. Skipped in local mode (the local single-user
-  // identity below owns that no-login path) so local behavior is unchanged.
-  if (!isLocalPlanRuntime()) {
-    return resolvePlanGuestAuthorOwner(event);
-  }
-  return LOCAL_PLAN_OWNER_EMAIL;
+  return isLocalPlanRuntime() ? LOCAL_PLAN_OWNER_EMAIL : null;
 }
 
 export async function resolvePublicPlanViewerOwner(
@@ -170,16 +159,14 @@ export async function resolvePublicPlanViewerOwner(
 }
 
 /**
- * Mint or read the hosted guest-author identity for an unauthenticated request,
- * setting the `plan_guest_author` cookie when minting.
+ * Legacy helper to mint or read the hosted guest-author identity for an
+ * unauthenticated request, setting the `plan_guest_author` cookie when minting.
  *
- * Returns `guest-<uuid>@agent-native.guest`. Callers are responsible for only
- * invoking this on HOSTED deploys and only when the request is NOT already a
- * public-plan viewer — both guarantees are enforced by `resolvePlanAnonymousOwner`.
+ * Returns `guest-<uuid>@agent-native.guest`. The active anonymous-owner resolver
+ * no longer calls this; keep it available for older cookie cleanup/tests.
  *
- * This MUTATES the response (sets a cookie) for new visitors, so it is only
- * called from the anonymous-owner resolution path (action/agent-chat request
- * handling), never from a pure read helper.
+ * This MUTATES the response (sets a cookie) for new visitors, so do not call it
+ * from pure read helpers.
  */
 export async function resolvePlanGuestAuthorOwner(
   event: H3Event,

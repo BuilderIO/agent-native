@@ -137,6 +137,16 @@ export default runMigrations(
       version: 14,
       sql: `CREATE INDEX IF NOT EXISTS plans_owner_created_idx ON plans(owner_email, created_at)`,
     },
+    {
+      version: 15,
+      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_email TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_name TEXT`,
+    },
+    {
+      version: 16,
+      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT;
+CREATE INDEX IF NOT EXISTS plan_comments_parent_idx ON plan_comments(parent_comment_id)`,
+    },
   ],
   { table: "plans_migrations" },
 );

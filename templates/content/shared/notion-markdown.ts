@@ -168,6 +168,37 @@ function trimTrailingBlankLines(text: string): string {
   return text.replace(/\n+$/g, "");
 }
 
+function isTerminalNonParagraphLine(line: string): boolean {
+  const trimmed = line.trim();
+  return (
+    /^#{1,6}\s+\S/.test(trimmed) ||
+    /^>\s*/.test(trimmed) ||
+    /^[-*+]\s+/.test(trimmed) ||
+    /^\d+[.)]\s+/.test(trimmed) ||
+    /^[-*+]\s+\[[ x]\]\s+/.test(trimmed) ||
+    /^```/.test(trimmed) ||
+    /^---+$/.test(trimmed) ||
+    /^!\[.*\]\(.+\)/.test(trimmed) ||
+    /^<\/(details|callout|columns|column|synced_block|synced_block_reference|table)>$/.test(
+      trimmed,
+    ) ||
+    /^<(page|table_of_contents|mention-[\w-]+|synced_block_reference)\b/.test(
+      trimmed,
+    )
+  );
+}
+
+function trimEditorTerminalEmptyBlock(nfm: string): string {
+  const lines = trimTrailingBlankLines(nfm).split("\n");
+  if (lines.length < 2 || lines[lines.length - 1].trim() !== "<empty-block/>") {
+    return nfm;
+  }
+  const previous = lines[lines.length - 2];
+  if (!isTerminalNonParagraphLine(previous)) return nfm;
+  lines.pop();
+  return lines.join("\n");
+}
+
 export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -329,7 +360,9 @@ function preserveEmptyLines(markdown: string): string {
 }
 
 export function normalizeNfmForStorage(markdown: string): string {
-  return legacyMarkdownToNfm(preserveEmptyLines(blockquotesToIndent(markdown)));
+  return trimEditorTerminalEmptyBlock(
+    legacyMarkdownToNfm(preserveEmptyLines(blockquotesToIndent(markdown))),
+  );
 }
 
 export function parseNfmForEditor(markdown: string): string {

@@ -89,6 +89,42 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("100% free and open source");
   });
 
+  it("puts hosted Google warnings in a popover with a run-local choice", () => {
+    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+
+    const command = "npx @agent-native/core create my-mail-app --template mail";
+    const html = getOnboardingHtml({
+      googleOnly: true,
+      marketing: {
+        appName: "Agent-Native Mail",
+        tagline: "Manage email with an agent.",
+        runLocalCommand: command,
+      },
+      googleSignInNotice: {
+        host: "mail.agent-native.com",
+        title: "Google may show a warning",
+        body: "Google may ask you to confirm before continuing.",
+        continueLabel: "Continue to Google",
+        cancelLabel: "Run locally",
+      },
+    });
+
+    expect(html).toContain('class="google-signin"');
+    expect(html).toContain(
+      'aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"',
+    );
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain("Google may show a warning");
+    expect(html).toContain('id="google-preflight-run-local"');
+    expect(html).toContain("Run locally");
+    expect(html).not.toContain("Not now");
+    expect(html).toContain('id="google-preflight-run-local-panel"');
+    expect(html).toContain(command);
+    expect(html).toContain("function __anChooseRunLocalFromGoogleNotice()");
+    expect(html).toContain("__anCopyGoogleNoticeRunLocalCommand()");
+  });
+
   it("has branded auth marketing for every core built-in template host", () => {
     const coreSlugs = [
       "calendar",

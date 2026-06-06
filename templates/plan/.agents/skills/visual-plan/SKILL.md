@@ -18,9 +18,9 @@ prose only where it helps.
 
 `/visual-plan` is the canonical command and the main entry point. Use `/ui-plan`
 when the work is primarily product UI and review should start with the screens.
-Use `/visual-questions` to run a visual intake form first. Use `/visualize-plan`
-to turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual
-companion.
+Use `/visual-questions` only when the user explicitly wants a visual intake form
+before planning. Use `/visualize-plan` to turn an existing Codex, Claude Code,
+Markdown, or pasted plan into a visual companion.
 
 ## When To Use
 
@@ -44,9 +44,11 @@ direction before you implement.
   plan. Start editing only after the user approves the direction.
 - **Clarify vs. assume.** Do not ask how to build it — explore and present the
   approach and options in the plan. Ask a clarifying question only when an
-  ambiguity would change the design and you cannot resolve it from the code; batch
-  2-4 high-leverage questions before finalizing. Otherwise state the assumption
-  explicitly and proceed, and put anything unresolved in an open-questions block.
+  ambiguity would change the design and you cannot resolve it from the code; use
+  the host agent's normal ask-user-question flow and batch 2-4 high-leverage
+  questions before finalizing. Do not create visual questions from `/visual-plan`.
+  Otherwise state the assumption explicitly and proceed, and put anything
+  unresolved in an open-questions block.
 - **The plan is the approval gate.** After surfacing it, ask the user to review
   and approve before you write code, and name which files/areas the work touches.
   Presenting the plan and requesting sign-off is the approval step — do not ask a
@@ -57,18 +59,27 @@ direction before you implement.
 
 ## Core Workflow
 
-1. Call `create-visual-plan` with the title, brief, source, repo path, and
+1. Follow the host agent's normal planning flow: inspect the codebase, delegate
+   wide exploration when useful, gather the info needed, and ask native
+   clarifying questions as needed before generating the plan.
+2. Call `create-visual-plan` with the title, brief, source, repo path, and
    structured `content` blocks.
-2. Compose the canvas from the kit and write the document with native blocks
-   (see the two cores below). Skip the canvas for non-visual work.
-3. Surface the returned Plans link or inline MCP App and ask the user to review.
-4. Call `get-plan-feedback` before editing, after review, after any long pause,
+3. Compose the canvas from the kit and write the document with native blocks
+   (see the two cores below). Keep the document close to the Markdown plan the
+   agent would normally output; add diagrams, wireframes, and visual callouts
+   only where they clarify the plan. Skip the canvas for non-visual work.
+4. Surface the returned Plans link or inline MCP App and ask the user to review.
+   Always include the actual URL in chat so the next step is a click in CLI or
+   other text-only hosts. When the host exposes an embedded browser/preview panel
+   and a tool can open arbitrary URLs there, open the returned plan URL
+   automatically for convenient review; do not rely on this as the only handoff.
+5. Call `get-plan-feedback` before editing, after review, after any long pause,
    and before the final response.
-5. Apply changes with `update-visual-plan`, preferring targeted `contentPatches`.
+6. Apply changes with `update-visual-plan`, preferring targeted `contentPatches`.
    When the user wants source-control friendly edits, use
    `patch-visual-plan-source` against the MDX files instead of regenerating the
    plan.
-6. Export with `export-visual-plan` only when the user wants a shareable receipt
+7. Export with `export-visual-plan` only when the user wants a shareable receipt
    or repo-check-in artifacts.
 
 <!-- SHARED-CORE:wireframe-canvas START -->
@@ -79,106 +90,92 @@ This section is shared, word for word, by `/visual-plan`, `/ui-plan`, and
 `/visualize-plan`. It is the single source of truth for how wireframes and the
 canvas work. Do not paraphrase it per command.
 
-**The renderer owns all visual quality. You emit content, never styling.** Flex
-layout, fonts, density, spacing, theme, and the hand-drawn wobble all live in
-the app renderer. Never emit coordinates, CSS, pixel sizes, or raw HTML for a
-wireframe's internals. Your job is to pick a surface, compose real product
-content from the kit, and annotate — nothing else.
+**A wireframe is an HTML mockup. The renderer owns the look; you write the
+content.** Set `data.html` to a self-contained, semantic HTML fragment of the
+screen and set `data.surface`. The renderer owns the surface footprint/aspect,
+the dark/light theme, the hand-drawn font, and the rough.js sketch overlay — you
+never write `<html>`/`<body>`/`<script>`/`<style>` tags, font-family, hex colors,
+or any width/height/coordinates. You write real HTML layout and real product
+content; the renderer styles and roughens it.
 
-**A wireframe block's data is a declarative kit tree, not geometry:**
+**A wireframe block's data is an HTML screen plus a surface:**
 
 ```json
 {
-  "surface": "desktop",
-  "screen": [
-    { "el": "browserBar", "title": "tasklist" },
-    {
-      "el": "row",
-      "children": [
-        {
-          "el": "sidebar",
-          "children": [
-            { "el": "navItem", "label": "Inbox", "count": 12, "active": true },
-            { "el": "navItem", "label": "Today", "count": 4 },
-            { "el": "navItem", "label": "Done" }
-          ]
-        },
-        {
-          "el": "main",
-          "children": [
-            { "el": "title", "text": "Today", "script": true },
-            {
-              "el": "chips",
-              "items": [
-                { "label": "All", "active": true },
-                { "label": "Active" },
-                { "label": "Done" }
-              ]
-            },
-            { "el": "section", "label": "OVERDUE", "tone": "warn" },
-            {
-              "el": "taskRow",
-              "title": "Send invoice to Acme Co.",
-              "due": "Yesterday",
-              "dueTone": "warn",
-              "prio": 1
-            },
-            {
-              "el": "taskRow",
-              "title": "Reply to design feedback",
-              "due": "Today",
-              "prio": 2
-            }
-          ]
-        }
-      ]
-    }
-  ]
+  "surface": "browser",
+  "html": "<div style=\"display:flex;flex-direction:column;gap:10px;padding:16px;height:100%\"><h1>Sign in</h1><p class=\"wf-muted\">Use your work email to continue.</p><div class=\"wf-card\" style=\"display:flex;flex-direction:column;gap:10px\"><label>Email<input value=\"jane@acme.co\" /></label><label>Password<input value=\"••••••••\" /></label><label style=\"display:flex;align-items:center;gap:8px\"><input type=\"checkbox\" checked /> Remember me</label><button class=\"primary\">Sign in</button></div><a href=\"#\">Forgot password?</a></div>"
 }
 ```
 
-The renderer maps each node to a flex kit component and applies one whole-frame
-wobble. Layout is always flex: `row`, `col`, `sidebar`, and `main` set the flex
-direction; everything aligns by construction, so you never get overlap or drift.
+**Write PLAIN semantic HTML and let the renderer style it.** Bare elements
+(`h1`/`h2`/`h3`, `p`, `button`, `input`, `<input type="checkbox">`, `a`, `hr`)
+are auto-themed — no classes needed. Helper classes carry the rest:
+
+- `.wf-card` / `.wf-box` — a bordered, padded container (a panel, a list item).
+- `.wf-pill` / `.wf-chip` — a rounded tag or filter; add `.accent`
+  (`<span class="wf-pill accent">`) for the accent-filled variant.
+- `.wf-muted` — secondary/muted text (or use `<small>`).
+- `button.primary` or any element with `[data-primary]` — the accent-filled
+  primary button.
+
+**Use the `--wf-*` tokens for any custom color, never hex.** The renderer flips
+these on light/dark, so reading them is what keeps a mockup correct in both
+themes. For any inline border, background, or text color, reference a token:
+`style="border:1.4px solid var(--wf-line)"`. The tokens are `--wf-ink` (text),
+`--wf-muted` (secondary text), `--wf-line` (borders/dividers), `--wf-paper`
+(page background), `--wf-card` (raised surface), `--wf-accent` /
+`--wf-accent-fg` / `--wf-accent-soft` (brand action), `--wf-warn`, `--wf-ok`,
+and `--wf-radius`. Never hard-code a hex color and never set `font-family` — the
+renderer owns the sketch/clean font.
+
+**Lay out with inline `style` flex/grid.** You write the real layout —
+`display:flex; flex-direction:column; gap:10px; padding:16px` and so on — and the
+renderer never repositions anything. Compose the actual product: reproduce the
+current screen, then show the modification. Real labels, real counts, real dates,
+real button text grounded in the screen you read; not lorem or gray bars.
 
 **Surface presets — match the real footprint, never default to desktop+mobile.**
 Pick the `surface` that matches what the user will actually see:
 
-- `desktop`: a full page or app shell.
+- `browser`: a web page that needs a browser chrome frame around it.
+- `desktop`: a full desktop app page or app shell.
 - `mobile`: a phone screen, only when the work is genuinely mobile.
 - `popover`: a small floating menu, dropdown, or inline popover.
 - `panel`: a side panel, inspector, or sidebar widget.
-- `browser`: a page that needs a browser chrome frame around it.
 
+The surface locks the footprint and aspect; never set width/height/coordinates.
 A sidebar popover renders as a small surface, not a desktop page and a phone
 frame. Do not emit `desktop` + `mobile` variants unless responsive behavior
 actually changes the layout. For a component or widget, show one broader
 app-context frame only when placement affects understanding, then the focused
 component states.
 
-**Node vocabulary (`el` values).** Every node is `{ el, ...props, children? }`:
+**Modify, don't redesign.** When the task changes an existing screen, reproduce
+the current screen's real layout and footprint FIRST, then change only the delta
+and call it out with a single annotation. Do not restack the page into a new
+layout. For net-new surfaces, compose from the real app shell.
 
-- Layout: `screen`, `row`, `col`, `sidebar`, `main`, `card{children}`,
-  `column{title,count?,children}`, `box{children,dashed?}`, `divider`.
-- Chrome: `browserBar{title}`, `statusBar`, `searchBar`, `toolbar`.
-- Navigation: `navItem{label,count?,active?,dot?}`, `tabs`/`chips{items:[{label,active?}]}`,
-  `chip{label,active?}`, `pill{label,tone?}`.
-- Content: `title{text,script?}`, `text{value,color?,weight?}`,
-  `lines{n?,widths?}`, `section{label,tone?}`,
-  `taskRow{title,note?,due?,dueTone?,prio?,done?}`, `kv{rows:[{k,v}]}`,
-  `avatar`, `iconSquare{active?}`.
-- Inputs: `field{label?,value?,placeholder?,area?}`, `check{done?,shape?}`,
-  `btn{label,solid?,full?}`, `fab{icon?}`.
+**Zoom in on sub-surfaces, don't redraw the page.** For a small sub-surface (a
+popover, menu, dialog, toast), show the full screen once, then add a small
+separate artboard whose `html` contains ONLY that sub-surface — do not re-draw
+the whole page around it, and do not scale a duplicate up. Pick the matching
+`surface` (e.g. `popover`) so the footprint is right; never widen a popover to
+page width.
 
-Put **real product content** in props: real labels, real dates, real counts,
-real button text grounded in the actual screen or component you read. Use
-`lines`/`text` (with no `value`) only for genuine placeholder body copy — never
-fill a screen with gray placeholder bars. Buttons (`btn`, `fab`) must read as
-actionable controls.
+**Loading / skeleton states.** Set `data.skeleton: true` on the wireframe and
+fill the `html` with neutral, textless placeholder geometry — boxes and bars
+built as `<div>`s with `background:var(--wf-line)` and explicit heights/widths,
+no labels or copy. The renderer drops borders, sketch, and color into the
+skeleton register automatically. Never escape to a `custom-html` document block
+to fake a loader, and never move a mockup out of the canvas — mockups always
+live in canvas artboards.
 
-**Default crisp.** Sketchiness is a low default (a subtle single wobble over the
-whole frame), not a heavy scribble. Do not ask for or assume a heavy sketch
-look.
+**Editing an existing mockup.** To change one element, text, or color in an
+existing html mockup, do NOT regenerate the frame — call `update-visual-plan`
+with `contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
+replace }] }]`. Each `find` is a unique snippet of the current html (read it
+first with `get-visual-plan`); set `all: true` on an edit to replace every
+occurrence. The result is re-sanitized.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
 present, sprinkle Figma-style notes near the frames they explain: a short
@@ -189,8 +186,16 @@ point at one specific control or transition; for a broad frame-level note, write
 text beside the frame with no connector. Connectors are for real sequences only —
 never fake "Step 1 → Step 2" lines between independent states.
 
-**Patching.** Edit one wireframe node, canvas annotation, or block with targeted `contentPatches`
-(for example `update-wireframe-node`, `update-block`, `replace-blocks`) rather
+**Do not create overlapping annotations.** Anchor each note to the frame it
+explains with `targetId` + `placement` (top/right/bottom/left). The renderer
+parks notes in a gutter beside the frame and lays them out automatically — never
+supply x/y or points for anchored notes; hand-placed coordinates fight the
+auto-layout and cause the overlap you're trying to avoid. Reserve arrows for a
+note that must point at a specific control inside a frame; a note that simply
+sits beside its frame needs no arrow.
+
+**Patching.** Edit one wireframe, canvas annotation, or block with targeted `contentPatches`
+(for example `update-block`, `replace-blocks`, `update-canvas-annotation`) rather
 than regenerating the whole plan. `contentPatches` are part of the public MCP
 action schema, so Claude Code, Codex, Cursor, and other hosts can make surgical
 edits. If an agent is working from exported source files, use
@@ -203,26 +208,57 @@ In the browser, humans edit `rich-text` prose inline; agents should still use
 `update-rich-text` content patches or source patches for prose, and use
 comments/structured patches for canvas, artboard, wireframe, and diagram edits.
 
-**Legacy imports only.** Old or imported plans may carry coordinate-based
-regions or a full standalone HTML document; the renderer still displays them.
-Never emit geometry, regions, or a standalone HTML document for a new plan —
-compose the kit tree instead.
-**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic content to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, put the primary nav stack inside a `col` with `full: true`, then add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+**Never emit a titled artboard with no interior wireframe content.** Every artboard you place on the canvas must carry an `html` wireframe (or reference a wireframe block via `blockId`) — a label-only frame renders as an empty dashed box and is rejected at parse time. If you only have a title, write it as a section header or annotation, not an empty artboard.
 
-**Compose like the Claude-style wireframes.** Build from nested flex primitives,
-not visual guesses: a `screen` contains chrome and one main `row`/`col`; use
-`full: true` on the row/col that should fill the artboard; then place sidebar,
-main content, cards, rows, and controls inside it. Use one or two realistic
-artboards that explain the feature well before adding more states. For
-component work, start with one real app-context artboard when placement matters,
-then focused popover/panel artboards; skip desktop/mobile variants unless
-responsive behavior is specifically being decided.
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic HTML to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, let the nav stack flex to fill (`flex:1`) and add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
 
-**Placeholder bars are last resort.** Prefer real labels, row titles, counts,
-dates, chips, and button text. Use `lines` only for body copy that truly does
-not matter, keep it to 1-3 lines, put it inside the content container it
-belongs to, and align it under the label. Never scatter orphan gray bars around
-an artboard or let bars collide with handwritten labels.
+**Good example — a contacts list, surface `browser`.** A small, real screen
+composed from the helper classes and tokens, layout in inline flex, no fonts or
+hex colors:
+
+```html
+<div style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <h1>Contacts</h1>
+    <button class="primary">New contact</button>
+  </div>
+  <div style="display:flex;gap:6px">
+    <span class="wf-pill accent">All 128</span>
+    <span class="wf-pill">Favorites</span>
+    <span class="wf-pill">Archived</span>
+  </div>
+  <div class="wf-card" style="display:flex;flex-direction:column;gap:0;padding:0">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">
+      <div style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"></div>
+      <div style="flex:1"><strong>Jane Cooper</strong><br /><small>jane@acme.co</small></div>
+      <span class="wf-pill">Lead</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
+      <div style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"></div>
+      <div style="flex:1"><strong>Marcus Lee</strong><br /><small>marcus@globex.io</small></div>
+      <span class="wf-pill">Customer</span>
+    </div>
+  </div>
+</div>
+```
+
+**Mockups belong on the canvas.** When the user asks for a mockup, UI state,
+loading state, prototype, layout, screen, or visual comparison, make the top
+canvas the primary home for that visual. Document blocks can explain, compare,
+or map implementation, but they should not host the primary mockup just because
+`custom-html`, screenshots, or prose are easier to produce. If the canvas cannot
+represent the requested fidelity, still keep a canvas artboard and call out or
+extend the needed canvas renderer capability.
+
+**Legacy kit tree.** Older plans set a `screen` array of `{ el, ...props }` kit
+nodes instead of `html`; the renderer still accepts and displays it, but new
+plans emit `html`. Do not author fresh kit-tree screens — write the HTML mockup
+instead. Likewise, old or imported plans may carry coordinate-based regions or
+free-float x/y on notes or artboards; those are legacy escape hatches the
+renderer still shows but you must never produce. The `surface` drives the aspect
+and footprint, the canvas auto-places artboards, and the gutter parks notes by
+`targetId` + `placement`; never supply width, height, or coordinates for a new
+plan.
 
 <!-- SHARED-CORE:wireframe-canvas END -->
 
@@ -274,9 +310,13 @@ a dedicated open-questions / needs-clarification block. Never put a
 questions/decisions wall inside the plan narrative.
 
 **`custom-html` is a bounded escape hatch only** — a single complete fragment
-inside a block, never `html`/`head`/`body`/`script` tags, never a placeholder,
-density demo, or proof that custom HTML works. Prefer the native blocks; they
-cover real plans.
+inside a block, never `html`/`head`/`body`/`script` tags, never a generic
+placeholder, density demo, or proof that custom HTML works. Prefer the native
+blocks for normal plans. It may support supplemental demos or references, but it
+is never the primary home for a requested mockup, UI state, or visual
+comparison. If fidelity requires HTML/CSS, image capture, or real React/CSS, the
+product fix is canvas support for that artifact type, not moving the mockup into
+the document.
 
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
@@ -288,22 +328,26 @@ unreadable diagrams before asking for approval.
 
 ## Good vs. Bad Exemplar
 
-**GOOD.** A `/ui-plan` for a todo app: a canvas with a `desktop` artboard
-composed from the kit — a sidebar of real `navItem`s (`Inbox 12`, `Today 4`,
-`Done`), a `main` with a scripted `title`, real `chips`, a `section` labeled
-`OVERDUE`, and `taskRow`s carrying real titles, due dates, and priorities — one
-subtle whole-frame wobble, correct desktop footprint, and plain-text designer
-notes spaced off the frames pointing only at the controls that need explanation.
-Below it, a Claude/Codex-grade document: objective and done-criteria, an
-`implementation-map` naming the real components and actions with short
-highlighted snippets, a `decision` card weighing two real approaches, and a
-validation step — none of it repeating the canvas. This is the bar.
+**GOOD.** A `/ui-plan` for a todo app: a canvas with a `desktop` artboard whose
+`data.html` is a real flex layout — a sidebar of links (`Inbox 12`, `Today 4`,
+`Done`), a main column with an `<h1>Today</h1>`, accent `.wf-pill`s for the
+filters, a muted section label `OVERDUE`, and `.wf-card` task rows carrying real
+titles, due dates, and a primary `button.primary` — styled only through bare
+elements, helper classes, and `--wf-*` tokens, so the renderer applies the
+correct desktop footprint, theme, and one subtle whole-frame wobble. Plain-text
+designer notes sit spaced off the frame, pointing only at the controls that need
+explanation. Below it, a Claude/Codex-grade document: objective and
+done-criteria, an `implementation-map` naming the real components and actions
+with short highlighted snippets, a `decision` card weighing two real approaches,
+and a validation step — none of it repeating the canvas. This is the bar.
 
-**BAD.** Empty coordinate boxes placed by `x/y/width/height`, gray placeholder
-bars "insinuating" text, crisp double-bordered rectangles or a heavy scribble, a
-forced desktop + mobile pair for a popover, floating bordered annotation cards
-hugging the frames, and a marketing-style document with a hero heading and value
-props that just restates what the canvas already shows. Never produce this.
+**BAD.** A `data.html` with hard-coded hex colors, a `font-family`, or fixed
+pixel width/height; gray placeholder bars "insinuating" text on a non-skeleton
+frame; a forced desktop + mobile pair for a popover; floating bordered
+annotation cards hugging the frames; a fresh hand-authored kit-tree `screen`
+instead of `html`; a mockup escaped into a document `custom-html` block; and a
+marketing-style document with a hero heading and value props that just restates
+what the canvas already shows. Never produce this.
 
 <!-- SHARED-CORE:exemplar END -->
 
@@ -311,7 +355,8 @@ props that just restates what the canvas already shows. Never produce this.
 
 - `create-visual-plan`: start one structured visual plan per agent task/run.
 - `create-ui-plan`: start a UI-first plan when the work is primarily product UI.
-- `create-visual-questions`: run a visual intake form before planning.
+- `create-visual-questions`: use only for the explicit `/visual-questions`
+  command, not as `/visual-plan` preflight.
 - `visualize-plan`: build a visual companion from an existing text plan.
 - `update-visual-plan`: revise content, status, or comments; prefer
   `contentPatches` over regenerating the whole plan.

@@ -109,11 +109,9 @@ describe("local-identity", () => {
       );
     });
 
-    it("accepts the hosted guest-author identity injected by the resolver", () => {
-      // On a hosted deploy the anonymousOwner resolver injects the guest email
-      // into the request context, so it arrives here in the authenticated slot.
+    it("rejects the legacy hosted guest-author identity for writes", () => {
       setEnv({ NODE_ENV: "production" });
-      expect(resolvePlanOwnerEmailForWrite(GUEST_EMAIL)).toBe(GUEST_EMAIL);
+      expect(resolvePlanOwnerEmailForWrite(GUEST_EMAIL)).toBeUndefined();
     });
 
     it("falls back to the local identity in local mode", () => {
@@ -123,7 +121,7 @@ describe("local-identity", () => {
       );
     });
 
-    it("returns undefined when hosted, unauthenticated, and no guest", () => {
+    it("returns undefined when hosted and unauthenticated", () => {
       setEnv({ NODE_ENV: "production" });
       expect(resolvePlanOwnerEmailForWrite(undefined)).toBeUndefined();
     });
@@ -140,18 +138,18 @@ describe("local-identity", () => {
   });
 
   describe("requirePlanOwnerEmailForWrite", () => {
-    it("throws in hosted mode with no user and no guest", () => {
+    it("throws in hosted mode with no user", () => {
       setEnv({ NODE_ENV: "production" });
       expect(() =>
         requirePlanOwnerEmailForWrite(undefined, "Creating a plan"),
       ).toThrow(/requires an authenticated user/);
     });
 
-    it("returns the guest identity for a hosted guest author", () => {
+    it("throws for a hosted guest author", () => {
       setEnv({ NODE_ENV: "production" });
-      expect(
+      expect(() =>
         requirePlanOwnerEmailForWrite(GUEST_EMAIL, "Creating a plan"),
-      ).toBe(GUEST_EMAIL);
+      ).toThrow(/requires an authenticated user/);
     });
 
     it("returns the local identity in local mode", () => {

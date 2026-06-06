@@ -1,4 +1,5 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import type {
   PlanDiagramBlock,
@@ -7,18 +8,31 @@ import type {
   PlanWireframeSurface,
 } from "@shared/plan-content";
 import { LegacyRegionWireframe } from "./LegacyRegionWireframe";
-import { Screen, renderNodes } from "./kit";
+import {
+  HTML_ROUGH_SELECTOR,
+  KitConfigContext,
+  RoughOverlay,
+  Screen,
+  renderNodes,
+} from "./kit";
+import { useWireframeStyle } from "./use-wireframe-style";
+import "./html-artboard.css";
 
 /**
  * Wireframe renderer.
  *
- * PRIMARY PATH — declarative KIT TREE. New plans emit geometry-free semantic
- * nodes (`{ el, ...props, children }`). The shared kit owns the flex layout,
- * Virgil font, spacing, subtle whole-frame wobble, placeholder line style, and
- * button/chrome quality.
+ * PRIMARY PATH — an HTML mockup (`data.html`). The model writes a plain semantic
+ * HTML screen; the renderer owns the surface footprint/aspect, the dark/light
+ * theme, the hand-drawn font, and the rough.js sketch overlay. Everything is
+ * laid out by the model's own (real) HTML/CSS, so there is no geometry to place.
  *
- * LEGACY PATH — coordinate region fallback. Old/imported plans still render
- * through `LegacyRegionWireframe`; new generation should not emit regions.
+ * KIT PATH — declarative kit tree (`data.screen`). Kept for older plans; the
+ * shared kit owns flex layout, fonts, spacing, and the same rough overlay.
+ *
+ * LEGACY PATH — coordinate region fallback for the oldest imported plans.
+ *
+ * All three paths share one frame shell (surface-locked aspect, theme, rough
+ * overlay, clean-mode crisp frame) via `ArtboardFrame`.
  */
 
 type SurfacePreset = {
@@ -39,6 +53,11 @@ type WireframeData =
   | PlanWireframeBlock["data"]
   | PlanLegacyWireframeBlock["data"];
 
+function isHtmlData(data: WireframeData): data is PlanWireframeBlock["data"] {
+  const html = (data as PlanWireframeBlock["data"]).html;
+  return typeof html === "string" && html.trim().length > 0;
+}
+
 function isKitTreeData(
   data: WireframeData,
 ): data is PlanWireframeBlock["data"] {
@@ -49,14 +68,31 @@ export function Wireframe({
   data,
   compact,
   canvasSize,
+  canvasWidth,
 }: {
   data: WireframeData;
   compact?: boolean;
   canvasSize?: number;
+  canvasWidth?: number;
 }) {
+  if (isHtmlData(data)) {
+    return (
+      <HtmlArtboard
+        data={data}
+        compact={compact}
+        canvasSize={canvasSize}
+        canvasWidth={canvasWidth}
+      />
+    );
+  }
   if (isKitTreeData(data)) {
     return (
-      <KitWireframe data={data} compact={compact} canvasSize={canvasSize} />
+      <KitWireframe
+        data={data}
+        compact={compact}
+        canvasSize={canvasSize}
+        canvasWidth={canvasWidth}
+      />
     );
   }
   return (
@@ -64,6 +100,140 @@ export function Wireframe({
       data={data}
       compact={compact}
       canvasSize={canvasSize}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Shared frame shell: surface-locked aspect + theme + rough overlay.         */
+/* -------------------------------------------------------------------------- */
+
+function ArtboardFrame({
+  surface,
+  compact,
+  canvasSize,
+  canvasWidth,
+  skeleton,
+  selector,
+  caption,
+  render,
+}: {
+  surface: PlanWireframeSurface;
+  compact?: boolean;
+  canvasSize?: number;
+  canvasWidth?: number;
+  skeleton?: boolean;
+  selector: string;
+  caption?: string;
+  render: (ctx: { theme: "light" | "dark"; style: "sketchy" | "clean" }) => ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
+  const theme: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
+  const style = useWireframeStyle();
+  const preset = SURFACE_PRESETS[surface] ?? SURFACE_PRESETS.desktop;
+  const height = canvasSize ?? preset.height;
+  const width = canvasWidth ?? preset.width;
+  const scale = compact ? Math.min(1, 320 / preset.width) : 1;
+  const sketchy = style === "sketchy" && !skeleton;
+  const paper = theme === "dark" ? "#201f1c" : "#fbfaf6";
+
+  return (
+    <div
+      className="plan-kit-wireframe"
+      style={{
+        width: compact ? preset.width * scale : "100%",
+        maxWidth: compact ? preset.width : width,
+      }}
+    >
+      <div
+        style={{
+          width: compact ? preset.width * scale : "100%",
+          maxWidth: compact ? preset.width : width,
+          height: compact ? height * scale : height,
+          marginInline: "auto",
+        }}
+      >
+        <div
+          ref={ref}
+          className="plan-kit-artboard relative"
+          style={{
+            width: preset.width,
+            height,
+            borderRadius: preset.radius,
+            background: paper,
+            boxShadow: "0 10px 34px rgba(24, 24, 27, 0.10)",
+            ...(scale !== 1
+              ? { transform: `scale(${scale})`, transformOrigin: "top left" }
+              : {}),
+            ...(compact ? {} : { width }),
+          }}
+        >
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ borderRadius: preset.radius }}
+          >
+            {render({ theme, style })}
+          </div>
+          {/* Clean mode draws a crisp rounded frame (un-clipped, so corners are
+              never cut). Sketchy mode gets its frame from the rough overlay. */}
+          {!sketchy && !skeleton && (
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                borderRadius: preset.radius,
+                border: `1.5px solid ${theme === "dark" ? "#46433d" : "#34322e"}`,
+              }}
+            />
+          )}
+          <RoughOverlay
+            scopeRef={ref}
+            enabled={sketchy}
+            frameRadius={preset.radius}
+            selector={selector}
+          />
+        </div>
+      </div>
+      {caption && (
+        <p className="mt-2 text-center text-xs text-plan-muted">{caption}</p>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* HTML artboard — model-authored HTML, themed + roughened by the renderer.   */
+/* -------------------------------------------------------------------------- */
+
+function HtmlArtboard({
+  data,
+  compact,
+  canvasSize,
+  canvasWidth,
+}: {
+  data: PlanWireframeBlock["data"];
+  compact?: boolean;
+  canvasSize?: number;
+  canvasWidth?: number;
+}) {
+  return (
+    <ArtboardFrame
+      surface={data.surface}
+      compact={compact}
+      canvasSize={canvasSize}
+      canvasWidth={canvasWidth}
+      skeleton={data.skeleton}
+      selector={HTML_ROUGH_SELECTOR}
+      caption={data.caption}
+      render={({ theme, style }) => (
+        <div
+          className="plan-html-frame"
+          data-theme={theme}
+          data-style={style}
+          data-skeleton={data.skeleton ? "true" : undefined}
+          dangerouslySetInnerHTML={{ __html: data.html ?? "" }}
+        />
+      )}
     />
   );
 }
@@ -98,59 +268,35 @@ function KitWireframe({
   data,
   compact,
   canvasSize,
+  canvasWidth,
 }: {
   data: PlanWireframeBlock["data"];
   compact?: boolean;
   canvasSize?: number;
+  canvasWidth?: number;
 }) {
-  const preset = SURFACE_PRESETS[data.surface] ?? SURFACE_PRESETS.desktop;
-  const height = canvasSize ?? preset.height;
-  const scale = compact ? Math.min(1, 320 / preset.width) : 1;
-
   return (
-    <div
-      className="plan-kit-wireframe"
-      style={{
-        width: compact ? preset.width * scale : "100%",
-        maxWidth: preset.width,
-      }}
-    >
-      <div
-        style={{
-          width: compact ? preset.width * scale : "100%",
-          maxWidth: preset.width,
-          height: compact ? height * scale : height,
-          marginInline: "auto",
-        }}
-      >
-        <div
-          className="plan-kit-artboard relative h-full w-full overflow-hidden bg-white"
-          style={{
-            width: preset.width,
-            height,
-            borderRadius: preset.radius,
-            border: "1.4px solid var(--plan-sketch-line, #34322e)",
-            boxShadow: "0 10px 34px rgba(24, 24, 27, 0.10)",
-            ...(scale !== 1
-              ? { transform: `scale(${scale})`, transformOrigin: "top left" }
-              : {}),
-            ...(compact ? {} : { width: "100%" }),
-          }}
+    <ArtboardFrame
+      surface={data.surface}
+      compact={compact}
+      canvasSize={canvasSize}
+      canvasWidth={canvasWidth}
+      skeleton={data.skeleton}
+      selector="[data-rough]"
+      caption={data.caption}
+      render={({ theme, style }) => (
+        <KitConfigContext.Provider
+          value={{ skeleton: data.skeleton, theme, style }}
         >
-          {renderKitScreen(data.screen)}
-        </div>
-      </div>
-      {data.caption && (
-        <p className="mt-2 text-center text-xs text-plan-muted">
-          {data.caption}
-        </p>
+          {renderKitScreen(data.screen ?? [])}
+        </KitConfigContext.Provider>
       )}
-    </div>
+    />
   );
 }
 
 function renderKitScreen(
-  nodes: PlanWireframeBlock["data"]["screen"],
+  nodes: NonNullable<PlanWireframeBlock["data"]["screen"]>,
 ): ReactNode {
   if (nodes.length === 1 && nodes[0]?.el === "screen") {
     return renderNodes(nodes);

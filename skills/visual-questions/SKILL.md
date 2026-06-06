@@ -1,8 +1,9 @@
 ---
 name: visual-questions
 description: >-
-  Use Agent-Native Plans to ask rich visual intake questions before creating a
-  UI plan or visual plan.
+  Use Agent-Native Plans to ask rich visual intake questions when
+  /visual-questions is explicitly requested before creating a UI plan or visual
+  plan.
 metadata:
   visibility: both
 ---
@@ -26,6 +27,9 @@ the next planning prompt. It composes with `/visual-plan`, `/ui-plan`, and
 Gate hard: skip this for tiny, unambiguous changes. If the agent can reasonably
 infer the answer, prefer `/ui-plan` or `/visual-plan` directly and put
 assumptions in the plan.
+
+Visual questions are an explicit intake command, not an automatic preflight for
+`/visual-plan` or `/ui-plan`.
 
 ## Workflow
 

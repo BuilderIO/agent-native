@@ -222,6 +222,8 @@ function findCoreSrcDir(cwd: string): string | null {
 const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
+  "@agent-native/core/blocks",
+  "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
   "@agent-native/core/client/tools", // legacy alias
   "@agent-native/core/client/org",
@@ -333,6 +335,11 @@ function getCoreSourceAliases(
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
+    "@agent-native/core/blocks/server": path.join(
+      coreSrc,
+      "client/blocks/server.ts",
+    ),
     "@agent-native/core/client/extensions": path.join(
       coreSrc,
       "client/extensions/index.ts",
@@ -1436,6 +1443,17 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
             nitroVitePlugin({
               serverDir: "./server",
               ...(options.nitro ?? {}),
+              // Never auto-load test files as server handlers/plugins/middleware.
+              // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
+              // *.spec.ts would otherwise be loaded at runtime and crash the server
+              // (its top-level vitest calls throw). Keep tests next to their source safely.
+              ignore: [
+                ...((options.nitro as { ignore?: string[] })?.ignore ?? []),
+                "**/*.spec.ts",
+                "**/*.spec.tsx",
+                "**/*.test.ts",
+                "**/*.test.tsx",
+              ],
               routeRules: {
                 ...mcpEmbedStaticAssetRouteRules(appBasePath),
                 ...((options.nitro as { routeRules?: Record<string, any> })

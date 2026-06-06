@@ -938,9 +938,14 @@ function AssetsPickerModal({
   onOpenChange: (open: boolean) => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [pickerReady, setPickerReady] = useState(false);
   const sourceUrl = useMemo(() => assetPickerUrl(), []);
   const iframeUrl = useMemo(() => withEmbeddedParams(sourceUrl), [sourceUrl]);
   const targetOrigin = useMemo(() => assetPickerOrigin(iframeUrl), [iframeUrl]);
+
+  useEffect(() => {
+    if (open) setPickerReady(false);
+  }, [iframeUrl, open]);
 
   useEffect(() => {
     if (!open || !targetOrigin) return;
@@ -951,6 +956,7 @@ function AssetsPickerModal({
       if (!isEmbedEnvelope(event.data)) return;
 
       if (event.data.type === "ready") {
+        setPickerReady(true);
         iframeRef.current?.contentWindow?.postMessage(
           embedEnvelope("message", {
             name: "configure",
@@ -1029,15 +1035,21 @@ function AssetsPickerModal({
           </button>
         </div>
         {targetOrigin ? (
-          <iframe
-            ref={iframeRef}
-            src={iframeUrl}
-            title="Assets image picker"
-            className="min-h-0 flex-1 border-0 bg-background"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
-            allow="clipboard-read; clipboard-write; microphone; fullscreen"
-            referrerPolicy="strict-origin-when-cross-origin"
-          />
+          <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+            {!pickerReady && <AssetsPickerLoadingSkeleton />}
+            <iframe
+              ref={iframeRef}
+              src={iframeUrl}
+              title="Assets image picker"
+              className={cn(
+                "absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150",
+                pickerReady ? "opacity-100" : "pointer-events-none opacity-0",
+              )}
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+              allow="clipboard-read; clipboard-write; microphone; fullscreen"
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          </div>
         ) : (
           <div className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
             The configured image picker URL is not valid.
@@ -1046,5 +1058,29 @@ function AssetsPickerModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+function AssetsPickerLoadingSkeleton() {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col gap-5 p-5"
+      role="status"
+      aria-label="Loading Assets picker"
+    >
+      <div className="flex items-center gap-3">
+        <div className="h-9 flex-1 animate-pulse rounded-md bg-muted" />
+        <div className="h-9 w-24 animate-pulse rounded-md bg-muted" />
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div key={index} className="flex min-w-0 flex-col gap-2">
+            <div className="aspect-square w-full animate-pulse rounded-lg bg-muted" />
+            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   PLAN_SOURCES,
   PLAN_STATUSES,
   type PlanBundle,
+  type PlanAuthor,
   type PlanComment,
   type PlanEvent,
   type PlanSection,
@@ -49,12 +50,15 @@ export const sectionInputSchema = z.object({
 
 export const commentInputSchema = z.object({
   id: z.string().optional(),
+  parentCommentId: z.string().optional(),
   sectionId: z.string().optional(),
   kind: planCommentKindSchema.optional().default("comment"),
   status: planCommentStatusSchema.optional().default("open"),
   anchor: z.string().optional(),
   message: z.string().min(1),
   createdBy: planAuthorSchema.optional().default("human"),
+  authorEmail: z.string().trim().optional(),
+  authorName: z.string().trim().optional(),
 });
 
 export function newId(prefix: string): string {
@@ -63,6 +67,32 @@ export function newId(prefix: string): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function resolveCommentAuthor(input: {
+  createdBy: PlanAuthor;
+  authorEmail?: string | null;
+  authorName?: string | null;
+  requestEmail?: string | null;
+  requestName?: string | null;
+}): { authorEmail: string | null; authorName: string | null } {
+  const requestEmail = nonEmpty(input.requestEmail);
+  const requestName = nonEmpty(input.requestName);
+  return {
+    authorEmail:
+      input.createdBy === "human"
+        ? (requestEmail ?? nonEmpty(input.authorEmail))
+        : nonEmpty(input.authorEmail),
+    authorName:
+      input.createdBy === "human"
+        ? (requestName ?? nonEmpty(input.authorName))
+        : nonEmpty(input.authorName),
+  };
 }
 
 export function planPath(id: string): string {
@@ -113,12 +143,15 @@ export function toComment(
   return {
     id: row.id,
     planId: row.planId,
+    parentCommentId: row.parentCommentId,
     sectionId: row.sectionId,
     kind: row.kind,
     status: row.status,
     anchor: row.anchor,
     message: row.message,
     createdBy: row.createdBy,
+    authorEmail: row.authorEmail,
+    authorName: row.authorName,
     consumedAt: row.consumedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
