@@ -130,6 +130,22 @@
   padding: 7px 14px;
   cursor: default;
 }
+.plan-html-frame[data-prototype-live="true"]
+  :is(button, .wf-btn, [role="button"], [data-goto]) {
+  cursor: pointer;
+}
+.plan-html-frame[data-prototype-live="true"] :is(button, .wf-btn):active {
+  transform: translateY(1px);
+}
+.plan-html-frame[data-prototype-live="true"] [hidden] {
+  display: none !important;
+}
+.plan-html-frame[data-prototype-live="true"] .is-done,
+.plan-html-frame[data-prototype-live="true"] [data-done="true"] {
+  color: var(--wf-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
 .plan-html-frame button.primary,
 .plan-html-frame .wf-btn.primary,
 .plan-html-frame [data-primary] {

@@ -25,8 +25,10 @@ review before code changes happen.
   Google OAuth env vars are configured.
 - Runtime plan content is normalized JSON in SQL. MDX is the source-control
   surface: `plan.mdx` for frontmatter plus markdown/document blocks,
-  `canvas.mdx` for optional DesignBoard/Section/Artboard/Screen/Annotation/
-  Connector markup, optional `assets/`, and optional `.plan-state.json`.
+  `prototype.mdx` for optional Prototype/PrototypeScreen/PrototypeTransition
+  markup, `canvas.mdx` for optional DesignBoard/Section/Artboard/Screen/
+  Annotation/Connector markup, optional `assets/`, and optional
+  `.plan-state.json`.
 - Surface material assumptions only when they change behavior, data, security,
   tests, deployment, or definition of done.
 - Before edits, read pending feedback with `get-plan-feedback`.
@@ -44,6 +46,14 @@ planning mode: inspect the codebase, use parallel agents when useful, gather the
 information needed, ask clarifying questions through the host's native
 ask-user-question tools when needed, then call `create-visual-plan` to publish
 the plan.
+
+Use `/prototype-plan` when the user needs to click through states or review the
+feel of an interaction before implementation. Call `create-prototype-plan` for a
+new prototype-first plan. Call `convert-visual-plan-to-prototype` when an
+existing visual plan has HTML canvas wireframes that should become a live
+prototype. Prototype plans keep static mocks in the document and use the top
+viewer for clickable review, comments, rough/clean mode, dark/light mode, and
+prototype popout.
 
 The markdown/document portion should stay close to the plan the agent would
 normally produce. Diagrams, wireframes, mockups, and annotations are additive
@@ -63,6 +73,8 @@ Document Quality cores, so do not restate those rules here.
   for any rich plan.
 - `.agents/skills/ui-plan/SKILL.md` — `/ui-plan`, UI-first work that starts with
   the screens.
+- `.agents/skills/prototype-plan/SKILL.md` — `/prototype-plan`, clickable
+  prototype-first planning and visual-plan conversion.
 - `.agents/skills/visual-questions/SKILL.md` — `/visual-questions`, visual intake
   before a plan.
 - `.agents/skills/visualize-plan/SKILL.md` — `/visualize-plan`, a companion for
@@ -95,15 +107,23 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by
   comments, source patches, or structured content patches rather than direct
   rich-text editing.
-- Plan comments include reviewer identity and Figma-style threads. When adding
+- Plan comments include reviewer identity, @mentions, resolver intent
+  (`agent` or `human`), exact anchors, and Figma-style threads. When adding
   human feedback through `update-visual-plan`, preserve `authorEmail` and
   `authorName` when known; pass `parentCommentId` to reply inline to an
-  existing comment thread. `get-plan-feedback` returns both flat comments and
-  grouped threads for multi-reviewer triage.
+  existing comment thread. Text feedback should anchor to the nearest prose
+  block, and visual/canvas feedback should include target coordinates plus
+  concise surrounding context.
+- `get-plan-feedback` returns flat comments, grouped threads, anchor summaries,
+  detailed anchor lines, and recent review events that describe the edit/comment
+  delta. Use those fields before changing code or updating the plan, especially
+  to distinguish comments the agent should act on from comments intended for a
+  human reviewer.
 - New human comments send best-effort transactional email when email is
-  configured: root comments and replies notify the plan owner, and replies also
-  notify prior human participants in that thread. Reuse the shared `renderEmail`
-  template; do not invent a separate plan-specific email style.
+  configured: root comments and replies notify the plan owner, @mentioned
+  members, and replies also notify prior human participants in that thread.
+  Reuse the shared `renderEmail` template; do not invent a separate
+  plan-specific email style.
 
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,

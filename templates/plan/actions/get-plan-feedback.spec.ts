@@ -105,7 +105,20 @@ describe("get-plan-feedback action", () => {
       plan,
       sections: [section],
       comments: [anchored],
-      events: [],
+      events: [
+        {
+          id: "evt_1",
+          planId: "plan_1",
+          type: "plan.updated",
+          message: "Human added inline visual plan feedback.",
+          payload: {
+            insertedCommentIds: ["human-open"],
+            contentPatchOps: [],
+          },
+          createdBy: "human",
+          createdAt: "2026-01-01T00:00:01.000Z",
+        },
+      ],
       summary: {
         sectionCounts: { summary: 1 },
         commentCount: 1,
@@ -119,5 +132,125 @@ describe("get-plan-feedback action", () => {
       (result.comments[0] as PlanComment & { anchorContext?: string })
         .anchorContext,
     ).toBe('Implementation steps: "Initialize npm project"');
+    expect(
+      (
+        result.comments[0] as PlanComment & {
+          anchorDetails?: string[];
+        }
+      ).anchorDetails,
+    ).toEqual([
+      "Expected resolver: agent",
+      'Location: Implementation steps: "Initialize npm project"',
+    ]);
+    expect(
+      (
+        result as PlanBundle & {
+          recentReviewEvents?: Array<{ payload?: unknown }>;
+        }
+      ).recentReviewEvents?.[0]?.payload,
+    ).toEqual({
+      insertedCommentIds: ["human-open"],
+      contentPatchOps: [],
+    });
+  });
+
+  it("returns actionable, human-review, target, and visual-overflow manifests", async () => {
+    const visualComments = Array.from({ length: 9 }, (_, index) => {
+      const item = comment(`visual-${index}`, "human");
+      item.kind = "annotation";
+      item.anchor = JSON.stringify({
+        anchorKind: "point",
+        targetKind: "canvas",
+        canvasX: index * 10,
+        canvasY: index * 5,
+        planAnnotationId: `pin-${index}`,
+      });
+      return item;
+    });
+    const humanReview = comment("human-review", "human");
+    humanReview.resolutionTarget = "human";
+    humanReview.anchor = JSON.stringify({
+      anchorKind: "text",
+      sectionTitle: "Policy",
+      textQuote: "Require manager approval",
+    });
+    const prototypeVisual = comment("prototype-visual", "human");
+    prototypeVisual.anchor = JSON.stringify({
+      anchorKind: "visual",
+      targetKind: "prototype",
+      screenId: "confirm",
+      targetX: 42,
+      targetY: 36,
+    });
+
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan,
+      sections: [section],
+      comments: [...visualComments, prototypeVisual, humanReview],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 11,
+        openCommentCount: 11,
+      },
+    } satisfies PlanBundle);
+
+    const result = (await action.run({ planId: "plan_1" })) as PlanBundle & {
+      actionableThreads: Array<{ id: string; resolutionTarget: string }>;
+      humanReviewThreads: Array<{ id: string; resolutionTarget: string }>;
+      targets: Array<{ targetId: string }>;
+      feedbackSummary: {
+        actionableThreadCount: number;
+        humanReviewThreadCount: number;
+        visualThreadCount: number;
+        feedbackImageBudget: number;
+        overflowVisualCount: number;
+      };
+      overflowVisual: Array<{ id: string; anchorDetails: string[] }>;
+      instructions: string[];
+    };
+
+    expect(result.actionableThreads.map((thread) => thread.id)).toEqual(
+      expect.arrayContaining(["visual-0", "prototype-visual"]),
+    );
+    expect(result.humanReviewThreads).toEqual([
+      expect.objectContaining({
+        id: "human-review",
+        resolutionTarget: "human",
+      }),
+    ]);
+    expect(result.targets.map((target) => target.targetId)).toContain(
+      "canvas-annotation:pin-0",
+    );
+    expect(result.feedbackSummary).toMatchObject({
+      actionableThreadCount: 10,
+      humanReviewThreadCount: 1,
+      visualThreadCount: 10,
+      feedbackImageBudget: 8,
+      overflowVisualCount: 2,
+    });
+    expect(
+      (
+        result.threads as Array<{
+          id: string;
+          isVisual: boolean;
+          anchorDetails: string[];
+        }>
+      ).find((thread) => thread.id === "prototype-visual"),
+    ).toMatchObject({
+      isVisual: true,
+      anchorDetails: expect.arrayContaining(["Prototype screen: confirm"]),
+    });
+    expect(result.overflowVisual).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "visual-8",
+          anchorDetails: expect.arrayContaining(["Canvas point: 80, 40"]),
+        }),
+      ]),
+    );
+    expect(result.instructions.join("\n")).toContain(
+      "Focused screenshot attachments",
+    );
   });
 });

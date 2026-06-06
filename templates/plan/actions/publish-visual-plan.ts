@@ -4,6 +4,7 @@ import { z } from "zod";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertPlanEditor,
   loadPlanBundle,
   planDeepLink,
   planPath,
@@ -68,6 +69,11 @@ export default defineAction({
       "Publish a local plan to the connected hosted instance for sharing, or report that an account must be connected first.",
   },
   run: async (args) => {
+    // Publishing exports + forwards the full plan and writes back the hosted
+    // link, so it must be gated to an editor/owner — never a viewer-share or
+    // public-link reader (who could otherwise exfiltrate a plan they don't own
+    // or repoint the owner's published link). Mirrors update-visual-plan.
+    await assertPlanEditor(args.planId);
     // Load the local plan (scoped by the current owner / local identity).
     const bundle = await loadPlanBundle(args.planId);
 

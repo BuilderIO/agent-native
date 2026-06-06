@@ -133,6 +133,24 @@ describe("plan comment notification recipients", () => {
     ).toEqual([]);
   });
 
+  it("notifies people explicitly mentioned in a comment", () => {
+    const newComment = comment("reviewer", {
+      authorEmail: "reviewer@example.com",
+      message: "Please check @[Tiana](mailto:tiana%40example.com).",
+    });
+
+    expect(
+      planCommentNotificationRecipients({
+        comment: newComment,
+        comments: [newComment],
+        planOwnerEmail: "owner@example.com",
+      }),
+    ).toEqual([
+      { email: "owner@example.com", reason: "plan-owner" },
+      { email: "tiana@example.com", reason: "mention" },
+    ]);
+  });
+
   it("notifies prior human thread participants for replies", () => {
     const root = comment("root", { authorEmail: "root@example.com" });
     const participant = comment("participant", {

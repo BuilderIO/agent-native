@@ -139,6 +139,19 @@ export interface BlockRenderContext {
     /** Tighten embedded visuals in dense contexts (e.g. tab panes). */
     compactVisuals?: boolean;
   }) => React.ReactNode;
+  /**
+   * Wrap a block's edit form in an app-provided "panel" surface (e.g. a shadcn
+   * Popover anchored to the corner edit button) for `editSurface: "panel"`
+   * blocks. Core renders the rendered `Read` view plus a corner trigger button
+   * and the form, then hands them here so the app owns the overlay primitive
+   * (core stays shadcn-free, mirroring `renderMarkdownEditor`). When omitted, a
+   * panel-mode block falls back to inline editing. `title` is the block label.
+   */
+  renderEditSurface?: (props: {
+    title: string;
+    trigger: React.ReactNode;
+    children: React.ReactNode;
+  }) => React.ReactNode;
 }
 
 /**
@@ -198,6 +211,20 @@ export interface BlockSpec<TData = unknown> {
   Edit?: FC<BlockEditProps<TData>>;
   /** Allowed placements: `["block"]`, `["inline"]`, or both. */
   placement: BlockPlacement[];
+  /**
+   * How the block is edited in a `block`-placed document:
+   * - `"inline"` — the `Edit`/auto-form renders in place (direct manipulation:
+   *   prose, checklists, tables).
+   * - `"panel"` — the block shows its rendered `Read` view with a corner edit
+   *   button that opens the `Edit`/auto-form in an app-provided panel (popover).
+   *   Best for config-driven blocks whose render differs from their props
+   *   (custom HTML, charts, any user-registered block).
+   * Defaults to `"inline"` when a custom `Edit` is supplied, else `"panel"`
+   * (auto-form blocks are property forms, ideal for a panel). The app must wire
+   * `ctx.renderEditSurface` for `"panel"` to take effect; otherwise it falls
+   * back to inline.
+   */
+  editSurface?: "inline" | "panel";
   /** Human label for menus + agent schema export. */
   label: string;
   /** Tabler icon component for UI menus (never emoji/robot/sparkle). */

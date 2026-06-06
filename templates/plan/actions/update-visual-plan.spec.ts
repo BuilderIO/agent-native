@@ -236,6 +236,8 @@ describe("update-visual-plan comments", () => {
     );
     getDbMock.mockReturnValue({
       transaction: transactionMock,
+      update: txUpdateMock,
+      insert: txInsertMock,
       select: vi.fn(),
     });
     loadPlanBundleMock.mockResolvedValue({
@@ -315,33 +317,22 @@ describe("update-visual-plan comments", () => {
     expect(dbInsertMock).not.toHaveBeenCalled();
   });
 
-  it("persists plan updates and activity events inside a transaction", async () => {
+  it("persists plan updates and activity events through the guarded write path", async () => {
     request.email = "editor@example.com";
-    const txUpdateMock = vi.fn(() => ({
+    const dbUpdateMock = vi.fn(() => ({
       set: vi.fn(() => ({
         where: vi.fn(() => ({
           returning: vi.fn(async () => [{ id: "plan_public" }]),
         })),
       })),
     }));
-    const txInsertValuesMock = vi.fn(async () => undefined);
-    const txInsertMock = vi.fn(() => ({
-      values: txInsertValuesMock,
+    const dbInsertValuesMock = vi.fn(async () => undefined);
+    const dbInsertMock = vi.fn(() => ({
+      values: dbInsertValuesMock,
     }));
-    const transactionMock = vi.fn(async (callback) =>
-      callback({
-        update: txUpdateMock,
-        insert: txInsertMock,
-        select: vi.fn(),
-      }),
-    );
-    const rootUpdateMock = vi.fn(() => {
-      throw new Error("root update should not be used for persisted writes");
-    });
     getDbMock.mockReturnValue({
-      transaction: transactionMock,
-      update: rootUpdateMock,
-      insert: vi.fn(),
+      update: dbUpdateMock,
+      insert: dbInsertMock,
       select: vi.fn(),
     });
     loadPlanBundleMock.mockResolvedValue({
@@ -367,10 +358,8 @@ describe("update-visual-plan comments", () => {
       }),
     ).resolves.toMatchObject({ planId: "plan_public" });
 
-    expect(transactionMock).toHaveBeenCalledOnce();
-    expect(rootUpdateMock).not.toHaveBeenCalled();
-    expect(txUpdateMock).toHaveBeenCalled();
-    expect(txInsertValuesMock).toHaveBeenCalledWith(
+    expect(dbUpdateMock).toHaveBeenCalled();
+    expect(dbInsertValuesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "evt_test",
         planId: "plan_public",
@@ -379,5 +368,119 @@ describe("update-visual-plan comments", () => {
         createdBy: "agent",
       }),
     );
+  });
+
+  it("records compact before/after details for targeted content patches", async () => {
+    request.email = "editor@example.com";
+    const txUpdateMock = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "plan_public" }]),
+        })),
+      })),
+    }));
+    const txInsertValuesMock = vi.fn(async () => undefined);
+    const txInsertMock = vi.fn(() => ({
+      values: txInsertValuesMock,
+    }));
+    const transactionMock = vi.fn(async (callback) =>
+      callback({
+        update: txUpdateMock,
+        insert: txInsertMock,
+        select: vi.fn(),
+      }),
+    );
+    getDbMock.mockReturnValue({
+      transaction: transactionMock,
+      update: txUpdateMock,
+      insert: txInsertMock,
+      select: vi.fn(),
+    });
+    loadPlanBundleMock.mockResolvedValue({
+      plan: {
+        id: "plan_public",
+        title: "Edited title",
+        brief: "",
+        updatedAt: "2026-06-05T00:00:00.000Z",
+        content: {
+          version: 2,
+          title: "Commenting UX",
+          brief: "Make review precise.",
+          blocks: [
+            {
+              id: "intro",
+              type: "rich-text",
+              title: "Intro",
+              data: { markdown: "Old intro copy." },
+            },
+            {
+              id: "wire",
+              type: "wireframe",
+              title: "Composer",
+              data: {
+                surface: "desktop",
+                html: "<button>Old CTA</button>",
+              },
+            },
+          ],
+        },
+      },
+      sections: [],
+      comments: [],
+      events: [],
+    });
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "New intro copy.",
+          },
+          {
+            op: "patch-wireframe-html",
+            blockId: "wire",
+            edits: [{ find: "Old CTA", replace: "New CTA" }],
+          },
+        ],
+        markdown: "",
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+
+    const eventRow = txInsertValuesMock.mock.calls
+      .map((call) => call[0] as { type?: string; payload?: string })
+      .find((row) => row.type === "plan.updated");
+    const payload = JSON.parse(eventRow?.payload ?? "{}") as {
+      contentPatchDetails?: Array<{
+        op: string;
+        targetId: string;
+        before?: { excerpt?: string } | null;
+        after?: { excerpt?: string } | null;
+        patch?: unknown;
+      }>;
+    };
+
+    expect(payload.contentPatchDetails).toEqual([
+      expect.objectContaining({
+        op: "update-rich-text",
+        targetId: "intro",
+        before: expect.objectContaining({ excerpt: "Old intro copy." }),
+        after: expect.objectContaining({ excerpt: "New intro copy." }),
+      }),
+      expect.objectContaining({
+        op: "patch-wireframe-html",
+        targetId: "wire",
+        before: expect.objectContaining({
+          excerpt: "<button>Old CTA</button>",
+        }),
+        after: expect.objectContaining({ excerpt: "<button>New CTA</button>" }),
+        patch: expect.objectContaining({ editCount: 1 }),
+      }),
+    ]);
   });
 });

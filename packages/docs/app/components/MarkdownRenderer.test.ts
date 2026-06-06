@@ -32,6 +32,18 @@ describe("renderMarkdownToHtml", () => {
     expect(html).toContain('<a href="https://x.test">site</a>');
   });
 
+  it("renders known docs images with reserved dimensions", () => {
+    const html = renderMarkdownToHtml("![Mail inbox](/screenshots/mail.png)");
+
+    expect(html).toContain('class="docs-image-frame"');
+    expect(html).toContain("aspect-ratio: 1400 / 710");
+    expect(html).toContain('class="docs-image"');
+    expect(html).toContain('width="1400"');
+    expect(html).toContain('height="710"');
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('decoding="async"');
+  });
+
   it("infers markdown highlighting for generic markdown-like snippets", () => {
     const html = renderMarkdownToHtml(`
 \`\`\`text

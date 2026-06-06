@@ -16,10 +16,16 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
       "/_agent-native/actions/create-ui-plan",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/create-prototype-plan",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
       "/_agent-native/actions/create-visual-questions",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
       "/_agent-native/actions/visualize-plan",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/convert-visual-plan-to-prototype",
     );
   });
 

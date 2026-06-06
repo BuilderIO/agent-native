@@ -1491,8 +1491,14 @@ function rewriteTrackingAppId(
 
   try {
     const content = fs.readFileSync(rootPath, "utf-8");
-    const pattern =
-      /(^\s*app:\s*)(["'])(?:agent-native-[^"']+|\{\{APP_NAME\}\})\2(\s*,?)/m;
+    const sourceAppIds = ["agent-native-[^\"']+", "\\{\\{APP_NAME\\}\\}"];
+    if (templateName && templateName !== appName) {
+      sourceAppIds.push(escapeRegExp(templateName));
+    }
+    const pattern = new RegExp(
+      `(^\\s*app:\\s*)(["'])(?:${sourceAppIds.join("|")})\\2(\\s*,?)`,
+      "m",
+    );
     if (!pattern.test(content)) return;
 
     let next = content.replace(
@@ -1516,6 +1522,10 @@ function rewriteTrackingAppId(
       fs.writeFileSync(rootPath, next);
     }
   } catch {}
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function hasTrackingTemplate(content: string): boolean {

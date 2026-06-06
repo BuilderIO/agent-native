@@ -547,10 +547,64 @@ export type PlanCanvasViewport = {
   };
 };
 
+/* -------------------------------------------------------------------------- */
+/* Prototype — functional top review surface                                  */
+/* -------------------------------------------------------------------------- */
+
+export type PlanPrototypeScreen = {
+  id: string;
+  title?: string;
+  summary?: string;
+  surface?: PlanWireframeSurface;
+  /**
+   * A bounded semantic HTML fragment. Prototype HTML may use the renderer's
+   * safe Alpine-like directives (`x-data`, `x-model`, `x-for`, `x-text`,
+   * `x-show`, `:class`, `@click`, `@keydown.enter`) for real local
+   * interactions. Use `data-goto="screen-id"` only for true screen/route
+   * changes; never include scripts.
+   */
+  html: string;
+  /** Small visible state facts for the current screen. */
+  state?: Array<{
+    id?: string;
+    label: string;
+    value: string;
+  }>;
+};
+
+export type PlanPrototypeTransition = {
+  id?: string;
+  from: string;
+  to: string;
+  label?: string;
+  /**
+   * Human-readable trigger hint, such as "click Continue" or
+   * "select a task row". Runtime screen navigation still uses `data-goto`.
+   */
+  trigger?: string;
+};
+
+export type PlanPrototype = {
+  title?: string;
+  brief?: string;
+  surface?: PlanWireframeSurface;
+  initialScreenId?: string;
+  screens: PlanPrototypeScreen[];
+  transitions?: PlanPrototypeTransition[];
+};
+
 export type PlanContent = {
   version: number;
   title?: string;
   brief?: string;
+  /**
+   * Opt-in "Sync to Notion" mode. When true, the document editor restricts the
+   * slash menu to Notion-Flavored-Markdown-representable blocks and badges any
+   * already-present incompatible blocks. Absent/false means normal mode (all
+   * block types allowed). See `shared/notion-compat.ts`.
+   */
+  notionSync?: boolean;
+  prototype?: PlanPrototype;
   canvas?: {
     title?: string;
     /** Optional initial viewport persisted by source-sync exports. */
@@ -573,6 +627,28 @@ export type PlanContent = {
 /* -------------------------------------------------------------------------- */
 
 export type PlanContentPatch =
+  | {
+      op: "set-prototype";
+      prototype: PlanPrototype;
+    }
+  | {
+      op: "remove-prototype";
+    }
+  | {
+      op: "update-prototype-screen";
+      screenId: string;
+      patch: Partial<Omit<PlanPrototypeScreen, "id">>;
+    }
+  | {
+      /**
+       * Surgically edit a prototype screen's `html` via find/replace snippets.
+       * This mirrors `patch-wireframe-html` so agents can patch one live state
+       * without regenerating every screen.
+       */
+      op: "patch-prototype-html";
+      screenId: string;
+      edits: Array<{ find: string; replace: string; all?: boolean }>;
+    }
   | {
       op: "replace-block";
       blockId: string;
@@ -658,6 +734,11 @@ export type PlanContentPatch =
   | {
       op: "remove-block";
       blockId: string;
+    }
+  | {
+      /** Toggle the per-plan "Sync to Notion" setting (a top-level scalar). */
+      op: "set-notion-sync";
+      value: boolean;
     };
 
 /* -------------------------------------------------------------------------- */
@@ -674,10 +755,37 @@ const baseBlockSchema = z.object({
 });
 
 const unsafeCustomHtmlPattern =
-  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form)[\s>/]|\b(?:javascript|data:text\/html)\s*:|\bsrcdoc\s*=|\bon[a-z][\w:-]*\s*=)/i;
+  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)[\s>/]|\b(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml))\s*:?\s*|\bsrcdoc\s*=|(?:^|\s)(?:on[a-z][\w:-]*|:on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=|expression\s*\(|url\s*\(\s*['"]?\s*(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml)))/i;
 
-const noFullHtmlDocument = (value: string) =>
-  !unsafeCustomHtmlPattern.test(value);
+function decodeSafetyEntities(value: string): string {
+  return value
+    .replace(/&#(x[0-9a-f]+|\d+);?/gi, (_, code: string) => {
+      const point = code.toLowerCase().startsWith("x")
+        ? Number.parseInt(code.slice(1), 16)
+        : Number.parseInt(code, 10);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    })
+    .replace(/&(colon|tab|newline);/gi, (_, name: string) => {
+      if (name.toLowerCase() === "colon") return ":";
+      if (name.toLowerCase() === "tab") return "\t";
+      return "\n";
+    });
+}
+
+const compactSafetyText = (value: string) =>
+  decodeSafetyEntities(value)
+    .toLowerCase()
+    .replace(/[\u0000-\u0020]+/g, "");
+
+const noFullHtmlDocument = (value: string) => {
+  const compact = compactSafetyText(value);
+  return (
+    !unsafeCustomHtmlPattern.test(value) &&
+    !/(?:javascript|vbscript):|data:(?:text\/html|image\/svg\+xml)|expression\(|url\(['"]?(?:javascript|vbscript|data:(?:text\/html|image\/svg\+xml))/.test(
+      compact,
+    )
+  );
+};
 
 const toneSchema = z.enum(["default", "accent", "warn", "ok", "muted"]);
 
@@ -715,6 +823,8 @@ const elNameSchema = z.enum([
 
 const WIREFRAME_MAX_DEPTH = 8;
 const WIREFRAME_MAX_NODES = 400;
+const PLAN_BLOCK_MAX_DEPTH = 40;
+const PLAN_BLOCK_MAX_VISITS = 5_000;
 
 /**
  * Recursive node schema, bounded in depth and total node count. Props are kept
@@ -1202,34 +1312,173 @@ const boardSectionSchema: z.ZodType<PlanBoardSection> = z.object({
   artboardIds: z.array(idSchema).max(80).optional(),
 });
 
-export const planContentSchema: z.ZodType<PlanContent> = z
+const prototypeScreenStateSchema = z.object({
+  id: idSchema.optional(),
+  label: z.string().trim().min(1).max(80),
+  value: z.string().trim().max(180),
+});
+
+const prototypeScreenSchema: z.ZodType<PlanPrototypeScreen> = z
   .object({
-    version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
-    title: z.string().trim().max(240).optional(),
-    brief: z.string().trim().max(4_000).optional(),
-    canvas: z
-      .object({
-        title: z.string().trim().max(180).optional(),
-        viewport: z
-          .object({
-            zoom: z.number().min(0.05).max(8).optional(),
-            pan: z
-              .object({
-                x: z.number().optional(),
-                y: z.number().optional(),
-              })
-              .optional(),
-          })
-          .optional(),
-        sections: z.array(boardSectionSchema).max(40).optional(),
-        frames: z.array(artboardSchema).max(40).default([]),
-        flow: z.array(connectorSchema).max(80).optional(),
-        annotations: z.array(annotationSchema).max(80).optional(),
-        notes: z.array(legacyNoteSchema).max(80).optional(),
-      })
-      .optional(),
-    blocks: z.array(planBlockSchema).max(200).default([]),
+    id: idSchema,
+    title: z.string().trim().max(180).optional(),
+    summary: z.string().trim().max(500).optional(),
+    surface: wireframeSurfaceSchema.optional(),
+    html: z.string().max(40_000).refine(noFullHtmlDocument, {
+      message:
+        "Prototype screen html must be a bounded fragment without html/head/body/script/style tags.",
+    }),
+    state: z.array(prototypeScreenStateSchema).max(24).optional(),
   })
+  .strict();
+
+const prototypeTransitionSchema: z.ZodType<PlanPrototypeTransition> = z
+  .object({
+    id: idSchema.optional(),
+    from: idSchema,
+    to: idSchema,
+    label: z.string().trim().max(120).optional(),
+    trigger: z.string().trim().max(240).optional(),
+  })
+  .strict();
+
+const prototypeSchema: z.ZodType<PlanPrototype> = z
+  .object({
+    title: z.string().trim().max(180).optional(),
+    brief: z.string().trim().max(800).optional(),
+    surface: wireframeSurfaceSchema.optional(),
+    initialScreenId: idSchema.optional(),
+    screens: z.array(prototypeScreenSchema).min(1).max(16),
+    transitions: z.array(prototypeTransitionSchema).max(80).optional(),
+  })
+  .strict()
+  .superRefine((prototype, context) => {
+    const screenIds = new Set<string>();
+    for (const [index, screen] of prototype.screens.entries()) {
+      if (screenIds.has(screen.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["screens", index, "id"],
+          message: `Duplicate prototype screen id: ${screen.id}`,
+        });
+      }
+      screenIds.add(screen.id);
+    }
+    if (
+      prototype.initialScreenId &&
+      !screenIds.has(prototype.initialScreenId)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["initialScreenId"],
+        message: `Initial prototype screen ${prototype.initialScreenId} was not found.`,
+      });
+    }
+    for (const [index, transition] of (prototype.transitions ?? []).entries()) {
+      if (!screenIds.has(transition.from)) {
+        context.addIssue({
+          code: "custom",
+          path: ["transitions", index, "from"],
+          message: `Transition source ${transition.from} was not found.`,
+        });
+      }
+      if (!screenIds.has(transition.to)) {
+        context.addIssue({
+          code: "custom",
+          path: ["transitions", index, "to"],
+          message: `Transition target ${transition.to} was not found.`,
+        });
+      }
+    }
+  });
+
+function exceedsPlanBlockDepth(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+
+  const stack: Array<{ blocks: unknown; depth: number }> = [
+    { blocks: (input as { blocks?: unknown }).blocks, depth: 0 },
+  ];
+  let visits = 0;
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || !Array.isArray(current.blocks)) continue;
+    if (current.depth > PLAN_BLOCK_MAX_DEPTH) return true;
+
+    for (const block of current.blocks) {
+      visits += 1;
+      if (visits > PLAN_BLOCK_MAX_VISITS) return true;
+      if (!block || typeof block !== "object") continue;
+      if ((block as { type?: unknown }).type !== "tabs") continue;
+
+      const data = (block as { data?: unknown }).data;
+      const tabs =
+        data && typeof data === "object"
+          ? (data as { tabs?: unknown }).tabs
+          : undefined;
+      if (!Array.isArray(tabs)) continue;
+
+      for (const tab of tabs) {
+        const blocks =
+          tab && typeof tab === "object"
+            ? (tab as { blocks?: unknown }).blocks
+            : undefined;
+        stack.push({ blocks, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  return false;
+}
+
+function preflightPlanContentInput(input: unknown): unknown {
+  if (!exceedsPlanBlockDepth(input)) return input;
+
+  return {
+    version: 2,
+    blocks: [
+      {
+        id: "invalid-plan-block-depth",
+        type: "invalid-plan-block-depth",
+        data: {},
+      },
+    ],
+  };
+}
+
+export const planContentSchema: z.ZodType<PlanContent> = z
+  .preprocess(
+    preflightPlanContentInput,
+    z.object({
+      version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
+      title: z.string().trim().max(240).optional(),
+      brief: z.string().trim().max(4_000).optional(),
+      notionSync: z.boolean().optional(),
+      prototype: prototypeSchema.optional(),
+      canvas: z
+        .object({
+          title: z.string().trim().max(180).optional(),
+          viewport: z
+            .object({
+              zoom: z.number().min(0.05).max(8).optional(),
+              pan: z
+                .object({
+                  x: z.number().optional(),
+                  y: z.number().optional(),
+                })
+                .optional(),
+            })
+            .optional(),
+          sections: z.array(boardSectionSchema).max(40).optional(),
+          frames: z.array(artboardSchema).max(40).default([]),
+          flow: z.array(connectorSchema).max(80).optional(),
+          annotations: z.array(annotationSchema).max(80).optional(),
+          notes: z.array(legacyNoteSchema).max(80).optional(),
+        })
+        .optional(),
+      blocks: z.array(planBlockSchema).max(200).default([]),
+    }),
+  )
   .superRefine((content, context) => {
     const checkUniqueIds = (
       items: Array<{ id: string }> | undefined,
@@ -1452,8 +1701,56 @@ const blockUpdatePatchSchema = z
     message: "Patch must include at least one block field.",
   });
 
+const prototypeScreenPatchSchema = z
+  .object({
+    title: z.string().trim().max(180).optional(),
+    summary: z.string().trim().max(500).optional(),
+    surface: wireframeSurfaceSchema.optional(),
+    html: z
+      .string()
+      .max(40_000)
+      .refine(noFullHtmlDocument, {
+        message:
+          "Prototype screen html must be a bounded fragment without html/head/body/script/style tags.",
+      })
+      .optional(),
+    state: z.array(prototypeScreenStateSchema).max(24).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Patch must include at least one prototype screen field.",
+  });
+
 export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
   z.discriminatedUnion("op", [
+    z.object({
+      op: z.literal("set-prototype"),
+      prototype: prototypeSchema,
+    }),
+    z.object({
+      op: z.literal("remove-prototype"),
+    }),
+    z.object({
+      op: z.literal("update-prototype-screen"),
+      screenId: idSchema,
+      patch: prototypeScreenPatchSchema,
+    }),
+    z.object({
+      op: z.literal("patch-prototype-html"),
+      screenId: idSchema,
+      edits: z
+        .array(
+          z.object({
+            find: z.string().min(1).max(20_000),
+            replace: z.string().max(40_000).refine(noFullHtmlDocument, {
+              message:
+                "Prototype html replacement must be a bounded fragment without html/head/body/script/style tags.",
+            }),
+            all: z.boolean().optional(),
+          }),
+        )
+        .min(1)
+        .max(40),
+    }),
     z.object({
       op: z.literal("replace-block"),
       blockId: idSchema,
@@ -1554,6 +1851,10 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       op: z.literal("remove-block"),
       blockId: idSchema,
     }),
+    z.object({
+      op: z.literal("set-notion-sync"),
+      value: z.boolean(),
+    }),
   ]) as z.ZodType<PlanContentPatch>;
 
 export const planContentPatchesSchema = z.array(planContentPatchSchema).max(80);
@@ -1565,6 +1866,59 @@ export function applyPlanContentPatches(
   const next = cloneJson(planContentSchema.parse(content));
 
   for (const patch of planContentPatchesSchema.parse(patches)) {
+    if (patch.op === "set-prototype") {
+      next.prototype = prototypeSchema.parse(patch.prototype);
+      continue;
+    }
+    if (patch.op === "remove-prototype") {
+      delete next.prototype;
+      continue;
+    }
+    if (patch.op === "update-prototype-screen") {
+      if (!next.prototype) {
+        throw new Error(
+          "Cannot update a prototype screen without a prototype.",
+        );
+      }
+      const screen = next.prototype.screens.find(
+        (candidate) => candidate.id === patch.screenId,
+      );
+      if (!screen) {
+        throw new Error(`Prototype screen ${patch.screenId} was not found.`);
+      }
+      Object.assign(screen, patch.patch);
+      continue;
+    }
+    if (patch.op === "patch-prototype-html") {
+      if (!next.prototype) {
+        throw new Error("Cannot patch prototype html without a prototype.");
+      }
+      const screen = next.prototype.screens.find(
+        (candidate) => candidate.id === patch.screenId,
+      );
+      if (!screen) {
+        throw new Error(`Prototype screen ${patch.screenId} was not found.`);
+      }
+      let html = screen.html;
+      for (const edit of patch.edits) {
+        const count = html.split(edit.find).length - 1;
+        if (count === 0) {
+          throw new Error(
+            `patch-prototype-html: find snippet not present: ${truncateSnippet(edit.find)}`,
+          );
+        }
+        if (count > 1 && !edit.all) {
+          throw new Error(
+            `patch-prototype-html: find snippet matched ${count} times; make it unique or set all:true - ${truncateSnippet(edit.find)}`,
+          );
+        }
+        html = edit.all
+          ? html.split(edit.find).join(edit.replace)
+          : html.replace(edit.find, edit.replace);
+      }
+      screen.html = html;
+      continue;
+    }
     if (patch.op === "replace-block") {
       next.blocks = updateBlock(
         next.blocks,
@@ -1800,6 +2154,12 @@ export function applyPlanContentPatches(
         throw new Error(`Block ${patch.blockId} was not found.`);
       }
       next.blocks = result.blocks;
+    }
+    if (patch.op === "set-notion-sync") {
+      // Keep the field absent (not `false`) when off, so plans that never opt in
+      // stay byte-identical to their pre-feature shape on round-trip.
+      if (patch.value) next.notionSync = true;
+      else delete next.notionSync;
     }
   }
 

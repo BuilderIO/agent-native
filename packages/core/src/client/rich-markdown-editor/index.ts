@@ -45,3 +45,10 @@ export {
   type RichMarkdownEditorProps,
   type CreateRichMarkdownExtensionsOptions,
 } from "./RichMarkdownEditor.js";
+export { RunId, RUN_ID_NODE_TYPES } from "./RunId.js";
+export { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
+export {
+  DragHandle,
+  DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  type DragHandleOptions,
+} from "./DragHandle.js";

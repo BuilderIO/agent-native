@@ -25,6 +25,8 @@ import {
   buildPlanHtml,
   buildUpdatedPlanCommentRows,
   commentInputSchema,
+  commentMetadataForInput,
+  commentResolutionFields,
   loadPlanBundle,
   newId,
   nowIso,
@@ -36,11 +38,192 @@ import {
   applyPlanContentPatches,
   planContentPatchesSchema,
   planContentSchema,
+  type PlanBlock,
+  type PlanContent,
+  type PlanContentPatch,
 } from "../shared/plan-content.js";
+
+const CONTENT_PATCH_EXCERPT_LIMIT = 520;
+
+function compactExcerpt(value: unknown, limit = CONTENT_PATCH_EXCERPT_LIMIT) {
+  const text =
+    typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
+  const compacted = text.replace(/\s+/g, " ").trim();
+  return compacted.length > limit
+    ? `${compacted.slice(0, limit - 3)}...`
+    : compacted;
+}
+
+function blockDataForExcerpt(block: PlanBlock) {
+  if (block.type === "rich-text") return block.data.markdown;
+  if (block.type === "callout") return block.data.body;
+  if (block.type === "wireframe") {
+    return block.data.html ?? block.data.caption ?? block.data.screen;
+  }
+  if (block.type === "diagram") return block.data;
+  if (block.type === "custom-html") return block.data.html;
+  return block.data;
+}
+
+function blockExcerpt(block: PlanBlock | null) {
+  if (!block) return null;
+  return {
+    id: block.id,
+    type: block.type,
+    title: block.title ?? null,
+    summary: block.summary ?? null,
+    excerpt: compactExcerpt(blockDataForExcerpt(block)),
+  };
+}
+
+function findContentBlock(
+  blocks: PlanBlock[],
+  blockId: string,
+): PlanBlock | null {
+  for (const block of blocks) {
+    if (block.id === blockId) return block;
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        const match = findContentBlock(tab.blocks, blockId);
+        if (match) return match;
+      }
+    }
+  }
+  return null;
+}
+
+function contentPatchTargetId(patch: PlanContentPatch) {
+  if ("blockId" in patch) return patch.blockId;
+  if ("screenId" in patch) return patch.screenId;
+  if (patch.op === "set-prototype" || patch.op === "remove-prototype") {
+    return "prototype";
+  }
+  if (patch.op === "update-canvas-frame") return patch.frameId;
+  if (patch.op === "update-canvas-annotation") return patch.annotationId;
+  if (patch.op === "append-canvas-annotation") return patch.annotation.id;
+  if (patch.op === "append-block") return patch.block.id;
+  return null;
+}
+
+function prototypeItemExcerpt(
+  content: PlanContent | null,
+  patch: PlanContentPatch,
+) {
+  if (!content?.prototype) return null;
+  if (patch.op === "set-prototype" || patch.op === "remove-prototype") {
+    return {
+      id: "prototype",
+      type: "prototype",
+      title: content.prototype.title ?? null,
+      excerpt: compactExcerpt({
+        screenCount: content.prototype.screens.length,
+        transitionCount: content.prototype.transitions?.length ?? 0,
+      }),
+    };
+  }
+  if ("screenId" in patch) {
+    const screen = content.prototype.screens.find(
+      (candidate) => candidate.id === patch.screenId,
+    );
+    return screen
+      ? {
+          id: screen.id,
+          type: "prototype-screen",
+          title: screen.title ?? null,
+          excerpt: compactExcerpt(screen.html),
+        }
+      : null;
+  }
+  return null;
+}
+
+function canvasItemExcerpt(
+  content: PlanContent | null,
+  patch: PlanContentPatch,
+) {
+  if (!content?.canvas) return null;
+  if (patch.op === "update-canvas-frame") {
+    const frame = content.canvas.frames.find(
+      (candidate) => candidate.id === patch.frameId,
+    );
+    return frame
+      ? {
+          id: frame.id,
+          type: "canvas-frame",
+          label: frame.label ?? null,
+          excerpt: compactExcerpt(frame),
+        }
+      : null;
+  }
+  if (patch.op === "update-canvas-annotation") {
+    const annotation = content.canvas.annotations?.find(
+      (candidate) => candidate.id === patch.annotationId,
+    );
+    return annotation
+      ? {
+          id: annotation.id,
+          type: "canvas-annotation",
+          title: annotation.title ?? null,
+          excerpt: compactExcerpt(annotation),
+        }
+      : null;
+  }
+  return null;
+}
+
+function contentPatchDetails(input: {
+  before: PlanContent | null;
+  after: PlanContent | null;
+  patches: PlanContentPatch[];
+}) {
+  return input.patches.map((patch, index) => {
+    const targetId = contentPatchTargetId(patch);
+    const beforeBlock =
+      "blockId" in patch && input.before
+        ? findContentBlock(input.before.blocks, patch.blockId)
+        : null;
+    const afterBlock =
+      "blockId" in patch && input.after
+        ? findContentBlock(input.after.blocks, patch.blockId)
+        : patch.op === "append-block"
+          ? patch.block
+          : null;
+    const beforeCanvas = canvasItemExcerpt(input.before, patch);
+    const afterCanvas = canvasItemExcerpt(input.after, patch);
+    const beforePrototype = prototypeItemExcerpt(input.before, patch);
+    const afterPrototype = prototypeItemExcerpt(input.after, patch);
+    return {
+      index,
+      op: patch.op,
+      targetId,
+      before: blockExcerpt(beforeBlock) ?? beforeCanvas ?? beforePrototype,
+      after: blockExcerpt(afterBlock) ?? afterCanvas ?? afterPrototype,
+      patch:
+        patch.op === "patch-wireframe-html" ||
+        patch.op === "patch-prototype-html"
+          ? {
+              editCount: patch.edits.length,
+              edits: patch.edits.map((edit) => ({
+                find: compactExcerpt(edit.find, 180),
+                replace: compactExcerpt(edit.replace, 180),
+                all: Boolean(edit.all),
+              })),
+            }
+          : patch.op === "replace-blocks"
+            ? {
+                beforeBlockCount: input.before?.blocks.length ?? null,
+                afterBlockCount: patch.blocks.length,
+              }
+            : patch.op === "update-prototype-screen"
+              ? { fields: Object.keys(patch.patch) }
+              : null,
+    };
+  });
+}
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one element/text/color inside an html mockup via patch-wireframe-html, one legacy wireframe kit-tree node, a whole wireframe, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
+    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one element/text/color inside an html mockup via patch-wireframe-html or patch-prototype-html, one legacy wireframe kit-tree node, a whole wireframe, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional(),
@@ -53,7 +236,7 @@ export default defineAction({
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits addressed by stable id. Prefer these for small changes: update-block / replace-block, update-rich-text, patch-wireframe-html (change one element/text/color inside an html mockup via find/replace edits — read the current html first with get-visual-plan), update-wireframe-node (one legacy kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single mockup or node without regenerating the plan. The renderer owns all visual styling; emit lean content, not pixels — never supply geometry or coordinates.",
+        "Targeted structured content edits addressed by stable id. Prefer these for small changes: set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype plans; update-block / replace-block, update-rich-text, patch-wireframe-html (change one element/text/color inside an html mockup via find/replace edits - read the current html first with get-visual-plan), update-wireframe-node (one legacy kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single mockup, prototype state, or node without regenerating the plan. The renderer owns all visual styling; emit lean content, not pixels - never supply geometry or coordinates.",
       ),
     markdown: z.string().optional(),
     sections: z.array(sectionInputSchema).optional().default([]),
@@ -223,8 +406,37 @@ export default defineAction({
       requestName: requesterName,
       now,
     });
+    const reviewEventPayload = {
+      titleChanged: args.title !== undefined,
+      briefChanged: args.brief !== undefined,
+      statusChangedTo: args.status ?? null,
+      currentFocusChanged: args.currentFocus !== undefined,
+      htmlChanged: args.html !== undefined,
+      markdownChanged:
+        args.markdown !== undefined || Boolean(markdownFromContent),
+      contentReplaced: args.content !== undefined,
+      contentPatchOps: args.contentPatches.map((patch) => patch.op),
+      contentPatchDetails: contentPatchDetails({
+        before: bundleAtLoad?.plan.content ?? null,
+        after: nextContent,
+        patches: args.contentPatches,
+      }),
+      sectionCount: args.sections.length,
+      existingCommentIdsUpdated: existingCommentUpdates.map(
+        (comment) => comment.id,
+      ),
+      insertedCommentIds: commentRows.map((comment) => comment.id),
+      consumedCommentIds: args.consumedCommentIds,
+      note: args.note ?? null,
+    };
 
-    await db.transaction(async (tx) => {
+    // The local better-sqlite3 driver rejects async transaction callbacks
+    // ("Transaction function cannot return a promise"), so the multi-statement
+    // write runs sequentially rather than inside `db.transaction`. The leading
+    // optimistic-lock UPDATE still guards concurrent writes; the libsql (prod)
+    // driver executes these awaits identically. (A driver-aware atomic helper is
+    // the proper long-term fix.)
+    await (async (tx: typeof db) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment-only validation.
       const updatedRows = await tx
@@ -293,14 +505,26 @@ export default defineAction({
       }
 
       for (const comment of existingCommentUpdates) {
+        const metadata = commentMetadataForInput(comment);
+        const resolution = commentResolutionFields({
+          status: comment.status,
+          createdBy: comment.createdBy,
+          authorEmail: comment.authorEmail,
+          requestEmail: commentRequestEmail,
+          now,
+        });
         await tx
           .update(schema.planComments)
           .set({
             sectionId: comment.sectionId ?? null,
             kind: comment.kind,
             status: comment.status,
-            anchor: comment.anchor ?? null,
+            anchor: metadata.anchor,
             message: comment.message,
+            resolutionTarget: metadata.resolutionTarget,
+            mentionsJson: metadata.mentionsJson,
+            resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
+            resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
             updatedAt: now,
           })
           .where(
@@ -336,11 +560,11 @@ export default defineAction({
           !onlyAddsNewComments && args.note
             ? args.note
             : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
-        payload: null,
+        payload: JSON.stringify(reviewEventPayload),
         createdBy: onlyAddsNewComments ? "human" : "agent",
         createdAt: now,
       });
-    });
+    })(db);
     const bundle = await loadPlanBundle(args.planId);
     await notifyPlanCommentRecipients({
       bundle,

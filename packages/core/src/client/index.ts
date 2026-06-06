@@ -182,6 +182,15 @@ export {
   // Back-compat alias + factory kept for existing embedders and specs.
   RichMarkdownEditor,
   createRichMarkdownExtensions,
+  // Single-doc plan editor primitives: the GFM↔ProseMirror serializer, the
+  // run-id prose attribute, and the shared drag-handle (block grip + reorder).
+  RunId,
+  RUN_ID_NODE_TYPES,
+  gfmToProseJSON,
+  proseJSONToGfm,
+  DragHandle,
+  DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  type DragHandleOptions,
   type SharedRichEditorProps,
   type SharedEditorCollab,
   type SharedEditorFeatures,
@@ -200,6 +209,9 @@ export {
   type RichMarkdownCollabUser,
   type CreateRichMarkdownExtensionsOptions,
 } from "./rich-markdown-editor/index.js";
+// ProseMirror node JSON shape — re-exported so the plan template (which has no
+// direct @tiptap dep) can type its doc↔blocks serializer.
+export type { JSONContent } from "@tiptap/core";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
 export {

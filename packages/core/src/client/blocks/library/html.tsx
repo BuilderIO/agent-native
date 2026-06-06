@@ -64,7 +64,7 @@ export function HtmlReadBlock({
 }: BlockReadProps<HtmlBlockData>) {
   return (
     <section className="plan-block group" data-block-id={blockId}>
-      {title && <h2>{title}</h2>}
+      {title && <div className="plan-block-label">{title}</div>}
       <HtmlPreview data={data} title={title} sanitize={ctx.sanitizeHtml} />
     </section>
   );
@@ -164,6 +164,9 @@ export const htmlBlock = defineBlock<HtmlBlockData>({
   Read: HtmlReadBlock,
   Edit: HtmlEditBlock,
   placement: ["block"],
+  // Config-driven: the render (a sandboxed card) differs from its source, so edit
+  // the html/css/caption from a corner button + panel rather than always-inline.
+  editSurface: "panel",
   label: "HTML / Tailwind",
   icon: IconCode,
   description:

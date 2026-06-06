@@ -91,18 +91,26 @@ describe("Plans helpers", () => {
       parentCommentId: null,
       sectionId: "section-a",
       kind: "annotation",
-      anchor: JSON.stringify({ blockId: "wireframe-a" }),
       authorEmail: "reviewer@example.com",
       authorName: "Reviewer",
+    });
+    expect(JSON.parse(rows[0].anchor ?? "{}")).toEqual({
+      blockId: "wireframe-a",
+      resolutionTarget: "agent",
+      mentions: [],
     });
     expect(rows[1]).toMatchObject({
       id: "reply",
       parentCommentId: "root",
       sectionId: "section-a",
       kind: "annotation",
-      anchor: JSON.stringify({ blockId: "wireframe-a" }),
       authorEmail: "reviewer@example.com",
       authorName: "Reviewer",
+    });
+    expect(JSON.parse(rows[1].anchor ?? "{}")).toEqual({
+      blockId: "wireframe-a",
+      resolutionTarget: "agent",
+      mentions: [],
     });
   });
 
@@ -210,10 +218,69 @@ describe("Plans helpers", () => {
       parentCommentId: "new-root",
       sectionId: "section-new",
       kind: "comment",
-      anchor: JSON.stringify({ blockId: "new-wireframe" }),
       authorEmail: "reviewer@example.com",
       authorName: "Reviewer",
     });
+    expect(JSON.parse(rows[2].anchor ?? "{}")).toEqual({
+      blockId: "new-wireframe",
+      resolutionTarget: "agent",
+      mentions: [],
+    });
+  });
+
+  it("stores queryable resolver metadata and infers human routing from mentions", () => {
+    const mention = "@[Tiana](mailto:tiana%40example.com)";
+    const rows = buildInitialPlanCommentRows({
+      planId: "plan_comment_metadata",
+      now: "2026-06-05T00:00:00.000Z",
+      comments: [
+        {
+          id: "agent-root",
+          sectionId: "section-a",
+          kind: "annotation",
+          status: "open",
+          anchor: JSON.stringify({ anchorKind: "text", textQuote: "CTA" }),
+          message: "Please tune this for the agent.",
+          createdBy: "human",
+          resolutionTarget: "agent",
+        },
+        {
+          id: "mention-root",
+          kind: "comment",
+          status: "open",
+          message: `${mention} should approve this copy.`,
+          createdBy: "human",
+        },
+        {
+          id: "reply-inherits",
+          parentCommentId: "agent-root",
+          kind: "comment",
+          status: "open",
+          message: "Additional context for the same agent task.",
+          createdBy: "human",
+        },
+        {
+          id: "reply-mentions-human",
+          parentCommentId: "agent-root",
+          kind: "comment",
+          status: "open",
+          message: `${mention} please sanity-check the policy.`,
+          createdBy: "human",
+        },
+      ],
+    });
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get("agent-root")?.resolutionTarget).toBe("agent");
+    expect(JSON.parse(byId.get("agent-root")?.anchor ?? "{}")).toMatchObject({
+      resolutionTarget: "agent",
+    });
+    expect(byId.get("mention-root")?.resolutionTarget).toBe("human");
+    expect(JSON.parse(byId.get("mention-root")?.mentionsJson ?? "[]")).toEqual([
+      { label: "Tiana", email: "tiana@example.com" },
+    ]);
+    expect(byId.get("reply-inherits")?.resolutionTarget).toBe("agent");
+    expect(byId.get("reply-mentions-human")?.resolutionTarget).toBe("human");
   });
 
   it("rejects missing or cyclic update comment parents", () => {

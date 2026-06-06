@@ -37,7 +37,7 @@ export {
 } from "./provider.js";
 
 // Rendering
-export { BlockView } from "./BlockView.js";
+export { BlockView, blockEditSurface } from "./BlockView.js";
 export { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 // Schema-form helpers

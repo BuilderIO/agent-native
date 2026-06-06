@@ -6,8 +6,10 @@ import {
   planContentSchema,
   type PlanContent,
 } from "../../shared/plan-content.js";
+import { createPrototypePlanContent } from "../plan-content.js";
 import { parsePlanMdxFolder } from "../plan-mdx.js";
 import {
+  localPlanFolderName,
   localPlanFolder,
   localPlansDir,
   writePlanLocalFiles,
@@ -48,6 +50,16 @@ describe("local-plan-files", () => {
   it("uses PLAN_LOCAL_DIR for the plans directory", () => {
     expect(localPlansDir()).toBe(path.resolve(tmpDir));
     expect(localPlanFolder("plan_abc")).toBe(path.join(tmpDir, "plan_abc"));
+    expect(localPlanFolder("plan_abc", "Checkout review flow")).toBe(
+      path.join(tmpDir, "checkout-review-flow"),
+    );
+  });
+
+  it("builds readable filesystem-safe folder names", () => {
+    expect(localPlanFolderName("Fix / polish: visual plan folders!")).toBe(
+      "fix-polish-visual-plan-folders",
+    );
+    expect(localPlanFolderName("!!!")).toBe("untitled-plan");
   });
 
   it("writes plan.mdx and round-trips through parsePlanMdxFolder", async () => {
@@ -62,9 +74,10 @@ describe("local-plan-files", () => {
 
     expect(result.written).toBe(true);
     expect(result.files).toContain("plan.mdx");
+    expect(result.folder).toBe(path.join(tmpDir, "local-sync-flow"));
 
     const planMdx = await fs.readFile(
-      path.join(tmpDir, "plan_local1", "plan.mdx"),
+      path.join(tmpDir, "local-sync-flow", "plan.mdx"),
       "utf-8",
     );
     expect(planMdx).toContain("Local sync flow");
@@ -78,6 +91,56 @@ describe("local-plan-files", () => {
     expect(reparsed.title).toBe("Local sync flow");
   });
 
+  it("writes prototype.mdx for prototype plans and round-trips it", async () => {
+    const content = createPrototypePlanContent({
+      title: "Prototype local sync",
+      brief: "Keep live prototype source beside the plan.",
+      screens: [
+        {
+          id: "start",
+          title: "Start",
+          html: '<div><h1>Start</h1><button data-goto="done">Continue</button></div>',
+        },
+        {
+          id: "done",
+          title: "Done",
+          html: "<div><h1>Done</h1></div>",
+        },
+      ],
+    });
+
+    const result = await writePlanLocalFiles({
+      planId: "plan_proto",
+      title: content.title ?? "Prototype",
+      brief: content.brief,
+      content,
+      url: "/plans/plan_proto",
+    });
+
+    expect(result.written).toBe(true);
+    expect(result.files).toEqual(
+      expect.arrayContaining(["plan.mdx", "canvas.mdx", "prototype.mdx"]),
+    );
+
+    const folderPath = path.join(tmpDir, "prototype-local-sync");
+    const folder = {
+      "plan.mdx": await fs.readFile(path.join(folderPath, "plan.mdx"), "utf-8"),
+      "canvas.mdx": await fs.readFile(
+        path.join(folderPath, "canvas.mdx"),
+        "utf-8",
+      ),
+      "prototype.mdx": await fs.readFile(
+        path.join(folderPath, "prototype.mdx"),
+        "utf-8",
+      ),
+    };
+    const reparsed = await parsePlanMdxFolder(folder);
+    expect(reparsed.prototype?.screens.map((screen) => screen.id)).toEqual([
+      "start",
+      "done",
+    ]);
+  });
+
   it("is idempotent — same content produces the same files", async () => {
     const content = sampleContent();
     const input = {
@@ -89,15 +152,73 @@ describe("local-plan-files", () => {
     };
     await writePlanLocalFiles(input);
     const first = await fs.readFile(
-      path.join(tmpDir, "plan_idem", "plan.mdx"),
+      path.join(tmpDir, "local-sync-flow", "plan.mdx"),
       "utf-8",
     );
     await writePlanLocalFiles(input);
     const second = await fs.readFile(
-      path.join(tmpDir, "plan_idem", "plan.mdx"),
+      path.join(tmpDir, "local-sync-flow", "plan.mdx"),
       "utf-8",
     );
     expect(second).toBe(first);
+  });
+
+  it("adds a numeric suffix only when a readable folder name collides", async () => {
+    const content = sampleContent();
+    const taken = path.join(tmpDir, "checkout-review-flow");
+    await fs.mkdir(taken, { recursive: true });
+    await fs.writeFile(
+      path.join(taken, "plan.mdx"),
+      `---\ntitle: "Checkout review flow"\nplanId: "plan_other"\n---\n\n`,
+      "utf-8",
+    );
+
+    const input = {
+      planId: "plan_collision",
+      title: "Checkout review flow",
+      brief: content.brief,
+      content,
+      url: "/plans/plan_collision",
+    };
+    const result = await writePlanLocalFiles(input);
+
+    expect(result.written).toBe(true);
+    expect(result.folder).toBe(path.join(tmpDir, "checkout-review-flow-2"));
+
+    const second = await writePlanLocalFiles(input);
+    expect(second.folder).toBe(path.join(tmpDir, "checkout-review-flow-2"));
+    await expect(
+      fs.stat(path.join(tmpDir, "checkout-review-flow", "plan.mdx")),
+    ).resolves.toBeTruthy();
+    await expect(
+      fs.stat(path.join(tmpDir, "checkout-review-flow-2", "plan.mdx")),
+    ).resolves.toBeTruthy();
+  });
+
+  it("moves legacy plan-id folders to readable folders on write", async () => {
+    const content = sampleContent();
+    const legacy = path.join(tmpDir, "plan_legacy123");
+    await fs.mkdir(legacy, { recursive: true });
+    await fs.writeFile(
+      path.join(legacy, "plan.mdx"),
+      `---\ntitle: "Old title"\nplanId: "plan_legacy123"\n---\n\n`,
+      "utf-8",
+    );
+
+    const result = await writePlanLocalFiles({
+      planId: "plan_legacy123",
+      title: "Readable local mirror",
+      brief: content.brief,
+      content,
+      url: "/plans/plan_legacy123",
+    });
+
+    expect(result.written).toBe(true);
+    expect(result.folder).toBe(path.join(tmpDir, "readable-local-mirror"));
+    await expect(fs.stat(legacy)).rejects.toThrow();
+    await expect(
+      fs.stat(path.join(tmpDir, "readable-local-mirror", "plan.mdx")),
+    ).resolves.toBeTruthy();
   });
 
   it("does not throw on an unwritable directory", async () => {

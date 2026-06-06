@@ -16,9 +16,10 @@ comes first; implementation detail comes after the user has something concrete t
 react to.
 
 `/visual-plan` remains the general command for architecture, backend, refactors,
-and mixed work. Use `/visual-questions` only when the user explicitly wants
-visual intake before planning, and `/visualize-plan` when a text plan already
-exists.
+and mixed work. Use `/prototype-plan` when the UI review needs a functional live
+prototype instead of static screens. Use `/visual-questions` only when the user
+explicitly wants visual intake before planning, and `/visualize-plan` when a text
+plan already exists.
 
 ## Plan Discipline
 
@@ -54,10 +55,13 @@ exists.
    Markdown plan the agent would normally output — not a second copy of the
    canvas — covering concrete files, contracts, phases, risks, and validation.
 5. Call `get-plan-feedback` before implementation, after review, after a long
-   pause, and before the final response. Apply changes with `update-visual-plan`,
-   preferring `contentPatches` for one frame, annotation, node, tab, or block. When the user
-   wants source-control friendly edits, use `patch-visual-plan-source` against
-   the MDX files instead of regenerating the plan.
+   pause, and before the final response. Treat `anchorDetails`, resolver intent,
+   recent review events, and any focused screenshots from browser handoff as the
+   source of truth for exactly what changed and exactly what each UI comment
+   points at. Apply changes with `update-visual-plan`, preferring
+   `contentPatches` for one frame, annotation, node, tab, or block. When the
+   user wants source-control friendly edits, use `patch-visual-plan-source`
+   against the MDX files instead of regenerating the plan.
 
 ## Agent Handoff
 
@@ -226,13 +230,18 @@ hex colors:
 </div>
 ```
 
-**Mockups belong on the canvas.** When the user asks for a mockup, UI state,
-loading state, prototype, layout, screen, or visual comparison, make the top
-canvas the primary home for that visual. Document blocks can explain, compare,
-or map implementation, but they should not host the primary mockup just because
-`custom-html`, screenshots, or prose are easier to produce. If the canvas cannot
-represent the requested fidelity, still keep a canvas artboard and call out or
-extend the needed canvas renderer capability.
+**Mockups belong in the top visual review area.** Static visuals live on the
+canvas; multi-step flows get both canvas wireframes and a prototype. When the
+user asks for a mockup, UI state, loading state, layout, screen, or visual
+comparison, make the canvas the primary home for that static visual. When the
+user asks for a prototype or the plan contains a sequence the reviewer must
+feel, keep the canvas artboards and add `content.prototype` so the top surface
+shows Wireframes / Prototype tabs. Document blocks can explain, compare, or map
+implementation, but they should not host the primary mockup or prototype just
+because `custom-html`, screenshots, or prose are easier to produce. If the
+canvas/prototype surface cannot represent the requested fidelity, still keep the
+closest top-surface representation and call out or extend the needed renderer
+capability.
 
 **Legacy kit tree.** Older plans set a `screen` array of `{ el, ...props }` kit
 nodes instead of `html`; the renderer still accepts and displays it, but new
@@ -264,12 +273,14 @@ behavior). Replace vague prose with specifics; never ship a step like "make it
 work." No hero art, gradients, logos, nav bars, slogans, value props, giant
 landing-page headings, or marketing cards unless the user explicitly asks.
 
-**Canvas and document never duplicate each other.** The UI story lives on the
-canvas with on-canvas annotations; the document carries the technical depth the
-canvas cannot show — concrete file/symbol maps, API and data contracts, code
-snippets, migration or implementation phases, risks, and validation. Repeat a
-wireframe in the document only for a genuinely new detail view or comparison.
-Skip the canvas entirely for non-visual work and write a clean rich document.
+**Top visuals and document never duplicate each other.** The UI story lives in
+the top visual surface: canvas artboards for static inspection, plus prototype
+tabs when the flow should be functional. The document carries the technical depth
+the visuals cannot show — concrete file/symbol maps, API and data contracts,
+code snippets, migration or implementation phases, risks, and validation. Repeat
+a wireframe in the document only for a genuinely new detail view or comparison.
+Skip the visual surface entirely for non-visual work and write a clean rich
+document.
 
 **Use the right block, and make it carry substance.** For the authoritative,
 machine-checked list of block types and their data schemas, call `get-plan-blocks`
@@ -326,21 +337,29 @@ designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
 done-criteria, an `implementation-map` naming the real components and actions
 with short highlighted snippets, a `decision` card weighing two real approaches,
-and a validation step — none of it repeating the canvas. This is the bar.
+and a validation step — none of it repeating the canvas. If the task also
+changes a multi-step completion flow, the same top area includes a Prototype tab
+whose screens use the same labels and states as the canvas artboards, with
+`data-goto` controls for the sequence. This is the bar.
 
 **BAD.** A `data.html` with hard-coded hex colors, a `font-family`, or fixed
 pixel width/height; gray placeholder bars "insinuating" text on a non-skeleton
 frame; a forced desktop + mobile pair for a popover; floating bordered
 annotation cards hugging the frames; a fresh hand-authored kit-tree `screen`
-instead of `html`; a mockup escaped into a document `custom-html` block; and a
-marketing-style document with a hero heading and value props that just restates
-what the canvas already shows. Never produce this.
+instead of `html`; a multi-step UI flow with only static frames and no prototype
+tab; a mockup escaped into a document `custom-html` block; and a marketing-style
+document with a hero heading and value props that just restates what the canvas
+already shows. Never produce this.
 
 <!-- SHARED-CORE:exemplar END -->
 
 ## Tool Guidance
 
 - `create-ui-plan`: create the UI-first structured visual plan.
+- `create-prototype-plan`: create a prototype-first plan when UI review needs a
+  functional live prototype.
+- `convert-visual-plan-to-prototype`: convert an existing HTML wireframe canvas
+  into a prototype plan.
 - `create-visual-questions`: use only for the explicit `/visual-questions`
   command, not as `/ui-plan` preflight.
 - `update-visual-plan`: revise content, mockups, comments, or handoff notes;
@@ -352,7 +371,9 @@ what the canvas already shows. Never produce this.
 - `import-visual-plan-source`: create or replace a plan from an MDX folder.
 - `get-visual-plan`: inspect the current structured plan, exported HTML, and
   annotations; it also returns the MDX folder for source workflows.
-- `get-plan-feedback`: read unconsumed reviewer comments before coding.
+- `get-plan-feedback`: read unconsumed reviewer comments before coding; it
+  returns grouped threads, exact anchor details, expected resolver, and recent
+  review-event payloads so agents can act only on the comments meant for them.
 - `export-visual-plan`: export HTML, Markdown fallback, structured JSON, and MDX
   files for repo check-in.
 
@@ -372,8 +393,8 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` (and `/ui-plan`, `/visual-questions`,
-`/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
+After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`,
+`/visual-questions`, `/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 

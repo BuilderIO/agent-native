@@ -32,7 +32,7 @@ import { tableMdx, tableSchema, type TableData } from "./table.config.js";
 function TableBlockRead({ data, blockId, title }: BlockReadProps<TableData>) {
   return (
     <section className="plan-block overflow-x-auto" data-block-id={blockId}>
-      {title && <h2>{title}</h2>}
+      {title && <div className="plan-block-label">{title}</div>}
       <table className="w-full min-w-[640px] border-collapse text-left">
         <thead>
           <tr className="border-b border-plan-line text-sm text-plan-muted">

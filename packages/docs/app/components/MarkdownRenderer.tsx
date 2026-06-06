@@ -20,6 +20,32 @@ interface HighlightedMarkdownHtml {
   html: string;
 }
 
+interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
+const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
+  "/screenshots/analytics.png": { width: 1400, height: 710 },
+  "/screenshots/calendar.png": { width: 1400, height: 710 },
+  "/screenshots/clips.png": { width: 1400, height: 710 },
+  "/screenshots/content.png": { width: 1400, height: 710 },
+  "/screenshots/dispatch.png": { width: 1400, height: 810 },
+  "/screenshots/forms.png": { width: 1400, height: 710 },
+  "/screenshots/mail.png": { width: 1400, height: 710 },
+  "/screenshots/slides.png": { width: 1400, height: 710 },
+  "/screenshots/starter.png": { width: 1400, height: 710 },
+  "/screenshots/videos.png": { width: 1400, height: 710 },
+  "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=1200":
+    { width: 1200, height: 947 },
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200":
+    { width: 1200, height: 947 },
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=1200":
+    { width: 1200, height: 947 },
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd73f749f8c54dbcb577420ab1a18788":
+    { width: 2000, height: 1479 },
+};
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -179,6 +205,10 @@ function isSafeUrl(rawUrl: string, kind: "link" | "image"): boolean {
   }
 }
 
+function imageDimensionsForHref(href: string): ImageDimensions | undefined {
+  return DOCS_IMAGE_DIMENSIONS[decodeHtmlEntities(href).trim()];
+}
+
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
 function createRenderer() {
   const renderer = new marked.Renderer();
@@ -201,7 +231,15 @@ function createRenderer() {
   renderer.image = function (token: Tokens.Image) {
     if (!isSafeUrl(token.href, "image")) return "";
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-    return `<img src="${escapeHtml(token.href)}" alt="${escapeHtml(token.text)}"${title}>`;
+    const dimensions = imageDimensionsForHref(token.href);
+    const sizeAttributes = dimensions
+      ? ` width="${dimensions.width}" height="${dimensions.height}"`
+      : "";
+    const image = `<img src="${escapeHtml(token.href)}" alt="${escapeHtml(token.text)}"${title} class="docs-image" loading="lazy" decoding="async"${sizeAttributes}>`;
+
+    if (!dimensions) return image;
+
+    return `<span class="docs-image-frame" style="aspect-ratio: ${dimensions.width} / ${dimensions.height};">${image}</span>`;
   };
 
   // Wrap code blocks in `.code-block` from the start so that the post-hydration
@@ -363,6 +401,38 @@ export default function MarkdownRenderer({ markdown }: Props) {
       heading.appendChild(anchor);
     }
   }, [highlightedHtml]);
+
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+
+    const images = Array.from(
+      el.querySelectorAll<HTMLImageElement>("img.docs-image"),
+    );
+    const cleanups: (() => void)[] = [];
+
+    for (const image of images) {
+      const markLoaded = () => {
+        image.classList.add("is-loaded");
+      };
+
+      if (image.complete && image.naturalWidth > 0) {
+        markLoaded();
+        continue;
+      }
+
+      image.addEventListener("load", markLoaded);
+      image.addEventListener("error", markLoaded);
+      cleanups.push(() => {
+        image.removeEventListener("load", markLoaded);
+        image.removeEventListener("error", markLoaded);
+      });
+    }
+
+    return () => {
+      for (const cleanup of cleanups) cleanup();
+    };
+  }, [baseHtml, highlightedHtml]);
 
   return (
     <div

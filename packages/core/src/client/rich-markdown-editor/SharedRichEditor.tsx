@@ -63,6 +63,31 @@ export interface SharedRichEditorProps {
     editor: import("@tiptap/react").Editor,
     toggleLink: () => void,
   ) => BubbleToolbarItem[];
+  /**
+   * Override how the editor's content is read into the canonical `value`.
+   * Defaults to the tiptap-markdown storage reader. Apps with a custom on-disk
+   * format (Content's NFM, the plan's `blocks[]` JSON) pass their serializer so
+   * seed/reconcile/onChange all speak the same value space.
+   */
+  getMarkdown?: (editor: import("@tiptap/react").Editor) => string;
+  /** Override how the canonical `value` is applied into the editor (seed + reconcile). */
+  setContent?: (
+    editor: import("@tiptap/react").Editor,
+    value: string,
+    options: { emitUpdate?: boolean; addToHistory?: boolean },
+  ) => void;
+  /** Canonicalize `value` for the echo / already-in-sync equality checks. */
+  normalizeValue?: (value: string) => string;
+  /** Override the empty-doc seed predicate (see {@link useCollabReconcile}). */
+  shouldSeed?: (info: {
+    value: string;
+    currentMarkdown: string;
+    fragmentLength: number;
+  }) => boolean;
+  /** Initial "applied" watermark (see {@link useCollabReconcile}). */
+  initialAppliedUpdatedAt?: string | null;
+  /** Extra class on the editor wrapper (e.g. a drag-handle `wrapperSelector` hook). */
+  wrapperClassName?: string;
 }
 
 /**
@@ -96,7 +121,14 @@ export function SharedRichEditor({
   user = null,
   slashItems,
   buildBubbleItems,
+  getMarkdown,
+  setContent,
+  normalizeValue,
+  shouldSeed,
+  initialAppliedUpdatedAt,
+  wrapperClassName,
 }: SharedRichEditorProps) {
+  const readMarkdown = getMarkdown ?? getEditorMarkdown;
   const onChangeRef = useRef(onChange);
   const onBlurRef = useRef(onBlur);
   onChangeRef.current = onChange;
@@ -149,7 +181,11 @@ export function SharedRichEditor({
     // prop and the Y.Doc, firing a spurious initial update that could autosave a
     // stale value over newer SQL. The lead-client seed effect populates an empty
     // doc instead. Non-collab editors keep initializing from `value`.
-    content: collab ? undefined : value,
+    // With Collaboration the Y.Doc owns the prose (seeded by the lead client).
+    // With a custom `setContent` the reconcile seeds the editor too (the raw
+    // `value` is not directly settable content — e.g. the plan's blocks JSON),
+    // so only the plain markdown path seeds from `value` here.
+    content: collab || setContent ? undefined : value,
     editable,
     editorProps: {
       attributes: {
@@ -160,7 +196,7 @@ export function SharedRichEditor({
       const guards = guardsRef.current;
       if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
       try {
-        const markdown = getEditorMarkdown(editor);
+        const markdown = readMarkdown(editor);
         if (!guards.registerEmitted(markdown)) return;
         queueMicrotask(() => onChangeRef.current(markdown));
       } catch (error) {
@@ -179,7 +215,11 @@ export function SharedRichEditor({
     value,
     contentUpdatedAt,
     editable,
-    getMarkdown: getEditorMarkdown,
+    getMarkdown: readMarkdown,
+    setContent,
+    normalizeValue,
+    shouldSeed,
+    initialAppliedUpdatedAt,
   });
   guardsRef.current = collabState;
 
@@ -215,6 +255,7 @@ export function SharedRichEditor({
       className={cn(
         "an-rich-md-wrapper an-rich-md-clickable",
         !editable && "an-rich-md-wrapper--readonly",
+        wrapperClassName,
         className,
       )}
       onClick={handleWrapperClick}

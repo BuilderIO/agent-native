@@ -10,7 +10,7 @@ Codex, Claude Code, Markdown, or pasted implementation plan into a structured
 review surface with rich text, diagrams, wireframes, prototypes, implementation
 maps, annotations, comments, and shareable links.
 
-![Agent-Native Plans review surface](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=1200)
+![Agent-Native Plans review surface](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd73f749f8c54dbcb577420ab1a18788)
 
 ## Install the skill
 
@@ -31,6 +31,7 @@ agent-native skills add visual-plan
 The command installs `/visual-plan` plus the companion commands:
 
 - `/ui-plan` for UI-first plans with mockups, states, and screen-level review.
+- `/prototype-plan` for clickable prototype-first plans with live comments.
 - `/visual-questions` for visual intake before a plan.
 - `/visualize-plan` for turning an existing text plan into a visual companion.
 
@@ -58,6 +59,8 @@ After installation, ask your agent for the command that fits the work:
   or mixed product work.
 - `/ui-plan` creates a UI-first plan with wireframes, mockups, states, and
   implementation notes.
+- `/prototype-plan` creates a clickable prototype above the plan document, with
+  static mocks, comments, and a focused browser popout.
 - `/visual-questions` opens a visual intake questionnaire before planning.
 - `/visualize-plan` imports a plan you already have and makes it reviewable.
 
@@ -70,8 +73,14 @@ changes begin.
 
 - **Review before implementation.** React to diagrams, wireframes, option tabs,
   risk notes, file maps, and code previews before the agent edits files.
-- **Comment directly on the plan.** Pin feedback, request changes, and resolve
-  comments as the plan evolves.
+- **Comment directly on the plan.** Pin feedback to text, images, wireframes, or
+  canvas locations; choose whether the comment is for the agent or a human
+  reviewer; @mention teammates with inline chips; and resolve comments as the
+  plan evolves.
+- **Hand feedback to the agent clearly.** Text comments attach to the nearest
+  prose block, visual comments include exact target metadata, and browser
+  handoff includes focused screenshots for a small set of visual/canvas comment
+  locations instead of one hard-to-read giant image.
 - **Share with reviewers.** Hosted Plans can create private review links and
   account-backed sharing. Viewing shared plans works from the browser; saving
   and sharing require sign-in.
@@ -85,6 +94,7 @@ changes begin.
 
 - "Use `/visual-plan` before changing the auth flow."
 - "Create a `/ui-plan` for the new onboarding screen with mobile and desktop states."
+- "Create a `/prototype-plan` for the checkout flow so I can click through it."
 - "Use `/visual-questions` to help me choose the dashboard direction first."
 - "Run `/visualize-plan` on the Markdown plan below and make it easier to review."
 

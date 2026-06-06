@@ -20,7 +20,7 @@ export function CalloutBlock({
       data-block-id={blockId}
       data-tone={data.tone}
     >
-      {title && <h2>{title}</h2>}
+      {title && <div className="plan-block-label">{title}</div>}
       <PlanMarkdownReader markdown={data.body} />
     </section>
   );

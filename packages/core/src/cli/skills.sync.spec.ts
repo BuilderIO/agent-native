@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  PROTOTYPE_PLAN_SKILL_MD,
   UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_QUESTIONS_SKILL_MD,
@@ -10,7 +11,7 @@ import {
 } from "./skills.js";
 
 /**
- * The four Plans skills are stored in three places that ship to users:
+ * The Plans skills are stored in three places that ship to users:
  *   1. the shipped constants in skills.ts (what `agent-native skills add`
  *      materializes for every host),
  *   2. templates/plan/.agents/skills/<name>/SKILL.md (the template copy),
@@ -54,6 +55,13 @@ const PLAN_SKILLS = [
     templateDir: "ui-plan",
     exportedDir: "ui-plan",
     hasCores: true,
+  },
+  {
+    label: "prototype-plan",
+    constant: PROTOTYPE_PLAN_SKILL_MD,
+    templateDir: "prototype-plan",
+    exportedDir: "prototype-plan",
+    hasCores: false,
   },
   {
     label: "visualize-plan",

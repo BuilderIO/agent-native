@@ -8,6 +8,25 @@ pnpm-lock.yaml
 **/.react-router
 **/src-tauri/target
 templates/migration/data
+templates/plan/data
+templates/plan/test-results
+templates/plan/e2e/.auth
+templates/plan/e2e/.report.json
+templates/plan/e2e/smoke.spec.ts
+templates/plan/e2e/zzprobe*.spec.ts
+templates/plan/plans/*
+!templates/plan/plans/plan_2051dec8ca3d4644/
+!templates/plan/plans/plan_2051dec8ca3d4644/**
+!templates/plan/plans/plan_260b2b27381c4f73/
+!templates/plan/plans/plan_260b2b27381c4f73/**
+!templates/plan/plans/plan_84f748a733974d68/
+!templates/plan/plans/plan_84f748a733974d68/**
+!templates/plan/plans/plan_8f80f8208bb34870/
+!templates/plan/plans/plan_8f80f8208bb34870/**
+!templates/plan/plans/plan_d48253b962f344d1/
+!templates/plan/plans/plan_d48253b962f344d1/**
+!templates/plan/plans/block-kitchen-sink/
+!templates/plan/plans/block-kitchen-sink/**
 # Generated file — formatting flips between runs
 packages/docs/app/components/searchIndex.ts
 packages/docs/public/source-index.json

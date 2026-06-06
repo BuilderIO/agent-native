@@ -8,6 +8,7 @@ import {
 import {
   PLAN_AUTHORS,
   PLAN_COMMENT_KINDS,
+  PLAN_COMMENT_RESOLUTION_TARGETS,
   PLAN_COMMENT_STATUSES,
   PLAN_SECTION_TYPES,
   PLAN_SOURCES,
@@ -68,6 +69,12 @@ export const planComments = table("plan_comments", {
     .default("human"),
   authorEmail: text("author_email"),
   authorName: text("author_name"),
+  resolutionTarget: text("resolution_target", {
+    enum: PLAN_COMMENT_RESOLUTION_TARGETS,
+  }),
+  mentionsJson: text("mentions_json"),
+  resolvedBy: text("resolved_by"),
+  resolvedAt: text("resolved_at"),
   consumedAt: text("consumed_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

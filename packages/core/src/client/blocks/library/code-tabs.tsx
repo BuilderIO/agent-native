@@ -30,7 +30,7 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
   const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
   return (
     <section className="plan-block" data-block-id={blockId}>
-      {title && <h2>{title}</h2>}
+      {title && <div className="plan-block-label">{title}</div>}
       <div className="grid overflow-hidden border-y border-plan-line md:grid-cols-[300px_minmax(0,1fr)]">
         <div className="border-plan-line md:border-r">
           {data.tabs.map((tab) => (

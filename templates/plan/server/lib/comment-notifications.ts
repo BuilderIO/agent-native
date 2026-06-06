@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
+import { extractCommentMentions } from "../../shared/comment-context.js";
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
 
 type CommentNotificationInput = {
@@ -17,7 +18,7 @@ type CommentNotificationInput = {
 
 type NotificationRecipient = {
   email: string;
-  reason: "plan-owner" | "thread-participant";
+  reason: "plan-owner" | "thread-participant" | "mention";
 };
 
 function normalizeEmail(email: string | null | undefined): string | null {
@@ -165,6 +166,13 @@ export function planCommentNotificationRecipients(input: {
   };
 
   addRecipient(input.planOwnerEmail, "plan-owner");
+  const mentionedPeople =
+    input.comment.mentions && input.comment.mentions.length > 0
+      ? input.comment.mentions
+      : extractCommentMentions(input.comment.message);
+  for (const mention of mentionedPeople) {
+    addRecipient(mention.email, "mention");
+  }
 
   if (!input.comment.parentCommentId) {
     return Array.from(recipients.values());
@@ -193,9 +201,11 @@ async function sendPlanCommentNotification(input: {
     ? `${actor} replied to a comment on "${input.planTitle}"`
     : `${actor} commented on "${input.planTitle}"`;
   const actionText =
-    input.recipient.reason === "plan-owner"
-      ? "left a comment on your plan"
-      : "replied in a comment thread you participated in";
+    input.recipient.reason === "mention"
+      ? "mentioned you in a comment on"
+      : input.recipient.reason === "plan-owner"
+        ? "left a comment on your plan"
+        : "replied in a comment thread you participated in";
   const { html, text } = renderEmail({
     preheader: `${actor} ${actionText} on ${app}.`,
     heading: isReply ? "New reply on your plan" : "New comment on your plan",
@@ -207,7 +217,9 @@ async function sendPlanCommentNotification(input: {
     footer:
       input.recipient.reason === "plan-owner"
         ? "You received this because you own this plan."
-        : "You received this because you participated in this comment thread.",
+        : input.recipient.reason === "mention"
+          ? "You received this because you were mentioned in this comment."
+          : "You received this because you participated in this comment thread.",
   });
   await sendEmail({ to: input.recipient.email, subject, html, text });
 }

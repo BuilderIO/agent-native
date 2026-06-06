@@ -12,6 +12,8 @@ import {
   type PlanDiagramBlock,
   type PlanImageBlock,
   type PlanLegacyWireframeBlock,
+  type PlanPrototype,
+  type PlanPrototypeScreen,
   type PlanWireframeBlock,
   type PlanWireframeNode,
   type PlanWireframeSurface,
@@ -47,20 +49,35 @@ export function parsePlanContent(value: unknown): PlanContent | null {
   if (!parsedValue) return null;
   // Upgrade old/raw shapes (region wireframes -> legacy-wireframe, sketch-* ->
   // diagram, version backfill) before validating. Never lossily migrate.
-  const migrated = migratePlanContent(parsedValue);
-  const result = planContentSchema.safeParse(migrated);
-  if (result.success) return result.data;
-  // Surface parse failures instead of swallowing them so a bad migration is
-  // diagnosable rather than silently erasing a plan body.
-  console.warn(
-    "[plan-content] failed to parse stored content:",
-    result.error.issues.slice(0, 4),
-  );
-  return null;
+  try {
+    const migrated = migratePlanContent(parsedValue);
+    const result = planContentSchema.safeParse(
+      preSanitizePlanContentInput(migrated),
+    );
+    if (result.success) return result.data;
+    // Surface parse failures instead of swallowing them so a bad migration is
+    // diagnosable rather than silently erasing a plan body.
+    console.warn(
+      "[plan-content] failed to parse stored content:",
+      result.error.issues.slice(0, 4),
+    );
+    return null;
+  } catch (error) {
+    // Defense-in-depth: pathological input (e.g. deeply nested tabs) can overflow
+    // the recursive schema/migration and throw a RangeError that safeParse does
+    // NOT catch. Fail closed so the reading route shows a graceful fallback
+    // instead of crashing the entire plan page.
+    console.warn("[plan-content] errored while parsing stored content:", error);
+    return null;
+  }
 }
 
 export function serializePlanContent(content: PlanContentInput): string {
-  return JSON.stringify(sanitizePlanContent(planContentSchema.parse(content)));
+  return JSON.stringify(
+    sanitizePlanContent(
+      planContentSchema.parse(preSanitizePlanContentInput(content)),
+    ),
+  );
 }
 
 export function normalizePlanContent(
@@ -88,16 +105,117 @@ export function normalizePlanContent(
  * tag) must go, not just the tags — otherwise script/style bodies leak through.
  */
 const FORBIDDEN_ELEMENT =
-  /<(script|style|iframe|object|embed|template|noscript|svg|math|applet|portal|frameset)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
+  /<(script|style|iframe|object|embed|noscript|svg|math|applet|portal|frameset|marquee)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
 
 /** Standalone / self-closing forbidden tags (e.g. <link>, <meta>, dangling). */
 const FORBIDDEN_TAG =
-  /<\/?\s*(?:script|style|iframe|object|embed|link|meta|base|form|svg|math|template|noscript|frame|frameset|applet|portal)\b[^>]*>/gi;
+  /<\/?\s*(?:script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)\b[^>]*>/gi;
 
 /** Inline event handlers and javascript:/data: URLs in attributes. */
 const FORBIDDEN_ATTR = /\son[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
-const FORBIDDEN_URL_ATTR =
-  /\s(?:href|src|xlink:href|srcdoc|action|formaction|data|background|poster|style)\s*=\s*(?:"[^"]*(?:javascript:|data:text\/html|vbscript:)[^"]*"|'[^']*(?:javascript:|data:text\/html|vbscript:)[^']*'|(?:javascript:|data:text\/html|vbscript:)[^\s>]*)/gi;
+const FORBIDDEN_BOUND_ATTR =
+  /\s(?::on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+const URL_ATTR =
+  /\s(?:href|src|xlink:href|srcdoc|action|formaction|data|background|poster|ping)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+const STYLE_ATTR = /\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
+function decodeSafetyEntities(value: string): string {
+  return value
+    .replace(/&#(x[0-9a-f]+|\d+);?/gi, (_, code: string) => {
+      const point = code.toLowerCase().startsWith("x")
+        ? Number.parseInt(code.slice(1), 16)
+        : Number.parseInt(code, 10);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    })
+    .replace(/&(colon|tab|newline);/gi, (_, name: string) => {
+      if (name.toLowerCase() === "colon") return ":";
+      if (name.toLowerCase() === "tab") return "\t";
+      return "\n";
+    });
+}
+
+const compactSafetyText = (value: string) =>
+  decodeSafetyEntities(value)
+    .toLowerCase()
+    .replace(/[\u0000-\u0020]+/g, "");
+
+function hasUnsafeUrl(value: string): boolean {
+  const compact = compactSafetyText(value);
+  return (
+    compact.startsWith("javascript:") ||
+    compact.startsWith("vbscript:") ||
+    compact.startsWith("data:text/html") ||
+    compact.startsWith("data:image/svg+xml")
+  );
+}
+
+function hasUnsafeStyle(value: string): boolean {
+  const compact = compactSafetyText(value);
+  return (
+    compact.includes("expression(") ||
+    compact.includes("javascript:") ||
+    compact.includes("vbscript:") ||
+    compact.includes("url(data:text/html") ||
+    compact.includes("url(data:image/svg+xml")
+  );
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function sanitizeMaybeWireframeData(data: unknown) {
+  if (!data || typeof data !== "object") return;
+  const record = data as Record<string, unknown>;
+  if (typeof record.html === "string") {
+    record.html = sanitizeCustomHtml(record.html);
+  }
+  if (typeof record.css === "string") {
+    record.css = sanitizeCustomHtml(record.css);
+  }
+}
+
+function sanitizeMaybeBlocks(blocks: unknown) {
+  if (!Array.isArray(blocks)) return;
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue;
+    const record = block as Record<string, unknown>;
+    const data = record.data as Record<string, unknown> | undefined;
+    if (record.type === "custom-html" || record.type === "wireframe") {
+      sanitizeMaybeWireframeData(data);
+    }
+    if (record.type === "tabs" && data && Array.isArray(data.tabs)) {
+      for (const tab of data.tabs) {
+        if (!tab || typeof tab !== "object") continue;
+        sanitizeMaybeBlocks((tab as Record<string, unknown>).blocks);
+      }
+    }
+  }
+}
+
+function preSanitizePlanContentInput(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const content = cloneJson(input) as Record<string, unknown>;
+  const prototype = content.prototype as Record<string, unknown> | undefined;
+  if (prototype && Array.isArray(prototype.screens)) {
+    for (const screen of prototype.screens) {
+      if (!screen || typeof screen !== "object") continue;
+      const record = screen as Record<string, unknown>;
+      if (typeof record.html === "string") {
+        record.html = sanitizeCustomHtml(record.html);
+      }
+    }
+  }
+  const canvas = content.canvas as Record<string, unknown> | undefined;
+  if (canvas && Array.isArray(canvas.frames)) {
+    for (const frame of canvas.frames) {
+      if (!frame || typeof frame !== "object") continue;
+      sanitizeMaybeWireframeData((frame as Record<string, unknown>).wireframe);
+    }
+  }
+  sanitizeMaybeBlocks(content.blocks);
+  return content;
+}
 
 /** Strip the dangerous surface from a stored custom-html / css string. */
 export function sanitizeCustomHtml(value: string): string {
@@ -111,12 +229,35 @@ export function sanitizeCustomHtml(value: string): string {
   return out
     .replace(FORBIDDEN_TAG, "")
     .replace(FORBIDDEN_ATTR, "")
-    .replace(FORBIDDEN_URL_ATTR, "")
-    .replace(/javascript:/gi, "")
-    .replace(/vbscript:/gi, "");
+    .replace(FORBIDDEN_BOUND_ATTR, "")
+    .replace(URL_ATTR, (match, doubleQuoted, singleQuoted, bare) =>
+      hasUnsafeUrl(doubleQuoted ?? singleQuoted ?? bare ?? "") ? "" : match,
+    )
+    .replace(STYLE_ATTR, (match, doubleQuoted, singleQuoted, bare) =>
+      hasUnsafeStyle(doubleQuoted ?? singleQuoted ?? bare ?? "") ? "" : match,
+    )
+    .replace(/\bjava\s*script\s*:/gi, "")
+    .replace(/\bvb\s*script\s*:/gi, "")
+    .replace(/\bdata\s*:\s*(?:text\/html|image\/svg\+xml)/gi, "");
 }
 
 function sanitizeBlock(block: PlanBlock): PlanBlock {
+  if (block.type === "wireframe") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        html:
+          block.data.html === undefined
+            ? undefined
+            : sanitizeCustomHtml(block.data.html),
+        css:
+          block.data.css === undefined
+            ? undefined
+            : sanitizeCustomHtml(block.data.css),
+      },
+    };
+  }
   if (block.type === "custom-html") {
     return {
       ...block,
@@ -144,9 +285,53 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
   return block;
 }
 
+function sanitizePrototype(prototype: PlanPrototype | undefined) {
+  if (!prototype) return undefined;
+  return {
+    ...prototype,
+    screens: prototype.screens.map((screen) => ({
+      ...screen,
+      html: sanitizeCustomHtml(screen.html),
+    })),
+  };
+}
+
+function sanitizeWireframeData(
+  wireframe: PlanWireframeBlock["data"] | undefined,
+) {
+  if (!wireframe) return undefined;
+  return {
+    ...wireframe,
+    html:
+      wireframe.html === undefined
+        ? undefined
+        : sanitizeCustomHtml(wireframe.html),
+    css:
+      wireframe.css === undefined
+        ? undefined
+        : sanitizeCustomHtml(wireframe.css),
+  };
+}
+
+function sanitizeCanvas(canvas: PlanContent["canvas"] | undefined) {
+  if (!canvas) return undefined;
+  return {
+    ...canvas,
+    frames: canvas.frames.map((frame) => ({
+      ...frame,
+      wireframe: sanitizeWireframeData(frame.wireframe),
+    })),
+  };
+}
+
 /** Sanitize every custom-html fragment in a plan before it is stored. */
 export function sanitizePlanContent(content: PlanContent): PlanContent {
-  return { ...content, blocks: content.blocks.map(sanitizeBlock) };
+  return {
+    ...content,
+    prototype: sanitizePrototype(content.prototype),
+    canvas: sanitizeCanvas(content.canvas),
+    blocks: content.blocks.map(sanitizeBlock),
+  };
 }
 
 export function createPlanContentFromSections(input: {
@@ -235,6 +420,24 @@ type UiPlanContentInput = {
   repoPath?: string | null;
   states: Array<{ name: string; description: string }>;
   components: Array<{ name: string; description: string }>;
+  implementationNotes?: string | null;
+};
+
+type PrototypePlanContentInput = {
+  title: string;
+  brief: string;
+  source?: string;
+  repoPath?: string | null;
+  prototype?: PlanPrototype | null;
+  screens: Array<{
+    id?: string;
+    title: string;
+    summary?: string;
+    surface?: PlanWireframeSurface;
+    html?: string;
+    state?: PlanPrototypeScreen["state"];
+  }>;
+  transitions?: PlanPrototype["transitions"];
   implementationNotes?: string | null;
 };
 
@@ -533,6 +736,401 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
       blocks,
     }),
   );
+}
+
+export function createPrototypePlanContent(
+  input: PrototypePlanContentInput,
+): PlanContent {
+  const prototype =
+    input.prototype ??
+    createPrototypeFromScreens({
+      title: input.title,
+      brief: input.brief,
+      screens: input.screens,
+      transitions: input.transitions,
+    });
+  const wireframeBlocks = prototype.screens
+    .slice(0, 6)
+    .map<PlanBlock>((screen) => ({
+      id: createPlanBlockId(`${screen.id}-static-mock`),
+      type: "wireframe",
+      title: `${screen.title ?? screen.id} Static Mock`,
+      summary:
+        screen.summary ??
+        "Static reference for the live prototype screen above.",
+      data: {
+        surface: screen.surface ?? prototype.surface ?? "browser",
+        html: screen.html,
+        caption:
+          screen.summary ?? "Static screen reference from the prototype.",
+      },
+    }));
+  const blocks: PlanBlock[] = [
+    {
+      id: createPlanBlockId("prototype-plan-overview"),
+      type: "rich-text",
+      title: "Prototype Plan",
+      editable: true,
+      data: {
+        markdown: [
+          `## Question\n${input.brief}`,
+          "## Prototype Review\nUse the functional prototype above to try the proposed interaction states. The static mocks below are reference frames for specific details, while implementation details and risks stay in the document.",
+          "## Inspired By Prototype Discipline\nThis plan treats the prototype as a way to answer a concrete question: what should the interaction feel like before implementation hardens it.",
+        ].join("\n\n"),
+      },
+    },
+    ...(wireframeBlocks.length > 0
+      ? ([
+          {
+            id: createPlanBlockId("prototype-static-mocks"),
+            type: "tabs",
+            title: "Static Mocks",
+            data: {
+              tabs: wireframeBlocks.map((block, index) => ({
+                id: prototype.screens[index]?.id ?? `screen-${index + 1}`,
+                label: prototype.screens[index]?.title ?? `Screen ${index + 1}`,
+                blocks: [block],
+              })),
+            },
+          },
+        ] satisfies PlanBlock[])
+      : []),
+    {
+      id: createPlanBlockId("prototype-flow"),
+      type: "diagram",
+      title: "Prototype Flow",
+      data: {
+        nodes: prototype.screens.map((screen) => ({
+          id: screen.id,
+          label: screen.title ?? screen.id,
+          detail: screen.summary,
+        })),
+        edges: (prototype.transitions ?? []).map((transition) => ({
+          from: transition.from,
+          to: transition.to,
+          label: transition.label ?? transition.trigger,
+        })),
+      },
+    },
+    {
+      id: createPlanBlockId("implementation-map"),
+      type: "implementation-map",
+      title: "Implementation Map",
+      data: {
+        files: [
+          {
+            path: input.repoPath ? `${input.repoPath}/...` : "repo/path.tsx",
+            title: "Files to inspect and update",
+            note:
+              input.implementationNotes ||
+              "Replace this with concrete file references, actions, state ownership, route helpers, accessibility checks, and the smallest snippets needed after the prototype direction is approved.",
+            language: "tsx",
+            snippet:
+              'const prototypeDecision = {\n  liveFlow: "reviewed in the prototype viewer",\n  implementation: "rewrite the chosen behavior in production components",\n};',
+          },
+        ],
+      },
+    },
+    {
+      id: createPlanBlockId("verification"),
+      type: "checklist",
+      title: "Verification",
+      data: {
+        items: [
+          {
+            id: "prototype-clicks",
+            label:
+              "Click every prototype transition and confirm the expected screen, state chips, and back/forward behavior.",
+          },
+          {
+            id: "comments",
+            label:
+              "Place at least one comment on the prototype and confirm agent feedback includes an exact prototype target.",
+          },
+          {
+            id: "implementation",
+            label:
+              "After approval, rewrite the chosen behavior in production code rather than copying throwaway prototype markup.",
+          },
+        ],
+      },
+    },
+  ];
+
+  return sanitizePlanContent(
+    planContentSchema.parse({
+      version: PLAN_CONTENT_VERSION,
+      title: input.title,
+      brief: input.brief,
+      prototype,
+      canvas: prototypeToCanvas(prototype),
+      blocks,
+    }),
+  );
+}
+
+export function createPrototypeFromPlanContent(
+  content: PlanContent,
+  input?: { title?: string; brief?: string },
+): PlanPrototype | null {
+  if (content.prototype) return content.prototype;
+  if (!content.canvas?.frames.length) return null;
+  const blocks = new Map<string, PlanBlock>();
+  const visitBlock = (block: PlanBlock) => {
+    blocks.set(block.id, block);
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        for (const child of tab.blocks) visitBlock(child);
+      }
+    }
+  };
+  for (const block of content.blocks) visitBlock(block);
+  const screens: PlanPrototypeScreen[] = content.canvas.frames
+    .map((frame, index) =>
+      prototypeScreenFromArtboard(frame, blocks, index, content.canvas?.title),
+    )
+    .filter((screen): screen is PlanPrototypeScreen => Boolean(screen));
+  if (screens.length === 0) return null;
+  const transitions =
+    content.canvas.flow
+      ?.filter(
+        (transition) =>
+          screens.some((screen) => screen.id === transition.from) &&
+          screens.some((screen) => screen.id === transition.to),
+      )
+      .map((transition) => ({
+        from: transition.from,
+        to: transition.to,
+        label: transition.label,
+        trigger: transition.label
+          ? `Follow ${transition.label}`
+          : "Advance to the next screen",
+      })) ?? createLinearTransitions(screens);
+  return sanitizePrototype({
+    title: input?.title ?? content.canvas.title ?? content.title,
+    brief: input?.brief ?? content.brief,
+    surface: screens[0]?.surface ?? "browser",
+    initialScreenId: screens[0]?.id,
+    screens: addConvertedPrototypeRouteControls(screens, transitions),
+    transitions,
+  });
+}
+
+function createPrototypeFromScreens(input: {
+  title: string;
+  brief: string;
+  screens: PrototypePlanContentInput["screens"];
+  transitions?: PlanPrototype["transitions"];
+}): PlanPrototype {
+  const screens = input.screens.length
+    ? input.screens
+    : [
+        {
+          title: "Interactive draft",
+          summary: input.brief || "Prototype the core interaction.",
+          surface: "browser" as const,
+        },
+      ];
+  const visibleScreens = screens.slice(0, 16);
+  const screenIds = uniqueIds(
+    visibleScreens.map(
+      (screen, index) =>
+        screen.id ?? (slug(screen.title) || `screen-${index + 1}`),
+    ),
+  );
+  const remapScreenId = (id: string) => {
+    const indexMatch = id.match(/^screen-(\d+)$/);
+    if (indexMatch) {
+      const index = Number(indexMatch[1]) - 1;
+      return screenIds[index] ?? id;
+    }
+    const explicitIndex = visibleScreens.findIndex(
+      (screen) => screen.id === id || slug(screen.title) === id,
+    );
+    return explicitIndex >= 0 ? (screenIds[explicitIndex] ?? id) : id;
+  };
+  const normalizedScreens = visibleScreens.map((screen, index) => {
+    const id = screenIds[index] ?? `screen-${index + 1}`;
+    const nextId = screenIds[index + 1] ?? "";
+    return {
+      id,
+      title: screen.title,
+      summary: screen.summary,
+      surface: screen.surface ?? "browser",
+      html:
+        screen.html ??
+        createPrototypeScreenHtml({
+          title: screen.title,
+          summary: screen.summary ?? input.brief,
+          nextId,
+        }),
+      state: screen.state,
+    } satisfies PlanPrototypeScreen;
+  });
+  return sanitizePrototype({
+    title: input.title,
+    brief: input.brief,
+    surface: normalizedScreens[0]?.surface ?? "browser",
+    initialScreenId: normalizedScreens[0]?.id,
+    screens: normalizedScreens,
+    transitions:
+      input.transitions?.map((transition) => ({
+        ...transition,
+        from: remapScreenId(transition.from),
+        to: remapScreenId(transition.to),
+      })) ?? createLinearTransitions(normalizedScreens),
+  });
+}
+
+function createPrototypeScreenHtml(input: {
+  title: string;
+  summary: string;
+  nextId?: string;
+}) {
+  return [
+    `<div x-data="{ draft: '', filter: 'all', todos: [{ text: 'Review the primary path', done: false }, { text: 'Check the edge state', done: true }] }" style="display:flex;flex-direction:column;gap:14px;padding:18px;height:100%">`,
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">`,
+    `<div><h1>${escapeHtml(input.title)}</h1><p class="wf-muted">${escapeHtml(input.summary)}</p></div>`,
+    input.nextId
+      ? `<button class="primary" data-goto="${escapeHtml(input.nextId)}">Open next screen</button>`
+      : `<span class="wf-pill accent">Functional prototype</span>`,
+    `</div>`,
+    `<div class="wf-card" style="display:flex;flex-direction:column;gap:10px;flex:1">`,
+    `<div style="display:flex;gap:8px;align-items:center">`,
+    `<input x-model="draft" @keydown.enter="draft && todos.push({ text: draft, done: false }); draft = ''" placeholder="Add a prototype task">`,
+    `<button class="primary" @click="draft && todos.push({ text: draft, done: false }); draft = ''">Add</button>`,
+    `</div>`,
+    `<div style="display:flex;gap:8px;flex-wrap:wrap">`,
+    `<button @click="filter = 'all'" :class="{ 'primary': filter === 'all' }">All</button>`,
+    `<button @click="filter = 'active'" :class="{ 'primary': filter === 'active' }">Active</button>`,
+    `<button @click="filter = 'done'" :class="{ 'primary': filter === 'done' }">Done</button>`,
+    `</div>`,
+    `<div style="display:flex;flex-direction:column;gap:8px">`,
+    `<div class="wf-box" x-for="todo in todos" x-show="filter === 'all' || (filter === 'active' && !todo.done) || (filter === 'done' && todo.done)" :class="{ 'is-done': todo.done }" :data-done="todo.done" style="display:flex;align-items:center;justify-content:space-between;gap:10px">`,
+    `<label style="display:flex;align-items:center;gap:8px;min-width:0"><input type="checkbox" x-model="todo.done"><span x-text="todo.text"></span></label>`,
+    `<button @click="remove(todos, todo)">Remove</button>`,
+    `</div>`,
+    `</div>`,
+    `</div>`,
+    `</div>`,
+  ].join("");
+}
+
+function prototypeScreenFromArtboard(
+  frame: PlanArtboard,
+  blocks: Map<string, PlanBlock>,
+  index: number,
+  canvasTitle?: string,
+): PlanPrototypeScreen | null {
+  const block = frame.blockId ? blocks.get(frame.blockId) : undefined;
+  const wireframe =
+    frame.wireframe ?? (block?.type === "wireframe" ? block.data : undefined);
+  if (!wireframe?.html) return null;
+  return {
+    id: frame.id,
+    title: frame.label ?? block?.title ?? `Screen ${index + 1}`,
+    summary:
+      wireframe.caption ??
+      block?.summary ??
+      (canvasTitle ? `From ${canvasTitle}` : undefined),
+    surface: frame.surface ?? wireframe.surface,
+    html: wireframe.html,
+    state: [
+      {
+        id: "source",
+        label: "Source",
+        value: "canvas frame",
+      },
+      {
+        id: "surface",
+        label: "Surface",
+        value: frame.surface ?? wireframe.surface,
+      },
+    ],
+  };
+}
+
+function addConvertedPrototypeRouteControls(
+  screens: PlanPrototypeScreen[],
+  transitions: PlanPrototype["transitions"] = [],
+): PlanPrototypeScreen[] {
+  const outgoing = new Map<string, PlanPrototype["transitions"]>();
+  for (const transition of transitions) {
+    outgoing.set(transition.from, [
+      ...(outgoing.get(transition.from) ?? []),
+      transition,
+    ]);
+  }
+  return screens.map((screen) => {
+    const routes = (outgoing.get(screen.id) ?? []).filter(
+      (transition) => !screen.html.includes(`data-goto="${transition.to}"`),
+    );
+    if (routes.length === 0) return screen;
+    const routeControls = [
+      `<div class="wf-box" style="position:absolute;right:14px;bottom:14px;display:flex;gap:8px;align-items:center;background:var(--wf-card);padding:8px">`,
+      ...routes
+        .slice(0, 3)
+        .map(
+          (transition) =>
+            `<button data-goto="${escapeHtml(transition.to)}">${escapeHtml(transition.label || "Open")}</button>`,
+        ),
+      `</div>`,
+    ].join("");
+    return { ...screen, html: `${screen.html}${routeControls}` };
+  });
+}
+
+function createLinearTransitions(
+  screens: PlanPrototypeScreen[],
+): PlanPrototype["transitions"] {
+  return screens.slice(0, -1).map((screen, index) => ({
+    from: screen.id,
+    to: screens[index + 1]?.id ?? screen.id,
+    label: `Step ${index + 1}`,
+    trigger: "Continue",
+  }));
+}
+
+function prototypeToCanvas(prototype: PlanPrototype): PlanContent["canvas"] {
+  const frames = prototype.screens.slice(0, 8).map<PlanArtboard>((screen) => ({
+    id: `frame-${screen.id}`,
+    label: screen.title ?? screen.id,
+    surface: screen.surface ?? prototype.surface ?? "browser",
+    wireframe: {
+      surface: screen.surface ?? prototype.surface ?? "browser",
+      html: screen.html,
+      caption: screen.summary,
+    },
+  }));
+  if (frames.length === 0) return undefined;
+  const annotations: PlanAnnotation[] = frames[0]
+    ? [
+        {
+          id: "prototype-static-note",
+          type: "note",
+          targetId: frames[0].id,
+          placement: "bottom",
+          title: "Static reference",
+          text: "The live functional prototype is above the document; these frames preserve static mocks for review and source export.",
+        },
+      ]
+    : [];
+  return {
+    title: `${prototype.title ?? "Prototype"} Static Mocks`,
+    frames,
+    flow: (prototype.transitions ?? [])
+      .map((transition) => ({
+        from: `frame-${transition.from}`,
+        to: `frame-${transition.to}`,
+        label: transition.label,
+      }))
+      .filter(
+        (transition) =>
+          frames.some((frame) => frame.id === transition.from) &&
+          frames.some((frame) => frame.id === transition.to),
+      ),
+    annotations,
+  };
 }
 
 function createComponentPlanOverview(input: UiPlanContentInput) {
@@ -1286,8 +1884,14 @@ export function buildPlanContentHtml(input: {
   status?: string | null;
   repoPath?: string | null;
 }) {
-  const planLabel =
-    input.content.canvas?.title === "UI Flow" ? "UI Plan" : "Visual Plan";
+  const planLabel = input.content.prototype
+    ? "Prototype Plan"
+    : input.content.canvas?.title === "UI Flow"
+      ? "UI Plan"
+      : "Visual Plan";
+  const prototype = input.content.prototype
+    ? renderPrototypeHtml(input.content.prototype)
+    : "";
   const canvas = input.content.canvas
     ? renderCanvasHtml(input.content.canvas)
     : "";
@@ -1301,6 +1905,7 @@ export function buildPlanContentHtml(input: {
   <style>${CONTENT_EXPORT_CSS}</style>
 </head>
 <body>
+  ${prototype}
   ${canvas}
   <main>
     <section class="hero">
@@ -1976,6 +2581,39 @@ function frameLegacyData(frame: PlanArtboard): LegacyWireframeData | undefined {
   return frame.legacyWireframe;
 }
 
+function renderPrototypeHtml(prototype: PlanPrototype): string {
+  const initial =
+    prototype.screens.find(
+      (screen) => screen.id === prototype.initialScreenId,
+    ) ?? prototype.screens[0];
+  if (!initial) return "";
+  const transitions = prototype.transitions ?? [];
+  return `<section class="prototype-export">
+    <div class="prototype-export-header">
+      <div>
+        <p class="kicker">Prototype</p>
+        <h2>${escapeHtml(prototype.title ?? "Clickable prototype")}</h2>
+        ${prototype.brief ? `<p>${escapeHtml(prototype.brief)}</p>` : ""}
+      </div>
+      <span>${escapeHtml(initial.title ?? initial.id)}</span>
+    </div>
+    <div class="prototype-export-screen">
+      <p class="caption">Prototype HTML is shown as static source in standalone exports. Open the live plan to click through screens and add anchored comments.</p>
+      <pre><code>${escapeHtml(initial.html)}</code></pre>
+    </div>
+    ${
+      transitions.length > 0
+        ? `<ol class="prototype-export-flow">${transitions
+            .map(
+              (transition) =>
+                `<li><strong>${escapeHtml(transition.from)}</strong> to <strong>${escapeHtml(transition.to)}</strong>${transition.label ? ` — ${escapeHtml(transition.label)}` : ""}${transition.trigger ? ` <span>${escapeHtml(transition.trigger)}</span>` : ""}</li>`,
+            )
+            .join("")}</ol>`
+        : ""
+    }
+  </section>`;
+}
+
 function renderCanvasHtml(canvas: NonNullable<PlanContent["canvas"]>): string {
   const layoutFrames = layoutCanvasFrames(canvas.frames);
   const frames = layoutFrames
@@ -2366,6 +3004,13 @@ const CONTENT_EXPORT_CSS = `
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
 main { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 72px 0 96px; }
+.prototype-export { padding: 42px clamp(24px, 4vw, 64px); border-bottom: 1px solid var(--line); background: var(--paper); }
+.prototype-export-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; max-width: 1120px; margin: 0 auto 24px; }
+.prototype-export-header h2 { margin: 0 0 8px; }
+.prototype-export-header > span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.prototype-export-screen { max-width: 1120px; margin: 0 auto; }
+.prototype-export-flow { max-width: 1120px; margin: 22px auto 0; color: var(--muted); }
+.prototype-export-flow span { color: var(--muted); }
 .canvas-export { height: 65vh; overflow: hidden; background-color: var(--canvas); background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 28px 28px; border-bottom: 1px solid var(--line); }
 .canvas-inner { position: relative; width: 2400px; height: 1400px; }
 .canvas-frame, .canvas-note { position: absolute; }

@@ -33,6 +33,11 @@ import { DiagramBlock, DiagramBlockEdit } from "./blocks/DiagramBlock";
 import { WireframeBlock, WireframeEditor } from "./blocks/WireframeBlock";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 /**
  * Browser-side plan block registry. Registers the full specs (with their React
@@ -58,6 +63,9 @@ registerBlocks(planBlockRegistry, [
     label: "Callout",
     description:
       "An emphasized note with a tone (info/decision/risk/warning/success) and a markdown body.",
+    // `body` is a `markdown(min(1))` field, so a fresh callout needs non-empty
+    // placeholder prose; `tone` defaults to the neutral "info" register.
+    empty: () => ({ tone: "info", body: "Callout text" }),
   }),
   defineBlock<DiagramData>({
     type: "diagram",
@@ -72,6 +80,9 @@ registerBlocks(planBlockRegistry, [
     label: "Diagram",
     description:
       "A sketch flow diagram of labeled nodes connected by edges, with optional notes.",
+    // `nodes` requires at least one entry; seed a single labeled node with no
+    // edges so the schema validates and the canvas has something to render.
+    empty: () => ({ nodes: [{ id: "n1", label: "Step 1" }], edges: [] }),
   }),
   defineBlock<WireframeData>({
     type: "wireframe",
@@ -88,6 +99,9 @@ registerBlocks(planBlockRegistry, [
     label: "Wireframe",
     description:
       "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface frame (desktop/mobile/popover/panel/browser).",
+    // `surface` is the only required field; `screen` defaults to []. Start on the
+    // desktop surface with an empty screen so the canvas/agent can fill it in.
+    empty: () => ({ surface: "desktop", screen: [] }),
   }),
   // Standard checklist block from the core library. Its `Read`/`Edit`
   // (toggle/add/remove) and schema + MDX config all come from core; the same
@@ -176,6 +190,24 @@ export function createPlanBlockRenderContext(options: {
         planId={options.planId}
         collabUser={options.collabUser}
       />
+    ),
+    // `editSurface: "panel"` blocks (custom HTML, callout, any auto-form block)
+    // render their `Read` with a corner edit button; clicking it opens the block
+    // editor in this shadcn popover anchored to the button. Non-modal so the rest
+    // of the doc stays interactive and the inline rich editor's portals behave.
+    renderEditSurface: ({ title, trigger, children }) => (
+      <Popover>
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+        <PopoverContent
+          align="end"
+          sideOffset={6}
+          data-plan-interactive
+          className="an-block-edit-popover flex max-h-[70vh] w-96 flex-col gap-3 overflow-auto"
+        >
+          <div className="text-sm font-semibold text-foreground">{title}</div>
+          {children}
+        </PopoverContent>
+      </Popover>
     ),
   };
 }

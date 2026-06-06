@@ -1,9 +1,14 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 import {
   buildCommentThreads,
   canEditPlanContentRole,
   commentAuthorEmails,
+  mentionQueryAtCaret,
   runtimeAnnotationFromThread,
+  nativePointForAnchor,
+  resolveNativeAnchorTarget,
 } from "./PlansPage";
 import type { PlanBundle } from "@shared/types";
 
@@ -108,6 +113,76 @@ describe("plan comment thread UI model", () => {
     ).toEqual(["damian@example.com", "emma@example.com", "steve@example.com"]);
   });
 
+  it("merges queryable resolver metadata into runtime annotation anchors", () => {
+    const root = comment("root", {
+      anchor: JSON.stringify({ x: 12, y: 34, sectionTitle: "Summary" }),
+      resolutionTarget: "human",
+      mentions: [{ label: "Tiana", email: "tiana@example.com" }],
+    });
+
+    const [thread] = buildCommentThreads([root]);
+    const annotation = thread && runtimeAnnotationFromThread(thread, 0, {});
+
+    expect(thread?.anchor).toMatchObject({
+      x: 12,
+      y: 34,
+      sectionTitle: "Summary",
+      resolutionTarget: "human",
+      mentions: [{ label: "Tiana", email: "tiana@example.com" }],
+    });
+    expect(annotation?.anchor).toMatchObject({
+      resolutionTarget: "human",
+      mentions: [{ label: "Tiana", email: "tiana@example.com" }],
+    });
+  });
+
+  it("does not resolve prototype comment anchors against the wrong active screen", () => {
+    const reader = document.createElement("div");
+    reader.innerHTML = `
+      <section data-prototype-screen="start">
+        <h1>Start</h1>
+        <p>Reusable approval copy</p>
+      </section>
+    `;
+    document.body.append(reader);
+
+    const offscreenAnchor = {
+      x: 50,
+      y: 50,
+      targetKind: "prototype",
+      sectionId: "confirm",
+      screenId: "confirm",
+      textQuote: "Reusable approval copy",
+      targetSelector: '[data-prototype-screen="confirm"] p:nth-of-type(1)',
+    };
+
+    expect(
+      resolveNativeAnchorTarget(offscreenAnchor as any, reader),
+    ).toBeNull();
+    expect(nativePointForAnchor(offscreenAnchor as any, reader)).toBeNull();
+
+    const legacyOffscreenAnchor = {
+      ...offscreenAnchor,
+      screenId: undefined,
+      targetSelector: undefined,
+    };
+    expect(
+      resolveNativeAnchorTarget(legacyOffscreenAnchor as any, reader),
+    ).toBeNull();
+
+    const activeAnchor = {
+      ...offscreenAnchor,
+      sectionId: "start",
+      screenId: "start",
+      targetSelector: '[data-prototype-screen="start"] p:nth-of-type(1)',
+    };
+    expect(
+      resolveNativeAnchorTarget(activeAnchor as any, reader)?.tagName,
+    ).toBe("P");
+
+    reader.remove();
+  });
+
   it("limits canvas markup content edits to editor-capable roles", () => {
     expect(canEditPlanContentRole("owner")).toBe(true);
     expect(canEditPlanContentRole("admin")).toBe(true);
@@ -115,5 +190,28 @@ describe("plan comment thread UI model", () => {
     expect(canEditPlanContentRole("viewer")).toBe(false);
     expect(canEditPlanContentRole(null)).toBe(false);
     expect(canEditPlanContentRole(undefined)).toBe(false);
+  });
+
+  it("detects mention queries when Chrome splits typed content into text nodes", () => {
+    const root = document.createElement("div");
+    root.contentEditable = "true";
+    root.append(
+      document.createTextNode("@"),
+      document.createTextNode("t"),
+      document.createTextNode("i"),
+    );
+    document.body.append(root);
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.setStart(root, root.childNodes.length);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const query = mentionQueryAtCaret(root);
+
+    expect(query?.query).toBe("ti");
+    expect(query?.range.toString()).toBe("@ti");
+    root.remove();
   });
 });

@@ -481,6 +481,7 @@ export function CanvasArea({
     >
       <div
         ref={viewportRef}
+        data-plan-canvas-viewport
         className={`plan-canvas-viewport absolute inset-0 overflow-hidden ${
           reviewCursor
             ? "cursor-crosshair active:cursor-crosshair"
@@ -550,6 +551,7 @@ export function CanvasArea({
         }}
       >
         <div
+          data-plan-canvas-world
           className="plan-canvas-world relative origin-top-left"
           style={{
             width: board.width,
