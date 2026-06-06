@@ -12,7 +12,14 @@ import { mkdirSync } from "node:fs";
  *
  * Guest specs opt out of this state via their own empty storageState.
  */
-const EMAIL = process.env.PLAN_E2E_EMAIL || "e2e-tester@plan.test";
+// Fresh unique account per run by default. A FIXED email deadlocks across a dev
+// server restart: the account row persists in the local DB, but a restart mints a
+// new BETTER_AUTH_SECRET so the stored password hash no longer verifies — login
+// 401s AND register 409s ("already exists"), leaving every authed spec to run as a
+// guest. A per-run email always registers cleanly and logs in within the run.
+const EMAIL =
+  process.env.PLAN_E2E_EMAIL ||
+  `e2e-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@plan.test`;
 const PASS =
   process.env.PLAN_E2E_PASS || ["example", "plan", "e2e", "pw"].join("-");
 
