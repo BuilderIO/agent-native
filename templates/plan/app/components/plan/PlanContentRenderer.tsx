@@ -13,7 +13,10 @@ import {
   type CanvasMarkupMode,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
-import { PlanVisualSurface } from "./PlanVisualSurface";
+import {
+  PlanVisualSurface,
+  type PlanVisualSurfaceMode,
+} from "./PlanVisualSurface";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { PlanDocumentEditor } from "../editor/PlanDocumentEditor";
 
@@ -37,10 +40,7 @@ type PlanContentRendererProps = {
   collabUser?: RichMarkdownCollabUser | null;
   /** Focus the reader on the live prototype only, for popout windows. */
   prototypeOnly?: boolean;
-  /** Whether plan comment markers are visible in the prototype review surface. */
-  prototypeCommentsVisible?: boolean;
-  /** Toggle shared plan comments from the prototype floating toolbar. */
-  onPrototypeCommentsToggle?: () => void;
+  onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
 
 /**
@@ -63,8 +63,7 @@ export function PlanContentRenderer({
   planId,
   collabUser,
   prototypeOnly = false,
-  prototypeCommentsVisible = false,
-  onPrototypeCommentsToggle,
+  onVisualSurfaceModeChange,
 }: PlanContentRendererProps) {
   const planLabel = content.prototype
     ? "Prototype Plan"
@@ -247,8 +246,7 @@ export function PlanContentRenderer({
             canvasMarkupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
             prototypeOnly={prototypeOnly}
-            prototypeCommentsVisible={prototypeCommentsVisible}
-            onPrototypeCommentsToggle={onPrototypeCommentsToggle}
+            onVisualModeChange={onVisualSurfaceModeChange}
           />
         )}
         {!prototypeOnly && (

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { IconClick, IconLayoutBoard } from "@tabler/icons-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
@@ -10,6 +11,7 @@ import { PrototypeViewer } from "./PrototypeViewer";
 import type { PlanAnnotation } from "@shared/plan-content";
 
 type CanvasMarkupAnnotationInput = Omit<PlanAnnotation, "id">;
+export type PlanVisualSurfaceMode = "prototype" | "wireframes" | "none";
 
 type PlanVisualSurfaceProps = {
   canvas?: PlanContent["canvas"];
@@ -21,8 +23,7 @@ type PlanVisualSurfaceProps = {
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
   prototypeOnly?: boolean;
-  prototypeCommentsVisible?: boolean;
-  onPrototypeCommentsToggle?: () => void;
+  onVisualModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
 
 export function PlanVisualSurface({
@@ -32,15 +33,35 @@ export function PlanVisualSurface({
   canvasMarkupMode = "none",
   onCanvasMarkupCreate,
   prototypeOnly = false,
-  prototypeCommentsVisible = false,
-  onPrototypeCommentsToggle,
+  onVisualModeChange,
 }: PlanVisualSurfaceProps) {
+  const [tabValue, setTabValue] = useState<"prototype" | "wireframes">(
+    prototype ? "prototype" : "wireframes",
+  );
+  const visualMode = useMemo<PlanVisualSurfaceMode>(() => {
+    if (prototypeOnly && prototype) return "prototype";
+    if (prototype && canvas) return tabValue;
+    if (prototype) return "prototype";
+    if (canvas) return "wireframes";
+    return "none";
+  }, [canvas, prototype, prototypeOnly, tabValue]);
+
+  useEffect(() => {
+    if (tabValue === "prototype" && !prototype && canvas) {
+      setTabValue("wireframes");
+    } else if (tabValue === "wireframes" && !canvas && prototype) {
+      setTabValue("prototype");
+    }
+  }, [canvas, prototype, tabValue]);
+
+  useEffect(() => {
+    onVisualModeChange?.(visualMode);
+  }, [onVisualModeChange, visualMode]);
+
   if (prototypeOnly) {
     return prototype ? (
       <PrototypeViewer
         prototype={prototype}
-        commentsVisible={prototypeCommentsVisible}
-        onToggleComments={onPrototypeCommentsToggle}
         disableScreenClicks={canvasMarkupMode === "comment"}
         standalone
       />
@@ -49,7 +70,14 @@ export function PlanVisualSurface({
 
   if (canvas && prototype) {
     return (
-      <Tabs defaultValue="prototype" className="relative" data-plan-visual-tabs>
+      <Tabs
+        value={tabValue}
+        onValueChange={(value) =>
+          setTabValue(value === "wireframes" ? "wireframes" : "prototype")
+        }
+        className="relative"
+        data-plan-visual-tabs
+      >
         <div
           className="absolute left-4 top-4 z-40"
           data-plan-interactive
@@ -75,8 +103,6 @@ export function PlanVisualSurface({
         <TabsContent value="prototype" className="m-0">
           <PrototypeViewer
             prototype={prototype}
-            commentsVisible={prototypeCommentsVisible}
-            onToggleComments={onPrototypeCommentsToggle}
             disableScreenClicks={canvasMarkupMode === "comment"}
           />
         </TabsContent>
@@ -96,8 +122,6 @@ export function PlanVisualSurface({
     return (
       <PrototypeViewer
         prototype={prototype}
-        commentsVisible={prototypeCommentsVisible}
-        onToggleComments={onPrototypeCommentsToggle}
         disableScreenClicks={canvasMarkupMode === "comment"}
       />
     );

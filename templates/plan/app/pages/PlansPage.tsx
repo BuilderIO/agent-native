@@ -106,6 +106,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
+import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
 import {
   toggleWireframeStyle,
   useWireframeStyle,
@@ -1636,6 +1637,8 @@ export function PlansPage() {
   const [annotateMode, setAnnotateMode] = useState(false);
   const [canvasMarkupMode, setCanvasMarkupMode] =
     useState<CanvasMarkupMode>("none");
+  const [visualSurfaceMode, setVisualSurfaceMode] =
+    useState<PlanVisualSurfaceMode>("none");
   const [preferredEditor, setPreferredEditor] = useState<PreferredEditor>(() =>
     readPreferredEditor(),
   );
@@ -1832,6 +1835,14 @@ export function PlansPage() {
       : "none";
   const commentMarkersVisible =
     annotationsOpen || annotateMode || Boolean(activeAnnotation);
+  const showingPrototypeSurface =
+    prototypeOnly || visualSurfaceMode === "prototype";
+
+  useEffect(() => {
+    if (visualSurfaceMode !== "wireframes" && canvasMarkupMode !== "none") {
+      setCanvasMarkupMode("none");
+    }
+  }, [canvasMarkupMode, visualSurfaceMode]);
 
   useSetPageTitle(bundle?.plan.title || "Plans");
 
@@ -3018,9 +3029,44 @@ export function PlansPage() {
                 <ReviewMarkupToolbar
                   mode={reviewMode}
                   hasCanvas={Boolean(bundle.plan.content?.canvas)}
-                  canUseCanvasMarkup={canEditPlanContent}
+                  canUseCanvasMarkup={
+                    canEditPlanContent && visualSurfaceMode === "wireframes"
+                  }
                   onModeChange={selectReviewMode}
                 />
+                {bundle.plan.content?.prototype && showingPrototypeSurface && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="pointer-events-auto size-8"
+                        onClick={() =>
+                          preservePlanReaderScroll(() => {
+                            if (prototypeOnly) {
+                              leavePrototypeOnlyMode();
+                            } else {
+                              openPrototypeWindow();
+                            }
+                          })
+                        }
+                        aria-label={
+                          prototypeOnly
+                            ? "Open full plan"
+                            : "Open prototype window"
+                        }
+                      >
+                        <IconExternalLink className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {prototypeOnly
+                        ? "Open full plan"
+                        : "Open prototype window"}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 {bundle.summary.openCommentCount > 0 && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -3353,17 +3399,7 @@ export function PlansPage() {
                       planId={bundle.plan.id}
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
-                      prototypeCommentsVisible={annotationsOpen}
-                      onPrototypeCommentsToggle={() => {
-                        setAnnotationsOpen((value) => {
-                          const next = !value;
-                          if (!next) {
-                            closeInlineComment();
-                            setActiveAnnotation(null);
-                          }
-                          return next;
-                        });
-                      }}
+                      onVisualSurfaceModeChange={setVisualSurfaceMode}
                       onVisualQuestionsSubmit={(summary) => {
                         sendToAgentChat({
                           type: "content",
