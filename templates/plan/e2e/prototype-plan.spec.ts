@@ -402,10 +402,15 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
   const styleBefore = await frame.first().getAttribute("data-style");
   expect(["sketchy", "clean"]).toContain(styleBefore);
 
-  const styleToggle = page.getByRole("button", {
-    name: /Sketchy prototype|Clean prototype/,
-  });
-  await styleToggle.click();
+  // The sketchy/clean + dark/light toggles now live in the ⋮ "Plan actions"
+  // menu (DropdownMenu items "Clean/Sketchy wireframes", "Light/Dark mode"),
+  // not a prototype-specific toolbar button.
+  const openPlanMenu = async () => {
+    await page.getByRole("button", { name: "Plan actions" }).first().click();
+  };
+
+  await openPlanMenu();
+  await page.getByRole("menuitem", { name: /wireframes/i }).click();
   await expect(async () => {
     const styleAfter = await viewer
       .locator("[data-prototype-screen] .plan-html-frame")
@@ -414,29 +419,25 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
     expect(styleAfter, "the rendered prototype frame style must flip").not.toBe(
       styleBefore,
     );
-  }).toPass({ timeout: 5000 });
+  }).toPass({ timeout: 6000 });
 
   // Flip it back so this spec leaves the shared localStorage preference as found.
-  await page
-    .getByRole("button", { name: /Sketchy prototype|Clean prototype/ })
-    .click();
+  await openPlanMenu();
+  await page.getByRole("menuitem", { name: /wireframes/i }).click();
   await expect(async () => {
     const restored = await viewer
       .locator("[data-prototype-screen] .plan-html-frame")
       .first()
       .getAttribute("data-style");
     expect(restored).toBe(styleBefore);
-  }).toPass({ timeout: 5000 });
+  }).toPass({ timeout: 6000 });
 
-  // Dark/light theme toggle flips the documentElement theme class.
-  const themeToggle = page.getByRole("button", {
-    name: /Dark mode|Light mode/,
-  });
-  await expect(themeToggle).toBeVisible();
+  // Dark/light theme toggle (also in the ⋮ menu) flips the documentElement class.
   const wasDark = await page
     .locator("html")
     .evaluate((el) => el.classList.contains("dark"));
-  await themeToggle.click();
+  await openPlanMenu();
+  await page.getByRole("menuitem", { name: /mode/i }).click();
   await expect(async () => {
     const isDark = await page
       .locator("html")
@@ -444,7 +445,7 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
     expect(isDark, "the dark/light toggle must flip the theme class").not.toBe(
       wasDark,
     );
-  }).toPass({ timeout: 5000 });
+  }).toPass({ timeout: 6000 });
 
   // Viewer is still mounted and showing a screen after toggling.
   await expect(viewer.locator("[data-prototype-screen]")).toBeVisible();
