@@ -55,7 +55,7 @@ export const planComments = table("plan_comments", {
   planId: text("plan_id")
     .notNull()
     .references(() => plans.id),
-  parentCommentId: text("parent_comment_id"),
+  parentCommentId: text("parent_comment_id").references(() => planComments.id),
   sectionId: text("section_id").references(() => planSections.id),
   kind: text("kind", { enum: PLAN_COMMENT_KINDS }).notNull().default("comment"),
   status: text("status", { enum: PLAN_COMMENT_STATUSES })

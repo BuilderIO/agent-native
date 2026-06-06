@@ -47,6 +47,7 @@ import {
   agentNativePath,
   sendToAgentChat,
   setAgentChatContextItem,
+  useActionQuery,
   useSession,
   emailToColor,
   emailToName,
@@ -896,6 +897,16 @@ function buildCanvasMarkupFeedbackMessage(annotation: PlanAnnotation) {
   return `${prefix}: ${annotation.text}`;
 }
 
+type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
+
+type PlanAccessResponse = {
+  role?: PlanAccessRole | null;
+};
+
+export function canEditPlanContentRole(role?: PlanAccessRole | null) {
+  return role === "owner" || role === "admin" || role === "editor";
+}
+
 export function PlansPage() {
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
@@ -1006,6 +1017,13 @@ export function PlansPage() {
   const immersiveReader = Boolean(selectedId && planFullscreen);
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
+  const accessResourceId = bundle?.plan.id ?? selectedId ?? "";
+  const planAccessQuery = useActionQuery<PlanAccessResponse>(
+    "list-resource-shares",
+    { resourceType: "plan", resourceId: accessResourceId },
+    { enabled: Boolean(accessResourceId) },
+  );
+  const canEditPlanContent = canEditPlanContentRole(planAccessQuery.data?.role);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
@@ -1062,7 +1080,9 @@ export function PlansPage() {
   iframeRuntimeDefaultsRef.current = { planTheme, preferredEditor };
   const reviewMode: CanvasMarkupMode = annotateMode
     ? "comment"
-    : canvasMarkupMode;
+    : canEditPlanContent
+      ? canvasMarkupMode
+      : "none";
 
   useSetPageTitle(bundle?.plan.title || "Plans");
 
@@ -1512,6 +1532,12 @@ export function PlansPage() {
         startCommenting();
         return;
       }
+      if (!canEditPlanContent) {
+        setCanvasMarkupMode("none");
+        setAnnotateMode(false);
+        toast.error("Only editors can add canvas markup.");
+        return;
+      }
       setActiveAnnotation(null);
       setAnnotationsOpen(false);
       clearInlineCommentDraft();
@@ -1693,6 +1719,10 @@ export function PlansPage() {
     context: CanvasMarkupCreateContext,
   ) => {
     if (!bundle?.plan.content?.canvas) return;
+    if (!canEditPlanContent) {
+      toast.error("Only editors can add canvas markup.");
+      return;
+    }
     const nextAnnotation: PlanAnnotation = {
       id: newCanvasMarkupId(),
       ...annotation,
@@ -1930,6 +1960,9 @@ export function PlansPage() {
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
             />
+          ) : new URLSearchParams(location.search).get("loadingPreview") ===
+            "1" ? (
+            <PlanSkeleton />
           ) : !bundle && planQuery.isError ? (
             <PlanLoadError
               planId={params.id}
@@ -1971,6 +2004,7 @@ export function PlansPage() {
                 <ReviewMarkupToolbar
                   mode={reviewMode}
                   hasCanvas={Boolean(bundle.plan.content?.canvas)}
+                  canUseCanvasMarkup={canEditPlanContent}
                   onModeChange={selectReviewMode}
                 />
                 {bundle.summary.openCommentCount > 0 && (
@@ -2232,7 +2266,9 @@ export function PlansPage() {
                       contentUpdatedAt={bundle.plan.updatedAt}
                       editingDisabled={reviewMode !== "none"}
                       canvasMarkupMode={reviewMode}
-                      onCanvasMarkupCreate={appendCanvasMarkup}
+                      onCanvasMarkupCreate={
+                        canEditPlanContent ? appendCanvasMarkup : undefined
+                      }
                       planId={bundle.plan.id}
                       collabUser={collabUser}
                       onVisualQuestionsSubmit={(summary) => {
@@ -2714,39 +2750,17 @@ function PlanCanvasSkeleton() {
         <PlanSkeletonIcon />
       </div>
 
-      <div className="absolute left-[8%] top-[17%] w-[min(48rem,58vw)] min-w-[34rem]">
-        <PlanSkeletonBar className="mb-2 h-4 w-24" />
-        <DesktopArtboardSkeleton />
-        <div className="mt-7 max-w-[26rem]">
-          <PlanSkeletonBar className="mb-3 h-5 w-36" />
-          <div className="space-y-2">
-            <PlanSkeletonBar className="h-3 w-full" />
-            <PlanSkeletonBar className="h-3 w-4/5" />
-          </div>
+      <div className="absolute inset-x-4 bottom-14 top-16 mx-auto flex max-w-6xl items-start gap-6 overflow-hidden px-1 sm:px-6">
+        <div className="min-w-0 flex-[1_1_44rem]">
+          <PlanSkeletonBar className="mb-3 h-4 w-28" />
+          <DesktopArtboardSkeleton />
+        </div>
+
+        <div className="hidden w-[17rem] shrink-0 lg:block">
+          <PlanSkeletonBar className="mb-3 h-4 w-20" />
+          <PhoneArtboardSkeleton />
         </div>
       </div>
-
-      <div className="absolute left-[62%] top-[18%] hidden w-[17rem] xl:block">
-        <PlanSkeletonBar className="mb-2 h-4 w-20" />
-        <PhoneArtboardSkeleton />
-        <div className="mt-7 max-w-[16rem]">
-          <PlanSkeletonBar className="mb-3 h-5 w-28" />
-          <div className="space-y-2">
-            <PlanSkeletonBar className="h-3 w-full" />
-            <PlanSkeletonBar className="h-3 w-3/4" />
-          </div>
-        </div>
-      </div>
-
-      <div className="absolute left-[86%] top-[18%] hidden w-[17rem] 2xl:block">
-        <PlanSkeletonBar className="mb-2 h-4 w-20" />
-        <PhoneArtboardSkeleton />
-      </div>
-
-      <div className="absolute left-[52%] top-[40%] hidden h-px w-[12%] border-t border-dashed border-[hsl(var(--ring)/0.55)] xl:block" />
-      <Skeleton className="absolute left-[54%] top-[38%] hidden h-6 w-16 rounded-full border border-[hsl(var(--ring)/0.45)] bg-plan-chrome xl:block" />
-      <div className="absolute left-[79%] top-[41%] hidden h-px w-[8%] border-t border-dashed border-[hsl(var(--ring)/0.55)] 2xl:block" />
-      <Skeleton className="absolute left-[80%] top-[39%] hidden h-6 w-16 rounded-full border border-[hsl(var(--ring)/0.45)] bg-plan-chrome 2xl:block" />
 
       <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-lg border border-plan-line bg-plan-chrome p-1 shadow-md backdrop-blur">
         <Skeleton className="size-6 rounded-md bg-[var(--plan-placeholder-line)]" />
@@ -2804,57 +2818,42 @@ function PlanDocumentSkeleton() {
 
 function DesktopArtboardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-[10px] border border-plan-line bg-plan-wireframe shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
+    <div className="h-[21rem] overflow-hidden rounded-[10px] border border-plan-line bg-plan-wireframe shadow-[0_10px_34px_rgba(24,24,27,0.08)] sm:h-[25rem]">
       <div className="flex h-8 items-center gap-2 border-b border-plan-line px-3">
         <Skeleton className="size-1.5 rounded-full bg-[var(--plan-placeholder-line)]" />
         <Skeleton className="size-1.5 rounded-full bg-[var(--plan-placeholder-line)]" />
         <Skeleton className="size-1.5 rounded-full bg-[var(--plan-placeholder-line)]" />
         <PlanSkeletonBar className="ml-2 h-3 w-24" />
       </div>
-      <div className="grid min-h-[18rem] grid-cols-[8.5rem_minmax(0,1fr)]">
-        <aside className="border-r border-plan-line p-4">
-          <PlanSkeletonBar className="mb-4 h-4 w-24" />
-          <div className="space-y-3">
-            <Skeleton className="h-7 rounded-md border border-[hsl(var(--ring)/0.4)] bg-[hsl(var(--ring)/0.08)]" />
-            <PlanSkeletonBox className="h-7" />
-            <PlanSkeletonBox className="h-7" />
-            <PlanSkeletonBox className="h-7" />
-          </div>
-        </aside>
-        <main className="p-5">
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <div className="min-w-0 flex-1">
-              <Skeleton className="mb-3 h-8 w-48 rounded-lg bg-[var(--plan-text)]/16" />
-              <div className="space-y-2">
-                <PlanSkeletonBar className="h-3 w-11/12" />
-                <PlanSkeletonBar className="h-3 w-2/3" />
-              </div>
+      <div className="p-5 sm:p-6">
+        <div className="mb-5 flex items-start justify-between gap-5">
+          <div className="min-w-0 flex-1">
+            <Skeleton className="mb-3 h-9 w-56 max-w-full rounded-lg bg-[var(--plan-text)]/16" />
+            <div className="space-y-2">
+              <PlanSkeletonBar className="h-3.5 w-full max-w-[34rem]" />
+              <PlanSkeletonBar className="h-3.5 w-4/5 max-w-[28rem]" />
             </div>
-            <PlanSkeletonBox className="h-9 w-20" />
           </div>
-          <div className="mb-4 flex gap-2">
-            <PlanSkeletonPill className="w-12" />
-            <PlanSkeletonPill className="w-16" />
-            <PlanSkeletonPill className="w-14" />
-          </div>
-          <div className="divide-y divide-plan-line">
-            {[0, 1, 2, 3].map((item) => (
-              <div key={item} className="flex items-center gap-4 py-3">
-                <Skeleton className="size-4 rounded border border-plan-line bg-transparent" />
-                <div className="min-w-0 flex-1 space-y-2">
-                  <PlanSkeletonBar
-                    className={cn(
-                      "h-3",
-                      item === 1 ? "w-4/5" : item === 2 ? "w-3/4" : "w-11/12",
-                    )}
-                  />
-                  <PlanSkeletonBar className="h-3 w-1/2" />
-                </div>
-                <PlanSkeletonPill className="w-12" />
-              </div>
-            ))}
-          </div>
-        </main>
+          <PlanSkeletonBox className="hidden h-9 w-24 shrink-0 sm:block" />
+        </div>
+
+        <div className="mb-6 flex gap-2">
+          <PlanSkeletonPill className="w-14" />
+          <PlanSkeletonPill className="w-16" />
+          <PlanSkeletonPill className="w-12" />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <PlanSkeletonBox className="h-24" />
+          <PlanSkeletonBox className="h-24" />
+          <PlanSkeletonBox className="h-24" />
+        </div>
+
+        <div className="mt-6 space-y-3">
+          <PlanSkeletonBar className="h-3.5 w-full" />
+          <PlanSkeletonBar className="h-3.5 w-11/12" />
+          <PlanSkeletonBar className="h-3.5 w-2/3" />
+        </div>
       </div>
     </div>
   );
@@ -2862,7 +2861,7 @@ function DesktopArtboardSkeleton() {
 
 function PhoneArtboardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-[24px] border border-plan-line bg-plan-wireframe shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
+    <div className="h-[25rem] overflow-hidden rounded-[24px] border border-plan-line bg-plan-wireframe shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
       <div className="flex h-9 items-center justify-between border-b border-plan-line px-4">
         <PlanSkeletonBar className="h-2.5 w-8" />
         <div className="flex gap-1">
@@ -2883,23 +2882,14 @@ function PhoneArtboardSkeleton() {
           <PlanSkeletonPill className="w-12" />
         </div>
       </div>
-      <div className="divide-y divide-plan-line px-4">
-        {[0, 1, 2, 3].map((item) => (
-          <div key={item} className="flex items-center gap-3 py-3">
-            <Skeleton className="size-3.5 rounded border border-plan-line bg-transparent" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <PlanSkeletonBar
-                className={cn(
-                  "h-3",
-                  item === 0 ? "w-5/6" : item === 2 ? "w-2/3" : "w-3/4",
-                )}
-              />
-              <PlanSkeletonBar className="h-2.5 w-1/2" />
-            </div>
-          </div>
-        ))}
+      <div className="px-4 py-4">
+        <PlanSkeletonBox className="mb-4 h-24" />
+        <div className="space-y-3">
+          <PlanSkeletonBar className="h-3 w-full" />
+          <PlanSkeletonBar className="h-3 w-5/6" />
+          <PlanSkeletonBar className="h-3 w-2/3" />
+        </div>
       </div>
-      <div className="h-24" />
     </div>
   );
 }
@@ -2951,13 +2941,16 @@ function PlanSkeletonIcon({ className }: { className?: string }) {
 function ReviewMarkupToolbar({
   mode,
   hasCanvas,
+  canUseCanvasMarkup,
   onModeChange,
 }: {
   mode: CanvasMarkupMode;
   hasCanvas: boolean;
+  canUseCanvasMarkup: boolean;
   onModeChange: (mode: CanvasMarkupMode) => void;
 }) {
-  const value = mode === "none" ? "" : mode;
+  const value =
+    mode === "none" || (!canUseCanvasMarkup && mode !== "comment") ? "" : mode;
   const setValue = (next: string) => {
     onModeChange((next || "none") as CanvasMarkupMode);
   };
@@ -2985,36 +2978,40 @@ function ReviewMarkupToolbar({
           {mode === "comment" ? "Stop commenting" : "Pin a comment"}
         </TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <ToggleGroupItem
-            value="text"
-            className="size-7 px-0"
-            disabled={!hasCanvas}
-            aria-label="Text note"
-          >
-            <IconPencil className="size-4" />
-          </ToggleGroupItem>
-        </TooltipTrigger>
-        <TooltipContent>
-          {hasCanvas ? "Place a text note" : "Canvas required"}
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <ToggleGroupItem
-            value="callout"
-            className="size-7 px-0"
-            disabled={!hasCanvas}
-            aria-label="Arrow callout"
-          >
-            <IconArrowRight className="size-4" />
-          </ToggleGroupItem>
-        </TooltipTrigger>
-        <TooltipContent>
-          {hasCanvas ? "Draw an arrow callout" : "Canvas required"}
-        </TooltipContent>
-      </Tooltip>
+      {canUseCanvasMarkup && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem
+                value="text"
+                className="size-7 px-0"
+                disabled={!hasCanvas}
+                aria-label="Text note"
+              >
+                <IconPencil className="size-4" />
+              </ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent>
+              {hasCanvas ? "Place a text note" : "Canvas required"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem
+                value="callout"
+                className="size-7 px-0"
+                disabled={!hasCanvas}
+                aria-label="Arrow callout"
+              >
+                <IconArrowRight className="size-4" />
+              </ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent>
+              {hasCanvas ? "Draw an arrow callout" : "Canvas required"}
+            </TooltipContent>
+          </Tooltip>
+        </>
+      )}
     </ToggleGroup>
   );
 }

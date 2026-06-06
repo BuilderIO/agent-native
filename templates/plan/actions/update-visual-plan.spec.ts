@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const request = vi.hoisted(() => ({
   email: undefined as string | undefined,
 }));
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const originalAuthMode = process.env.AUTH_MODE;
+const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -107,6 +109,15 @@ describe("update-visual-plan comments", () => {
   beforeEach(() => {
     request.email = undefined;
     resolveAccessMock.mockReset();
+    delete process.env.AUTH_MODE;
+    delete process.env.PLAN_LOCAL_MODE;
+  });
+
+  afterEach(() => {
+    if (originalAuthMode === undefined) delete process.env.AUTH_MODE;
+    else process.env.AUTH_MODE = originalAuthMode;
+    if (originalPlanLocalMode === undefined) delete process.env.PLAN_LOCAL_MODE;
+    else process.env.PLAN_LOCAL_MODE = originalPlanLocalMode;
   });
 
   it("returns a user-facing 403 when a public-link viewer tries to comment", async () => {
@@ -136,6 +147,21 @@ describe("update-visual-plan comments", () => {
     ).rejects.toMatchObject({
       statusCode: 403,
       message: "Commenting requires an account. Sign in to comment.",
+    });
+    expect(resolveAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a user-facing 403 when hosted comments have no request identity", async () => {
+    process.env.AUTH_MODE = "hosted";
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run(
+        commentOnlyArgs,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message:
+        "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
     });
     expect(resolveAccessMock).not.toHaveBeenCalled();
   });

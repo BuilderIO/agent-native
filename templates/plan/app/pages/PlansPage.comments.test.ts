@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCommentThreads,
+  canEditPlanContentRole,
   commentAuthorEmails,
   runtimeAnnotationFromThread,
 } from "./PlansPage";
@@ -105,5 +106,14 @@ describe("plan comment thread UI model", () => {
         "steve@example.com",
       ),
     ).toEqual(["damian@example.com", "emma@example.com", "steve@example.com"]);
+  });
+
+  it("limits canvas markup content edits to editor-capable roles", () => {
+    expect(canEditPlanContentRole("owner")).toBe(true);
+    expect(canEditPlanContentRole("admin")).toBe(true);
+    expect(canEditPlanContentRole("editor")).toBe(true);
+    expect(canEditPlanContentRole("viewer")).toBe(false);
+    expect(canEditPlanContentRole(null)).toBe(false);
+    expect(canEditPlanContentRole(undefined)).toBe(false);
   });
 });

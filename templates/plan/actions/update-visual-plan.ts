@@ -12,6 +12,7 @@ import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
+  resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
@@ -92,6 +93,11 @@ export default defineAction({
           comment.createdBy === "human",
       );
 
+    const commentRequestEmail =
+      onlyAddsNewComments && !isAnonymousPublicViewer(requesterEmail)
+        ? resolvePlanOwnerEmailForWrite(requesterEmail)
+        : requesterEmail;
+
     if (onlyAddsNewComments) {
       // Commenting on a plan (including a public-link plan) requires an
       // agent-native account. The two synthetic anonymous identities must NOT be
@@ -112,6 +118,11 @@ export default defineAction({
       if (isGuestAuthorIdentity(requesterEmail)) {
         throw new ForbiddenError(
           "Commenting requires an account. Sign in to comment.",
+        );
+      }
+      if (!commentRequestEmail) {
+        throw new ForbiddenError(
+          "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
         );
       }
       const access = await resolveAccess("plan", args.planId);
@@ -304,7 +315,7 @@ export default defineAction({
           createdBy: comment.createdBy,
           authorEmail: comment.authorEmail,
           authorName: comment.authorName,
-          requestEmail: requesterEmail,
+          requestEmail: commentRequestEmail,
           requestName: requesterName,
         }),
         id: commentId,
