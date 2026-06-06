@@ -1,5 +1,259 @@
 # @agent-native/core
 
+## 0.38.0
+
+### Minor Changes
+
+- 5f51768: Give actions and skills tighter control over what the agent sees, and make the clarifying-question UI a first-class building block.
+  - **`agentTool: false` on `defineAction`** — expose an action to the frontend / HTTP (`useActionMutation`, `callAction`, `/_agent-native/actions/<name>`) while hiding it from every agent tool surface (in-app assistant, MCP, A2A, job/trigger runners). Frontend/programmatic actions no longer have to spend a slot in the model's tool list. Distinct from `toolCallable`, which only governs the sandboxed extension iframe bridge.
+  - **`ask-question` / `askUserQuestion()`** — the built-in clarifying-question tool now accepts a short `header` chip and per-option `preview` content, aligning with Claude Code's `AskUserQuestion`. A new `askUserQuestion()` client helper (exported from `@agent-native/core/client`) lets app code raise the same inline multiple-choice prompt and `await` the user's selected value(s) — so the UI can gate an action on one quick decision. Documented in `client.md` and the `client-methods` skill.
+  - **Skill scoping** — SKILL.md frontmatter now supports `scope: runtime | dev | both` (default `both`). The runtime agent excludes `scope: dev` skills from both the system-prompt skills block and `docs-search`, so development-only skills stay invisible to the running app's agent.
+  - **Action-surface guidance + advisory audit** — the `actions` skill and docs now teach keeping the action surface small and orthogonal (prefer one CRUD `update` over per-field actions; reach for the generic query/escape-hatch actions instead of minting read actions). Added `pnpm actions:audit`, an advisory scanner that flags likely UI-dead mutating actions and redundant action clusters (never fails CI).
+  - **`run(args, ctx)` context** — an action's `run` now receives an optional second argument with the resolved request identity (`userEmail`, `orgId`) and the invocation source (`caller`: `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`), wired at every dispatch site. Read `ctx.userEmail` / `ctx.caller` instead of calling `getRequestUserEmail()` by hand. Backward compatible (1-arg `run(args)` still valid); `userEmail` is never defaulted to a dev identity.
+  - **Client-side `track()`** — analytics tracking now works from the browser. A new `track()` client helper (exported from `@agent-native/core/client`) POSTs to `/_agent-native/track`, which forwards the event to the same registered server-side providers (PostHog/Mixpanel/etc) with server-resolved attribution. No analytics SDK or provider keys ship to the client.
+
+- 510f15d: Add a first-party block registry (`@agent-native/core/blocks`). A `BlockSpec`
+  describes one document block end to end — a zod `schema` for its data, an `mdx`
+  config for byte-stable MDX round-trip, a `Read` renderer, an optional `Edit`
+  (auto-generated from the schema when omitted), and `placement` (top-level
+  and/or inline). Apps create a `BlockRegistry`, register their specs, and render
+  through `BlockView` inside a `BlockRegistryProvider`.
+  - `defineBlock` / `BlockRegistry` / `registerBlocks` — author and register blocks.
+  - `BlockRegistryProvider` / `useBlockRegistry` — thread the registry + runtime
+    render context (asset resolver, action caller, inline markdown editor) into React.
+  - `SchemaBlockEditor` + the `markdown()` zod helper — a schema-driven auto-editor
+    that renders shadcn-style controls per field, with `markdown()`-tagged string
+    fields editing inline via the app's rich-markdown editor.
+  - `serializeSpecBlock` / `parseSpecBlock` + the shared `prop()` encoder and
+    estree attribute reader (exported from the React-free
+    `@agent-native/core/blocks/server` entry) — registry-driven MDX round-trip that
+    reproduces the existing component/attribute encoding for backward compatibility.
+  - `describeBlocksForAgent` / `renderBlockVocabularyReference` — generate the
+    agent's block vocabulary (per-block JSON schemas and a compact markdown
+    reference of types, MDX tags, placement, and key fields) directly from the
+    registry so the agent never drifts from what the app can render and serialize.
+  - A standard block library (`@agent-native/core/blocks` + the React-free
+    `/blocks/server` entry): `checklistBlock`, `tableBlock`, `codeTabsBlock`,
+    `htmlBlock`, and `tabsBlock`, each with its pure schema + MDX config so apps
+    can register the shared specs (plan registers all of them; tabs is also
+    inline-placeable).
+
+  The registry is designed to run alongside existing per-block code: renderers and
+  the MDX adapter check the registry first and fall back to legacy paths for
+  unregistered block types, so existing documents keep working unchanged.
+
+- 510f15d: Add a standard `tabs` block to the core block library
+  (`@agent-native/core/blocks`): a horizontal pill-tab container whose tabs each
+  hold their own list of child blocks. It exports `tabsBlock` (the full React
+  spec), `TabsBlockReader`/`TabsBlockEditor`, and the React-free
+  `tabsSchema`/`tabsMdx` config (from `@agent-native/core/blocks/server`). The MDX
+  encoding matches the legacy `<TabsBlock … tabs={[…]} />` form — labels and
+  nested child blocks are one JSON `tabs` prop (not nested MDX) — so stored
+  documents round-trip byte-compatibly.
+
+  Container blocks render their children through a new optional
+  `BlockRenderContext.renderBlock` capability (with a `NestedBlock` shape): the app
+  wires it to its own block dispatcher so registered children render via their spec
+  and unconverted children fall through the app's legacy path. This is the
+  coexistence seam that lets a core container block render app-specific child
+  blocks without importing them.
+
+- 510f15d: Syntax-highlight code blocks in the shared rich markdown editor. When an embedder
+  enables `features.codeBlock` (Plans today), the editor now uses
+  `CodeBlockLowlight` with a curated lowlight grammar set (js/ts/tsx, json, css,
+  html, bash, python, yaml, sql, markdown) and a github-dark token theme, instead
+  of a plain monospace block. Inline code keeps its own background; block code no
+  longer leaks the inline-code background over the dark surface. Apps that ship
+  their own code node (Content's NFM editor disables `features.codeBlock`) are
+  unaffected.
+- 510f15d: Add optional real-time multi-user editing to the shared `RichMarkdownEditor`.
+
+  `RichMarkdownEditor` (and the `createRichMarkdownExtensions` factory) now accept
+  optional `ydoc`, `awareness`, and `user` props. When a `ydoc` is supplied the
+  editor binds the framework's existing collaboration stack — `Collaboration` over
+  the shared `Y.Doc`, plus a `CollaborationCaret` for live cursors when an
+  `Awareness` is present — and disables StarterKit's built-in undo/redo so Yjs owns
+  history. The lead client (elected via `isReconcileLeadClient`) seeds the empty
+  shared doc once from the markdown `value`, `onChange` skips remote-origin
+  transactions before serializing, and external markdown is reconciled only by the
+  lead client when it is genuinely newer. Markdown (GFM) stays the canonical
+  emitted/saved representation — the `Y.Doc` is transient live state and is never
+  written into stored content.
+
+  With no `ydoc`, the editor is byte-for-byte the same controlled `value`/`onChange`
+  single-user editor as before, so existing embedders are unaffected. This lets a
+  template wire per-block collaborative prose editing by pairing the editor with
+  `useCollaborativeDoc` and a `createCollabPlugin` mount, reusing the shared collab
+  backend instead of reimplementing CRDT sync. New exports:
+  `createRichMarkdownExtensions`, `RichMarkdownCollabUser`, and
+  `CreateRichMarkdownExtensionsOptions` from `@agent-native/core/client`.
+
+- 510f15d: Add a shared block-level image node to the rich markdown editor core so every
+  embedder gets an uploading image block — improve it once, both apps improve.
+  - **`features.image` + `onImageUpload`** on `createSharedEditorExtensions` /
+    `SharedRichEditor`. When enabled, the editor mounts a block-level image node
+    (`@tiptap/extension-image`) that serializes to standard markdown image syntax
+    `![alt](src)` for the `gfm` dialect — byte-stable and source-syncable (no
+    `<img width>` HTML, so the GFM `html:false` contract and the plan round-trip
+    corpus are preserved). The node ships a block-aware markdown serializer so an
+    image followed by prose keeps its blank-line separator.
+  - **Injectable upload contract** `ImageUploadFn = (file: File) => Promise<{ src;
+alt? }>`. A self-contained ProseMirror plugin wires paste-image and
+    drag-drop-image to the injected uploader (insert placeholder → upload → patch
+    `src`), and `createImageSlashCommand(upload)` adds a `/image` file-picker
+    command. With no uploader the block still renders and round-trips pasted image
+    URLs / `![](url)` markdown.
+  - **`uploadEditorImage`** (exported from `@agent-native/core/client`): the
+    default uploader. Reads the File as a data URL and calls the framework
+    `upload-image` action, returning the hosted CDN URL — so any consumer gets a
+    real uploading image block with no per-app upload code.
+
+  Plans now support inserting images via `/image`, paste, and drag-drop; each
+  image autosaves as `![alt](url)` markdown through the existing
+  `update-rich-text` path. The Content editor keeps its own richer image block
+  (Assets picker, AI alt-text, resize, NFM serialization) unchanged — it leaves
+  `features.image` off and injects its own image node, so the two never collide
+  and Content's NFM image round-trip stays byte-identical.
+
+- 510f15d: Extract the rich markdown editor into ONE shared, configurable core so the plan
+  and content editors can build on a single surface instead of duplicating the
+  base Tiptap setup, markdown wiring, collab seed/reconcile logic, and the slash /
+  bubble menus.
+
+  New exports from `@agent-native/core/client`:
+  - `createSharedEditorExtensions(opts)` — the single extension factory. Assembles
+    StarterKit + Placeholder + Link + tasks + tables + a dialect-keyed
+    `tiptap-markdown` serializer (`MARKDOWN_DIALECT_CONFIG` for `gfm`/`nfm`), then
+    optional Collaboration/CollaborationCaret, then app-injected `extraExtensions`.
+    Accepts `{ dialect, preset, placeholder, features, extraExtensions, collab }`,
+    plus a `starterKit` override (disable replaced nodes / swap the dropcursor), a
+    `markdown` config override, and `features.placeholder` / `features.markdown`
+    toggles so an app with a bespoke placeholder resolver or its own serializer
+    (Content's NFM converter) can reuse just the StarterKit base + collab wiring.
+  - `useCollabReconcile(...)` — the seed / reconcile / lead-client / change-origin
+    logic extracted into a reusable hook, so the subtle collab behavior is never
+    duplicated again. Returns the `onUpdate` guards (`shouldIgnoreUpdate`,
+    `registerEmitted`) plus the `isSettingContent` ref. Accepts `getMarkdown`,
+    `setContent`, `normalizeValue`, `shouldSeed`, and `initialAppliedUpdatedAt`
+    overrides so a non-`tiptap-markdown` serializer (Content's
+    `docToNfm`/`nfmToDoc`/`canonicalizeNfm`, sentinel-`<empty-block/>` seed, and
+    stale-Y.Doc-on-open reconcile) round-trips byte-identically through the hook.
+  - `SlashCommandMenu` + `DEFAULT_SLASH_COMMANDS` and `BubbleToolbar` +
+    `buildDefaultBubbleItems` — the inline menus promoted to standalone,
+    extendable components (apps pass their own `items` / `buildItems`).
+  - `SharedRichEditor` — the editor component (props: `value`, `onChange`,
+    `onBlur`, `contentUpdatedAt`, `editable`, `interactive`, `placeholder`,
+    `className`, `editorClassName`, `dialect`, `preset`, `features`,
+    `extraExtensions`, `ydoc`, `awareness`, `user`, plus optional `slashItems` /
+    `buildBubbleItems` overrides).
+
+  `RichMarkdownEditor` and `createRichMarkdownExtensions` remain exported as
+  back-compat aliases over the shared core, preserving today's GFM/plan behavior
+  exactly — the round-trip fidelity and collaboration specs stay green and the
+  plan editor is unchanged. Content-specific Notion/media/comment/database
+  extensions are injected via `extraExtensions`, never forced into the shared
+  core.
+
+  Phase 2: the Content (Documents) editor now builds on this same shared core. Its
+  `createVisualEditorExtensions` routes through `createSharedEditorExtensions`
+  (sharing the StarterKit base + the Collaboration/CollaborationCaret wiring +
+  ordering), and its inline collab seed/reconcile/lead-client/`onUpdate`-guard
+  logic is replaced by `useCollabReconcile` with Content's NFM serializer injected.
+  Content keeps every Notion/media/comment/database/NFM-fidelity behavior as
+  `extraExtensions` and its own slash/bubble menus, and its NFM round-trip
+  (`docToNfm(nfmToDoc(x)) === x`) stays byte-identical — so plan and content now
+  share one editor core.
+
+### Patch Changes
+
+- 510f15d: Show a loading skeleton while the Assets picker iframe is initializing.
+- 5f51768: Show `sendToAgentChat({ newTab: true, background: true })` work in RunsTray and ensure hidden background tabs start their queued chat turn without stealing focus.
+- 510f15d: Fix a content-corrupting reconcile loop in the shared `useCollabReconcile` hook
+  (`RichMarkdownEditor` / `SharedRichEditor` for Plans, and the Content editor that
+  reuses the hook with its NFM overrides).
+
+  Two compounding bugs caused a rich-text block to escalate every poll
+  (`<h1>…</h1>` → `&lt;h1&gt;…` → `&amp;lt;h1&amp;gt;…` …) and fight active typing:
+  - **Trigger:** the default `setContent` passed
+    `parseOptions: { preserveWhitespace: "full" }`. In tiptap v3 that routes the
+    command through `insertContentAt`, which tiptap-markdown ALSO overrides to
+    re-run its markdown parser — double-parsing the already-parsed doc and
+    re-emitting it as escaped HTML. So even a clean heading/list/code block came
+    back non-idempotent and drifted on every reconcile. The default now hands the
+    markdown string straight to tiptap-markdown's `setContent` override (no
+    `parseOptions`); the GFM corpus round-trips byte-stably, code-block and
+    empty-line whitespace included.
+  - **Containment:** the reconcile only skipped re-applying when the editor's raw
+    serialization equalled the incoming value, so a NON-idempotent value
+    (`serialize(parse(value)) !== value`, e.g. raw HTML stored in a block) was
+    re-applied indefinitely. The reconcile now compares by DOC EQUIVALENCE: it
+    tracks the raw value it last applied and the editor's serialized output after
+    that apply, recognizes both a re-supplied raw value and its own autosaved
+    serialized echo as already-applied, and re-checks at apply time. A
+    non-idempotent block is now applied AT MOST ONCE and the editor stabilizes
+    instead of corrupt-looping. External content is also never applied while the
+    user is actively typing.
+
+  The idempotent (normal) path, the lead-client election, the `isChangeOrigin`
+  skip, and Content's NFM `getMarkdown`/`setContent`/`normalizeValue`/`shouldSeed`
+  overrides are unchanged.
+
+- 5f51768: Honor connect-minted MCP OAuth tokens on the HTTP action surface.
+
+  `agent-native connect` mints an MCP-audience OAuth access token and the local
+  Plans publish flow POSTs it (as `Authorization: Bearer`) to the hosted action
+  route `/_agent-native/actions/import-visual-plan-source`. That token is bound to
+  the app's MCP resource, not the legacy `sessions` table, so `getSession` never
+  resolved it on the action surface and `requiresAuth` actions like
+  `import-visual-plan-source` returned 401 — breaking `publish-visual-plan`.
+
+  `getSession`'s bearer path now falls back to the MCP surface's canonical
+  `verifyAuth` for any `Authorization: Bearer` request, so the action surface
+  honors exactly the tokens the MCP endpoint honors: same signature check, same
+  audience binding to this app's resource, same connect-token revocation gate. It
+  resolves to the same `{ email, orgId }` identity, so ownable-data scoping is
+  identical. Cookie/page loads (no bearer header) are unaffected, and tokens bound
+  to a different app's audience are still rejected.
+
+- 5f51768: Reduce Sentry noise from expected browser auth/abort and reconnect 404 events, and keep social OG images from failing when the native resvg runtime is unavailable.
+- 5f51768: Strengthen generated agent instructions to forbid hardcoded API keys, tokens,
+  webhook secrets, credential literals, and private data in source, docs,
+  fixtures, prompts, action responses, and generated content.
+- 510f15d: Improve the hosted Google sign-in warning for Mail by showing it as a popover with a run-local path.
+- 5f51768: Super-easy `/visual-plan` setup: `agent-native skills add visual-plan` now
+  installs the skill, registers the Plans MCP connector, AND authenticates it in
+  one step (reusing the existing `agent-native connect` OAuth / browser
+  device-code flow) so you no longer hit an OAuth wall on the first tool call. Add
+  a `--no-connect` flag to skip auth, and in non-interactive shells / CI the auth
+  step is skipped and the exact `agent-native connect <url>` command is printed
+  instead. The unauthorized MCP response (`401`) now returns an actionable JSON
+  body with a human-readable message plus the exact remediation (the
+  `agent-native connect <url>` command and the authorize / resource-metadata URLs)
+  while keeping the `WWW-Authenticate` header for OAuth-capable clients. Adds a
+  public docs quick-start page for Visual Plans.
+- 5f51768: Correct the `/visual-plan` setup & authentication docs to match the real model.
+  The CLI install (`agent-native skills add visual-plan`) installs the skill,
+  registers the hosted Plans MCP connector, AND authenticates it in one step (a
+  one-time browser sign-in at setup is intended; `--no-connect` skips it) — it does
+  not run "no-login local by default". The no-sign-up experience is the
+  browser/guest path: anyone you share with can create and edit a plan as a guest
+  and only sign in to save or share, at which point their guest plans are claimed
+  into their account. Public/shared plans are viewable by anyone with the link;
+  commenting requires an agent-native account. Local mode (offline, plans synced to
+  your repo as MDX) is documented as a separate advanced path. Updates the shared
+  `PLAN_SETUP_AUTH_MD` block across all Plans skills (`/visual-plan`, `/ui-plan`,
+  `/visual-questions`, `/visualize-plan`) and the public Visual Plans docs page,
+  including its frontmatter description.
+- 510f15d: Keep `/visual-plan` and `/ui-plan` on the host agent's normal planning flow,
+  using visual questions only for explicit `/visual-questions` intake.
+- 5f51768: Add a shared rich markdown editor for inline plan prose editing.
+- 5f51768: Plan editor share + side-chat UX: the agent side chat now offers an inline,
+  account-free way to paste an Anthropic or OpenAI API key (progressive
+  disclosure next to the existing one-click Builder connect) and makes clear the
+  side chat is optional — you can keep editing with your own coding agent. Adds a
+  `saveAgentEngineApiKey` client helper for storing a bring-your-own provider key.
+- 5f51768: Keep generated workspace skills synced from the repository skill source of truth and guard against drift.
+
 ## 0.37.3
 
 ### Patch Changes
