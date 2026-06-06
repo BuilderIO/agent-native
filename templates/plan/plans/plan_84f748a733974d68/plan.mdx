@@ -1,0 +1,73 @@
+---
+title: "Use Plans without logging in"
+brief: "Hosted root keeps the standard sign-in, but a guest can create and review a plan with no account; signing in claims the guest plans into the account. Public review links stay anonymous."
+version: 2
+planId: "plan_84f748a733974d68"
+source: "agent-native-plan"
+---
+
+<RichText id="b1">
+
+### Objective & done criteria
+
+A visitor can open Plans, create a draft, and share a review link without an account. Hosted root keeps the standard sign-in. **Done** = a guest plan persists to the device, a public link is anonymously viewable, and signing in claims the guest’s plans into the account with nothing lost.
+
+</RichText>
+
+<ImplementationMap
+  id="b2"
+  files={[
+    {
+      path: "server/lib/local-identity.ts",
+      note: "resolvePlanOwnerEmail / isLocalPlanRuntime — guest + local owner fallback",
+    },
+    {
+      path: "server/claim-guest-plans.ts",
+      note: "re-own device plans → account on first sign-in",
+    },
+    {
+      path: "app/components/plan/GuestModeBanner.tsx",
+      note: "slim non-modal 'viewing as a guest' strip",
+    },
+    {
+      path: "actions/create-visual-plan.ts",
+      note: "requiresAuth gate; AI wireframes need a session",
+    },
+  ]}
+/>
+
+<Decision
+  id="b3"
+  question={"How should guest access work?"}
+  options={[
+    {
+      id: "o1",
+      label: "Hosted guest-first (every route public)",
+      detail:
+        "Lowest friction, but leaks the app shell + weakens auth posture.",
+    },
+    {
+      id: "o2",
+      label: "Root sign-in + explicit guest/create path",
+      detail:
+        "Root stays standard; guest authoring is a deliberate path; public review stays anonymous.",
+      recommended: true,
+    },
+  ]}
+/>
+
+<Callout id="b4" tone="decision">
+
+Should a guest's share link auto-expire, or persist until they sign in and claim? Leaning persist-until-claim.
+
+</Callout>
+
+<RichText id="b5">
+
+### Validation
+
+- Guest creates a plan → reload → still present (device-scoped).
+- Open public link in a private window → viewable, no account.
+- Sign in → claim-guest-plans moves both drafts into the account; counts match.
+
+</RichText>
