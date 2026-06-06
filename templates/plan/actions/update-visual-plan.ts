@@ -84,7 +84,6 @@ export default defineAction({
       args.markdown === undefined &&
       args.sections.length === 0 &&
       args.consumedCommentIds.length === 0 &&
-      !args.note &&
       args.comments.length > 0 &&
       args.comments.every(
         (comment) =>
@@ -334,8 +333,9 @@ export default defineAction({
         planId: args.planId,
         type: "plan.updated",
         message:
-          args.note ||
-          `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
+          !onlyAddsNewComments && args.note
+            ? args.note
+            : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
         payload: null,
         createdBy: onlyAddsNewComments ? "human" : "agent",
         createdAt: now,

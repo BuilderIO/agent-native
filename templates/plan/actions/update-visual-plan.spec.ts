@@ -213,20 +213,58 @@ describe("update-visual-plan comments", () => {
     expect(resolveAccessMock).not.toHaveBeenCalled();
   });
 
-  it("requires editor access when a comment-only request includes an activity note", async () => {
+  it("allows comment-only requests with a client note without using it as the activity message", async () => {
     request.email = "reviewer@example.com";
-    assertPlanEditorMock.mockRejectedValueOnce(
-      new Error("editor gate reached"),
+    resolveAccessMock.mockResolvedValueOnce({ resource: {} });
+    const txUpdateMock = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "plan_public" }]),
+        })),
+      })),
+    }));
+    const txInsertValuesMock = vi.fn(async () => undefined);
+    const txInsertMock = vi.fn(() => ({
+      values: txInsertValuesMock,
+    }));
+    const transactionMock = vi.fn(async (callback) =>
+      callback({
+        update: txUpdateMock,
+        insert: txInsertMock,
+        select: vi.fn(),
+      }),
     );
+    getDbMock.mockReturnValue({
+      transaction: transactionMock,
+      select: vi.fn(),
+    });
+    loadPlanBundleMock.mockResolvedValue({
+      plan: {
+        id: "plan_public",
+        title: "Plan",
+        brief: "",
+        content: null,
+      },
+      sections: [],
+      comments: [],
+      events: [],
+    });
 
     await expect(
       (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
         ...commentOnlyArgs,
-        note: "Updated plan settings",
+        note: "Human added inline visual plan feedback.",
       }),
-    ).rejects.toThrow("editor gate reached");
-    expect(assertPlanEditorMock).toHaveBeenCalledWith("plan_public");
-    expect(resolveAccessMock).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ planId: "plan_public" });
+    expect(assertPlanEditorMock).not.toHaveBeenCalled();
+    expect(resolveAccessMock).toHaveBeenCalledWith("plan", "plan_public");
+    expect(txInsertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "plan.updated",
+        message: "Updated 0 section(s), 1 comment(s).",
+        createdBy: "human",
+      }),
+    );
   });
 
   it("validates new threaded comments before persisting plan changes", async () => {
