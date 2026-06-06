@@ -44,11 +44,14 @@ needs a visual companion before becoming interactive.
    diagram, implementation map, and verification below.
 3. Make controls actually work. Use the renderer's safe Alpine-like directives:
    `x-data`, `x-model`, `x-for`, `x-text`, `x-show`, `:class`, `@click`, and
-   `@keydown.enter`. Use `data-goto="screen-id"` only for true screen/route
-   changes, not for every button press.
-4. Show important state inside the prototype itself: selected filters, checked
-   rows, typed drafts, validation messages, permissions, progress, or empty
-   states.
+   `@keydown.enter`. Use safe helper verbs such as `remove(list, item)`,
+   `setAll(list, 'done', true)`, `removeWhere(list, 'done', true)`, and counters
+   such as `count(list)`, `countWhere(list, 'done', true)`, and
+   `remaining(list, 'done')` when they help. Use `data-goto="screen-id"` only
+   for true screen/route changes, not for every button press.
+4. Show important app feedback inside the prototype itself: selected filters,
+   checked rows, typed drafts, validation messages, permissions, progress, or
+   empty states.
 5. Surface the returned Plans link and ask the user to click through, comment on
    the prototype or static mocks, and approve the direction before code changes.
 6. Before implementing or revising, call `get-plan-feedback`. Treat prototype
@@ -93,7 +96,9 @@ Write bounded semantic HTML fragments only:
     <div style="display:flex;gap:8px">
       <button @click="filter = 'all'" :class="{ primary: filter === 'all' }">All</button>
       <button @click="filter = 'done'" :class="{ primary: filter === 'done' }">Done</button>
+      <button @click="setAll(todos, 'done', true)">Mark all done</button>
     </div>
+    <p class="wf-muted"><span x-text="remaining(todos, 'done')"></span> open / <span x-text="count(todos)"></span> total</p>
     <div
       class="wf-box"
       x-for="todo in todos"
@@ -104,6 +109,7 @@ Write bounded semantic HTML fragments only:
       <label style="display:flex;gap:8px"><input type="checkbox" x-model="todo.done" /><span x-text="todo.text"></span></label>
       <button @click="remove(todos, todo)">Remove</button>
     </div>
+    <button @click="removeWhere(todos, 'done', true)">Clear completed</button>
   </section>
 </div>
 ```

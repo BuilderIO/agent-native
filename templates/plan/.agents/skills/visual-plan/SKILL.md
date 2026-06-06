@@ -97,17 +97,17 @@ default:
 - **Canvas only** for one static screen, a before/after comparison, a component
   state, a small popover, or a visual direction that does not require clicking.
   Put those wireframes in `content.canvas` and omit `content.prototype`.
-- **Canvas + prototype** for multi-step UI flows, state machines, onboarding,
-  wizards, review/approval flows, navigation changes, or anything where the
-  reviewer needs to feel the sequence. Keep the static wireframes in
+- **Canvas + prototype** for multi-step UI flows, onboarding, wizards,
+  review/approval flows, navigation changes, or anything where the reviewer
+  needs to operate the behavior. Keep the static wireframes in
   `content.canvas`, add the aligned functional prototype in
   `content.prototype`, and rely on the top visual tabs to switch between them.
 - **Prototype-first** when the user explicitly asks for `/prototype-plan`, asks
   to operate the UI, or when interaction is the main question. Use
   `create-prototype-plan`, which still preserves static mocks where useful.
 
-For mixed canvas + prototype plans, reuse the same real labels, states, and
-screen ids across both surfaces. The canvas is the inspectable static reference;
+For mixed canvas + prototype plans, reuse the same real labels, app statuses,
+and screen ids across both surfaces. The canvas is the inspectable static reference;
 the prototype is the interactive version of that same flow, not a separate
 design direction.
 

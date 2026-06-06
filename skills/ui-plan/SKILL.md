@@ -11,7 +11,7 @@ metadata:
 # UI Plan
 
 Use `/ui-plan` when the task is primarily about product UI, user flows,
-interaction states, component layout, or visual direction. The reviewable UI
+interaction details, component layout, or visual direction. The reviewable UI
 comes first; implementation detail comes after the user has something concrete to
 react to.
 

@@ -74,8 +74,9 @@ add visual chrome by default:
   not require clicking. Put those wireframes in `content.canvas` and omit
   `content.prototype`.
 - **Canvas + prototype** when the source plan describes a multi-step UI flow,
-  state machine, onboarding, wizard, review/approval flow, navigation change, or
-  any sequence the reviewer needs to feel. Keep the static wireframes in
+  meaningful interactive app behavior, onboarding, wizard, review/approval flow,
+  navigation change, or any sequence the reviewer needs to operate. Keep the
+  static wireframes in
   `content.canvas`, add the aligned functional prototype in
   `content.prototype`, and rely on the top visual tabs to switch between them.
 - **Prototype-first conversion** when an already-visualized plan's HTML

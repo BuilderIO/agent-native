@@ -359,17 +359,17 @@ default:
 - **Canvas only** for one static screen, a before/after comparison, a component
   state, a small popover, or a visual direction that does not require clicking.
   Put those wireframes in \`content.canvas\` and omit \`content.prototype\`.
-- **Canvas + prototype** for multi-step UI flows, state machines, onboarding,
-  wizards, review/approval flows, navigation changes, or anything where the
-  reviewer needs to feel the sequence. Keep the static wireframes in
+- **Canvas + prototype** for multi-step UI flows, onboarding, wizards,
+  review/approval flows, navigation changes, or anything where the reviewer
+  needs to operate the behavior. Keep the static wireframes in
   \`content.canvas\`, add the aligned functional prototype in
   \`content.prototype\`, and rely on the top visual tabs to switch between them.
 - **Prototype-first** when the user explicitly asks for \`/prototype-plan\`, asks
   to operate the UI, or when interaction is the main question. Use
   \`create-prototype-plan\`, which still preserves static mocks where useful.
 
-For mixed canvas + prototype plans, reuse the same real labels, states, and
-screen ids across both surfaces. The canvas is the inspectable static reference;
+For mixed canvas + prototype plans, reuse the same real labels, app statuses,
+and screen ids across both surfaces. The canvas is the inspectable static reference;
 the prototype is the interactive version of that same flow, not a separate
 design direction.
 
@@ -738,7 +738,7 @@ metadata:
 # UI Plan
 
 Use \`/ui-plan\` when the task is primarily about product UI, user flows,
-interaction states, component layout, or visual direction. The reviewable UI
+interaction details, component layout, or visual direction. The reviewable UI
 comes first; implementation detail comes after the user has something concrete to
 react to.
 
@@ -1192,11 +1192,14 @@ needs a visual companion before becoming interactive.
    diagram, implementation map, and verification below.
 3. Make controls actually work. Use the renderer's safe Alpine-like directives:
    \`x-data\`, \`x-model\`, \`x-for\`, \`x-text\`, \`x-show\`, \`:class\`, \`@click\`, and
-   \`@keydown.enter\`. Use \`data-goto="screen-id"\` only for true screen/route
-   changes, not for every button press.
-4. Show important state inside the prototype itself: selected filters, checked
-   rows, typed drafts, validation messages, permissions, progress, or empty
-   states.
+   \`@keydown.enter\`. Use safe helper verbs such as \`remove(list, item)\`,
+   \`setAll(list, 'done', true)\`, \`removeWhere(list, 'done', true)\`, and counters
+   such as \`count(list)\`, \`countWhere(list, 'done', true)\`, and
+   \`remaining(list, 'done')\` when they help. Use \`data-goto="screen-id"\` only
+   for true screen/route changes, not for every button press.
+4. Show important app feedback inside the prototype itself: selected filters,
+   checked rows, typed drafts, validation messages, permissions, progress, or
+   empty states.
 5. Surface the returned Plans link and ask the user to click through, comment on
    the prototype or static mocks, and approve the direction before code changes.
 6. Before implementing or revising, call \`get-plan-feedback\`. Treat prototype
@@ -1241,7 +1244,9 @@ Write bounded semantic HTML fragments only:
     <div style="display:flex;gap:8px">
       <button @click="filter = 'all'" :class="{ primary: filter === 'all' }">All</button>
       <button @click="filter = 'done'" :class="{ primary: filter === 'done' }">Done</button>
+      <button @click="setAll(todos, 'done', true)">Mark all done</button>
     </div>
+    <p class="wf-muted"><span x-text="remaining(todos, 'done')"></span> open / <span x-text="count(todos)"></span> total</p>
     <div
       class="wf-box"
       x-for="todo in todos"
@@ -1252,6 +1257,7 @@ Write bounded semantic HTML fragments only:
       <label style="display:flex;gap:8px"><input type="checkbox" x-model="todo.done" /><span x-text="todo.text"></span></label>
       <button @click="remove(todos, todo)">Remove</button>
     </div>
+    <button @click="removeWhere(todos, 'done', true)">Clear completed</button>
   </section>
 </div>
 \`\`\`
@@ -1503,8 +1509,9 @@ add visual chrome by default:
   not require clicking. Put those wireframes in \`content.canvas\` and omit
   \`content.prototype\`.
 - **Canvas + prototype** when the source plan describes a multi-step UI flow,
-  state machine, onboarding, wizard, review/approval flow, navigation change, or
-  any sequence the reviewer needs to feel. Keep the static wireframes in
+  meaningful interactive app behavior, onboarding, wizard, review/approval flow,
+  navigation change, or any sequence the reviewer needs to operate. Keep the
+  static wireframes in
   \`content.canvas\`, add the aligned functional prototype in
   \`content.prototype\`, and rely on the top visual tabs to switch between them.
 - **Prototype-first conversion** when an already-visualized plan's HTML
