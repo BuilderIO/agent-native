@@ -1369,7 +1369,9 @@ function parseRegistryBlock(
   }
 
   const rawLines = dedented.slice(start, end);
-  const openAttrs = parseAttrs(dedented.slice(start, openEndLine + 1).join("\n"));
+  const openAttrs = parseAttrs(
+    dedented.slice(start, openEndLine + 1).join("\n"),
+  );
   const spec = registryBlockSpecByTag(tag);
   const node: PMNode = {
     type: "registryBlock",
