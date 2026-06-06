@@ -61,3 +61,7 @@ export {
   type RegistryBlockDataValue,
   type RegistryBlockSideMapBlock,
 } from "./RegistryBlockNode.js";
+export {
+  buildRegistryBlockSlashItems,
+  type BuildRegistryBlockSlashItemsOptions,
+} from "./registrySlashCommands.js";

@@ -197,6 +197,9 @@ export {
   RegistryBlockNodeView,
   RegistryBlockDataProvider,
   useRegistryBlockData,
+  // Shared registry-derived block slash-command builder (plan + content adapt it).
+  buildRegistryBlockSlashItems,
+  type BuildRegistryBlockSlashItemsOptions,
   type DragHandleOptions,
   type CreateRegistryBlockNodeOptions,
   type RegistryBlockDataValue,

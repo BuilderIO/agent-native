@@ -1,5 +1,8 @@
 import type { BlockRegistry } from "@agent-native/core/blocks";
-import type { SlashCommandItem } from "@agent-native/core/client";
+import {
+  buildRegistryBlockSlashItems,
+  type SlashCommandItem,
+} from "@agent-native/core/client";
 import { createPlanBlockId } from "@shared/plan-content";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
@@ -142,34 +145,39 @@ export function buildPlanSlashCommands(
     },
   ];
 
-  const blockCommands: SlashCommandItem[] = registry
-    .list("block")
-    // In Notion-compatible-only mode, hide blocks that can't round-trip to NFM.
-    .filter(
-      (spec) =>
-        !options.notionCompatibleOnly || isNotionCompatibleBlockType(spec.type),
-    )
-    .map((spec) => ({
+  // Registry block commands come from the shared core builder so adding a library
+  // block only touches the registry. Plan's per-app parts: a text-glyph `icon`,
+  // the `spec.type` description keyword, the union Notion-compat predicate (which
+  // also covers prose-only NFM analogs), and inserting a `planBlock` node.
+  const blockCommands = buildRegistryBlockSlashItems<
+    SlashCommandItem,
+    SlashEditor
+  >(registry, {
+    notionCompatibleOnly: options.notionCompatibleOnly,
+    isNotionCompatible: (spec) => isNotionCompatibleBlockType(spec.type),
+    toItem: (spec, insert) => ({
       title: spec.label,
       // The block `type` rides in the description so the core menu's
       // title/description substring filter matches typing the type keyword.
       description: spec.type,
       icon: spec.label.slice(0, 3),
-      action: (editor: SlashEditor) =>
-        editor
-          .chain()
-          .focus()
-          .insertContent({
-            type: "planBlock",
-            attrs: {
-              blockType: spec.type,
-              blockId: createPlanBlockId(spec.type),
-              title: null,
-              summary: null,
-            },
-          })
-          .run(),
-    }));
+      action: insert,
+    }),
+    insertBlock: (editor, spec) =>
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "planBlock",
+          attrs: {
+            blockType: spec.type,
+            blockId: createPlanBlockId(spec.type),
+            title: null,
+            summary: null,
+          },
+        })
+        .run(),
+  });
 
   return [...proseCommands, ...blockCommands];
 }

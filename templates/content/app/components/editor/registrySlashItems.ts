@@ -1,5 +1,6 @@
 import { IconComponents } from "@tabler/icons-react";
 import type { BlockRegistry, BlockSpec } from "@agent-native/core/blocks";
+import { buildRegistryBlockSlashItems } from "@agent-native/core/client";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import { createContentBlockId } from "./extensions/registryBlocks";
 
@@ -77,35 +78,41 @@ export function buildRegistrySlashItems(
   registry: BlockRegistry,
   options: { notionCompatibleOnly?: boolean } = {},
 ): RegistrySlashItem[] {
-  return registry
-    .list("block")
-    .filter((spec) => !options.notionCompatibleOnly || spec.notionCompatible)
-    .map((spec) => {
-      const Icon = (spec.icon ?? IconComponents) as React.ElementType;
-      return {
+  // Registry block commands come from the shared core builder so adding a library
+  // block only touches the registry. Content's per-app parts: a React-component
+  // `icon`, the `description + type` keyword string, the default
+  // `spec.notionCompatible` gating predicate, and inserting a `registryBlock`
+  // node seeded with inline `__raw`.
+  return buildRegistryBlockSlashItems<RegistrySlashItem, RegistrySlashEditor>(
+    registry,
+    {
+      notionCompatibleOnly: options.notionCompatibleOnly,
+      toItem: (spec, insert) => ({
         title: spec.label,
         // The block `type` rides in the description (alongside the human
         // description) so the menu's title/description substring filter also
         // matches typing the raw type keyword (e.g. "/file-tree").
         description: `${spec.description} ${spec.type}`,
-        icon: Icon,
-        action: (editor: RegistrySlashEditor) => {
-          const blockId = createContentBlockId(spec.type);
-          editor
-            .chain()
-            .focus()
-            .insertContent({
-              type: "registryBlock",
-              attrs: {
-                blockType: spec.type,
-                blockId,
-                title: null,
-                summary: null,
-                __raw: seedRegistryBlockRaw(spec, blockId),
-              },
-            })
-            .run();
-        },
-      };
-    });
+        icon: (spec.icon ?? IconComponents) as React.ElementType,
+        action: insert,
+      }),
+      insertBlock: (editor, spec) => {
+        const blockId = createContentBlockId(spec.type);
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "registryBlock",
+            attrs: {
+              blockType: spec.type,
+              blockId,
+              title: null,
+              summary: null,
+              __raw: seedRegistryBlockRaw(spec, blockId),
+            },
+          })
+          .run();
+      },
+    },
+  );
 }
