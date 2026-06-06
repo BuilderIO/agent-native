@@ -32,6 +32,11 @@ describe("mountPrototypeRuntime", () => {
           <button class="primary" @click="draft && todos.push({ text: draft, done: false }); draft = ''">Add</button>
           <button data-filter="all" @click="filter = 'all'" :class="{ 'primary': filter === 'all' }">All</button>
           <button data-filter="done" @click="filter = 'done'" :class="{ 'primary': filter === 'done' }">Done</button>
+          <button data-mark-all @click="setAll(todos, 'done', true)">Mark all done</button>
+          <button data-clear-done @click="removeWhere(todos, 'done', true)">Clear done</button>
+          <span data-total x-text="count(todos)"></span>
+          <span data-done-count x-text="countWhere(todos, 'done', true)"></span>
+          <span data-remaining x-text="remaining(todos, 'done')"></span>
           <div class="wf-box" x-for="todo in todos" x-show="filter === 'all' || (filter === 'done' && todo.done)" :class="{ 'is-done': todo.done }" :data-done="todo.done">
             <label><input type="checkbox" x-model="todo.done"><span x-text="todo.text"></span></label>
             <button data-remove @click="remove(todos, todo)">Remove</button>
@@ -59,6 +64,8 @@ describe("mountPrototypeRuntime", () => {
 
     expect(input!.value).toBe("");
     expect(root?.textContent).toContain("Ship prototype");
+    expect(root?.querySelector("[data-total]")?.textContent).toBe("2");
+    expect(root?.querySelector("[data-remaining]")?.textContent).toBe("2");
 
     const shipRow = Array.from(
       root!.querySelectorAll<HTMLElement>("[data-plan-prototype-clone-for]"),
@@ -77,6 +84,8 @@ describe("mountPrototypeRuntime", () => {
       ).find((item) => item.textContent?.includes("Ship prototype"));
       expect(row?.getAttribute("data-done")).toBe("true");
     });
+    expect(root?.querySelector("[data-done-count]")?.textContent).toBe("1");
+    expect(root?.querySelector("[data-remaining]")?.textContent).toBe("1");
 
     root
       ?.querySelector<HTMLButtonElement>('button[data-filter="done"]')
@@ -94,6 +103,15 @@ describe("mountPrototypeRuntime", () => {
       ?.click();
     await flush();
     expect(root?.textContent).not.toContain("Ship prototype");
+
+    root?.querySelector<HTMLButtonElement>("button[data-mark-all]")?.click();
+    await flush();
+    expect(root?.querySelector("[data-done-count]")?.textContent).toBe("1");
+    expect(root?.querySelector("[data-remaining]")?.textContent).toBe("0");
+
+    root?.querySelector<HTMLButtonElement>("button[data-clear-done]")?.click();
+    await flush();
+    expect(root?.querySelector("[data-total]")?.textContent).toBe("0");
 
     cleanup();
   });

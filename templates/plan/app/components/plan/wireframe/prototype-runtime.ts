@@ -459,6 +459,35 @@ function runStatement(
     return;
   }
 
+  const setAllCall = statement.match(/^setAll\((.+)\)$/);
+  if (setAllCall) {
+    const args = splitTopLevel(setAllCall[1], ",");
+    const list = evaluateExpression(state, context, args[0]);
+    const key = evaluateExpression(state, context, args[1]);
+    const value = evaluateExpression(state, context, args[2]);
+    if (Array.isArray(list) && typeof key === "string") {
+      list.forEach((item) => {
+        if (isRecord(item)) item[key] = value;
+      });
+    }
+    return;
+  }
+
+  const removeWhereCall = statement.match(/^removeWhere\((.+)\)$/);
+  if (removeWhereCall) {
+    const args = splitTopLevel(removeWhereCall[1], ",");
+    const list = evaluateExpression(state, context, args[0]);
+    const key = evaluateExpression(state, context, args[1]);
+    const value = evaluateExpression(state, context, args[2]);
+    if (Array.isArray(list) && typeof key === "string") {
+      for (let index = list.length - 1; index >= 0; index--) {
+        const item = list[index];
+        if (isRecord(item) && item[key] === value) list.splice(index, 1);
+      }
+    }
+    return;
+  }
+
   const assignment = statement.match(/^(.+?)\s*=\s*(.+)$/);
   if (assignment && !/[=!<>]=/.test(assignment[1])) {
     const [, path, valueExpression] = assignment;
@@ -517,6 +546,10 @@ function evaluateExpression(
   if (expr === "false") return false;
   if (expr === "null") return null;
   if (/^-?\d+(?:\.\d+)?$/.test(expr)) return Number(expr);
+  const helperCall = expr.match(/^(count|countWhere|remaining)\((.*)\)$/);
+  if (helperCall) {
+    return evaluateHelperCall(state, context, helperCall[1], helperCall[2]);
+  }
   if (expr.startsWith("{") && expr.endsWith("}")) {
     return evaluateObjectExpression(state, context, expr);
   }
@@ -526,6 +559,26 @@ function evaluateExpression(
     );
   }
   return getPath(state, context, expr);
+}
+
+function evaluateHelperCall(
+  state: RuntimeRecord,
+  context: RuntimeContext,
+  name: string,
+  argsExpression: string,
+) {
+  const args = splitTopLevel(argsExpression, ",");
+  const list = evaluateExpression(state, context, args[0] ?? "");
+  if (!Array.isArray(list)) return 0;
+  if (name === "count") return list.length;
+  const key = evaluateExpression(state, context, args[1] ?? "");
+  if (typeof key !== "string") return 0;
+  if (name === "remaining") {
+    return list.filter((item) => !isRecord(item) || !isTruthy(item[key]))
+      .length;
+  }
+  const expected = evaluateExpression(state, context, args[2] ?? "");
+  return list.filter((item) => isRecord(item) && item[key] === expected).length;
 }
 
 function evaluateObjectExpression(

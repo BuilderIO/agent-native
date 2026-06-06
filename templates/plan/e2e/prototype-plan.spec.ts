@@ -18,9 +18,9 @@ import { readFileSync } from "node:fs";
  *  - The functional PrototypeViewer rendering on top: data-goto hotspots
  *    advance true screens/routes, and local prototype directives drive basic
  *    inputs, toggles, filtering, and list mutation without scripts.
- *  - The floating toolbar: comments toggle, sketchy<->clean (the rendered frame's
- *    data-style flips), dark<->light, and POPOUT (a real new browser page opens
- *    to ?prototype=1) — driven from BOTH the viewer toolbar and the plan menu.
+ *  - The shared review toolbar: comment mode, sketchy<->clean (the rendered
+ *    frame's data-style flips), dark<->light, and POPOUT (a real new browser
+ *    page opens to ?prototype=1) without stacking a second prototype toolbar.
  *  - TABS: a prototype plan always derives a canvas, so the surface shows
  *    Prototype / Wireframes tabs ([data-plan-visual-tabs]); flipping the tab
  *    swaps the top surface (viewer <-> canvas board) and back.
@@ -428,17 +428,22 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
 });
 
 /* ------------------------------------------------------------------ */
-/* 5. Popout: the viewer toolbar opens a real new ?prototype=1 window   */
+/* 5. Popout: the shared toolbar opens a real new ?prototype=1 window   */
 /* ------------------------------------------------------------------ */
-test("prototype popout: the viewer toolbar opens a new browser page to the standalone prototype", async ({
+test("prototype popout: the shared toolbar opens a new browser page to the standalone prototype", async ({
   page,
   context,
 }) => {
   const req = page.request;
   const { planId } = await createOnboardingPrototype(req, "popout-toolbar");
-  await openPrototype(page, planId);
+  const viewer = await openPrototype(page, planId);
 
-  // The toolbar popout button (non-standalone label) opens window.open(_blank).
+  await expect(
+    viewer.locator(":scope > [data-plan-interactive]"),
+    "prototype viewer must not add a second top-right toolbar over the shared page toolbar",
+  ).toHaveCount(0);
+
+  // The shared page toolbar popout button opens window.open(_blank).
   const popout = page.getByRole("button", {
     name: "Open prototype window",
     exact: true,
@@ -477,27 +482,7 @@ test("prototype popout: the plan actions menu 'Open prototype window' opens a st
   const { planId } = await createOnboardingPrototype(req, "popout-menu");
   await openPrototype(page, planId);
 
-  // PINNED APP BUG (layering): on a prototype plan, the top-right toolbar that
-  // holds the "Plan actions" (...) overflow trigger sits at z-10, but the
-  // Prototype/Wireframes TabsList renders at z-40 and overlaps the same
-  // top-right corner. The Wireframes tab covers the center of the "Plan actions"
-  // button (the live element at its center is role="tab"), so a real user cannot
-  // open the overflow menu — which blocks "Open prototype window", "Convert to
-  // prototype", "Copy link", "Download source", "Export", and "Full screen" for
-  // EVERY prototype plan (a canvas is always auto-derived, so the tabs always
-  // render). This test asserts the CORRECT behavior (the menu opens) and is
-  // marked test.fail so the suite stays green while the bug is reported. Remove
-  // the test.fail once the toolbar/tab z-index + horizontal overlap is fixed.
-  //   PlansPage.tsx top-right toolbar: right-3 top-3 z-10
-  //   PlanVisualSurface.tsx TabsList:  right-4 top-4 z-40
-  test.fail(
-    true,
-    "BUG: Prototype/Wireframes tabs (z-40) overlap and block the 'Plan actions' overflow menu (z-10) on prototype plans",
-  );
-
   const trigger = page.getByRole("button", { name: "Plan actions" });
-  // A web-first click respects actionability: it fails because the tab covers
-  // the trigger. (Use the default trial — no force — so the bug surfaces.)
   await trigger.click({ timeout: 6000 });
   const menuItem = page.getByRole("menuitem", {
     name: "Open prototype window",
@@ -538,11 +523,20 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   // Prototype tab is active by default: the live functional viewer is shown.
   await expect(prototypeTab).toHaveAttribute("aria-selected", "true");
   await expect(viewer).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Text note" })).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "Arrow callout" })).toHaveCount(
+    0,
+  );
 
   // Flip to Wireframes: the live viewer's screen container goes away and the
-  // canvas board shows instead.
+  // canvas board shows instead, with drawing tools available in the one shared
+  // top-right toolbar.
   await wireframesTab.click();
   await expect(wireframesTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("radio", { name: "Text note" })).toBeVisible();
+  await expect(
+    page.getByRole("radio", { name: "Arrow callout" }),
+  ).toBeVisible();
   await expect(
     page.locator("[data-prototype-screen]"),
     "switching to Wireframes hides the live prototype screen",
@@ -632,12 +626,6 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
   ).toBeVisible({
     timeout: 20000,
   });
-
-  // The viewer toolbar exposes a comment-visibility control in prototype mode.
-  await expect(
-    page.getByRole("button", { name: /Show comments|Hide comments/ }),
-    "the prototype toolbar exposes a comment-visibility control",
-  ).toBeVisible();
 
   // Enter comment (review) mode. The ReviewMarkupToolbar exposes a "Comment"
   // ToggleGroupItem (role="radio"); once active its label flips to
