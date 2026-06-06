@@ -51,6 +51,10 @@
   line-height: 1.45;
 }
 
+.plan-html-frame[data-prototype-live="true"] {
+  overflow: auto;
+}
+
 .plan-html-frame[data-theme="dark"] {
   --wf-ink: #ece8e1;
   --wf-muted: #9a948b;

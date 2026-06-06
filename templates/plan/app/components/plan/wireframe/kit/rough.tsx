@@ -183,12 +183,12 @@ function build(
       gen.path(
         roundedRectPath(2, 2, layoutW - 4, layoutH - 4, opts.frameRadius),
         {
-          ...makeOpts(ink, sw, seedFrom("frame", layoutW, layoutH)),
+          ...makeOpts(sketch, sw, seedFrom("frame", layoutW, layoutH)),
           roughness: opts.roughness + 0.35,
           bowing: opts.bowing + 0.18,
         },
       ),
-      ink,
+      sketch,
       sw,
     );
   }
@@ -310,7 +310,10 @@ export function RoughOverlay({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     el.querySelectorAll(selector).forEach((node) => ro.observe(node));
-    const mo = new MutationObserver(measure);
+    const mo = new MutationObserver((mutations) => {
+      if (mutations.every(isRoughOverlayMutation)) return;
+      measure();
+    });
     mo.observe(el, {
       attributes: true,
       childList: true,
@@ -350,7 +353,7 @@ export function RoughOverlay({
         position: "absolute",
         inset: 0,
         pointerEvents: "none",
-        overflow: "visible",
+        overflow: "hidden",
         zIndex: 3,
       }}
     >
@@ -366,5 +369,23 @@ export function RoughOverlay({
         />
       ))}
     </svg>
+  );
+}
+
+function isRoughOverlayMutation(mutation: MutationRecord) {
+  if (nodeIsRoughOverlay(mutation.target)) return true;
+
+  const changedNodes = [
+    ...Array.from(mutation.addedNodes),
+    ...Array.from(mutation.removedNodes),
+  ];
+  return changedNodes.length > 0 && changedNodes.every(nodeIsRoughOverlay);
+}
+
+function nodeIsRoughOverlay(node: Node) {
+  const element = node instanceof Element ? node : node.parentElement;
+  return Boolean(
+    element?.classList.contains("plan-rough-overlay") ||
+    element?.closest(".plan-rough-overlay"),
   );
 }

@@ -22,6 +22,37 @@ import {
   type WireframeData,
 } from "./blocks/wireframe.config.js";
 import {
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+} from "./blocks/mermaid.config.js";
+import {
+  apiEndpointSchema,
+  apiEndpointMdx,
+  type ApiEndpointData,
+} from "./blocks/api-endpoint.config.js";
+import {
+  dataModelSchema,
+  dataModelMdx,
+  type DataModelData,
+} from "./blocks/data-model.config.js";
+import { diffSchema, diffMdx, type DiffData } from "./blocks/diff.config.js";
+import {
+  fileTreeSchema,
+  fileTreeMdx,
+  type FileTreeData,
+} from "./blocks/file-tree.config.js";
+import {
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+} from "./blocks/json-explorer.config.js";
+import {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+} from "./blocks/annotated-code.config.js";
+import {
   checklistSchema,
   checklistMdx,
   type ChecklistData,
@@ -141,6 +172,83 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       label: "Tabs",
       description:
         "A horizontal pill-tab container; each tab holds its own list of blocks.",
+    }),
+    defineBlock<MermaidData>({
+      type: "mermaid",
+      schema: mermaidSchema,
+      mdx: mermaidMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "Diagram (Mermaid)",
+      description:
+        "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
+    }),
+    defineBlock<ApiEndpointData>({
+      type: "api-endpoint",
+      schema: apiEndpointSchema,
+      mdx: apiEndpointMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "API endpoint",
+      description:
+        "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
+    }),
+    defineBlock<DataModelData>({
+      type: "data-model",
+      schema: dataModelSchema,
+      mdx: dataModelMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "Data model",
+      description:
+        "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
+    }),
+    defineBlock<DiffData>({
+      type: "diff",
+      schema: diffSchema,
+      mdx: diffMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "Diff",
+      description:
+        "A GitHub-style before/after line diff for a file, with unified or split (side-by-side) view, added/removed line highlighting, and collapsible unchanged runs.",
+    }),
+    defineBlock<FileTreeData>({
+      type: "file-tree",
+      schema: fileTreeSchema,
+      mdx: fileTreeMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "File tree",
+      description:
+        "A VS Code / GitHub-explorer file and change tree derived from slash-delimited paths, with per-file change badges (added/modified/removed/renamed), notes, and code snippets.",
+    }),
+    defineBlock<JsonExplorerData>({
+      type: "json-explorer",
+      schema: jsonExplorerSchema,
+      mdx: jsonExplorerMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "JSON explorer",
+      description:
+        "A collapsible browser-devtools / Postman-style JSON tree with type-colored values and expand/collapse.",
+    }),
+    defineBlock<AnnotatedCodeData>({
+      type: "annotated-code",
+      schema: annotatedCodeSchema,
+      mdx: annotatedCodeMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "Annotated code",
+      description:
+        "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes (Stripe-docs / Sourcegraph 'explain this code' style).",
     }),
   ]);
 }

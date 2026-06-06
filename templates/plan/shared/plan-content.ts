@@ -38,6 +38,13 @@ export type PlanBlockType =
   | "tabs"
   | "custom-html"
   | "visual-questions"
+  | "mermaid"
+  | "api-endpoint"
+  | "data-model"
+  | "diff"
+  | "file-tree"
+  | "json-explorer"
+  | "annotated-code"
   // Deprecated: region-based wireframe kept for old/imported plans only.
   | "legacy-wireframe";
 
@@ -422,6 +429,109 @@ export type PlanVisualQuestionsBlock = PlanBlockBase & {
   };
 };
 
+export type PlanMermaidBlock = PlanBlockBase & {
+  type: "mermaid";
+  data: {
+    source: string;
+    caption?: string;
+  };
+};
+
+export type PlanApiEndpointBlock = PlanBlockBase & {
+  type: "api-endpoint";
+  data: {
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+    path: string;
+    summary?: string;
+    description?: string;
+    auth?: string;
+    deprecated?: boolean;
+    params?: Array<{
+      name: string;
+      in: "path" | "query" | "header" | "body";
+      type?: string;
+      required?: boolean;
+      description?: string;
+    }>;
+    request?: { contentType?: string; example?: string };
+    responses?: Array<{
+      status: string;
+      description?: string;
+      example?: string;
+    }>;
+  };
+};
+
+export type PlanDataModelBlock = PlanBlockBase & {
+  type: "data-model";
+  data: {
+    entities: Array<{
+      id: string;
+      name: string;
+      note?: string;
+      fields: Array<{
+        name: string;
+        type?: string;
+        pk?: boolean;
+        fk?: string;
+        nullable?: boolean;
+        default?: string;
+        note?: string;
+      }>;
+    }>;
+    relations?: Array<{
+      from: string;
+      to: string;
+      kind?: "1-1" | "1-n" | "n-n";
+      label?: string;
+    }>;
+  };
+};
+
+export type PlanDiffBlock = PlanBlockBase & {
+  type: "diff";
+  data: {
+    filename?: string;
+    language?: string;
+    before: string;
+    after: string;
+    mode?: "unified" | "split";
+  };
+};
+
+export type PlanFileTreeBlock = PlanBlockBase & {
+  type: "file-tree";
+  data: {
+    title?: string;
+    entries: Array<{
+      path: string;
+      change?: "added" | "modified" | "removed" | "renamed";
+      note?: string;
+      snippet?: string;
+      language?: string;
+    }>;
+  };
+};
+
+export type PlanJsonExplorerBlock = PlanBlockBase & {
+  type: "json-explorer";
+  data: {
+    title?: string;
+    json: string;
+    collapsedDepth?: number;
+  };
+};
+
+export type PlanAnnotatedCodeBlock = PlanBlockBase & {
+  type: "annotated-code";
+  data: {
+    filename?: string;
+    language?: string;
+    code: string;
+    annotations?: Array<{ lines: string; label?: string; note: string }>;
+  };
+};
+
 export type PlanBlock =
   | PlanRichTextBlock
   | PlanCalloutBlock
@@ -436,7 +546,14 @@ export type PlanBlock =
   | PlanDecisionBlock
   | PlanTabsBlock
   | PlanCustomHtmlBlock
-  | PlanVisualQuestionsBlock;
+  | PlanVisualQuestionsBlock
+  | PlanMermaidBlock
+  | PlanApiEndpointBlock
+  | PlanDataModelBlock
+  | PlanDiffBlock
+  | PlanFileTreeBlock
+  | PlanJsonExplorerBlock
+  | PlanAnnotatedCodeBlock;
 
 /* -------------------------------------------------------------------------- */
 /* Board / canvas — SPATIAL; geometry KEPT here on purpose                    */
@@ -1218,6 +1335,161 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
           .min(1)
           .max(40),
         submitLabel: z.string().trim().max(80).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("mermaid"),
+      data: z.object({
+        source: z.string().max(50_000),
+        caption: z.string().trim().max(400).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("api-endpoint"),
+      data: z.object({
+        method: z.enum([
+          "GET",
+          "POST",
+          "PUT",
+          "PATCH",
+          "DELETE",
+          "HEAD",
+          "OPTIONS",
+        ]),
+        path: z.string().trim().min(1).max(500),
+        summary: z.string().trim().max(400).optional(),
+        description: z.string().max(20_000).optional(),
+        auth: z.string().trim().max(200).optional(),
+        deprecated: z.boolean().optional(),
+        params: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1).max(160),
+              in: z.enum(["path", "query", "header", "body"]),
+              type: z.string().trim().max(120).optional(),
+              required: z.boolean().optional(),
+              description: z.string().trim().max(1_000).optional(),
+            }),
+          )
+          .max(60)
+          .optional(),
+        request: z
+          .object({
+            contentType: z.string().trim().max(160).optional(),
+            example: z.string().max(20_000).optional(),
+          })
+          .optional(),
+        responses: z
+          .array(
+            z.object({
+              status: z.string().trim().min(1).max(40),
+              description: z.string().trim().max(1_000).optional(),
+              example: z.string().max(20_000).optional(),
+            }),
+          )
+          .max(40)
+          .optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("data-model"),
+      data: z.object({
+        entities: z
+          .array(
+            z.object({
+              id: idSchema,
+              name: z.string().trim().min(1).max(160),
+              note: z.string().trim().max(600).optional(),
+              fields: z
+                .array(
+                  z.object({
+                    name: z.string().trim().min(1).max(160),
+                    type: z.string().trim().max(120).optional(),
+                    pk: z.boolean().optional(),
+                    fk: z.string().trim().max(200).optional(),
+                    nullable: z.boolean().optional(),
+                    default: z.string().trim().max(400).optional(),
+                    note: z.string().trim().max(600).optional(),
+                  }),
+                )
+                .max(80),
+            }),
+          )
+          .min(1)
+          .max(60),
+        relations: z
+          .array(
+            z.object({
+              from: z.string().trim().min(1).max(120),
+              to: z.string().trim().min(1).max(120),
+              kind: z.enum(["1-1", "1-n", "n-n"]).optional(),
+              label: z.string().trim().max(160).optional(),
+            }),
+          )
+          .max(200)
+          .optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("diff"),
+      data: z.object({
+        filename: z.string().trim().max(400).optional(),
+        language: z.string().trim().max(40).optional(),
+        before: z.string().max(100_000),
+        after: z.string().max(100_000),
+        mode: z.enum(["unified", "split"]).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("file-tree"),
+      data: z.object({
+        title: z.string().trim().max(180).optional(),
+        entries: z
+          .array(
+            z.object({
+              path: z.string().trim().min(1).max(500),
+              change: z
+                .enum(["added", "modified", "removed", "renamed"])
+                .optional(),
+              note: z.string().trim().max(2_000).optional(),
+              snippet: z.string().max(50_000).optional(),
+              language: z.string().trim().max(40).optional(),
+            }),
+          )
+          .min(1)
+          .max(200),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("json-explorer"),
+      data: z.object({
+        title: z.string().trim().max(200).optional(),
+        json: z.string().max(200_000),
+        collapsedDepth: z.number().int().min(0).max(20).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("annotated-code"),
+      data: z.object({
+        filename: z.string().trim().max(400).optional(),
+        language: z.string().trim().max(40).optional(),
+        code: z.string().max(100_000),
+        annotations: z
+          .array(
+            z.object({
+              lines: z
+                .string()
+                .trim()
+                .regex(/^\d+(\s*-\s*\d+)?$/, {
+                  message: 'lines must be a 1-based line ref like "3" or "3-5"',
+                })
+                .max(40),
+              label: z.string().trim().max(160).optional(),
+              note: z.string().trim().min(1).max(4_000),
+            }),
+          )
+          .max(80)
+          .optional(),
       }),
     }),
   ]),

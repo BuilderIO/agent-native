@@ -373,7 +373,10 @@ function serializeBlock(block: PlanBlock): string {
   if (block.type === "custom-html") {
     return `<HtmlBlock${prop("id", block.id)}${title}${summary}${editable}${prop("html", block.data.html)}${prop("css", block.data.css)}${prop("caption", block.data.caption)} />`;
   }
-  return `<VisualQuestions${prop("id", block.id)}${title}${summary}${editable}${prop("questions", block.data.questions)}${prop("submitLabel", block.data.submitLabel)} />`;
+  if (block.type === "visual-questions") {
+    return `<VisualQuestions${prop("id", block.id)}${title}${summary}${editable}${prop("questions", block.data.questions)}${prop("submitLabel", block.data.submitLabel)} />`;
+  }
+  throw new Error(`Unsupported plan block type: ${block.type}`);
 }
 
 function frontmatter(data: Record<string, unknown>): string {

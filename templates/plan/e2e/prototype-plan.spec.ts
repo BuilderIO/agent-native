@@ -208,6 +208,22 @@ async function openPrototype(page: Page, planId: string): Promise<Locator> {
   return viewer;
 }
 
+function waitForPrototypeRender(viewer: Locator) {
+  return viewer.evaluate(
+    (node) =>
+      new Promise<void>((resolve) => {
+        const timeout = window.setTimeout(resolve, 250);
+        const done = () => {
+          window.clearTimeout(timeout);
+          window.requestAnimationFrame(() => resolve());
+        };
+        node.addEventListener("plan-prototype-runtime:rendered", done, {
+          once: true,
+        });
+      }),
+  );
+}
+
 const activeScreenId = (viewer: Locator) =>
   viewer
     .locator("[data-prototype-screen]")
@@ -340,15 +356,22 @@ test("prototype viewer runs local controls for a todo-style prototype", async ({
 
   const input = viewer.getByLabel("Add task");
   await input.fill("Ship live prototype");
+  const addedRender = waitForPrototypeRender(viewer);
   await input.press("Enter");
+  await addedRender;
   await expect(viewer.getByText("Ship live prototype")).toBeVisible();
   await expect(input).toHaveValue("");
 
   const shipRow = viewer
     .locator("[data-plan-prototype-clone-for]")
     .filter({ hasText: "Ship live prototype" });
-  await shipRow.locator('input[type="checkbox"]').check();
-  await expect(shipRow).toHaveAttribute("data-done", "true");
+  const checkedRender = waitForPrototypeRender(viewer);
+  await shipRow.locator("label").click();
+  await checkedRender;
+  const completedShipRow = viewer
+    .locator("[data-plan-prototype-clone-for]")
+    .filter({ hasText: "Ship live prototype" });
+  await expect(completedShipRow).toHaveAttribute("data-done", "true");
 
   await viewer.locator('button[data-filter="done"]').click();
   await expect(
@@ -356,9 +379,9 @@ test("prototype viewer runs local controls for a todo-style prototype", async ({
       .locator("[data-plan-prototype-clone-for]")
       .filter({ hasText: "Review prototype" }),
   ).toBeHidden();
-  await expect(shipRow).toBeVisible();
+  await expect(completedShipRow).toBeVisible();
 
-  await shipRow.locator("button[data-remove]").click();
+  await completedShipRow.locator("button[data-remove]").click();
   await expect(viewer.getByText("Ship live prototype")).toHaveCount(0);
 });
 

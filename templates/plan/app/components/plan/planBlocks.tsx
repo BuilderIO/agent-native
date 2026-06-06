@@ -31,6 +31,47 @@ import {
 import { CalloutBlock } from "./blocks/CalloutBlock";
 import { DiagramBlock, DiagramBlockEdit } from "./blocks/DiagramBlock";
 import { WireframeBlock, WireframeEditor } from "./blocks/WireframeBlock";
+import {
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+} from "@shared/blocks/mermaid.config";
+import {
+  apiEndpointSchema,
+  apiEndpointMdx,
+  type ApiEndpointData,
+} from "@shared/blocks/api-endpoint.config";
+import {
+  dataModelSchema,
+  dataModelMdx,
+  type DataModelData,
+} from "@shared/blocks/data-model.config";
+import { diffSchema, diffMdx, type DiffData } from "@shared/blocks/diff.config";
+import {
+  fileTreeSchema,
+  fileTreeMdx,
+  type FileTreeData,
+} from "@shared/blocks/file-tree.config";
+import {
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+} from "@shared/blocks/json-explorer.config";
+import {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+} from "@shared/blocks/annotated-code.config";
+import { MermaidRead, MermaidEdit } from "./blocks/MermaidBlock";
+import { ApiEndpointRead, ApiEndpointEdit } from "./blocks/ApiEndpointBlock";
+import { DataModelRead, DataModelEdit } from "./blocks/DataModelBlock";
+import { DiffRead, DiffEdit } from "./blocks/DiffBlock";
+import { FileTreeRead, FileTreeEdit } from "./blocks/FileTreeBlock";
+import { JsonExplorerRead, JsonExplorerEdit } from "./blocks/JsonExplorerBlock";
+import {
+  AnnotatedCodeRead,
+  AnnotatedCodeEdit,
+} from "./blocks/AnnotatedCodeBlock";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import {
@@ -132,6 +173,148 @@ registerBlocks(planBlockRegistry, [
   // `Read`/`Edit` and the schema + MDX config all come from core; the same
   // React-free config is registered server-side in `shared/plan-block-registry`.
   tabsBlock,
+  // Dev-doc blocks: Mermaid diagram (hand-drawn, theme-aware), Swagger-style API
+  // endpoint, ERD data model, and a GitHub-style diff. Each renders differently
+  // from its props, so they edit through a corner button + panel popover.
+  defineBlock<MermaidData>({
+    type: "mermaid",
+    schema: mermaidSchema,
+    mdx: mermaidMdx,
+    Read: MermaidRead,
+    Edit: MermaidEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "Diagram (Mermaid)",
+    description:
+      "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
+    empty: () => ({
+      source:
+        "flowchart TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Do it]\n  B -->|No| D[Skip]",
+    }),
+  }),
+  defineBlock<ApiEndpointData>({
+    type: "api-endpoint",
+    schema: apiEndpointSchema,
+    mdx: apiEndpointMdx,
+    Read: ApiEndpointRead,
+    Edit: ApiEndpointEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "API endpoint",
+    description:
+      "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
+    empty: () => ({ method: "GET", path: "/api/resource" }),
+  }),
+  defineBlock<DataModelData>({
+    type: "data-model",
+    schema: dataModelSchema,
+    mdx: dataModelMdx,
+    Read: DataModelRead,
+    Edit: DataModelEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "Data model",
+    description:
+      "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
+    empty: () => ({
+      entities: [
+        {
+          id: "e_user",
+          name: "User",
+          fields: [
+            { name: "id", type: "uuid", pk: true },
+            { name: "email", type: "text" },
+          ],
+        },
+      ],
+    }),
+  }),
+  defineBlock<DiffData>({
+    type: "diff",
+    schema: diffSchema,
+    mdx: diffMdx,
+    Read: DiffRead,
+    Edit: DiffEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "Diff",
+    description:
+      "A GitHub-style before/after line diff for a file, with unified or split (side-by-side) view, added/removed line highlighting, and collapsible unchanged runs.",
+    empty: () => ({
+      before: "function add(a, b) {\n  return a + b;\n}",
+      after: "function add(a: number, b: number): number {\n  return a + b;\n}",
+      language: "ts",
+    }),
+  }),
+  defineBlock<FileTreeData>({
+    type: "file-tree",
+    schema: fileTreeSchema,
+    mdx: fileTreeMdx,
+    Read: FileTreeRead,
+    Edit: FileTreeEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "File tree",
+    description:
+      "A VS Code / GitHub-explorer file and change tree derived from slash-delimited paths, with per-file change badges (added/modified/removed/renamed), notes, and code snippets.",
+    empty: () => ({
+      entries: [
+        {
+          path: "src/index.ts",
+          change: "modified",
+          note: "Wire the new route here.",
+        },
+        { path: "src/routes/git.ts", change: "added" },
+      ],
+    }),
+  }),
+  defineBlock<JsonExplorerData>({
+    type: "json-explorer",
+    schema: jsonExplorerSchema,
+    mdx: jsonExplorerMdx,
+    Read: JsonExplorerRead,
+    Edit: JsonExplorerEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "JSON explorer",
+    description:
+      "A collapsible browser-devtools / Postman-style JSON tree with type-colored values and expand/collapse.",
+    empty: () => ({
+      json: JSON.stringify(
+        {
+          id: "abc123",
+          active: true,
+          tags: ["alpha", "beta"],
+          meta: { count: 2, owner: null },
+        },
+        null,
+        2,
+      ),
+    }),
+  }),
+  defineBlock<AnnotatedCodeData>({
+    type: "annotated-code",
+    schema: annotatedCodeSchema,
+    mdx: annotatedCodeMdx,
+    Read: AnnotatedCodeRead,
+    Edit: AnnotatedCodeEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "Annotated code",
+    description:
+      "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes (Stripe-docs / Sourcegraph 'explain this code' style).",
+    empty: () => ({
+      language: "ts",
+      code: "export function resolveAuth(provider: string) {\n  const cfg = providers[provider];\n  return cfg.token;\n}",
+      annotations: [
+        {
+          lines: "2",
+          label: "Lookup",
+          note: "Resolves the provider config by key.",
+        },
+      ],
+    }),
+  }),
 ]);
 
 /**
