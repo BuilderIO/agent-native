@@ -141,14 +141,64 @@ export function PlanContentRenderer({
     !editingDisabled &&
     !!(onContentPatch || onContentChange);
 
-  // Persist a whole-document edit (prose, reorder, insert/delete, block data).
-  const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
-    if (onContentPatch) {
-      await onContentPatch({ op: "replace-blocks", blocks: nextBlocks });
-      return;
-    }
-    await onContentChange?.({ ...content, blocks: nextBlocks });
+  // Persist a whole-document edit (prose, reorder, insert/delete, block data),
+  // DEBOUNCED + SERIALIZED. The single-doc editor fires `onBlocksChange` on every
+  // keystroke; saving per keystroke produced overlapping `replace-blocks` POSTs
+  // that raced the server optimistic lock (`WHERE updatedAt = versionAtLoad`) — a
+  // later save had loaded a pre-bump version, matched 0 rows, threw "Plan changed",
+  // 500'd, and dropped the trailing characters. We coalesce keystrokes into one
+  // save per ~600ms pause AND keep only one save in-flight (the latest pending
+  // blocks are re-saved after it settles), so a single author's rapid edits can
+  // never overlap. The unmount flush below keeps the last edit when the reader
+  // closes / the user navigates away.
+  const AUTOSAVE_DEBOUNCE_MS = 600;
+  const pendingBlocksRef = useRef<PlanBlock[] | null>(null);
+  const savingRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+  const persistBlocksRef = useRef<
+    (blocks: PlanBlock[]) => void | Promise<void>
+  >(() => {});
+  persistBlocksRef.current = (nextBlocks: PlanBlock[]) =>
+    onContentPatch
+      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks })
+      : onContentChange?.({ ...content, blocks: nextBlocks });
+  const flushSaveRef = useRef<() => void>(() => {});
+  flushSaveRef.current = () => {
+    if (savingRef.current) return; // serialize: the in-flight save re-flushes below
+    const next = pendingBlocksRef.current;
+    if (next === null) return;
+    pendingBlocksRef.current = null;
+    savingRef.current = true;
+    void Promise.resolve(persistBlocksRef.current(next))
+      .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error("Failed to autosave plan document:", error);
+      })
+      .finally(() => {
+        savingRef.current = false;
+        // A newer edit landed while saving → save it now (with the bumped version).
+        if (pendingBlocksRef.current !== null) flushSaveRef.current();
+      });
   };
+  const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
+    pendingBlocksRef.current = nextBlocks;
+    if (saveTimerRef.current !== null)
+      window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      flushSaveRef.current();
+    }, AUTOSAVE_DEBOUNCE_MS);
+  };
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      flushSaveRef.current();
+    },
+    [],
+  );
 
   // Keep the latest document-level handlers in a ref so the memoized render
   // context stays stable (no markdown-editor remounts) while `renderBlock` for
