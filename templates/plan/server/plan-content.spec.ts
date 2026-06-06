@@ -681,7 +681,9 @@ describe("patch-wireframe-html (granular html mockup edits)", () => {
     planContentSchema.parse({
       version: 2,
       brief: "html wireframe",
-      blocks: [{ id: "wf1", type: "wireframe", data: { surface: "browser", html } }],
+      blocks: [
+        { id: "wf1", type: "wireframe", data: { surface: "browser", html } },
+      ],
     });
   const htmlOf = (content: PlanContent): string => {
     const block = content.blocks[0];

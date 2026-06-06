@@ -19,7 +19,15 @@ through `BlockView` inside a `BlockRegistryProvider`.
   estree attribute reader (exported from the React-free
   `@agent-native/core/blocks/server` entry) — registry-driven MDX round-trip that
   reproduces the existing component/attribute encoding for backward compatibility.
-- `describeBlocksForAgent` — generate the agent's block vocabulary from the registry.
+- `describeBlocksForAgent` / `renderBlockVocabularyReference` — generate the
+  agent's block vocabulary (per-block JSON schemas and a compact markdown
+  reference of types, MDX tags, placement, and key fields) directly from the
+  registry so the agent never drifts from what the app can render and serialize.
+- A standard block library (`@agent-native/core/blocks` + the React-free
+  `/blocks/server` entry): `checklistBlock`, `tableBlock`, `codeTabsBlock`,
+  `htmlBlock`, and `tabsBlock`, each with its pure schema + MDX config so apps
+  can register the shared specs (plan registers all of them; tabs is also
+  inline-placeable).
 
 The registry is designed to run alongside existing per-block code: renderers and
 the MDX adapter check the registry first and fall back to legacy paths for

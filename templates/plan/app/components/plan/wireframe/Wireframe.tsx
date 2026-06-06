@@ -125,7 +125,10 @@ function ArtboardFrame({
   skeleton?: boolean;
   selector: string;
   caption?: string;
-  render: (ctx: { theme: "light" | "dark"; style: "sketchy" | "clean" }) => ReactNode;
+  render: (ctx: {
+    theme: "light" | "dark";
+    style: "sketchy" | "clean";
+  }) => ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();

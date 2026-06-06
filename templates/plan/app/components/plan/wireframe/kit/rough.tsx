@@ -154,7 +154,9 @@ function build(
   const paths: RoughPath[] = [];
   let index = 0;
   const push = (drawable: unknown, stroke: string, sw: number) => {
-    for (const p of gen.toPaths(drawable as Parameters<typeof gen.toPaths>[0])) {
+    for (const p of gen.toPaths(
+      drawable as Parameters<typeof gen.toPaths>[0],
+    )) {
       paths.push({
         d: p.d,
         stroke: p.stroke && p.stroke !== "none" ? p.stroke : stroke,

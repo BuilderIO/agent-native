@@ -177,7 +177,8 @@
 
 /* Once rough has drawn, hide the crisp borders so there's no doubling. Pills
    keep their rounded crisp border (the rough overlay rounds them too). */
-.plan-html-frame[data-rough-ready] :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
+.plan-html-frame[data-rough-ready]
+  :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
   border-color: transparent !important;
 }
 
