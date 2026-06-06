@@ -43,7 +43,7 @@ const prototypeSurfaceSchema = z.enum([
 
 const prototypeScreenSchema = z.object({
   id: z.string().optional().describe("Stable screen id"),
-  title: z.string().min(1).describe("Screen or state title"),
+  title: z.string().min(1).describe("Prototype screen title"),
   summary: z
     .string()
     .optional()
@@ -64,7 +64,9 @@ const prototypeScreenSchema = z.object({
       }),
     )
     .optional()
-    .describe("Small state facts to show in the prototype viewer."),
+    .describe(
+      "Optional export metadata for this screen. Prefer showing live state inside the prototype HTML itself.",
+    ),
 });
 
 const prototypeTransitionSchema = z.object({

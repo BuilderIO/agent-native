@@ -564,7 +564,7 @@ export type PlanPrototypeScreen = {
    * changes; never include scripts.
    */
   html: string;
-  /** Small visible state facts for the current screen. */
+  /** Optional metadata for exports/back-compat; the live viewer does not render this as chrome. */
   state?: Array<{
     id?: string;
     label: string;

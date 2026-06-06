@@ -774,7 +774,7 @@ export function createPrototypePlanContent(
       data: {
         markdown: [
           `## Question\n${input.brief}`,
-          "## Prototype Review\nUse the functional prototype above to try the proposed interaction states. The static mocks below are reference frames for specific details, while implementation details and risks stay in the document.",
+          "## Prototype Review\nUse the functional prototype above like a small app: type into fields, press buttons, toggle rows, and try the core behavior. The static mocks below are reference frames for specific details, while implementation details and risks stay in the document.",
           "## Inspired By Prototype Discipline\nThis plan treats the prototype as a way to answer a concrete question: what should the interaction feel like before implementation hardens it.",
         ].join("\n\n"),
       },
@@ -1035,18 +1035,6 @@ function prototypeScreenFromArtboard(
       (canvasTitle ? `From ${canvasTitle}` : undefined),
     surface: frame.surface ?? wireframe.surface,
     html: wireframe.html,
-    state: [
-      {
-        id: "source",
-        label: "Source",
-        value: "canvas frame",
-      },
-      {
-        id: "surface",
-        label: "Surface",
-        value: frame.surface ?? wireframe.surface,
-      },
-    ],
   };
 }
 
