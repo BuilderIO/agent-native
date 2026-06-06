@@ -2251,9 +2251,21 @@ importers:
       prosemirror-markdown:
         specifier: ^1.13.4
         version: 1.13.4
+      remark-mdx:
+        specifier: ^3.1.1
+        version: 3.1.1
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0
+      remark-stringify:
+        specifier: ^11.0.0
+        version: 11.0.0
       tiptap-markdown:
         specifier: ^0.9.0
         version: 0.9.0(@tiptap/core@3.26.0(@tiptap/pm@3.26.0))
+      unified:
+        specifier: ^11.0.5
+        version: 11.0.5
       y-protocols:
         specifier: ^1.0.7
         version: 1.0.7(yjs@13.6.31)

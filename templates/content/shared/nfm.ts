@@ -27,7 +27,17 @@
  *   - Tables, toggles, callouts, columns, synced blocks, media, mentions use the
  *     HTML-ish tags from the spec. Tables are `<table>` HTML, never pipe tables.
  *   - Inline text backslash-escapes the spec's special characters outside code.
+ *
+ * Registry blocks (the dev-doc / OpenAPI library shared with plan) are encoded
+ * INLINE as PascalCase MDX elements (`<Endpoint …/>`, `<Checklist …/>`). On READ
+ * a registered tag becomes a `registryBlock` atom carrying the verbatim element
+ * source in `__raw`; on WRITE it emits that `__raw` back (or re-serializes from
+ * the editor's typed data). This module stays React-free — it only consults the
+ * content registry's tag set (`@agent-native/core/blocks/server` config) to tell
+ * a registered PascalCase block tag from a lowercase Notion container tag.
  */
+
+import { isRegistryBlockTag, registryBlockSpecByTag } from "./nfm-registry.js";
 
 // ── Shared PM JSON types ────────────────────────────────────────────
 export interface PMMark {
@@ -515,10 +525,45 @@ function indentStr(n: number): string {
   return TAB.repeat(Math.max(0, n));
 }
 
-export function docToNfm(doc: PMDoc | PMNode | null | undefined): string {
+/**
+ * Optional serialize-side context for registry blocks. When the editor has live
+ * typed `data` for a `registryBlock` node (from the side-map), it supplies
+ * `serializeRegistryBlock(blockId)` so an EDITED block re-serializes from its
+ * current data. An UNTOUCHED block (server pull, content hashing, or any
+ * block the context can't resolve) falls back to the node's preserved `__raw`,
+ * keeping the round-trip byte-exact with no registry/React dependency.
+ *
+ * It is held in a module-scoped guard for the duration of the synchronous
+ * `docToNfm` call rather than threaded through every serialize helper — JS is
+ * single-threaded and `docToNfm` is synchronous and non-reentrant, so the guard
+ * is set on entry and always cleared in `finally`.
+ */
+export interface NfmSerializeContext {
+  /**
+   * Re-serialize a registry block to its exact MDX string from the editor's
+   * current typed `data`, or return `undefined`/`null` to fall back to `__raw`.
+   */
+  serializeRegistryBlock?: (
+    blockId: string,
+    node: PMNode,
+  ) => string | undefined | null;
+}
+
+let activeSerializeContext: NfmSerializeContext | null = null;
+
+export function docToNfm(
+  doc: PMDoc | PMNode | null | undefined,
+  context?: NfmSerializeContext,
+): string {
   const content = (doc?.content as PMNode[]) || [];
-  const lines = serializeBlocks(content, 0);
-  return lines.join("\n");
+  const previous = activeSerializeContext;
+  activeSerializeContext = context ?? null;
+  try {
+    const lines = serializeBlocks(content, 0);
+    return lines.join("\n");
+  } finally {
+    activeSerializeContext = previous;
+  }
 }
 
 function isEmptyParagraphNode(node: PMNode | undefined): boolean {
@@ -615,6 +660,8 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       return serializeMedia(node, ind);
     case "notionBlockAtom":
       return serializeBlockAtom(node, ind);
+    case "registryBlock":
+      return serializeRegistryBlock(node, ind);
     default: {
       // Unknown block: preserve its raw text if present so nothing is lost.
       if (typeof node.attrs?.__raw === "string") {
@@ -760,6 +807,35 @@ function serializeBlockAtom(node: PMNode, ind: number): string[] {
     ];
   }
   return [indentStr(ind) + `<${tagName}${attrStr}/>`];
+}
+
+/**
+ * Serialize a `registryBlock` atom node back to its inline MDX element lines.
+ *
+ * Order of precedence:
+ *   1. An EDITED block: the active serialize context resolves the node by its
+ *      `blockId` to a fresh MDX string re-serialized from the editor's typed
+ *      `data` (via core `serializeSpecBlock`).
+ *   2. An UNTOUCHED block: emit the node's preserved `__raw` verbatim — the
+ *      exact bytes captured on parse. This is the default path for server pull,
+ *      content hashing, and any block the context can't (or chooses not to)
+ *      re-serialize, so the round-trip stays byte-exact with no React/registry.
+ *
+ * Either way the resulting MDX is split on newlines and each line is indented to
+ * the block's structural depth, exactly like every other block.
+ */
+function serializeRegistryBlock(node: PMNode, ind: number): string[] {
+  const blockId = (node.attrs?.blockId as string) || "";
+  const fromContext =
+    activeSerializeContext?.serializeRegistryBlock?.(blockId, node) ?? null;
+  const mdx =
+    typeof fromContext === "string" && fromContext.length > 0
+      ? fromContext
+      : typeof node.attrs?.__raw === "string"
+        ? (node.attrs.__raw as string)
+        : "";
+  if (!mdx) return [];
+  return mdx.split("\n").map((l) => (l.length ? indentStr(ind) + l : l));
 }
 
 function serializeList(node: PMNode, indent: number): string[] {
@@ -1106,6 +1182,18 @@ function parseSingleBlock(
     return { nodes: [withIndentAttr(node)], end: childRes.end };
   }
 
+  // Registry block (PascalCase MDX element: <Endpoint .../>, <Checklist .../>,
+  // <DataModel …>…</DataModel>, …). These are the dev-doc / OpenAPI library
+  // blocks shared with plan, encoded inline. They are recognized by the content
+  // registry's tag set; lowercase Notion container tags never match. The
+  // verbatim element source is preserved as `__raw` so an untouched block
+  // round-trips byte-exact without the registry/React; the editor hydrates typed
+  // `data` from `__raw` separately via `parseRegistryBlockData`.
+  const registryTag = matchRegistryBlockOpen(dedent);
+  if (registryTag) {
+    return parseRegistryBlock(lines, start, indent, rel, registryTag);
+  }
+
   // Container tags
   const containerTag = matchContainerOpen(dedent);
   if (containerTag) {
@@ -1151,6 +1239,149 @@ function stripTabs(line: string, count: number): string {
   let i = 0;
   while (i < count && line[i] === "\t") i++;
   return line.slice(i);
+}
+
+/**
+ * Match a REGISTERED registry-block open tag at the start of a dedented line and
+ * return its tag name, or `null`. Only registry tags (`registryBlockSpecByTag`)
+ * match, so lowercase Notion container/atom tags (`callout`, `details`, `table`,
+ * `page`, `column`) and unknown tags fall through to their existing handling
+ * untouched. This only inspects the FIRST line — the full element extent (which
+ * may span multiple lines, e.g. `<Checklist items={[\n…\n]} />`) is resolved by
+ * `parseRegistryBlock`'s scanner.
+ */
+function matchRegistryBlockOpen(dedent: string): string | null {
+  const m = dedent.match(/^<([A-Za-z_][\w-]*)(?:[\s/>]|$)/);
+  if (!m) return null;
+  const tag = m[1];
+  return registryBlockSpecByTag(tag) ? tag : null;
+}
+
+/**
+ * Find the index (relative to the joined `text`) just past the opening tag's
+ * terminating `>` — i.e. the first top-level `>` that is not inside a quoted
+ * string or a `{…}`/`[…]` attribute expression. Returns the index of the char
+ * after `>` and whether the tag self-closed (`/>`), or `null` if no terminator
+ * is found in `text`.
+ */
+function scanOpenTagEnd(
+  text: string,
+): { end: number; selfClosing: boolean } | null {
+  let depth = 0; // {} / [] nesting from attribute expressions
+  let quote: string | null = null; // active "…" or '…' string
+  for (let i = 1; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\") {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") depth--;
+    else if (ch === ">" && depth <= 0) {
+      const selfClosing = text[i - 1] === "/";
+      return { end: i + 1, selfClosing };
+    }
+  }
+  return null;
+}
+
+/**
+ * Parse a registry block into a `registryBlock` atom node, capturing the
+ * verbatim element source as `__raw` (with the structural `indent` tabs
+ * stripped, so the serializer re-applies indentation like every other block).
+ *
+ * Handles every shape core's `serializeSpecBlock` emits:
+ *   - single-line self-closing            `<Endpoint … />`
+ *   - multi-line self-closing attr expr   `<Checklist items={[⏎ … ⏎]} />`
+ *   - prose children                       `<Endpoint …>⏎⏎{body}⏎⏎</Endpoint>`
+ * It scans the opening tag character-by-character (quote- and brace-aware) to
+ * find its terminating `>`, then either stops (self-closing) or scans forward
+ * for the matching `</Tag>`.
+ *
+ * Identity attrs (`blockType`, `blockId`, `title`, `summary`) are read off the
+ * opening tag for the side-map/render layer; the typed `data` is NOT parsed here
+ * (that is the editor's `parseRegistryBlockData`), keeping this hot path free of
+ * the remark toolchain.
+ */
+function parseRegistryBlock(
+  lines: string[],
+  start: number,
+  indent: number,
+  rel: number,
+  tag: string,
+): ParseResult {
+  const withIndentAttr = (node: PMNode): PMNode => {
+    if (rel > 0) node.attrs = { ...(node.attrs || {}), indent: rel };
+    return node;
+  };
+  const closeTag = `</${tag}>`;
+
+  // Dedent every candidate line by the structural indent so `__raw` is
+  // indent-relative (the serializer re-applies the indent). The opening tag may
+  // span several lines, so join from `start` and scan for its terminating `>`.
+  const dedented = lines.map((l) => stripTabs(l, indent));
+
+  // Walk forward to find the last line of the opening tag.
+  let openEndLine = start;
+  let selfClosing = false;
+  {
+    let joined = "";
+    for (let i = start; i < lines.length; i++) {
+      joined += (i === start ? "" : "\n") + dedented[i];
+      const res = scanOpenTagEnd(joined);
+      if (res) {
+        openEndLine = i;
+        selfClosing = res.selfClosing;
+        break;
+      }
+      openEndLine = i;
+    }
+  }
+
+  let end: number;
+  if (selfClosing) {
+    end = openEndLine + 1;
+  } else {
+    // Children-bearing element: scan for the matching close tag, tracking nested
+    // same-tag opens for safety.
+    let depth = 1;
+    let i = openEndLine + 1;
+    for (; i < lines.length; i++) {
+      const li = leadingTabs(lines[i]);
+      const ld = lines[i].slice(li);
+      if (li >= indent) {
+        if (new RegExp(`^<${tag}(?:[\\s/>]|$)`).test(ld)) depth++;
+        if (ld.trimEnd().endsWith(closeTag)) {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+    }
+    end = Math.min(i + 1, lines.length);
+  }
+
+  const rawLines = dedented.slice(start, end);
+  const openAttrs = parseAttrs(dedented.slice(start, openEndLine + 1).join("\n"));
+  const spec = registryBlockSpecByTag(tag);
+  const node: PMNode = {
+    type: "registryBlock",
+    attrs: {
+      blockType: spec?.type ?? tag,
+      blockId: openAttrs.id ?? "",
+      title: openAttrs.title ?? null,
+      summary: openAttrs.summary ?? null,
+      __raw: rawLines.join("\n"),
+    },
+  };
+  return { nodes: [withIndentAttr(node)], end };
 }
 
 function matchContainerOpen(dedent: string): string | null {

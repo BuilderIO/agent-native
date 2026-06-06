@@ -1,0 +1,413 @@
+/**
+ * Content's block registry + the registry-block MDX helpers that `nfm.ts` uses
+ * to round-trip registered structured blocks (the dev-doc / OpenAPI library)
+ * inline inside the single `documents.content` NFM string.
+ *
+ * Locality decision (see the editor-unification blueprint): a registry block is
+ * encoded INLINE in the markdown as an MDX-style component — NO sidecar table,
+ * NO migration. Content's authority stays the single NFM string. This module is
+ * the seam that lets `nfm.ts` (a) recognize a registered PascalCase block tag on
+ * READ and (b) re-serialize an edited block's typed `data` on WRITE, while an
+ * untouched block round-trips byte-exact from its preserved `__raw` source.
+ *
+ * It is React-free: it registers only the pure (`schema` + `mdx`) part of each
+ * core block via `defineBlock` with a render-only `Read: () => null` stub — the
+ * browser editor registers the same blocks WITH their real `Read`/`Edit`. Both
+ * use the identical core `mdx` config, so the inline source can never drift from
+ * what the editor renders. Mirrors `templates/plan/shared/plan-block-registry.ts`.
+ */
+import {
+  BlockRegistry,
+  defineBlock,
+  registerBlocks,
+  serializeSpecBlock,
+  parseSpecBlock,
+  createAttrReader,
+  attributeValue,
+  type BlockSpec,
+  type MdxJsxNode,
+  type MdxAttrNode,
+  type ParsedBlockBase,
+  type SerializableBlock,
+} from "@agent-native/core/blocks/server";
+import {
+  checklistSchema,
+  checklistMdx,
+  type ChecklistData,
+  tableSchema,
+  tableMdx,
+  type TableData,
+  codeTabsSchema,
+  codeTabsMdx,
+  type CodeTabsData,
+  htmlSchema,
+  htmlMdx,
+  type HtmlBlockData,
+  tabsSchema,
+  tabsMdx,
+  type TabsData,
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+  apiEndpointSchema,
+  apiEndpointMdx,
+  type ApiEndpointData,
+  openApiSpecSchema,
+  openApiSpecMdx,
+  type OpenApiSpecData,
+  dataModelSchema,
+  dataModelMdx,
+  type DataModelData,
+  diffSchema,
+  diffMdx,
+  type DiffData,
+  fileTreeSchema,
+  fileTreeMdx,
+  type FileTreeData,
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+} from "@agent-native/core/blocks/server";
+
+/**
+ * Register the content block library (the dev-doc + OpenAPI + standard
+ * structured blocks) into a registry. Server stubs only (`Read: () => null`);
+ * the browser registry supplies the real renderers. Every spec carries its core
+ * `schema` + `mdx` config so serialize/parse is byte-identical to plan.
+ *
+ * IMPORTANT: every MDX `tag` here is PascalCase (`Endpoint`, `Checklist`,
+ * `DataModel`, …) so it can NEVER collide with NFM's lowercase Notion container
+ * tags (`callout`, `details`, `table`, `page`, `column`). `nfm.ts` keys its
+ * registry detection off `registry.getByTag(tag)`, which only matches these
+ * PascalCase names, leaving the Notion tag set untouched.
+ */
+export function registerContentBlocks(registry: BlockRegistry): void {
+  registerBlocks(registry, [
+    defineBlock<ChecklistData>({
+      type: "checklist",
+      schema: checklistSchema,
+      mdx: checklistMdx,
+      Read: () => null,
+      placement: ["block"],
+      notionCompatible: true,
+      label: "Checklist",
+      description:
+        "A list of toggleable items, each with a label and an optional note.",
+    }),
+    defineBlock<TableData>({
+      type: "table-block",
+      schema: tableSchema,
+      mdx: tableMdx,
+      Read: () => null,
+      placement: ["block"],
+      notionCompatible: true,
+      label: "Table",
+      description:
+        "A simple grid with header columns and string rows for comparisons, parameters, or structured lists.",
+    }),
+    defineBlock<CodeTabsData>({
+      type: "code-tabs",
+      schema: codeTabsSchema,
+      mdx: codeTabsMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "Code tabs",
+      description:
+        "A vertical file tab rail of syntax-highlighted code snippets, one tab per file with an optional language and caption.",
+    }),
+    defineBlock<HtmlBlockData>({
+      type: "custom-html",
+      schema: htmlSchema,
+      mdx: htmlMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "HTML / Tailwind",
+      description:
+        "An author-supplied HTML (with optional CSS) fragment rendered in a sandboxed iframe, with inline source editing.",
+    }),
+    defineBlock<TabsData>({
+      type: "tabs",
+      schema: tabsSchema,
+      mdx: tabsMdx,
+      Read: () => null,
+      placement: ["block", "inline"],
+      label: "Tabs",
+      description:
+        "A horizontal pill-tab container; each tab holds its own list of blocks.",
+    }),
+    defineBlock<MermaidData>({
+      type: "mermaid",
+      schema: mermaidSchema,
+      mdx: mermaidMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "Diagram (Mermaid)",
+      description:
+        "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered as a diagram.",
+    }),
+    defineBlock<ApiEndpointData>({
+      type: "api-endpoint",
+      schema: apiEndpointSchema,
+      mdx: apiEndpointMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "API endpoint",
+      description:
+        "A Swagger-style API endpoint reference: a colored method pill + path, collapsed by default, expanding to params, request body, and per-status response examples.",
+    }),
+    defineBlock<OpenApiSpecData>({
+      type: "openapi-spec",
+      schema: openApiSpecSchema,
+      mdx: openApiSpecMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "OpenAPI spec",
+      description:
+        "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON).",
+    }),
+    defineBlock<DataModelData>({
+      type: "data-model",
+      schema: dataModelSchema,
+      mdx: dataModelMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "Data model",
+      description:
+        "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
+    }),
+    defineBlock<DiffData>({
+      type: "diff",
+      schema: diffSchema,
+      mdx: diffMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "Diff",
+      description:
+        "A GitHub-style before/after line diff for a file, with unified or split view and added/removed line highlighting.",
+    }),
+    defineBlock<FileTreeData>({
+      type: "file-tree",
+      schema: fileTreeSchema,
+      mdx: fileTreeMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "File tree",
+      description:
+        "A VS Code / GitHub-explorer file and change tree with per-file change badges, notes, and code snippets.",
+    }),
+    defineBlock<JsonExplorerData>({
+      type: "json-explorer",
+      schema: jsonExplorerSchema,
+      mdx: jsonExplorerMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "JSON explorer",
+      description:
+        "A collapsible browser-devtools / Postman-style JSON tree with type-colored values and expand/collapse.",
+    }),
+    defineBlock<AnnotatedCodeData>({
+      type: "annotated-code",
+      schema: annotatedCodeSchema,
+      mdx: annotatedCodeMdx,
+      Read: () => null,
+      placement: ["block"],
+      label: "Annotated code",
+      description:
+        "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes.",
+    }),
+  ]);
+}
+
+/**
+ * The content registry, built once. React-free; safe to import into `nfm.ts`
+ * (server pull + hashing) and the browser editor alike.
+ */
+let cachedRegistry: BlockRegistry | null = null;
+export function contentBlockRegistry(): BlockRegistry {
+  if (!cachedRegistry) {
+    cachedRegistry = new BlockRegistry();
+    registerContentBlocks(cachedRegistry);
+  }
+  return cachedRegistry;
+}
+
+/** True when `tag` is a registered content registry-block MDX tag. */
+export function isRegistryBlockTag(tag: string): boolean {
+  return contentBlockRegistry().hasTag(tag);
+}
+
+/** Resolve a registered spec by its MDX tag, or `undefined`. */
+export function registryBlockSpecByTag(tag: string): BlockSpec | undefined {
+  return contentBlockRegistry().getByTag(tag);
+}
+
+/** Resolve a registered spec by its runtime `type`, or `undefined`. */
+export function registryBlockSpecByType(type: string): BlockSpec | undefined {
+  return contentBlockRegistry().get(type);
+}
+
+/**
+ * Serialize a registry block to its exact MDX element string via the shared
+ * core serializer. The bytes are identical to what plan stores (base attrs
+ * `id,title,summary,editable` first, then the spec's `toAttrs` in order, then
+ * self-closing or `>\n\n{children}\n\n</Tag>`). `nfm.ts` splits this into
+ * indented lines for the surrounding block context. Throws if `type` is not a
+ * registered registry-block type.
+ */
+export function serializeRegistryBlockToMdx(
+  type: string,
+  block: SerializableBlock,
+): string {
+  const spec = registryBlockSpecByType(type);
+  if (!spec) {
+    throw new Error(`Unknown content registry block type: ${type}`);
+  }
+  return serializeSpecBlock(spec, block);
+}
+
+/** The base identity attributes + typed data parsed from a registry block's MDX. */
+export interface ParsedRegistryBlock {
+  type: string;
+  base: ParsedBlockBase;
+  data: unknown;
+}
+
+/* -------------------------------------------------------------------------- */
+/* remark-mdx micro-parse (READ side-map, NOT the byte-exact round-trip path) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Lazily-loaded MDX processor. The byte-exact NFM round-trip never needs this —
+ * an untouched registry block emits its preserved `__raw` verbatim. The
+ * micro-parse below is only for deriving a block's typed `data` from its raw
+ * MDX source for the editor side-map (`RegistryBlockDataProvider`). Importing it
+ * lazily keeps `nfm.ts`'s hot path (parse/serialize/hash) free of the remark
+ * toolchain.
+ */
+type MdxModule = {
+  unified: typeof import("unified").unified;
+  remarkParse: typeof import("remark-parse").default;
+  remarkMdx: typeof import("remark-mdx").default;
+};
+
+let mdxModulePromise: Promise<MdxModule> | null = null;
+async function loadMdx(): Promise<MdxModule> {
+  if (!mdxModulePromise) {
+    mdxModulePromise = (async () => {
+      const [{ unified }, remarkParse, remarkMdx] = await Promise.all([
+        import("unified"),
+        import("remark-parse"),
+        import("remark-mdx"),
+      ]);
+      return {
+        unified,
+        remarkParse: remarkParse.default,
+        remarkMdx: remarkMdx.default,
+      };
+    })();
+  }
+  return mdxModulePromise;
+}
+
+type MdxNode = {
+  type: string;
+  name?: string;
+  value?: string;
+  children?: MdxNode[];
+  attributes?: MdxAttrNode[];
+  [key: string]: unknown;
+};
+
+function elementName(node: MdxNode | undefined): string | undefined {
+  return node?.type === "mdxJsxFlowElement" ||
+    node?.type === "mdxJsxTextElement"
+    ? node.name
+    : undefined;
+}
+
+/**
+ * Read a registry block's identity attrs (`id,title,summary,editable`) directly
+ * off the parsed node, the same way the shared `parseSpecBlock` resolves data.
+ */
+function readBase(node: MdxJsxNode): ParsedBlockBase {
+  const reader = createAttrReader(node);
+  return {
+    id: reader.string("id") ?? "",
+    title: reader.string("title"),
+    summary: reader.string("summary"),
+    editable: reader.bool("editable"),
+  };
+}
+
+/**
+ * Stringify an MDX element's prose children back to a markdown string (for the
+ * `childrenField` blocks: `<Endpoint>…description…</Endpoint>`). Uses
+ * remark-stringify, matching plan-mdx's `stringifyChildren`.
+ */
+async function stringifyChildren(
+  mdx: MdxModule,
+  children: MdxNode[] | undefined,
+): Promise<string> {
+  if (!children?.length) return "";
+  const remarkStringify = (await import("remark-stringify")).default;
+  const processor = mdx
+    .unified()
+    .use(mdx.remarkParse)
+    .use(mdx.remarkMdx)
+    .use(remarkStringify, {
+      bullet: "-",
+      fences: true,
+      incrementListMarker: true,
+    });
+  return String(
+    processor.stringify({ type: "root", children } as never),
+  ).trim();
+}
+
+/**
+ * Micro-parse one registry block's verbatim MDX source (its `__raw`) into typed
+ * `{ type, base, data }` via the shared core `parseSpecBlock`. Returns `null`
+ * when the source is not a single registered registry-block element. Async
+ * because it loads the remark toolchain lazily.
+ *
+ * The editor's `RegistryBlockDataProvider` uses this to hydrate a block's typed
+ * `data` from the surrounding NFM; it is NOT on the byte-exact round-trip path.
+ */
+export async function parseRegistryBlockData(
+  raw: string,
+): Promise<ParsedRegistryBlock | null> {
+  const mdx = await loadMdx();
+  const tree = mdx
+    .unified()
+    .use(mdx.remarkParse)
+    .use(mdx.remarkMdx)
+    .parse(raw) as unknown as MdxNode;
+  const node = (tree.children ?? []).find((child) => {
+    const name = elementName(child);
+    return name ? isRegistryBlockTag(name) : false;
+  });
+  if (!node) return null;
+  const name = elementName(node);
+  if (!name) return null;
+  const registry = contentBlockRegistry();
+  const spec = registry.getByTag(name);
+  if (!spec) return null;
+  const base = readBase(node as unknown as MdxJsxNode);
+  const children = await stringifyChildren(mdx, node.children);
+  const parsed = parseSpecBlock(
+    registry,
+    node as unknown as MdxJsxNode,
+    base,
+    children,
+    `content-${base.id || "block"}`,
+  );
+  if (!parsed) return null;
+  return { type: parsed.type, base, data: parsed.data };
+}
+
+// Re-export so consumers that already import this module can use the shared
+// attribute reader without a second core import.
+export { attributeValue };
