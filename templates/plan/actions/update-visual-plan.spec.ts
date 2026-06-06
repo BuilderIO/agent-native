@@ -11,6 +11,7 @@ const getDbMock = vi.hoisted(() =>
   }),
 );
 const loadPlanBundleMock = vi.hoisted(() => vi.fn());
+const notifyPlanCommentRecipientsMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
@@ -75,6 +76,11 @@ vi.mock("../server/plan-mdx.js", () => ({
 
 vi.mock("../server/lib/local-plan-files.js", () => ({
   writePlanLocalFiles: vi.fn(),
+}));
+
+vi.mock("../server/lib/comment-notifications.js", () => ({
+  notifyPlanCommentRecipients: (...args: unknown[]) =>
+    notifyPlanCommentRecipientsMock(...args),
 }));
 
 vi.mock("../server/plans.js", async () => {
@@ -147,6 +153,8 @@ describe("update-visual-plan comments", () => {
     });
     loadPlanBundleMock.mockReset();
     loadPlanBundleMock.mockResolvedValue({ comments: [] });
+    notifyPlanCommentRecipientsMock.mockReset();
+    notifyPlanCommentRecipientsMock.mockResolvedValue(undefined);
     resolveAccessMock.mockReset();
     delete process.env.AUTH_MODE;
     delete process.env.PLAN_LOCAL_MODE;
@@ -267,5 +275,71 @@ describe("update-visual-plan comments", () => {
     expect(buildUpdatedPlanCommentRowsMock).toHaveBeenCalled();
     expect(dbUpdateMock).not.toHaveBeenCalled();
     expect(dbInsertMock).not.toHaveBeenCalled();
+  });
+
+  it("persists plan updates and activity events inside a transaction", async () => {
+    request.email = "editor@example.com";
+    const txUpdateMock = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "plan_public" }]),
+        })),
+      })),
+    }));
+    const txInsertValuesMock = vi.fn(async () => undefined);
+    const txInsertMock = vi.fn(() => ({
+      values: txInsertValuesMock,
+    }));
+    const transactionMock = vi.fn(async (callback) =>
+      callback({
+        update: txUpdateMock,
+        insert: txInsertMock,
+        select: vi.fn(),
+      }),
+    );
+    const rootUpdateMock = vi.fn(() => {
+      throw new Error("root update should not be used for persisted writes");
+    });
+    getDbMock.mockReturnValue({
+      transaction: transactionMock,
+      update: rootUpdateMock,
+      insert: vi.fn(),
+      select: vi.fn(),
+    });
+    loadPlanBundleMock.mockResolvedValue({
+      plan: {
+        id: "plan_public",
+        title: "Edited title",
+        brief: "",
+        content: null,
+      },
+      sections: [],
+      comments: [],
+      events: [],
+    });
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        title: "Edited title",
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(rootUpdateMock).not.toHaveBeenCalled();
+    expect(txUpdateMock).toHaveBeenCalled();
+    expect(txInsertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "evt_test",
+        planId: "plan_public",
+        type: "plan.updated",
+        message: "Updated 0 section(s), 0 comment(s).",
+        createdBy: "agent",
+      }),
+    );
   });
 });

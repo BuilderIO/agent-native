@@ -31,7 +31,6 @@ import {
   planPath,
   planStatusSchema,
   sectionInputSchema,
-  writeEvent,
 } from "../server/plans.js";
 import {
   applyPlanContentPatches,
@@ -226,116 +225,121 @@ export default defineAction({
       now,
     });
 
-    // guard:allow-unscoped -- gated above by editor access, or by public
-    // viewer access plus new-open-human-comment-only validation.
-    const updatedRows = await db
-      .update(schema.plans)
-      .set(planPatch)
-      .where(
-        versionAtLoad
-          ? and(
-              eq(schema.plans.id, args.planId),
-              eq(schema.plans.updatedAt, versionAtLoad),
-            )
-          : eq(schema.plans.id, args.planId),
-      )
-      .returning({ id: schema.plans.id });
+    await db.transaction(async (tx) => {
+      // guard:allow-unscoped -- gated above by editor access, or by public
+      // viewer access plus new-open-human-comment-only validation.
+      const updatedRows = await tx
+        .update(schema.plans)
+        .set(planPatch)
+        .where(
+          versionAtLoad
+            ? and(
+                eq(schema.plans.id, args.planId),
+                eq(schema.plans.updatedAt, versionAtLoad),
+              )
+            : eq(schema.plans.id, args.planId),
+        )
+        .returning({ id: schema.plans.id });
 
-    if (updatedRows.length === 0) {
-      throw new Error(
-        "Plan changed while content patches were being applied. Reload the plan and retry your patch.",
-      );
-    }
+      if (updatedRows.length === 0) {
+        throw new Error(
+          "Plan changed while content patches were being applied. Reload the plan and retry your patch.",
+        );
+      }
 
-    for (const [index, section] of args.sections.entries()) {
-      const id = section.id ?? newId("sec");
-      if (section.id) {
-        const [existing] = await db
-          .select({ id: schema.planSections.id })
-          .from(schema.planSections)
-          .where(
-            and(
-              eq(schema.planSections.id, section.id),
-              eq(schema.planSections.planId, args.planId),
-            ),
-          );
-        if (existing) {
-          await db
-            .update(schema.planSections)
-            .set({
-              type: section.type,
-              title: section.title,
-              body: section.body,
-              html: section.html ?? null,
-              order: section.order ?? index,
-              updatedAt: now,
-            })
+      for (const [index, section] of args.sections.entries()) {
+        const id = section.id ?? newId("sec");
+        if (section.id) {
+          const [existing] = await tx
+            .select({ id: schema.planSections.id })
+            .from(schema.planSections)
             .where(
               and(
                 eq(schema.planSections.id, section.id),
                 eq(schema.planSections.planId, args.planId),
               ),
             );
-          continue;
+          if (existing) {
+            await tx
+              .update(schema.planSections)
+              .set({
+                type: section.type,
+                title: section.title,
+                body: section.body,
+                html: section.html ?? null,
+                order: section.order ?? index,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(schema.planSections.id, section.id),
+                  eq(schema.planSections.planId, args.planId),
+                ),
+              );
+            continue;
+          }
         }
-      }
-      await db.insert(schema.planSections).values({
-        id,
-        planId: args.planId,
-        type: section.type,
-        title: section.title,
-        body: section.body,
-        html: section.html ?? null,
-        order: section.order ?? index,
-        createdBy: section.createdBy,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    for (const comment of existingCommentUpdates) {
-      await db
-        .update(schema.planComments)
-        .set({
-          sectionId: comment.sectionId ?? null,
-          kind: comment.kind,
-          status: comment.status,
-          anchor: comment.anchor ?? null,
-          message: comment.message,
+        await tx.insert(schema.planSections).values({
+          id,
+          planId: args.planId,
+          type: section.type,
+          title: section.title,
+          body: section.body,
+          html: section.html ?? null,
+          order: section.order ?? index,
+          createdBy: section.createdBy,
+          createdAt: now,
           updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.planComments.id, comment.id),
-            eq(schema.planComments.planId, args.planId),
-          ),
-        );
-    }
+        });
+      }
 
-    for (const row of commentRows) {
-      await db.insert(schema.planComments).values(row);
-      insertedCommentIds.push(row.id);
-    }
+      for (const comment of existingCommentUpdates) {
+        await tx
+          .update(schema.planComments)
+          .set({
+            sectionId: comment.sectionId ?? null,
+            kind: comment.kind,
+            status: comment.status,
+            anchor: comment.anchor ?? null,
+            message: comment.message,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.planComments.id, comment.id),
+              eq(schema.planComments.planId, args.planId),
+            ),
+          );
+      }
 
-    if (args.consumedCommentIds.length > 0) {
-      await db
-        .update(schema.planComments)
-        .set({ consumedAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(schema.planComments.planId, args.planId),
-            inArray(schema.planComments.id, args.consumedCommentIds),
-          ),
-        );
-    }
+      for (const row of commentRows) {
+        await tx.insert(schema.planComments).values(row);
+        insertedCommentIds.push(row.id);
+      }
 
-    await writeEvent({
-      planId: args.planId,
-      type: "plan.updated",
-      message:
-        args.note ||
-        `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
-      createdBy: onlyAddsNewComments ? "human" : "agent",
+      if (args.consumedCommentIds.length > 0) {
+        await tx
+          .update(schema.planComments)
+          .set({ consumedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(schema.planComments.planId, args.planId),
+              inArray(schema.planComments.id, args.consumedCommentIds),
+            ),
+          );
+      }
+
+      await tx.insert(schema.planEvents).values({
+        id: newId("evt"),
+        planId: args.planId,
+        type: "plan.updated",
+        message:
+          args.note ||
+          `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
+        payload: null,
+        createdBy: onlyAddsNewComments ? "human" : "agent",
+        createdAt: now,
+      });
     });
     const bundle = await loadPlanBundle(args.planId);
     await notifyPlanCommentRecipients({
