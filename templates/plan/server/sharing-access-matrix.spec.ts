@@ -1,0 +1,889 @@
+/**
+ * SHARING + ACCESS CONTROL end-to-end matrix.
+ *
+ * Drives the REAL plan actions (create / list / get / update / publish) against
+ * a REAL in-memory libSQL database with the REAL core sharing helpers
+ * (accessFilter / resolveAccess / assertAccess) and the REAL request context.
+ *
+ * Only side effects that would touch the filesystem / network / email are
+ * mocked (local-plan-files, comment-notifications); everything load-bearing for
+ * access control runs for real, so any unauthorized read/write surfaces here.
+ *
+ * The shared `getDb` is swapped to the test libSQL instance via a mock of
+ * `../server/db/index.js` (the same physical module both the actions and
+ * `server/plans.ts` import), and the plan resource is registered against that
+ * DB in beforeAll.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createClient, type Client } from "@libsql/client";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { eq } from "drizzle-orm";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import * as planSchema from "./db/schema.js";
+import {
+  accessFilter,
+  registerShareableResource,
+  resolveAccess,
+} from "@agent-native/core/sharing";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+
+// ---------------------------------------------------------------------------
+// Test DB wiring. A single libSQL :memory: db is shared across the file; rows
+// are reset between tests. The plan resource is registered against it so the
+// core sharing helpers reach this DB.
+// ---------------------------------------------------------------------------
+let client: Client;
+let db: LibSQLDatabase<typeof planSchema>;
+let dbDir: string;
+let dbFile: string;
+
+vi.mock("./db/index.js", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-use-before-define
+  getDb: () => db,
+  schema: planSchema,
+}));
+
+// Keep email + filesystem effects inert.
+vi.mock("./lib/comment-notifications.js", () => ({
+  notifyPlanCommentRecipients: vi.fn(async () => undefined),
+}));
+vi.mock("./lib/local-plan-files.js", () => ({
+  writePlanLocalFiles: vi.fn(async () => ({ written: false })),
+  localPlansDir: () => "/tmp/plans-test",
+  localPlanFolder: (id: string) => `/tmp/plans-test/${id}`,
+}));
+
+// Imported lazily AFTER the mocks above are registered.
+type AnyAction = { run: (args: any) => Promise<any> };
+let createVisualPlan: AnyAction;
+let listVisualPlans: AnyAction;
+let getVisualPlan: AnyAction;
+let updateVisualPlan: AnyAction;
+let shareResource: AnyAction;
+let setResourceVisibility: AnyAction;
+let unshareResource: AnyAction;
+
+const OWNER = "owner@example.com";
+const OTHER = "outsider@example.com";
+const VIEWER = "viewer@example.com";
+const EDITOR = "editor@example.com";
+const ORG = "org-1";
+const OTHER_ORG = "org-2";
+
+async function resetTables() {
+  // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
+  await client.executeMultiple(`
+    DELETE FROM plan_events;
+    DELETE FROM plan_comments;
+    DELETE FROM plan_sections;
+    DELETE FROM plan_shares;
+    DELETE FROM plans;
+  `);
+}
+
+function asUser(
+  ctx: { userEmail?: string; orgId?: string; userName?: string },
+  fn: () => Promise<any> | any,
+) {
+  return runWithRequestContext(ctx, fn);
+}
+
+/** Create a plan owned by `ownerEmail` (optionally in an org). */
+async function createPlanAs(
+  ownerEmail: string | undefined,
+  orgId: string | undefined,
+  overrides: Record<string, unknown> = {},
+): Promise<string> {
+  const result = await asUser({ userEmail: ownerEmail, orgId }, () =>
+    createVisualPlan.run({
+      title: "Plan",
+      brief: "A brief",
+      source: "manual",
+      status: "review",
+      sections: [],
+      comments: [],
+      ...overrides,
+    }),
+  );
+  return result.planId as string;
+}
+
+async function setVisibility(
+  actorEmail: string,
+  orgId: string | undefined,
+  planId: string,
+  visibility: "private" | "org" | "public",
+) {
+  return asUser({ userEmail: actorEmail, orgId }, () =>
+    setResourceVisibility.run({
+      resourceType: "plan",
+      resourceId: planId,
+      visibility,
+    }),
+  );
+}
+
+async function rawPlan(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads the row just created.
+  const [row] = await db
+    .select()
+    .from(planSchema.plans)
+    .where(eq(planSchema.plans.id, planId));
+  return row as any;
+}
+
+beforeAll(async () => {
+  process.env.PLAN_GUEST_ABUSE_DISABLED = "1";
+  // Force hosted-style behavior off the local single-user fallback unless a
+  // test explicitly opts into local mode.
+  process.env.PLAN_LOCAL_MODE = "0";
+
+  // A temp FILE db (not :memory:) so every pooled libSQL connection — drizzle
+  // queries, raw executeMultiple, the share actions — sees the same tables.
+  // ":memory:" gives each connection its own private database.
+  dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-access-"));
+  dbFile = path.join(dbDir, "test.db");
+  client = createClient({ url: `file:${dbFile}` });
+  db = drizzle(client, { schema: planSchema });
+  await client.executeMultiple(`
+    CREATE TABLE plans (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      brief TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      source TEXT NOT NULL DEFAULT 'manual',
+      repo_path TEXT,
+      current_focus TEXT,
+      html TEXT,
+      markdown TEXT,
+      content TEXT,
+      hosted_plan_id TEXT,
+      hosted_plan_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      approved_at TEXT,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE TABLE plan_sections (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'custom',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      html TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT NOT NULL DEFAULT 'agent',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE plan_comments (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL,
+      parent_comment_id TEXT,
+      section_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'comment',
+      status TEXT NOT NULL DEFAULT 'open',
+      anchor TEXT,
+      message TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT 'human',
+      author_email TEXT,
+      author_name TEXT,
+      resolution_target TEXT,
+      mentions_json TEXT,
+      resolved_by TEXT,
+      resolved_at TEXT,
+      consumed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE plan_events (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      payload TEXT,
+      created_by TEXT NOT NULL DEFAULT 'agent',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE plan_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  registerShareableResource({
+    type: "plan",
+    resourceTable: planSchema.plans,
+    sharesTable: planSchema.planShares,
+    displayName: "Plan",
+    titleColumn: "title",
+    getResourcePath: (plan: any) => `/plans/${plan.id}`,
+    getDb: () => db,
+  });
+
+  createVisualPlan = (await import("../actions/create-visual-plan.js"))
+    .default as AnyAction;
+  listVisualPlans = (await import("../actions/list-visual-plans.js"))
+    .default as AnyAction;
+  getVisualPlan = (await import("../actions/get-visual-plan.js"))
+    .default as AnyAction;
+  updateVisualPlan = (await import("../actions/update-visual-plan.js"))
+    .default as AnyAction;
+  shareResource = (
+    await import("@agent-native/core/sharing/actions/share-resource")
+  ).default as AnyAction;
+  setResourceVisibility = (
+    await import("@agent-native/core/sharing/actions/set-resource-visibility")
+  ).default as AnyAction;
+  unshareResource = (
+    await import("@agent-native/core/sharing/actions/unshare-resource")
+  ).default as AnyAction;
+});
+
+afterAll(() => {
+  client?.close();
+  if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
+});
+
+beforeEach(async () => {
+  await resetTables();
+});
+
+// ===========================================================================
+// 1. OWNER read/edit (allow)
+// ===========================================================================
+describe("owner access", () => {
+  it("owner can read and edit their own private plan", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+
+    const got = await asUser({ userEmail: OWNER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    expect(got.planId).toBe(planId);
+
+    const updated = await asUser({ userEmail: OWNER }, () =>
+      updateVisualPlan.run({
+        planId,
+        title: "Renamed by owner",
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    );
+    expect(updated.plan.title).toBe("Renamed by owner");
+    expect((await rawPlan(planId)).title).toBe("Renamed by owner");
+  });
+
+  it("owner sees only their own plan in the scoped list", async () => {
+    const mine = await createPlanAs(OWNER, undefined);
+    await createPlanAs(OTHER, undefined); // someone else's private plan
+
+    const list = await asUser({ userEmail: OWNER }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(list.map((p: any) => p.id)).toEqual([mine]);
+  });
+});
+
+// ===========================================================================
+// 2. NON-owner read/edit of a private plan (DENY)
+// ===========================================================================
+describe("non-owner on a private plan (deny)", () => {
+  it("a different signed-in user cannot READ another user's private plan", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow(); // loadPlanBundle -> resolveAccess null -> "not found"
+  });
+
+  it("a different signed-in user cannot EDIT another user's private plan", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        updateVisualPlan.run({
+          planId,
+          title: "Hijacked",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    // The title must be unchanged.
+    expect((await rawPlan(planId)).title).toBe("Plan");
+  });
+
+  it("the private plan never appears in another user's list", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    const list = await asUser({ userEmail: OTHER }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(list.map((p: any) => p.id)).not.toContain(planId);
+  });
+});
+
+// ===========================================================================
+// 3. Shared-with reviewer: read (allow) + edit gated by share role
+// ===========================================================================
+describe("explicit user shares", () => {
+  it("a VIEWER share grants read but NOT edit", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: VIEWER,
+        role: "viewer",
+      }),
+    );
+
+    // read allowed
+    const got = await asUser({ userEmail: VIEWER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    expect(got.planId).toBe(planId);
+
+    // edit denied (viewer < editor)
+    await expect(
+      asUser({ userEmail: VIEWER }, () =>
+        updateVisualPlan.run({
+          planId,
+          title: "Viewer tried to edit",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect((await rawPlan(planId)).title).toBe("Plan");
+
+    // appears in viewer's scoped list (shared-with-me)
+    const list = await asUser({ userEmail: VIEWER }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(list.map((p: any) => p.id)).toContain(planId);
+  });
+
+  it("an EDITOR share grants read AND edit", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+      }),
+    );
+
+    const updated = await asUser({ userEmail: EDITOR }, () =>
+      updateVisualPlan.run({
+        planId,
+        title: "Editor edit",
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    );
+    expect(updated.plan.title).toBe("Editor edit");
+  });
+
+  it("a non-owner/non-admin share holder cannot re-share or change visibility", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+      }),
+    );
+
+    // editor (not admin/owner) must not be able to grant access to others
+    await expect(
+      asUser({ userEmail: EDITOR }, () =>
+        shareResource.run({
+          resourceType: "plan",
+          resourceId: planId,
+          principalType: "user",
+          principalId: OTHER,
+          role: "editor",
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    await expect(
+      setVisibility(EDITOR, undefined, planId, "public"),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+});
+
+// ===========================================================================
+// 4. Public / published review link: read-only (allow read, deny write/delete)
+// ===========================================================================
+describe("public review link", () => {
+  it("a signed-in NON-owner can READ a public plan but NOT edit it", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await setVisibility(OWNER, undefined, planId, "public");
+
+    // read allowed for any signed-in user
+    const got = await asUser({ userEmail: OTHER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    expect(got.planId).toBe(planId);
+
+    // public visibility must NOT imply edit
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        updateVisualPlan.run({
+          planId,
+          title: "Public viewer edit",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect((await rawPlan(planId)).title).toBe("Plan");
+  });
+
+  it("an anonymous public-link VIEWER can read but cannot comment", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await setVisibility(OWNER, undefined, planId, "public");
+
+    const anon =
+      "public-123e4567-e89b-12d3-a456-426614174000@agent-native.local";
+
+    // read works (resolveAccess honors public)
+    const got = await asUser({ userEmail: anon }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    expect(got.planId).toBe(planId);
+
+    // commenting is blocked for the synthetic anonymous identity
+    await expect(
+      asUser({ userEmail: anon }, () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [
+            {
+              message: "anon comment",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("a real signed-in account CAN comment on a public plan (read-only viewer + account)", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await setVisibility(OWNER, undefined, planId, "public");
+
+    const result = await asUser({ userEmail: OTHER, userName: "Other" }, () =>
+      updateVisualPlan.run({
+        planId,
+        contentPatches: [],
+        sections: [],
+        comments: [
+          {
+            message: "Looks good, one nit.",
+            kind: "comment",
+            status: "open",
+            createdBy: "human",
+          },
+        ],
+        consumedCommentIds: [],
+      }),
+    );
+    expect(result.comments.length).toBe(1);
+    expect(result.comments[0].authorEmail).toBe(OTHER);
+    // The plan body itself is untouched by a comment-only call.
+    expect((await rawPlan(planId)).title).toBe("Plan");
+  });
+
+  it("a public plan does NOT appear in other users' default scoped lists", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await setVisibility(OWNER, undefined, planId, "public");
+
+    const list = await asUser({ userEmail: OTHER }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(list.map((p: any) => p.id)).not.toContain(planId);
+  });
+});
+
+// ===========================================================================
+// 5. Org visibility
+// ===========================================================================
+describe("org visibility", () => {
+  it("an org-visible plan is readable by same-org members, not other orgs", async () => {
+    const planId = await createPlanAs(OWNER, ORG);
+    await setVisibility(OWNER, ORG, planId, "org");
+
+    // same org member reads
+    const got = await asUser({ userEmail: VIEWER, orgId: ORG }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    expect(got.planId).toBe(planId);
+
+    // other org cannot read
+    await expect(
+      asUser({ userEmail: OTHER, orgId: OTHER_ORG }, () =>
+        getVisualPlan.run({ id: planId }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("org visibility grants read but not edit to a non-owner org member", async () => {
+    const planId = await createPlanAs(OWNER, ORG);
+    await setVisibility(OWNER, ORG, planId, "org");
+
+    await expect(
+      asUser({ userEmail: VIEWER, orgId: ORG }, () =>
+        updateVisualPlan.run({
+          planId,
+          title: "org member edit",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("org-visible plan appears in same-org member's list but not other orgs", async () => {
+    const planId = await createPlanAs(OWNER, ORG);
+    await setVisibility(OWNER, ORG, planId, "org");
+
+    const sameOrg = await asUser({ userEmail: VIEWER, orgId: ORG }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(sameOrg.map((p: any) => p.id)).toContain(planId);
+
+    const otherOrg = await asUser({ userEmail: OTHER, orgId: OTHER_ORG }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(otherOrg.map((p: any) => p.id)).not.toContain(planId);
+  });
+});
+
+// ===========================================================================
+// 6. Visibility transitions + revocation
+// ===========================================================================
+describe("visibility transitions and revocation", () => {
+  it("public -> private revokes a non-owner's read access", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await setVisibility(OWNER, undefined, planId, "public");
+
+    // readable while public
+    await asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId }));
+
+    // flip back to private
+    await setVisibility(OWNER, undefined, planId, "private");
+    expect((await rawPlan(planId)).visibility).toBe("private");
+
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+  });
+
+  it("unshare revokes a previously-granted viewer", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: VIEWER,
+        role: "viewer",
+      }),
+    );
+    // viewer can read
+    await asUser({ userEmail: VIEWER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+
+    await asUser({ userEmail: OWNER }, () =>
+      unshareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: VIEWER,
+      }),
+    );
+
+    await expect(
+      asUser({ userEmail: VIEWER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+    const list = await asUser({ userEmail: VIEWER }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(list.map((p: any) => p.id)).not.toContain(planId);
+  });
+});
+
+// ===========================================================================
+// 7. Adversarial / fuzz
+// ===========================================================================
+describe("adversarial", () => {
+  it("cannot read or edit a non-existent plan id", async () => {
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        getVisualPlan.run({ id: "plan_nope" }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        updateVisualPlan.run({
+          planId: "plan_nope",
+          title: "x",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("a SQL-injection-shaped plan id does not leak other plans", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    const evil = `' OR '1'='1`;
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: evil })),
+    ).rejects.toThrow();
+    // The owner's plan is still private and intact.
+    expect((await rawPlan(planId)).visibility).toBe("private");
+  });
+
+  it("an unauthenticated hosted request (no identity) cannot read a private plan", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await expect(
+      asUser({}, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+  });
+
+  it("an unauthenticated hosted request cannot edit a private plan", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await expect(
+      asUser({}, () =>
+        updateVisualPlan.run({
+          planId,
+          title: "anon edit",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect((await rawPlan(planId)).title).toBe("Plan");
+  });
+
+  it("an unauthenticated hosted list returns no rows (no identity = no scope)", async () => {
+    await createPlanAs(OWNER, undefined);
+    const list = await asUser({}, () => listVisualPlans.run({}));
+    expect(list).toEqual([]);
+  });
+
+  it("a viewer cannot mark another user's open comments consumed", async () => {
+    // owner makes a public plan and another account leaves a comment
+    const planId = await createPlanAs(OWNER, undefined);
+    await setVisibility(OWNER, undefined, planId, "public");
+    const commentResult = await asUser({ userEmail: VIEWER }, () =>
+      updateVisualPlan.run({
+        planId,
+        contentPatches: [],
+        sections: [],
+        comments: [
+          {
+            message: "open question",
+            kind: "comment",
+            status: "open",
+            createdBy: "human",
+          },
+        ],
+        consumedCommentIds: [],
+      }),
+    );
+    const commentId = commentResult.comments[0].id as string;
+
+    // A non-owner public viewer tries to resolve/consume it. consumedCommentIds
+    // makes this NOT a comment-only request, so it must hit the editor gate.
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [commentId],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    // Comment is still unconsumed.
+    const [row] = await db
+      .select()
+      .from(planSchema.planComments)
+      .where(eq(planSchema.planComments.id, commentId));
+    expect((row as any).consumedAt).toBeNull();
+  });
+});
+
+// ===========================================================================
+// 8. Local single-user mode (no-login) ownership fallback
+// ===========================================================================
+const LOCAL_OWNER = "local@agent-native.local";
+
+describe("local single-user mode", () => {
+  beforeEach(() => {
+    process.env.PLAN_LOCAL_MODE = "1";
+    delete process.env.AUTH_MODE;
+  });
+  afterAll(() => {
+    process.env.PLAN_LOCAL_MODE = "0";
+  });
+
+  // Faithful to the runtime: in local mode the framework's anonymousOwner
+  // resolver (`resolvePlanAnonymousOwner`) injects the local single-user
+  // identity into the request context, so the SAME identity is on every
+  // create/read/list/edit. This is what core-routes-plugin / agent-chat do.
+  it("the local single-user identity can create, read, list and edit its own plan", async () => {
+    const planId = await asUser({ userEmail: LOCAL_OWNER }, async () => {
+      const r = await createVisualPlan.run({
+        title: "Local plan",
+        brief: "b",
+        source: "manual",
+        status: "review",
+        sections: [],
+        comments: [],
+      });
+      return r.planId as string;
+    });
+
+    await asUser({ userEmail: LOCAL_OWNER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    const list = await asUser({ userEmail: LOCAL_OWNER }, () =>
+      listVisualPlans.run({}),
+    );
+    expect(list.map((p: any) => p.id)).toContain(planId);
+
+    const updated = await asUser({ userEmail: LOCAL_OWNER }, () =>
+      updateVisualPlan.run({
+        planId,
+        title: "Local edit",
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    );
+    expect(updated.plan.title).toBe("Local edit");
+    expect((await rawPlan(planId)).ownerEmail).toBe(LOCAL_OWNER);
+  });
+
+  // A different real account must NOT read/edit a plan owned by the local
+  // single-user identity (local plans are still owner-scoped).
+  it("a different account cannot read or edit a local-owned plan", async () => {
+    const planId = await asUser({ userEmail: LOCAL_OWNER }, async () => {
+      const r = await createVisualPlan.run({
+        title: "Local-owned",
+        brief: "b",
+        source: "manual",
+        status: "review",
+        sections: [],
+        comments: [],
+      });
+      return r.planId as string;
+    });
+
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        updateVisualPlan.run({
+          planId,
+          title: "hijack local",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  // ROBUSTNESS PIN (write/read identity asymmetry): the create action resolves
+  // its WRITE owner via `requirePlanOwnerEmailForWrite` (which substitutes the
+  // local identity even when the request context carries NO userEmail), but the
+  // read-back it performs in the same call (`loadPlanBundle` -> `resolveAccess`
+  // -> `currentAccess`) reads `getRequestUserEmail()` directly with NO local
+  // fallback. So a local-mode create on a context that lacks the injected
+  // identity writes a plan it then cannot read back, and throws "not found"
+  // AFTER persisting the row. The framework normally injects the identity so
+  // this does not bite in production, but the asymmetry is fragile — this test
+  // pins the current behavior so a regression (or a fix) is noticed.
+  it("DOCUMENTS write/read asymmetry: local create with no injected identity persists the row then throws on read-back", async () => {
+    let thrown: unknown;
+    await asUser({}, async () => {
+      try {
+        await createVisualPlan.run({
+          title: "Asymmetry",
+          brief: "b",
+          source: "manual",
+          status: "review",
+          sections: [],
+          comments: [],
+        });
+      } catch (err) {
+        thrown = err;
+      }
+    });
+    // The create threw "not found" on read-back...
+    expect(String((thrown as Error)?.message)).toMatch(/not found/i);
+    // ...yet a row WAS persisted with the local owner (orphaned-from-caller).
+    const [row] = await db
+      .select()
+      .from(planSchema.plans)
+      .where(eq(planSchema.plans.ownerEmail, LOCAL_OWNER));
+    expect(row).toBeTruthy();
+    expect((row as any).title).toBe("Asymmetry");
+  });
+});

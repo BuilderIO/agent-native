@@ -37,7 +37,16 @@ export type PlanBlockType =
   | "decision"
   | "tabs"
   | "custom-html"
+  | "question-form"
   | "visual-questions"
+  | "mermaid"
+  | "api-endpoint"
+  | "openapi-spec"
+  | "data-model"
+  | "diff"
+  | "file-tree"
+  | "json-explorer"
+  | "annotated-code"
   // Deprecated: region-based wireframe kept for old/imported plans only.
   | "legacy-wireframe";
 
@@ -398,20 +407,35 @@ export type PlanCustomHtmlBlock = PlanBlockBase & {
   };
 };
 
-export type PlanVisualQuestion = {
+export type PlanQuestionOption = {
+  id: string;
+  label: string;
+  detail?: string;
+  /** Authored recommendation only — see PlanDecisionBlock note. */
+  recommended?: boolean;
+  wireframe?: PlanWireframeBlock["data"];
+  diagram?: PlanDiagramBlock["data"];
+};
+
+export type PlanQuestion = {
   id: string;
   title: string;
   subtitle?: string;
   mode: "single" | "multi" | "freeform";
-  options?: Array<{
-    id: string;
-    label: string;
-    detail?: string;
-    /** Authored recommendation only — see PlanDecisionBlock note. */
-    recommended?: boolean;
-    wireframe?: PlanWireframeBlock["data"];
-    diagram?: PlanDiagramBlock["data"];
-  }>;
+  options?: PlanQuestionOption[];
+  allowOther?: boolean;
+  placeholder?: string;
+  required?: boolean;
+};
+
+export type PlanVisualQuestion = PlanQuestion;
+
+export type PlanQuestionFormBlock = PlanBlockBase & {
+  type: "question-form";
+  data: {
+    questions: PlanQuestion[];
+    submitLabel?: string;
+  };
 };
 
 export type PlanVisualQuestionsBlock = PlanBlockBase & {
@@ -419,6 +443,118 @@ export type PlanVisualQuestionsBlock = PlanBlockBase & {
   data: {
     questions: PlanVisualQuestion[];
     submitLabel?: string;
+  };
+};
+
+export type PlanMermaidBlock = PlanBlockBase & {
+  type: "mermaid";
+  data: {
+    source: string;
+    caption?: string;
+  };
+};
+
+export type PlanApiEndpointBlock = PlanBlockBase & {
+  type: "api-endpoint";
+  data: {
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+    path: string;
+    summary?: string;
+    description?: string;
+    auth?: string;
+    deprecated?: boolean;
+    params?: Array<{
+      name: string;
+      in: "path" | "query" | "header" | "body";
+      type?: string;
+      required?: boolean;
+      description?: string;
+    }>;
+    request?: { contentType?: string; example?: string };
+    responses?: Array<{
+      status: string;
+      description?: string;
+      example?: string;
+    }>;
+  };
+};
+
+export type PlanOpenApiSpecBlock = PlanBlockBase & {
+  type: "openapi-spec";
+  data: {
+    /** Raw OpenAPI 3 / Swagger 2 document text (JSON in v1). */
+    spec: string;
+    title?: string;
+  };
+};
+
+export type PlanDataModelBlock = PlanBlockBase & {
+  type: "data-model";
+  data: {
+    entities: Array<{
+      id: string;
+      name: string;
+      note?: string;
+      fields: Array<{
+        name: string;
+        type?: string;
+        pk?: boolean;
+        fk?: string;
+        nullable?: boolean;
+        default?: string;
+        note?: string;
+      }>;
+    }>;
+    relations?: Array<{
+      from: string;
+      to: string;
+      kind?: "1-1" | "1-n" | "n-n";
+      label?: string;
+    }>;
+  };
+};
+
+export type PlanDiffBlock = PlanBlockBase & {
+  type: "diff";
+  data: {
+    filename?: string;
+    language?: string;
+    before: string;
+    after: string;
+    mode?: "unified" | "split";
+  };
+};
+
+export type PlanFileTreeBlock = PlanBlockBase & {
+  type: "file-tree";
+  data: {
+    title?: string;
+    entries: Array<{
+      path: string;
+      change?: "added" | "modified" | "removed" | "renamed";
+      note?: string;
+      snippet?: string;
+      language?: string;
+    }>;
+  };
+};
+
+export type PlanJsonExplorerBlock = PlanBlockBase & {
+  type: "json-explorer";
+  data: {
+    title?: string;
+    json: string;
+    collapsedDepth?: number;
+  };
+};
+
+export type PlanAnnotatedCodeBlock = PlanBlockBase & {
+  type: "annotated-code";
+  data: {
+    filename?: string;
+    language?: string;
+    code: string;
+    annotations?: Array<{ lines: string; label?: string; note: string }>;
   };
 };
 
@@ -436,7 +572,16 @@ export type PlanBlock =
   | PlanDecisionBlock
   | PlanTabsBlock
   | PlanCustomHtmlBlock
-  | PlanVisualQuestionsBlock;
+  | PlanQuestionFormBlock
+  | PlanVisualQuestionsBlock
+  | PlanMermaidBlock
+  | PlanApiEndpointBlock
+  | PlanOpenApiSpecBlock
+  | PlanDataModelBlock
+  | PlanDiffBlock
+  | PlanFileTreeBlock
+  | PlanJsonExplorerBlock
+  | PlanAnnotatedCodeBlock;
 
 /* -------------------------------------------------------------------------- */
 /* Board / canvas — SPATIAL; geometry KEPT here on purpose                    */
@@ -547,10 +692,64 @@ export type PlanCanvasViewport = {
   };
 };
 
+/* -------------------------------------------------------------------------- */
+/* Prototype — functional top review surface                                  */
+/* -------------------------------------------------------------------------- */
+
+export type PlanPrototypeScreen = {
+  id: string;
+  title?: string;
+  summary?: string;
+  surface?: PlanWireframeSurface;
+  /**
+   * A bounded semantic HTML fragment. Prototype HTML may use the renderer's
+   * safe Alpine-like directives (`x-data`, `x-model`, `x-for`, `x-text`,
+   * `x-show`, `:class`, `@click`, `@keydown.enter`) for real local
+   * interactions. Use `data-goto="screen-id"` only for true screen/route
+   * changes; never include scripts.
+   */
+  html: string;
+  /** Optional metadata for exports/back-compat; the live viewer does not render this as chrome. */
+  state?: Array<{
+    id?: string;
+    label: string;
+    value: string;
+  }>;
+};
+
+export type PlanPrototypeTransition = {
+  id?: string;
+  from: string;
+  to: string;
+  label?: string;
+  /**
+   * Human-readable trigger hint, such as "click Continue" or
+   * "select a task row". Runtime screen navigation still uses `data-goto`.
+   */
+  trigger?: string;
+};
+
+export type PlanPrototype = {
+  title?: string;
+  brief?: string;
+  surface?: PlanWireframeSurface;
+  initialScreenId?: string;
+  screens: PlanPrototypeScreen[];
+  transitions?: PlanPrototypeTransition[];
+};
+
 export type PlanContent = {
   version: number;
   title?: string;
   brief?: string;
+  /**
+   * Opt-in "Sync to Notion" mode. When true, the document editor restricts the
+   * slash menu to Notion-Flavored-Markdown-representable blocks and badges any
+   * already-present incompatible blocks. Absent/false means normal mode (all
+   * block types allowed). See `shared/notion-compat.ts`.
+   */
+  notionSync?: boolean;
+  prototype?: PlanPrototype;
   canvas?: {
     title?: string;
     /** Optional initial viewport persisted by source-sync exports. */
@@ -573,6 +772,28 @@ export type PlanContent = {
 /* -------------------------------------------------------------------------- */
 
 export type PlanContentPatch =
+  | {
+      op: "set-prototype";
+      prototype: PlanPrototype;
+    }
+  | {
+      op: "remove-prototype";
+    }
+  | {
+      op: "update-prototype-screen";
+      screenId: string;
+      patch: Partial<Omit<PlanPrototypeScreen, "id">>;
+    }
+  | {
+      /**
+       * Surgically edit a prototype screen's `html` via find/replace snippets.
+       * This mirrors `patch-wireframe-html` so agents can patch one live state
+       * without regenerating every screen.
+       */
+      op: "patch-prototype-html";
+      screenId: string;
+      edits: Array<{ find: string; replace: string; all?: boolean }>;
+    }
   | {
       op: "replace-block";
       blockId: string;
@@ -658,6 +879,11 @@ export type PlanContentPatch =
   | {
       op: "remove-block";
       blockId: string;
+    }
+  | {
+      /** Toggle the per-plan "Sync to Notion" setting (a top-level scalar). */
+      op: "set-notion-sync";
+      value: boolean;
     };
 
 /* -------------------------------------------------------------------------- */
@@ -674,10 +900,37 @@ const baseBlockSchema = z.object({
 });
 
 const unsafeCustomHtmlPattern =
-  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form)[\s>/]|\b(?:javascript|data:text\/html)\s*:|\bsrcdoc\s*=|\bon[a-z][\w:-]*\s*=)/i;
+  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)[\s>/]|\b(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml))\s*:?\s*|\bsrcdoc\s*=|(?:^|\s)(?:on[a-z][\w:-]*|:on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=|expression\s*\(|url\s*\(\s*['"]?\s*(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml)))/i;
 
-const noFullHtmlDocument = (value: string) =>
-  !unsafeCustomHtmlPattern.test(value);
+function decodeSafetyEntities(value: string): string {
+  return value
+    .replace(/&#(x[0-9a-f]+|\d+);?/gi, (_, code: string) => {
+      const point = code.toLowerCase().startsWith("x")
+        ? Number.parseInt(code.slice(1), 16)
+        : Number.parseInt(code, 10);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    })
+    .replace(/&(colon|tab|newline);/gi, (_, name: string) => {
+      if (name.toLowerCase() === "colon") return ":";
+      if (name.toLowerCase() === "tab") return "\t";
+      return "\n";
+    });
+}
+
+const compactSafetyText = (value: string) =>
+  decodeSafetyEntities(value)
+    .toLowerCase()
+    .replace(/[\u0000-\u0020]+/g, "");
+
+const noFullHtmlDocument = (value: string) => {
+  const compact = compactSafetyText(value);
+  return (
+    !unsafeCustomHtmlPattern.test(value) &&
+    !/(?:javascript|vbscript):|data:(?:text\/html|image\/svg\+xml)|expression\(|url\(['"]?(?:javascript|vbscript|data:(?:text\/html|image\/svg\+xml))/.test(
+      compact,
+    )
+  );
+};
 
 const toneSchema = z.enum(["default", "accent", "warn", "ok", "muted"]);
 
@@ -715,6 +968,8 @@ const elNameSchema = z.enum([
 
 const WIREFRAME_MAX_DEPTH = 8;
 const WIREFRAME_MAX_NODES = 400;
+const PLAN_BLOCK_MAX_DEPTH = 40;
+const PLAN_BLOCK_MAX_VISITS = 5_000;
 
 /**
  * Recursive node schema, bounded in depth and total node count. Props are kept
@@ -939,6 +1194,32 @@ const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
     message: "Image block requires an assetId or url.",
   });
 
+const planQuestionOptionSchema: z.ZodType<PlanQuestionOption> = z.object({
+  id: idSchema,
+  label: z.string().trim().min(1).max(220),
+  detail: z.string().trim().max(800).optional(),
+  recommended: z.boolean().optional(),
+  wireframe: wireframeDataSchema.optional(),
+  diagram: diagramDataSchema.optional(),
+});
+
+const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
+  id: idSchema,
+  title: z.string().trim().min(1).max(260),
+  subtitle: z.string().trim().max(700).optional(),
+  mode: z.enum(["single", "multi", "freeform"]),
+  options: z.array(planQuestionOptionSchema).max(40).optional(),
+  allowOther: z.boolean().optional(),
+  placeholder: z.string().trim().max(240).optional(),
+  required: z.boolean().optional(),
+});
+
+export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
+  z.object({
+    questions: z.array(planQuestionSchema).min(1).max(40),
+    submitLabel: z.string().trim().max(80).optional(),
+  });
+
 export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   z.discriminatedUnion("type", [
     baseBlockSchema.extend({
@@ -1081,33 +1362,173 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         .strict(),
     }),
     baseBlockSchema.extend({
+      type: z.literal("question-form"),
+      data: questionFormDataSchema,
+    }),
+    baseBlockSchema.extend({
       type: z.literal("visual-questions"),
+      data: questionFormDataSchema,
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("mermaid"),
       data: z.object({
-        questions: z
+        source: z.string().max(50_000),
+        caption: z.string().trim().max(400).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("api-endpoint"),
+      data: z.object({
+        method: z.enum([
+          "GET",
+          "POST",
+          "PUT",
+          "PATCH",
+          "DELETE",
+          "HEAD",
+          "OPTIONS",
+        ]),
+        path: z.string().trim().min(1).max(500),
+        summary: z.string().trim().max(400).optional(),
+        description: z.string().max(20_000).optional(),
+        auth: z.string().trim().max(200).optional(),
+        deprecated: z.boolean().optional(),
+        params: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1).max(160),
+              in: z.enum(["path", "query", "header", "body"]),
+              type: z.string().trim().max(120).optional(),
+              required: z.boolean().optional(),
+              description: z.string().trim().max(1_000).optional(),
+            }),
+          )
+          .max(60)
+          .optional(),
+        request: z
+          .object({
+            contentType: z.string().trim().max(160).optional(),
+            example: z.string().max(20_000).optional(),
+          })
+          .optional(),
+        responses: z
+          .array(
+            z.object({
+              status: z.string().trim().min(1).max(40),
+              description: z.string().trim().max(1_000).optional(),
+              example: z.string().max(20_000).optional(),
+            }),
+          )
+          .max(40)
+          .optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("openapi-spec"),
+      data: z.object({
+        spec: z.string().max(400_000),
+        title: z.string().trim().max(200).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("data-model"),
+      data: z.object({
+        entities: z
           .array(
             z.object({
               id: idSchema,
-              title: z.string().trim().min(1).max(260),
-              subtitle: z.string().trim().max(700).optional(),
-              mode: z.enum(["single", "multi", "freeform"]),
-              options: z
+              name: z.string().trim().min(1).max(160),
+              note: z.string().trim().max(600).optional(),
+              fields: z
                 .array(
                   z.object({
-                    id: idSchema,
-                    label: z.string().trim().min(1).max(220),
-                    detail: z.string().trim().max(800).optional(),
-                    recommended: z.boolean().optional(),
-                    wireframe: wireframeDataSchema.optional(),
-                    diagram: diagramDataSchema.optional(),
+                    name: z.string().trim().min(1).max(160),
+                    type: z.string().trim().max(120).optional(),
+                    pk: z.boolean().optional(),
+                    fk: z.string().trim().max(200).optional(),
+                    nullable: z.boolean().optional(),
+                    default: z.string().trim().max(400).optional(),
+                    note: z.string().trim().max(600).optional(),
                   }),
                 )
-                .max(40)
-                .optional(),
+                .max(80),
             }),
           )
           .min(1)
-          .max(40),
-        submitLabel: z.string().trim().max(80).optional(),
+          .max(60),
+        relations: z
+          .array(
+            z.object({
+              from: z.string().trim().min(1).max(120),
+              to: z.string().trim().min(1).max(120),
+              kind: z.enum(["1-1", "1-n", "n-n"]).optional(),
+              label: z.string().trim().max(160).optional(),
+            }),
+          )
+          .max(200)
+          .optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("diff"),
+      data: z.object({
+        filename: z.string().trim().max(400).optional(),
+        language: z.string().trim().max(40).optional(),
+        before: z.string().max(100_000),
+        after: z.string().max(100_000),
+        mode: z.enum(["unified", "split"]).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("file-tree"),
+      data: z.object({
+        title: z.string().trim().max(180).optional(),
+        entries: z
+          .array(
+            z.object({
+              path: z.string().trim().min(1).max(500),
+              change: z
+                .enum(["added", "modified", "removed", "renamed"])
+                .optional(),
+              note: z.string().trim().max(2_000).optional(),
+              snippet: z.string().max(50_000).optional(),
+              language: z.string().trim().max(40).optional(),
+            }),
+          )
+          .min(1)
+          .max(200),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("json-explorer"),
+      data: z.object({
+        title: z.string().trim().max(200).optional(),
+        json: z.string().max(200_000),
+        collapsedDepth: z.number().int().min(0).max(20).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("annotated-code"),
+      data: z.object({
+        filename: z.string().trim().max(400).optional(),
+        language: z.string().trim().max(40).optional(),
+        code: z.string().max(100_000),
+        annotations: z
+          .array(
+            z.object({
+              lines: z
+                .string()
+                .trim()
+                .regex(/^\d+(\s*-\s*\d+)?$/, {
+                  message: 'lines must be a 1-based line ref like "3" or "3-5"',
+                })
+                .max(40),
+              label: z.string().trim().max(160).optional(),
+              note: z.string().trim().min(1).max(4_000),
+            }),
+          )
+          .max(80)
+          .optional(),
       }),
     }),
   ]),
@@ -1202,34 +1623,173 @@ const boardSectionSchema: z.ZodType<PlanBoardSection> = z.object({
   artboardIds: z.array(idSchema).max(80).optional(),
 });
 
-export const planContentSchema: z.ZodType<PlanContent> = z
+const prototypeScreenStateSchema = z.object({
+  id: idSchema.optional(),
+  label: z.string().trim().min(1).max(80),
+  value: z.string().trim().max(180),
+});
+
+const prototypeScreenSchema: z.ZodType<PlanPrototypeScreen> = z
   .object({
-    version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
-    title: z.string().trim().max(240).optional(),
-    brief: z.string().trim().max(4_000).optional(),
-    canvas: z
-      .object({
-        title: z.string().trim().max(180).optional(),
-        viewport: z
-          .object({
-            zoom: z.number().min(0.05).max(8).optional(),
-            pan: z
-              .object({
-                x: z.number().optional(),
-                y: z.number().optional(),
-              })
-              .optional(),
-          })
-          .optional(),
-        sections: z.array(boardSectionSchema).max(40).optional(),
-        frames: z.array(artboardSchema).max(40).default([]),
-        flow: z.array(connectorSchema).max(80).optional(),
-        annotations: z.array(annotationSchema).max(80).optional(),
-        notes: z.array(legacyNoteSchema).max(80).optional(),
-      })
-      .optional(),
-    blocks: z.array(planBlockSchema).max(200).default([]),
+    id: idSchema,
+    title: z.string().trim().max(180).optional(),
+    summary: z.string().trim().max(500).optional(),
+    surface: wireframeSurfaceSchema.optional(),
+    html: z.string().max(40_000).refine(noFullHtmlDocument, {
+      message:
+        "Prototype screen html must be a bounded fragment without html/head/body/script/style tags.",
+    }),
+    state: z.array(prototypeScreenStateSchema).max(24).optional(),
   })
+  .strict();
+
+const prototypeTransitionSchema: z.ZodType<PlanPrototypeTransition> = z
+  .object({
+    id: idSchema.optional(),
+    from: idSchema,
+    to: idSchema,
+    label: z.string().trim().max(120).optional(),
+    trigger: z.string().trim().max(240).optional(),
+  })
+  .strict();
+
+const prototypeSchema: z.ZodType<PlanPrototype> = z
+  .object({
+    title: z.string().trim().max(180).optional(),
+    brief: z.string().trim().max(800).optional(),
+    surface: wireframeSurfaceSchema.optional(),
+    initialScreenId: idSchema.optional(),
+    screens: z.array(prototypeScreenSchema).min(1).max(16),
+    transitions: z.array(prototypeTransitionSchema).max(80).optional(),
+  })
+  .strict()
+  .superRefine((prototype, context) => {
+    const screenIds = new Set<string>();
+    for (const [index, screen] of prototype.screens.entries()) {
+      if (screenIds.has(screen.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["screens", index, "id"],
+          message: `Duplicate prototype screen id: ${screen.id}`,
+        });
+      }
+      screenIds.add(screen.id);
+    }
+    if (
+      prototype.initialScreenId &&
+      !screenIds.has(prototype.initialScreenId)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["initialScreenId"],
+        message: `Initial prototype screen ${prototype.initialScreenId} was not found.`,
+      });
+    }
+    for (const [index, transition] of (prototype.transitions ?? []).entries()) {
+      if (!screenIds.has(transition.from)) {
+        context.addIssue({
+          code: "custom",
+          path: ["transitions", index, "from"],
+          message: `Transition source ${transition.from} was not found.`,
+        });
+      }
+      if (!screenIds.has(transition.to)) {
+        context.addIssue({
+          code: "custom",
+          path: ["transitions", index, "to"],
+          message: `Transition target ${transition.to} was not found.`,
+        });
+      }
+    }
+  });
+
+function exceedsPlanBlockDepth(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+
+  const stack: Array<{ blocks: unknown; depth: number }> = [
+    { blocks: (input as { blocks?: unknown }).blocks, depth: 0 },
+  ];
+  let visits = 0;
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || !Array.isArray(current.blocks)) continue;
+    if (current.depth > PLAN_BLOCK_MAX_DEPTH) return true;
+
+    for (const block of current.blocks) {
+      visits += 1;
+      if (visits > PLAN_BLOCK_MAX_VISITS) return true;
+      if (!block || typeof block !== "object") continue;
+      if ((block as { type?: unknown }).type !== "tabs") continue;
+
+      const data = (block as { data?: unknown }).data;
+      const tabs =
+        data && typeof data === "object"
+          ? (data as { tabs?: unknown }).tabs
+          : undefined;
+      if (!Array.isArray(tabs)) continue;
+
+      for (const tab of tabs) {
+        const blocks =
+          tab && typeof tab === "object"
+            ? (tab as { blocks?: unknown }).blocks
+            : undefined;
+        stack.push({ blocks, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  return false;
+}
+
+function preflightPlanContentInput(input: unknown): unknown {
+  if (!exceedsPlanBlockDepth(input)) return input;
+
+  return {
+    version: 2,
+    blocks: [
+      {
+        id: "invalid-plan-block-depth",
+        type: "invalid-plan-block-depth",
+        data: {},
+      },
+    ],
+  };
+}
+
+export const planContentSchema: z.ZodType<PlanContent> = z
+  .preprocess(
+    preflightPlanContentInput,
+    z.object({
+      version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
+      title: z.string().trim().max(240).optional(),
+      brief: z.string().trim().max(4_000).optional(),
+      notionSync: z.boolean().optional(),
+      prototype: prototypeSchema.optional(),
+      canvas: z
+        .object({
+          title: z.string().trim().max(180).optional(),
+          viewport: z
+            .object({
+              zoom: z.number().min(0.05).max(8).optional(),
+              pan: z
+                .object({
+                  x: z.number().optional(),
+                  y: z.number().optional(),
+                })
+                .optional(),
+            })
+            .optional(),
+          sections: z.array(boardSectionSchema).max(40).optional(),
+          frames: z.array(artboardSchema).max(40).default([]),
+          flow: z.array(connectorSchema).max(80).optional(),
+          annotations: z.array(annotationSchema).max(80).optional(),
+          notes: z.array(legacyNoteSchema).max(80).optional(),
+        })
+        .optional(),
+      blocks: z.array(planBlockSchema).max(200).default([]),
+    }),
+  )
   .superRefine((content, context) => {
     const checkUniqueIds = (
       items: Array<{ id: string }> | undefined,
@@ -1452,8 +2012,56 @@ const blockUpdatePatchSchema = z
     message: "Patch must include at least one block field.",
   });
 
+const prototypeScreenPatchSchema = z
+  .object({
+    title: z.string().trim().max(180).optional(),
+    summary: z.string().trim().max(500).optional(),
+    surface: wireframeSurfaceSchema.optional(),
+    html: z
+      .string()
+      .max(40_000)
+      .refine(noFullHtmlDocument, {
+        message:
+          "Prototype screen html must be a bounded fragment without html/head/body/script/style tags.",
+      })
+      .optional(),
+    state: z.array(prototypeScreenStateSchema).max(24).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Patch must include at least one prototype screen field.",
+  });
+
 export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
   z.discriminatedUnion("op", [
+    z.object({
+      op: z.literal("set-prototype"),
+      prototype: prototypeSchema,
+    }),
+    z.object({
+      op: z.literal("remove-prototype"),
+    }),
+    z.object({
+      op: z.literal("update-prototype-screen"),
+      screenId: idSchema,
+      patch: prototypeScreenPatchSchema,
+    }),
+    z.object({
+      op: z.literal("patch-prototype-html"),
+      screenId: idSchema,
+      edits: z
+        .array(
+          z.object({
+            find: z.string().min(1).max(20_000),
+            replace: z.string().max(40_000).refine(noFullHtmlDocument, {
+              message:
+                "Prototype html replacement must be a bounded fragment without html/head/body/script/style tags.",
+            }),
+            all: z.boolean().optional(),
+          }),
+        )
+        .min(1)
+        .max(40),
+    }),
     z.object({
       op: z.literal("replace-block"),
       blockId: idSchema,
@@ -1554,6 +2162,10 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       op: z.literal("remove-block"),
       blockId: idSchema,
     }),
+    z.object({
+      op: z.literal("set-notion-sync"),
+      value: z.boolean(),
+    }),
   ]) as z.ZodType<PlanContentPatch>;
 
 export const planContentPatchesSchema = z.array(planContentPatchSchema).max(80);
@@ -1565,6 +2177,59 @@ export function applyPlanContentPatches(
   const next = cloneJson(planContentSchema.parse(content));
 
   for (const patch of planContentPatchesSchema.parse(patches)) {
+    if (patch.op === "set-prototype") {
+      next.prototype = prototypeSchema.parse(patch.prototype);
+      continue;
+    }
+    if (patch.op === "remove-prototype") {
+      delete next.prototype;
+      continue;
+    }
+    if (patch.op === "update-prototype-screen") {
+      if (!next.prototype) {
+        throw new Error(
+          "Cannot update a prototype screen without a prototype.",
+        );
+      }
+      const screen = next.prototype.screens.find(
+        (candidate) => candidate.id === patch.screenId,
+      );
+      if (!screen) {
+        throw new Error(`Prototype screen ${patch.screenId} was not found.`);
+      }
+      Object.assign(screen, patch.patch);
+      continue;
+    }
+    if (patch.op === "patch-prototype-html") {
+      if (!next.prototype) {
+        throw new Error("Cannot patch prototype html without a prototype.");
+      }
+      const screen = next.prototype.screens.find(
+        (candidate) => candidate.id === patch.screenId,
+      );
+      if (!screen) {
+        throw new Error(`Prototype screen ${patch.screenId} was not found.`);
+      }
+      let html = screen.html;
+      for (const edit of patch.edits) {
+        const count = html.split(edit.find).length - 1;
+        if (count === 0) {
+          throw new Error(
+            `patch-prototype-html: find snippet not present: ${truncateSnippet(edit.find)}`,
+          );
+        }
+        if (count > 1 && !edit.all) {
+          throw new Error(
+            `patch-prototype-html: find snippet matched ${count} times; make it unique or set all:true - ${truncateSnippet(edit.find)}`,
+          );
+        }
+        html = edit.all
+          ? html.split(edit.find).join(edit.replace)
+          : html.replace(edit.find, edit.replace);
+      }
+      screen.html = html;
+      continue;
+    }
     if (patch.op === "replace-block") {
       next.blocks = updateBlock(
         next.blocks,
@@ -1800,6 +2465,12 @@ export function applyPlanContentPatches(
         throw new Error(`Block ${patch.blockId} was not found.`);
       }
       next.blocks = result.blocks;
+    }
+    if (patch.op === "set-notion-sync") {
+      // Keep the field absent (not `false`) when off, so plans that never opt in
+      // stay byte-identical to their pre-feature shape on round-trip.
+      if (patch.value) next.notionSync = true;
+      else delete next.notionSync;
     }
   }
 

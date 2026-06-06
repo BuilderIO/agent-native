@@ -18,7 +18,7 @@ export function WireframeBlock({
 }: BlockReadProps<WireframeData>) {
   return (
     <section className="plan-block" data-block-id={blockId}>
-      {title && <h2>{title}</h2>}
+      {title && <div className="plan-block-label">{title}</div>}
       <KitWireframeBlock block={{ data } as PlanWireframeBlock} />
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>

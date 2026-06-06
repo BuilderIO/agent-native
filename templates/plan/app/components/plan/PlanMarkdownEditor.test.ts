@@ -26,6 +26,19 @@ describe("PlanMarkdownEditor inline editing", () => {
     expect(documentArea).toContain("editingDisabled={editingDisabled}");
     expect(documentArea).toContain("contentUpdatedAt={contentUpdatedAt}");
     expect(documentArea).toContain("const canUseInlineEditor");
+    expect(documentArea).toContain("canUseInlineEditor && !editingDisabled");
     expect(documentArea).toContain("editable={editable}");
+  });
+
+  it("keeps mixed canvas and prototype plans in a tabbed visual surface", () => {
+    const renderer = readSource("./PlanContentRenderer.tsx");
+    const visualSurface = readSource("./PlanVisualSurface.tsx");
+
+    expect(renderer).toContain("<PlanVisualSurface");
+    expect(visualSurface).toContain("data-plan-visual-tabs");
+    expect(visualSurface).toContain('className="absolute left-4 top-4');
+    expect(visualSurface).toContain('value="prototype"');
+    expect(visualSurface).toContain('value="wireframes"');
+    expect(visualSurface).not.toContain("toolbarPlacement");
   });
 });

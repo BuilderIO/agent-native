@@ -178,11 +178,15 @@ function build(
   });
 
   if (opts.drawFrame) {
-    const sw = 1.5;
+    const sw = 2;
     push(
       gen.path(
         roundedRectPath(2, 2, layoutW - 4, layoutH - 4, opts.frameRadius),
-        makeOpts(sketch, sw, seedFrom("frame", layoutW, layoutH)),
+        {
+          ...makeOpts(sketch, sw, seedFrom("frame", layoutW, layoutH)),
+          roughness: opts.roughness + 0.35,
+          bowing: opts.bowing + 0.18,
+        },
       ),
       sketch,
       sw,
@@ -247,7 +251,7 @@ function build(
  */
 export function RoughOverlay({
   scopeRef,
-  sketch = 40,
+  sketch = 52,
   enabled = true,
   drawFrame = true,
   frameRadius = 14,
@@ -271,6 +275,9 @@ export function RoughOverlay({
     const el = scopeRef.current;
     if (!el || !enabled) {
       el?.removeAttribute("data-rough-ready");
+      el?.querySelector(".plan-wf, .plan-html-frame")?.removeAttribute(
+        "data-rough-ready",
+      );
       setState({ paths: [], w: 0, h: 0 });
       return;
     }
@@ -291,6 +298,10 @@ export function RoughOverlay({
         });
         if (next.w && next.h) {
           el.setAttribute("data-rough-ready", "true");
+          (el.querySelector(".plan-wf, .plan-html-frame") ?? el).setAttribute(
+            "data-rough-ready",
+            "true",
+          );
           setState(next);
         }
       }, 0);
@@ -299,6 +310,17 @@ export function RoughOverlay({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     el.querySelectorAll(selector).forEach((node) => ro.observe(node));
+    const mo = new MutationObserver((mutations) => {
+      if (mutations.every(isRoughOverlayMutation)) return;
+      measure();
+    });
+    mo.observe(el, {
+      attributes: true,
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    el.addEventListener("plan-prototype-runtime:rendered", measure);
     let cancelled = false;
     if (typeof document !== "undefined" && "fonts" in document) {
       void document.fonts.ready.then(() => {
@@ -308,8 +330,13 @@ export function RoughOverlay({
     return () => {
       cancelled = true;
       ro.disconnect();
+      mo.disconnect();
+      el.removeEventListener("plan-prototype-runtime:rendered", measure);
       clearTimeout(rafRef.current);
       el.removeAttribute("data-rough-ready");
+      el.querySelector(".plan-wf, .plan-html-frame")?.removeAttribute(
+        "data-rough-ready",
+      );
     };
   }, [scopeRef, sketch, enabled, drawFrame, frameRadius, selector]);
 
@@ -326,7 +353,7 @@ export function RoughOverlay({
         position: "absolute",
         inset: 0,
         pointerEvents: "none",
-        overflow: "visible",
+        overflow: "hidden",
         zIndex: 3,
       }}
     >
@@ -342,5 +369,23 @@ export function RoughOverlay({
         />
       ))}
     </svg>
+  );
+}
+
+function isRoughOverlayMutation(mutation: MutationRecord) {
+  if (nodeIsRoughOverlay(mutation.target)) return true;
+
+  const changedNodes = [
+    ...Array.from(mutation.addedNodes),
+    ...Array.from(mutation.removedNodes),
+  ];
+  return changedNodes.length > 0 && changedNodes.every(nodeIsRoughOverlay);
+}
+
+function nodeIsRoughOverlay(node: Node) {
+  const element = node instanceof Element ? node : node.parentElement;
+  return Boolean(
+    element?.classList.contains("plan-rough-overlay") ||
+    element?.closest(".plan-rough-overlay"),
   );
 }

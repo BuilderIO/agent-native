@@ -481,6 +481,7 @@ export function CanvasArea({
     >
       <div
         ref={viewportRef}
+        data-plan-canvas-viewport
         className={`plan-canvas-viewport absolute inset-0 overflow-hidden ${
           reviewCursor
             ? "cursor-crosshair active:cursor-crosshair"
@@ -550,6 +551,7 @@ export function CanvasArea({
         }}
       >
         <div
+          data-plan-canvas-world
           className="plan-canvas-world relative origin-top-left"
           style={{
             width: board.width,
@@ -621,6 +623,7 @@ export function CanvasArea({
               <CanvasMarkupAnnotation
                 key={note.id}
                 note={note}
+                board={board}
                 snapTargets={snapTargets}
               />
             ) : (
@@ -1237,11 +1240,124 @@ function isCanvasMarkupAnnotation(note: PlanAnnotation) {
   );
 }
 
+function estimateCanvasMarkupLabelHeight(note: PlanAnnotation) {
+  const headingH = note.title ? 24 : 0;
+  const lines = Math.max(
+    1,
+    note.text
+      .split("\n")
+      .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 34)), 0),
+  );
+  return Math.max(52, headingH + lines * 20 + 24);
+}
+
+type CanvasMarkupLabelCandidate = {
+  side: "left" | "right" | "top" | "bottom";
+  vector: { x: number; y: number };
+  rect: AnnotationRect;
+  raw: { left: number; top: number };
+};
+
+function resolveCanvasMarkupLabelRect({
+  note,
+  origin,
+  target,
+  board,
+  avoid,
+}: {
+  note: PlanAnnotation;
+  origin: WorldPoint;
+  target?: WorldPoint;
+  board: { width: number; height: number };
+  avoid: AnnotationRect[];
+}): AnnotationRect {
+  const width = ANNOTATION_BOX_W;
+  const height = estimateCanvasMarkupLabelHeight(note);
+  const gap = 28;
+  const margin = 18;
+  const boardMaxLeft = Math.max(margin, board.width - width - margin);
+  const boardMaxTop = Math.max(margin, board.height - height - margin);
+  const targetVector = target
+    ? { x: target.x - origin.x, y: target.y - origin.y }
+    : { x: 1, y: 0 };
+  const targetLen = Math.hypot(targetVector.x, targetVector.y) || 1;
+  const targetUnit = {
+    x: targetVector.x / targetLen,
+    y: targetVector.y / targetLen,
+  };
+  const rawCandidates: CanvasMarkupLabelCandidate[] = [
+    {
+      side: "left",
+      vector: { x: -1, y: 0 },
+      raw: { left: origin.x - width - gap, top: origin.y - height / 2 },
+      rect: { left: 0, top: 0, width, height },
+    },
+    {
+      side: "right",
+      vector: { x: 1, y: 0 },
+      raw: { left: origin.x + gap, top: origin.y - height / 2 },
+      rect: { left: 0, top: 0, width, height },
+    },
+    {
+      side: "top",
+      vector: { x: 0, y: -1 },
+      raw: { left: origin.x - width / 2, top: origin.y - height - gap },
+      rect: { left: 0, top: 0, width, height },
+    },
+    {
+      side: "bottom",
+      vector: { x: 0, y: 1 },
+      raw: { left: origin.x - width / 2, top: origin.y + gap },
+      rect: { left: 0, top: 0, width, height },
+    },
+  ];
+  const candidates = rawCandidates.map((candidate) => ({
+    ...candidate,
+    rect: {
+      left: clamp(candidate.raw.left, margin, boardMaxLeft),
+      top: clamp(candidate.raw.top, margin, boardMaxTop),
+      width,
+      height,
+    },
+  }));
+
+  let best = candidates[0];
+  let bestScore = Infinity;
+  for (const candidate of candidates) {
+    const overlapPenalty = avoid.reduce(
+      (sum, box) =>
+        sum +
+        (rectsOverlap(candidate.rect, box)
+          ? rectOverlapArea(candidate.rect, box)
+          : 0),
+      0,
+    );
+    const clampPenalty =
+      Math.abs(candidate.raw.left - candidate.rect.left) +
+      Math.abs(candidate.raw.top - candidate.rect.top);
+    // Prefer the label on the side opposite the arrow target so the arrow exits
+    // the label edge instead of running back through the words.
+    const directionPenalty =
+      (candidate.vector.x * targetUnit.x +
+        candidate.vector.y * targetUnit.y +
+        1) *
+      90;
+    const score = overlapPenalty * 8 + clampPenalty * 2 + directionPenalty;
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best.rect;
+}
+
 function CanvasMarkupAnnotation({
   note,
+  board,
   snapTargets = [],
 }: {
   note: PlanAnnotation;
+  board: { width: number; height: number };
   snapTargets?: AnnotationRect[];
 }) {
   const origin = note.points?.[0] ?? { x: note.x ?? 80, y: note.y ?? 80 };
@@ -1253,12 +1369,26 @@ function CanvasMarkupAnnotation({
   const target = rawTarget
     ? snapPointToBoxes(rawTarget, snapTargets)
     : undefined;
+  const labelRect =
+    note.type !== "arrow"
+      ? resolveCanvasMarkupLabelRect({
+          note,
+          origin,
+          target,
+          board,
+          avoid: snapTargets,
+        })
+      : undefined;
+  const arrowStart =
+    target && labelRect
+      ? boxEdgeToward(labelRect, target)
+      : { x: origin.x + 16, y: origin.y + 18 };
   return (
     <>
       {target && (
         <ArrowSvg
-          fromX={origin.x + 16}
-          fromY={origin.y + 18}
+          fromX={arrowStart.x}
+          fromY={arrowStart.y}
           toX={target.x}
           toY={target.y}
           id={`canvas-markup-arrow-${note.id}`}
@@ -1269,14 +1399,18 @@ function CanvasMarkupAnnotation({
       {note.type !== "arrow" && (
         <div
           className="plan-canvas-markup-note absolute max-w-[280px] rounded-md border border-[hsl(var(--ring)/0.35)] bg-plan-chrome px-3 py-2 text-sm leading-5 text-plan-text shadow-sm backdrop-blur"
-          style={{ left: origin.x, top: origin.y }}
+          style={{
+            left: labelRect?.left ?? origin.x,
+            top: labelRect?.top ?? origin.y,
+            width: labelRect?.width ?? ANNOTATION_BOX_W,
+          }}
         >
           {note.title && (
             <p className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-plan-muted">
               {note.title}
             </p>
           )}
-          <p className="whitespace-pre-wrap">{note.text}</p>
+          <p className="whitespace-pre-wrap break-words">{note.text}</p>
         </div>
       )}
     </>
@@ -1674,6 +1808,18 @@ function rectsOverlap(a: AnnotationRect, b: AnnotationRect): boolean {
     a.top < b.top + b.height &&
     a.top + a.height > b.top
   );
+}
+
+function rectOverlapArea(a: AnnotationRect, b: AnnotationRect): number {
+  const width = Math.max(
+    0,
+    Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left),
+  );
+  const height = Math.max(
+    0,
+    Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top),
+  );
+  return width * height;
 }
 
 /** Slide a gutter note along its side axis until it clears any frame it would

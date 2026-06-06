@@ -71,7 +71,10 @@ export function isGuestAuthorIdentity(
 export function isLocalPlanRuntime(): boolean {
   // Hard refusal: never assume a local identity in production, regardless of
   // any other flag. Mirrors the runtime assertions in core's dev fallbacks.
-  if (process.env.NODE_ENV === "production") return false;
+  // Case-insensitive + whitespace-tolerant: a mis-cased "Production" or a padded
+  // value must still trip the hard refusal, never silently enable local mode.
+  const nodeEnv = (process.env.NODE_ENV ?? "").trim().toLowerCase();
+  if (nodeEnv === "production" || nodeEnv === "prod") return false;
 
   // An explicit opt-out always wins, even in dev (useful for testing the
   // hosted/auth-required behavior locally).

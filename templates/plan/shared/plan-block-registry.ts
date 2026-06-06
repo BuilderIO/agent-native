@@ -4,6 +4,12 @@ import {
   registerBlocks,
   describeBlocksForAgent,
   renderBlockVocabularyReference,
+  // The React-free standard library (checklist, table, code-tabs, html, tabs +
+  // the eight dev-doc blocks) is registered once via `registerLibraryBlockConfigs`
+  // — the SAME shared list content's server registry uses. Plan adds only its
+  // plan-specific block configs (callout/diagram/wireframe/question-form) on top.
+  registerLibraryBlockConfigs,
+  type LibraryBlockConfigOverrides,
   type BlockAgentDoc,
 } from "@agent-native/core/blocks/server";
 import {
@@ -22,22 +28,10 @@ import {
   type WireframeData,
 } from "./blocks/wireframe.config.js";
 import {
-  checklistSchema,
-  checklistMdx,
-  type ChecklistData,
-  tableSchema,
-  tableMdx,
-  type TableData,
-  codeTabsSchema,
-  codeTabsMdx,
-  type CodeTabsData,
-  htmlSchema,
-  htmlMdx,
-  type HtmlBlockData,
-  tabsSchema,
-  tabsMdx,
-  type TabsData,
-} from "@agent-native/core/blocks/server";
+  questionFormSchema,
+  questionFormMdx,
+  type QuestionFormData,
+} from "./blocks/question-form.config.js";
 
 /**
  * Server / shared plan block registry. Registers the React-free parts of each
@@ -52,7 +46,28 @@ import {
  * (`() => null`) that is never invoked on the server. Unregistered block types
  * keep using the legacy `serializeBlock`/`parseBlock` path unchanged.
  */
+
+/**
+ * Plan's agent-facing overrides for the shared library config: the Mermaid
+ * description is phrased for the plan's hand-drawn render style, and the file-tree
+ * description carries the plan's detailed phrasing. Everything else (schema, MDX
+ * config, labels, the `table` type, `notionCompatible` flags) uses the canonical
+ * core value, so these configs live in exactly one place.
+ */
+const PLAN_SERVER_LIBRARY_OVERRIDES: LibraryBlockConfigOverrides = {
+  mermaid: {
+    description:
+      "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
+  },
+  "file-tree": {
+    description:
+      "A VS Code / GitHub-explorer file and change tree derived from slash-delimited paths, with per-file change badges (added/modified/removed/renamed), notes, and code snippets.",
+  },
+};
+
 export function registerPlanBlocks(registry: BlockRegistry): void {
+  // Plan-specific block configs (callout/diagram/wireframe/question-form). The
+  // standard library is registered once via `registerLibraryBlockConfigs` below.
   registerBlocks(registry, [
     defineBlock<CalloutData>({
       type: "callout",
@@ -76,39 +91,6 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       description:
         "A sketch flow diagram of labeled nodes connected by edges, with optional notes.",
     }),
-    defineBlock<ChecklistData>({
-      type: "checklist",
-      schema: checklistSchema,
-      mdx: checklistMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Checklist",
-      description:
-        "A list of toggleable items, each with a label and an optional note.",
-    }),
-    defineBlock<CodeTabsData>({
-      type: "code-tabs",
-      schema: codeTabsSchema,
-      mdx: codeTabsMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Code tabs",
-      description:
-        "A vertical file tab rail of syntax-highlighted code snippets, one tab per file with an optional language and caption.",
-    }),
-    defineBlock<TableData>({
-      type: "table",
-      schema: tableSchema,
-      mdx: tableMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Table",
-      description:
-        "A simple grid with header columns and string rows for comparisons, parameters, or structured lists.",
-    }),
     defineBlock<WireframeData>({
       type: "wireframe",
       schema: wireframeSchema,
@@ -120,29 +102,29 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       description:
         "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface frame (desktop/mobile/popover/panel/browser).",
     }),
-    defineBlock<HtmlBlockData>({
-      type: "custom-html",
-      schema: htmlSchema,
-      mdx: htmlMdx,
+    defineBlock<QuestionFormData>({
+      type: "question-form",
+      schema: questionFormSchema,
+      mdx: questionFormMdx,
       // Server stub — the browser registry supplies the real renderer.
       Read: () => null,
       placement: ["block"],
-      label: "HTML / Tailwind",
+      label: "Question form",
       description:
-        "An author-supplied HTML (with optional CSS) fragment rendered in a sandboxed iframe, with inline source editing.",
-    }),
-    defineBlock<TabsData>({
-      type: "tabs",
-      schema: tabsSchema,
-      mdx: tabsMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block", "inline"],
-      label: "Tabs",
-      description:
-        "A horizontal pill-tab container; each tab holds its own list of blocks.",
+        "An interactive form block for open questions, single-choice or multi-choice chips, freeform answers, recommended options, and optional wireframe/diagram previews.",
     }),
   ]);
+
+  // Standard library config stubs (checklist, table, code-tabs, custom-html, tabs
+  // + the eight dev-doc blocks), shared with content's server registry. Plan's
+  // only agent-facing tweaks: the Mermaid description is phrased for its
+  // hand-drawn render style and the file-tree description is the detailed plan
+  // phrasing. Table keeps the core default `type` (`table`). `notionCompatible`
+  // on checklist/table comes from the shared config, so the single-sourced Notion
+  // allowlist (`notion-compat.ts`) stays the same on server and client.
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
 }
 
 /**
@@ -158,6 +140,18 @@ function planAgentRegistry(): BlockRegistry {
     registerPlanBlocks(cachedAgentRegistry);
   }
   return cachedAgentRegistry;
+}
+
+/**
+ * The set of registered plan block `type`s that round-trip to Notion-Flavored
+ * Markdown (the specs flagged `notionCompatible`). Single source for the Notion
+ * gating allowlist — `notion-compat.ts` unions these with the prose-only NFM
+ * analogs (`rich-text`, `callout`, `image`) that are not registry atoms. Reads
+ * from the shared React-free registry so it is safe to call from server, agent,
+ * and browser code alike.
+ */
+export function planNotionCompatibleBlockTypes(): Set<string> {
+  return planAgentRegistry().notionCompatibleTypes();
 }
 
 /**

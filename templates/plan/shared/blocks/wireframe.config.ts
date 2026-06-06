@@ -96,10 +96,18 @@ function serializeNode(node: PlanWireframeNode, indent = ""): string {
  * total output equals the legacy `serializeBlock` wireframe branch exactly.
  */
 function serializeScreen(data: WireframeData): string {
+  const attrs = [
+    prop("surface", data.surface),
+    prop("caption", data.caption),
+    prop("html", data.html),
+    prop("css", data.css),
+    prop("skeleton", data.skeleton),
+  ].join("");
   const children = (data.screen ?? [])
     .map((node) => serializeNode(node, "  "))
     .join("\n");
-  return `<Screen${prop("surface", data.surface)}${prop("caption", data.caption)}>\n${children}\n</Screen>`;
+  if (!children) return `<Screen${attrs} />`;
+  return `<Screen${attrs}>\n${children}\n</Screen>`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -138,6 +146,11 @@ function findAttribute(node: WireframeMdxNode, name: string) {
 function stringAttr(node: WireframeMdxNode, name: string): string | undefined {
   const value = attributeValue(findAttribute(node, name));
   return typeof value === "string" ? value : undefined;
+}
+
+function boolAttr(node: WireframeMdxNode, name: string): boolean | undefined {
+  const value = attributeValue(findAttribute(node, name));
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function createStableWireframeNodeId(
@@ -181,6 +194,9 @@ function parseScreen(node: WireframeMdxNode, idContext: string): WireframeData {
     surface:
       (stringAttr(node, "surface") as WireframeData["surface"]) ?? "desktop",
     caption: stringAttr(node, "caption"),
+    html: stringAttr(node, "html"),
+    css: stringAttr(node, "css"),
+    skeleton: boolAttr(node, "skeleton"),
     screen: (node.children ?? [])
       .map((child, index) =>
         parseWireframeNode(child, `${idContext}-screen-${index}`),

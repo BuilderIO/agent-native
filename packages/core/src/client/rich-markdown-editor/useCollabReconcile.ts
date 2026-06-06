@@ -15,6 +15,25 @@ export function getEditorMarkdown(editor: Editor): string {
   return markdownStorage.markdown?.getMarkdown?.() ?? "";
 }
 
+/**
+ * Push a value onto the bounded ring of recently-emitted markdown (most recent
+ * last, deduped, capped). The reconcile uses this to recognize a stale-but-recent
+ * echo of OUR OWN edits: a debounced autosave can persist a PARTIAL burst, and
+ * the next poll re-supplies that partial value with a newer timestamp — applying
+ * it would clobber the freshly-typed tail. An external change (agent/peer) never
+ * byte-matches one of our own recent emissions, and if it somehow did the content
+ * is identical, so skipping it is safe by construction.
+ */
+const EMITTED_RING_MAX = 16;
+function pushEmittedRing(ring: string[], value: string): void {
+  if (!value) return;
+  if (ring[ring.length - 1] === value) return;
+  const dupe = ring.indexOf(value);
+  if (dupe !== -1) ring.splice(dupe, 1);
+  ring.push(value);
+  if (ring.length > EMITTED_RING_MAX) ring.shift();
+}
+
 export interface UseCollabReconcileOptions {
   /** The live editor, or null until it mounts. */
   editor: Editor | null;
@@ -182,6 +201,10 @@ export function useCollabReconcile({
   const collab = !!ydoc;
   const isSettingContentRef = useRef(false);
   const lastEmittedRef = useRef("");
+  // Ring of recent local emissions (see pushEmittedRing). Lets the reconcile
+  // recognize a stale-but-recent echo of our OWN (possibly partial, debounced)
+  // save so a lagging poll never clobbers freshly-typed text.
+  const recentEmittedRef = useRef<string[]>([]);
   const lastTypedAtRef = useRef(0);
   // The raw authoritative `value` string the reconcile last applied. When the
   // SAME raw string is re-fetched (a lagging poll, or a source-sync that keeps
@@ -262,6 +285,7 @@ export function useCollabReconcile({
       isSettingContentRef.current = false;
       const serialized = getMarkdown(editor);
       lastEmittedRef.current = serialized;
+      pushEmittedRing(recentEmittedRef.current, serialized);
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
@@ -337,6 +361,10 @@ export function useCollabReconcile({
       if (
         currentMarkdown === normalizedValue ||
         value === lastEmittedRef.current ||
+        // A stale-but-recent echo of our own (possibly partial) save — applying
+        // it would clobber the freshly-typed tail. External edits never match.
+        recentEmittedRef.current.includes(value) ||
+        recentEmittedRef.current.includes(normalizedValue) ||
         (editorUnchangedSinceApply &&
           (value === lastAppliedValueRef.current ||
             normalizedValue === lastAppliedSerializedRef.current))
@@ -418,6 +446,7 @@ export function useCollabReconcile({
         // own echo and skipped — stabilizing the doc after exactly one apply.
         const serialized = getMarkdown(editor);
         lastEmittedRef.current = serialized;
+        pushEmittedRing(recentEmittedRef.current, serialized);
         lastAppliedValueRef.current = value;
         lastAppliedSerializedRef.current = serialized;
         if (contentUpdatedAt) {
@@ -458,6 +487,7 @@ export function useCollabReconcile({
     // clobber the saved block content with an empty string.
     if (collab && !markdown.trim()) return false;
     lastEmittedRef.current = markdown;
+    pushEmittedRing(recentEmittedRef.current, markdown);
     return true;
   };
 

@@ -208,8 +208,125 @@ const HARD_CASES: Array<{ name: string; nfm: string }> = [
   },
 ];
 
+/**
+ * Registry-block cases (T6): a registered structured block lives inline in the
+ * NFM string as an MDX element. The live editor schema must include core's
+ * `registryBlock` atom node so it parses to a `registryBlock`, preserves the
+ * verbatim source in `__raw`, and serializes back byte-exact with no edit —
+ * exactly like every other block above. An untouched block never needs the
+ * side-map: `docToNfm` emits `__raw` verbatim.
+ */
+const REGISTRY_CASES: Array<{ name: string; nfm: string }> = [
+  {
+    name: "self-closing endpoint",
+    nfm: '<Endpoint id="e1" method="GET" path="/api/widgets" />',
+  },
+  {
+    name: "checklist with items expr",
+    nfm: '<Checklist id="c1" items={[{"id":"a","label":"First"}]} />',
+  },
+  {
+    name: "endpoint with prose children",
+    nfm: L(
+      '<Endpoint id="e2" method="POST" path="/api/widgets">',
+      "",
+      "Creates a widget.",
+      "",
+      "</Endpoint>",
+    ),
+  },
+  {
+    name: "registry block nested inside a callout (indented __raw)",
+    nfm: L(
+      '<callout icon="💡">',
+      "\tIntro inside the callout.",
+      '\t<Endpoint id="e3" method="GET" path="/nested" />',
+      "</callout>",
+    ),
+  },
+  {
+    name: "registry block between paragraphs",
+    nfm: L(
+      "Above the block.",
+      '<DataModel id="d1" entities={[{"id":"e","name":"User","fields":[]}]} />',
+      "Below the block.",
+    ),
+  },
+  // The remaining dev-doc blocks from the unification, seeded byte-exact from
+  // each spec's `empty()` via `seedRegistryBlockRaw` (the slash-insert path).
+  // These exercise multi-line JSON-expression `__raw` attributes (embedded
+  // newlines in mermaid `source`, pretty-printed `entities`/`spec`) through the
+  // FULL live TipTap schema — the strongest round-trip guarantee.
+  {
+    name: "mermaid block (multi-line source expr)",
+    nfm: '<Mermaid id="mermaid-seed" source={"flowchart TD\\n  A[Start] --> B{Decision}\\n  B -->|Yes| C[Do it]\\n  B -->|No| D[Skip]"} />',
+  },
+  {
+    name: "data-model block (pretty-printed entities expr)",
+    nfm: L(
+      '<DataModel id="data-model-seed" entities={[',
+      "  {",
+      '    "id": "e_user",',
+      '    "name": "User",',
+      '    "fields": [',
+      "      {",
+      '        "name": "id",',
+      '        "type": "uuid",',
+      '        "pk": true',
+      "      },",
+      "      {",
+      '        "name": "email",',
+      '        "type": "text"',
+      "      }",
+      "    ]",
+      "  }",
+      "]} />",
+    ),
+  },
+  {
+    name: "diff block (multi-line before/after exprs)",
+    nfm: '<Diff id="diff-seed" language="ts" before={"function add(a, b) {\\n  return a + b;\\n}"} after={"function add(a: number, b: number): number {\\n  return a + b;\\n}"} />',
+  },
+  {
+    name: "file-tree block (pretty-printed entries expr)",
+    nfm: L(
+      '<FileTree id="file-tree-seed" entries={[',
+      "  {",
+      '    "path": "src/index.ts",',
+      '    "change": "modified",',
+      '    "note": "Wire the new route here."',
+      "  },",
+      "  {",
+      '    "path": "src/routes/git.ts",',
+      '    "change": "added"',
+      "  }",
+      "]} />",
+    ),
+  },
+  {
+    name: "json-explorer block (escaped JSON string expr)",
+    nfm: '<Json id="json-explorer-seed" json={"{\\n  \\"id\\": \\"abc123\\",\\n  \\"active\\": true,\\n  \\"tags\\": [\\n    \\"alpha\\",\\n    \\"beta\\"\\n  ],\\n  \\"meta\\": {\\n    \\"count\\": 2,\\n    \\"owner\\": null\\n  }\\n}"} />',
+  },
+  {
+    name: "annotated-code block (code expr + annotations array)",
+    nfm: L(
+      '<AnnotatedCode id="annotated-code-seed" language="ts" code={"export function resolveAuth(provider: string) {\\n  const cfg = providers[provider];\\n  return cfg.token;\\n}"} annotations={[',
+      "  {",
+      '    "lines": "2",',
+      '    "label": "Lookup",',
+      '    "note": "Resolves the provider config by key."',
+      "  }",
+      "]} />",
+    ),
+  },
+  {
+    name: "openapi-spec block (escaped whole-spec string expr)",
+    nfm: '<OpenApi id="openapi-spec-seed" spec={"{\\n  \\"openapi\\": \\"3.0.0\\",\\n  \\"info\\": {\\n    \\"title\\": \\"Example API\\",\\n    \\"version\\": \\"1.0.0\\"\\n  },\\n  \\"tags\\": [\\n    {\\n      \\"name\\": \\"widgets\\",\\n      \\"description\\": \\"Manage widgets\\"\\n    }\\n  ],\\n  \\"paths\\": {\\n    \\"/widgets\\": {\\n      \\"get\\": {\\n        \\"tags\\": [\\n          \\"widgets\\"\\n        ],\\n        \\"summary\\": \\"List widgets\\",\\n        \\"responses\\": {\\n          \\"200\\": {\\n            \\"description\\": \\"OK\\"\\n          }\\n        }\\n      }\\n    }\\n  }\\n}"} />',
+  },
+];
+
 describe("NFM ⇄ real TipTap editor round-trip", () => {
-  for (const { name, nfm } of [...CASES, ...HARD_CASES]) {
+  for (const { name, nfm } of [...CASES, ...HARD_CASES, ...REGISTRY_CASES]) {
     it(`round-trips through the live schema: ${name}`, () => {
       expect(editorRoundTrip(nfm)).toBe(nfm);
     });

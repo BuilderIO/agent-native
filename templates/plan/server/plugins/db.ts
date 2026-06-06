@@ -147,6 +147,14 @@ ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_name TEXT`,
       sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT REFERENCES plan_comments(id);
 CREATE INDEX IF NOT EXISTS plan_comments_parent_idx ON plan_comments(parent_comment_id)`,
     },
+    {
+      version: 17,
+      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolution_target TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_by TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_at TEXT;
+CREATE INDEX IF NOT EXISTS plan_comments_resolution_idx ON plan_comments(plan_id, resolution_target, status, consumed_at)`,
+    },
   ],
   { table: "plans_migrations" },
 );

@@ -1,4 +1,4 @@
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import type {
@@ -16,6 +16,11 @@ import {
   renderNodes,
 } from "./kit";
 import { useWireframeStyle } from "./use-wireframe-style";
+import { sanitizeWireframeHtml } from "./sanitize-html";
+import {
+  RUNTIME_SENTINEL_ATTR,
+  mountPrototypeRuntime,
+} from "./prototype-runtime";
 import "./html-artboard.css";
 
 /**
@@ -69,11 +74,13 @@ export function Wireframe({
   compact,
   canvasSize,
   canvasWidth,
+  interactive,
 }: {
   data: WireframeData;
   compact?: boolean;
   canvasSize?: number;
   canvasWidth?: number;
+  interactive?: boolean;
 }) {
   if (isHtmlData(data)) {
     return (
@@ -82,6 +89,7 @@ export function Wireframe({
         compact={compact}
         canvasSize={canvasSize}
         canvasWidth={canvasWidth}
+        interactive={interactive}
       />
     );
   }
@@ -224,12 +232,50 @@ function HtmlArtboard({
   compact,
   canvasSize,
   canvasWidth,
+  interactive,
 }: {
   data: PlanWireframeBlock["data"];
   compact?: boolean;
   canvasSize?: number;
   canvasWidth?: number;
+  interactive?: boolean;
 }) {
+  // Sanitize model-authored HTML at the render point (defense-in-depth against
+  // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
+  // html changes, not on every theme/zoom re-render.
+  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const htmlRef = useRef<HTMLDivElement>(null);
+  const runtimeCleanupRef = useRef<(() => void) | null>(null);
+  const runtimeTimerRef = useRef<number | null>(null);
+  const cleanupRuntime = useCallback(() => {
+    if (runtimeTimerRef.current !== null) {
+      window.clearTimeout(runtimeTimerRef.current);
+      runtimeTimerRef.current = null;
+    }
+    runtimeCleanupRef.current?.();
+    runtimeCleanupRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const node = htmlRef.current;
+    if (!interactive || !node) {
+      cleanupRuntime();
+      return;
+    }
+    if (node.querySelector(`[${RUNTIME_SENTINEL_ATTR}]`)) return;
+    cleanupRuntime();
+    if (interactive && node) {
+      runtimeTimerRef.current = window.setTimeout(() => {
+        runtimeTimerRef.current = null;
+        if (htmlRef.current === node) {
+          runtimeCleanupRef.current = mountPrototypeRuntime(node);
+        }
+      }, 0);
+    }
+  });
+
+  useEffect(() => cleanupRuntime, [cleanupRuntime]);
+
   return (
     <ArtboardFrame
       surface={data.surface}
@@ -241,11 +287,13 @@ function HtmlArtboard({
       caption={data.caption}
       render={({ theme, style }) => (
         <div
+          ref={htmlRef}
           className="plan-html-frame"
           data-theme={theme}
           data-style={style}
           data-skeleton={data.skeleton ? "true" : undefined}
-          dangerouslySetInnerHTML={{ __html: data.html ?? "" }}
+          data-prototype-live={interactive ? "true" : undefined}
+          dangerouslySetInnerHTML={{ __html: safeHtml }}
         />
       )}
     />

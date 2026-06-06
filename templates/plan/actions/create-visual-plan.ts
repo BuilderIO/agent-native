@@ -35,7 +35,7 @@ import { planContentSchema } from "../shared/plan-content.js";
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a durable visual spec with diagrams, wireframes, prototypes, file/symbol implementation maps, code previews, options, annotations, and a share/export workflow.",
+    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a durable visual spec with an optional top visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs), diagrams, file/symbol implementation maps, code previews, options, annotations, and a share/export workflow.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -57,7 +57,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable plan content. Prefer this for rich text, top canvas wireframes (HTML mockups: set the wireframe's data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex), diagrams, code tabs, implementation maps, images, bounded custom HTML fragments, and visual questions. The renderer owns all visual styling; emit lean content, not pixels.",
+          "Structured editable plan content. Prefer this for rich text, diagrams, implementation maps, question-form open questions, and any top visual surface. Omit canvas/prototype for non-visual plans; use canvas only for static visuals; include both canvas and prototype for multi-step flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()
@@ -223,7 +223,7 @@ export default defineAction({
       url: planPath(id),
       ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
-        "Open the Agent-Native Plans link, scan the editable rich plan blocks and any sketch canvas, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
+        "Open the Agent-Native Plans link, scan the editable rich plan blocks and any top visual tabs, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

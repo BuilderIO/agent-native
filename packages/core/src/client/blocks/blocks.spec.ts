@@ -52,6 +52,25 @@ describe("block registry", () => {
       /already registered/,
     );
   });
+
+  it("lists only specs flagged as Notion-compatible", () => {
+    const registry = new BlockRegistry();
+    registerBlocks(registry, [
+      {
+        ...calloutSpec(),
+        type: "checklist",
+        mdx: { ...calloutSpec().mdx, tag: "Checklist" },
+        notionCompatible: true,
+      },
+      {
+        ...calloutSpec(),
+        type: "wireframe",
+        mdx: { ...calloutSpec().mdx, tag: "Wireframe" },
+      },
+    ]);
+
+    expect([...registry.notionCompatibleTypes()]).toEqual(["checklist"]);
+  });
 });
 
 describe("prop encoder", () => {

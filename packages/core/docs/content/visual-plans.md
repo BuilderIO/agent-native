@@ -5,7 +5,7 @@ description: "Turn your coding agent's plans into interactive, reviewable docume
 
 # Visual Plans
 
-`/visual-plan` is a coding-agent skill that turns the plan your agent would normally write in Markdown into a **structured visual document**: an optional pan/zoom wireframe canvas on top and a Notion-like technical document below, with diagrams, mockups, prototype options, annotations, and comments you can react to before any code changes.
+`/visual-plan` is a coding-agent skill that turns the plan your agent would normally write in Markdown into a **structured visual document**: an optional pan/zoom wireframe canvas on top and a Notion-like technical document below, with diagrams, mockups, prototype options, answerable Open Questions, annotations, and comments you can react to before any code changes.
 
 There are two ways into Plans:
 
@@ -44,6 +44,8 @@ Once installed, use the slash command that fits the work:
 - `/visualize-plan` — turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual companion.
 
 The agent gates hard: it only builds a polished visual plan when a wrong direction would be costly, and skips it for trivial, unambiguous work. Each command generates a plan and opens the editor.
+
+When a plan has unresolved decisions that are useful to answer after the first pass, the agent can put them in an **Open Questions** form at the bottom of the same plan. You can choose single or multiple options, fill in freeform answers, and send the answers back to the agent to revise the plan.
 
 ## Editing in the browser as a guest {#guest}
 

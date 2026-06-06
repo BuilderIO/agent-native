@@ -7,11 +7,16 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
-import { BlockView, useOptionalBlockRegistry } from "@agent-native/core/blocks";
+import {
+  BlockView,
+  blockEditSurface,
+  useOptionalBlockRegistry,
+} from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import type { PlanBlock, PlanVisualQuestion } from "@shared/plan-content";
+import type { PlanBlock, PlanQuestion } from "@shared/plan-content";
 import {
   KitWireframeBlock,
   SketchDiagram,
@@ -80,12 +85,18 @@ export function PlanBlockView({
         ctx={blockRegistry.ctx}
       />
     );
-    // In edit mode the auto-editor / custom Edit renders bare fields — wrap them
-    // in the standard titled block section. In read mode the spec's Read already
-    // provides its own section, so render it directly to avoid double-nesting.
-    return editing && spec.placement.includes("block") ? (
+    // In INLINE edit mode the auto-editor / custom Edit renders bare fields — wrap
+    // them in the standard titled block section. In read mode (and in PANEL edit
+    // mode, where `BlockView` renders the spec's own `Read` plus a corner edit
+    // button) the spec already provides its own section, so render it directly to
+    // avoid double-nesting.
+    const wrapInline =
+      editing &&
+      spec.placement.includes("block") &&
+      blockEditSurface(spec) === "inline";
+    return wrapInline ? (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         {view}
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
@@ -112,7 +123,7 @@ export function PlanBlockView({
   if (block.type === "callout") {
     return (
       <section className="plan-block plan-callout" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <PlanMarkdownReader markdown={block.data.body} />
       </section>
     );
@@ -120,7 +131,7 @@ export function PlanBlockView({
   if (block.type === "checklist") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <div className="grid gap-3">
           {block.data.items.map((item) => (
             <button
@@ -166,7 +177,7 @@ export function PlanBlockView({
   if (block.type === "table") {
     return (
       <section className="plan-block overflow-x-auto" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <table className="w-full min-w-[640px] border-collapse text-left">
           <thead>
             <tr className="border-b border-plan-line text-sm text-plan-muted">
@@ -201,7 +212,7 @@ export function PlanBlockView({
   if (block.type === "wireframe") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <KitWireframeBlock block={block} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
@@ -212,7 +223,7 @@ export function PlanBlockView({
   if (block.type === "legacy-wireframe") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <Wireframe data={block.data} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
@@ -223,7 +234,7 @@ export function PlanBlockView({
   if (block.type === "diagram") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <SketchDiagram data={block.data} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
@@ -237,7 +248,7 @@ export function PlanBlockView({
   if (block.type === "decision") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <p className="mt-3 max-w-3xl text-lg leading-8 text-plan-muted">
           {block.data.question}
         </p>
@@ -290,9 +301,18 @@ export function PlanBlockView({
   if (block.type === "custom-html") {
     return <CustomHtmlBlock block={block} onChange={onChange} />;
   }
+  if (block.type === "question-form") {
+    return (
+      <QuestionFormBlock
+        block={block}
+        onChange={onChange}
+        onSubmit={onVisualQuestionsSubmit}
+      />
+    );
+  }
   if (block.type === "visual-questions") {
     return (
-      <VisualQuestionsBlock
+      <QuestionFormBlock
         block={block}
         onChange={onChange}
         onSubmit={onVisualQuestionsSubmit}
@@ -326,8 +346,7 @@ function RichTextBlock({
   const editable = canUseInlineEditor && !editingDisabled;
   return (
     <section className="plan-block group" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
-      {canUseInlineEditor ? (
+      {canUseInlineEditor && !editingDisabled ? (
         <PlanMarkdownEditor
           markdown={block.data.markdown}
           editable={editable}
@@ -345,9 +364,8 @@ function RichTextBlock({
           }
         />
       ) : (
-        // Read-only path (public / shared-reviewer / SSR): render markdown with
-        // react-markdown so the Tiptap editor never mounts when it can't be
-        // edited. See PlanMarkdownReader.
+        // Read-only path (public / shared-reviewer / review mode / SSR): render
+        // markdown without mounting Tiptap so comment clicks hit stable text.
         <PlanMarkdownReader markdown={block.data.markdown} />
       )}
     </section>
@@ -364,7 +382,7 @@ function CodeTabsBlock({
     block.data.tabs.find((tab) => tab.id === activeId) ?? block.data.tabs[0];
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       <div className="grid overflow-hidden border-y border-plan-line md:grid-cols-[300px_minmax(0,1fr)]">
         <div className="border-plan-line md:border-r">
           {block.data.tabs.map((tab) => (
@@ -439,7 +457,7 @@ function ImplementationMapBlock({
     block.data.files[0];
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       <div className="grid overflow-hidden border-y border-plan-line lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className="border-plan-line lg:border-r">
           {block.data.files.map((file) => (
@@ -517,7 +535,7 @@ function TabsBlock({
   );
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       <div
         className="mb-8 inline-flex max-w-full gap-1 overflow-x-auto"
         role="tablist"
@@ -598,7 +616,11 @@ function CustomHtmlBlock({
   return (
     <section className="plan-block group" data-block-id={block.id}>
       <div className="flex items-start justify-between gap-4">
-        {block.title && <h2>{block.title}</h2>}
+        {block.title ? (
+          <div className="plan-block-label">{block.title}</div>
+        ) : (
+          <span />
+        )}
         {onChange && (
           <Button
             type="button"
@@ -679,16 +701,16 @@ function CustomHtmlBlock({
 type VisualAnswer = { text?: string; selected?: string[] };
 type VisualAnswers = Record<string, VisualAnswer>;
 
-function isAnswered(question: PlanVisualQuestion, answer?: VisualAnswer) {
+function isAnswered(question: PlanQuestion, answer?: VisualAnswer) {
   if (question.mode === "freeform") return Boolean(answer?.text?.trim());
-  return Boolean(answer?.selected?.length);
+  return Boolean(answer?.selected?.length || answer?.text?.trim());
 }
 
-function VisualQuestionsBlock({
+export function QuestionFormBlock({
   block,
   onSubmit,
 }: {
-  block: Extract<PlanBlock, { type: "visual-questions" }>;
+  block: Extract<PlanBlock, { type: "question-form" | "visual-questions" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
   onSubmit?: (summary: string) => void;
 }) {
@@ -709,7 +731,7 @@ function VisualQuestionsBlock({
 
   return (
     <section className="plan-questions-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       <div className="mt-8 grid gap-14">
         {questions.map((question, index) => (
           <VisualQuestionView
@@ -731,7 +753,12 @@ function VisualQuestionsBlock({
             variant="outline"
             onClick={() => {
               void navigator.clipboard.writeText(
-                summarizeVisualQuestions(questions, answers),
+                summarizeQuestionForm(
+                  block.id,
+                  block.title,
+                  questions,
+                  answers,
+                ),
               );
             }}
           >
@@ -740,7 +767,14 @@ function VisualQuestionsBlock({
           <Button
             type="button"
             onClick={() =>
-              onSubmit?.(summarizeVisualQuestions(questions, answers))
+              onSubmit?.(
+                summarizeQuestionForm(
+                  block.id,
+                  block.title,
+                  questions,
+                  answers,
+                ),
+              )
             }
           >
             {block.data.submitLabel || "Send to agent"}
@@ -751,23 +785,29 @@ function VisualQuestionsBlock({
   );
 }
 
-function summarizeVisualQuestions(
-  questions: PlanVisualQuestion[],
+function summarizeQuestionForm(
+  blockId: string | undefined,
+  blockTitle: string | undefined,
+  questions: PlanQuestion[],
   answers: VisualAnswers,
 ) {
   const lines = [
-    "Use these visual intake answers to create or update the visual plan:",
+    "Use these plan question answers to revise the existing visual plan:",
+    blockId ? `Question block: ${blockId}` : "",
+    blockTitle ? `Section: ${blockTitle}` : "",
     "",
-  ];
+  ].filter((line) => line !== "");
   for (const question of questions) {
     const answer = answers[question.id];
+    const selectedLabels =
+      question.options
+        ?.filter((option) => answer?.selected?.includes(option.id))
+        .map((option) => option.label) ?? [];
+    const other = answer?.text?.trim();
     const value =
       question.mode === "freeform"
-        ? answer?.text?.trim()
-        : question.options
-            ?.filter((option) => answer?.selected?.includes(option.id))
-            .map((option) => option.label)
-            .join(", ");
+        ? other
+        : [...selectedLabels, ...(other ? [`Other: ${other}`] : [])].join(", ");
     lines.push(`- ${question.title}: ${value || "No answer yet"}`);
   }
   return lines.join("\n");
@@ -779,12 +819,15 @@ function VisualQuestionView({
   answer,
   onAnswer,
 }: {
-  question: PlanVisualQuestion;
+  question: PlanQuestion;
   index: number;
   answer?: VisualAnswer;
   onAnswer: (answer: VisualAnswer) => void;
 }) {
   const selected = answer?.selected ?? [];
+  const hasVisualOptions = Boolean(
+    question.options?.some((option) => option.wireframe || option.diagram),
+  );
   return (
     <article className="grid gap-6 sm:grid-cols-[46px_minmax(0,1fr)]">
       <div className="flex size-8 items-center justify-center rounded-full border border-plan-line bg-plan-block text-sm font-semibold text-plan-muted">
@@ -805,10 +848,17 @@ function VisualQuestionView({
             onChange={(event) => onAnswer({ text: event.target.value })}
             className="mt-6 min-h-28 rounded-xl border-plan-line bg-plan-block text-base"
             data-plan-interactive
-            placeholder="Add details..."
+            placeholder={question.placeholder || "Add details..."}
           />
         ) : (
-          <div className="mt-6 grid gap-7">
+          <div
+            className={cn(
+              "mt-6",
+              hasVisualOptions
+                ? "grid gap-4 md:grid-cols-2"
+                : "flex flex-wrap gap-3",
+            )}
+          >
             {question.options?.map((option) => {
               const isSelected = selected.includes(option.id);
               return (
@@ -816,20 +866,27 @@ function VisualQuestionView({
                   key={option.id}
                   type="button"
                   data-plan-interactive
-                  className="grid gap-5 border-b border-plan-line pb-7 text-left last:border-b-0"
+                  className={cn(
+                    hasVisualOptions
+                      ? "grid gap-4 rounded-xl border border-plan-line bg-plan-block p-4 text-left transition-colors hover:bg-accent/30"
+                      : "inline-flex min-h-10 max-w-full items-center gap-2 rounded-full border border-plan-line bg-plan-block px-4 py-2 text-left text-sm font-semibold text-plan-text shadow-sm transition-colors hover:bg-accent/40",
+                    isSelected &&
+                      "border-primary bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary))]",
+                  )}
                   onClick={() => {
                     if (question.mode === "single") {
-                      onAnswer({ selected: [option.id] });
+                      onAnswer({ ...answer, selected: [option.id] });
                       return;
                     }
                     onAnswer({
+                      ...answer,
                       selected: isSelected
                         ? selected.filter((id) => id !== option.id)
                         : [...selected, option.id],
                     });
                   }}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <span
                       className={cn(
                         "mt-1 flex size-5 shrink-0 items-center justify-center border",
@@ -857,7 +914,7 @@ function VisualQuestionView({
                       )}
                     </span>
                   </div>
-                  {(option.wireframe || option.diagram) && (
+                  {hasVisualOptions && (option.wireframe || option.diagram) && (
                     <div className="ml-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
                       {option.wireframe && (
                         <Wireframe data={option.wireframe} compact />
@@ -870,6 +927,17 @@ function VisualQuestionView({
                 </button>
               );
             })}
+            {question.allowOther && (
+              <Input
+                value={answer?.text ?? ""}
+                onChange={(event) =>
+                  onAnswer({ ...answer, text: event.target.value })
+                }
+                className="h-10 w-full rounded-full border-plan-line bg-plan-block px-4 sm:w-64"
+                data-plan-interactive
+                placeholder={question.placeholder || "Other..."}
+              />
+            )}
           </div>
         )}
       </div>
@@ -991,7 +1059,7 @@ function ImageBlock({
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       {src ? (
         <img
           src={src}

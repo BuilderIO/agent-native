@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Editor } from "@tiptap/react";
@@ -34,10 +34,20 @@ import {
 import { useCreateContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { buildRegistrySlashItems } from "./registrySlashItems";
 
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
+  /**
+   * The open document's linked Notion page id, when it has one. When set, the
+   * registry-derived block slash items are filtered to specs that round-trip to
+   * Notion-Flavored Markdown (`spec.notionCompatible`), so authors can't add a
+   * structured block that would silently drop on the next Notion push. When
+   * unset (the common case), all registry blocks are offered.
+   */
+  notionPageId?: string | null;
 }
 
 interface EditorMenuPosition {
@@ -340,6 +350,7 @@ const turnIntoCommands: CommandItem[] = [
 export function SlashCommandMenu({
   editor,
   documentId,
+  notionPageId,
 }: SlashCommandMenuProps) {
   const { send } = useSendToAgentChat();
   const navigate = useNavigate();
@@ -510,6 +521,20 @@ export function SlashCommandMenu({
     },
   };
 
+  // Registry-derived block items (the shared dev-doc / OpenAPI / structured
+  // library). Filtered to Notion-compatible specs when the document is linked to
+  // a Notion page. "Turn into" only converts the current text block, so these
+  // insert-only blocks are omitted there.
+  const registryCommands = useMemo<CommandItem[]>(
+    () =>
+      isTurnInto
+        ? []
+        : buildRegistrySlashItems(contentBlockRegistry, {
+            notionCompatibleOnly: !!notionPageId,
+          }),
+    [isTurnInto, notionPageId],
+  );
+
   const aiCommands = isTurnInto ? [] : [generateCommand];
   const blockCommands = isTurnInto ? turnIntoCommands : commands;
   const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
@@ -521,11 +546,13 @@ export function SlashCommandMenu({
     cmd.description.toLowerCase().includes(query.toLowerCase());
   const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
+  const filteredRegistryCommands = registryCommands.filter(commandMatchesQuery);
   const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
   const filteredCommands = [
     ...filteredAiCommands,
     ...filteredBlockCommands,
+    ...filteredRegistryCommands,
     ...filteredMediaCommands,
     ...filteredPageCommands,
   ];
@@ -534,7 +561,10 @@ export function SlashCommandMenu({
     const globalIndex = filteredCommands.indexOf(cmd);
     return (
       <CommandButton
-        key={cmd.title}
+        // Title can collide across groups (e.g. the basic "Table" block and the
+        // registry "Table" block), so key by the stable position in the combined
+        // list to keep React keys unique.
+        key={globalIndex}
         cmd={cmd}
         isSelected={globalIndex === selectedIndex}
         onExecute={() => executeCommand(cmd)}
@@ -744,6 +774,14 @@ export function SlashCommandMenu({
                   {isTurnInto ? "Turn into" : "Basic blocks"}
                 </div>
                 {filteredBlockCommands.map(renderCommand)}
+              </>
+            ) : null}
+            {filteredRegistryCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
+                  Blocks
+                </div>
+                {filteredRegistryCommands.map(renderCommand)}
               </>
             ) : null}
             {filteredMediaCommands.length > 0 ? (

@@ -141,6 +141,7 @@ describe("plan block agent vocabulary export", () => {
       "code-tabs",
       "custom-html",
       "diagram",
+      "question-form",
       "table",
       "tabs",
       "wireframe",
@@ -160,6 +161,8 @@ describe("plan block agent vocabulary export", () => {
     expect(ref).toContain("`<Callout>`");
     expect(ref).toContain("`wireframe`");
     expect(ref).toContain("`<WireframeBlock>`");
+    expect(ref).toContain("`question-form`");
+    expect(ref).toContain("`<QuestionForm>`");
     // Every described block appears as a row.
     for (const doc of describePlanBlocksForAgent()) {
       expect(ref).toContain(`\`${doc.type}\``);

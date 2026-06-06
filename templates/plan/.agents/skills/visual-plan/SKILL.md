@@ -12,12 +12,13 @@ metadata:
 
 Agent-Native Plans is structured visual planning mode for coding agents. Build
 the plan you would normally write in Markdown, but as a scannable document with
-editable blocks mixed in: an optional pan/zoom wireframe canvas on top and a
-Notion-like technical document below. The user reacts to visuals first and reads
-prose only where it helps.
+editable blocks mixed in: an optional top visual review area (wireframe canvas,
+live prototype, or both in tabs) and a Notion-like technical document below. The
+user reacts to visuals first and reads prose only where it helps.
 
 `/visual-plan` is the canonical command and the main entry point. Use `/ui-plan`
 when the work is primarily product UI and review should start with the screens.
+Use `/prototype-plan` when review should start with a functional live prototype.
 Use `/visual-questions` only when the user explicitly wants a visual intake form
 before planning. Use `/visualize-plan` to turn an existing Codex, Claude Code,
 Markdown, or pasted plan into a visual companion.
@@ -46,9 +47,10 @@ direction before you implement.
   approach and options in the plan. Ask a clarifying question only when an
   ambiguity would change the design and you cannot resolve it from the code; use
   the host agent's normal ask-user-question flow and batch 2-4 high-leverage
-  questions before finalizing. Do not create visual questions from `/visual-plan`.
-  Otherwise state the assumption explicitly and proceed, and put anything
-  unresolved in an open-questions block.
+  questions before finalizing. Do not call `create-visual-questions` from
+  `/visual-plan`; keep any answerable follow-up inside the plan itself as a
+  bottom `question-form` Open Questions block. Otherwise state the assumption
+  explicitly and proceed, and put anything unresolved in an open-questions block.
 - **The plan is the approval gate.** After surfacing it, ask the user to review
   and approve before you write code, and name which files/areas the work touches.
   Presenting the plan and requesting sign-off is the approval step — do not ask a
@@ -62,25 +64,53 @@ direction before you implement.
 1. Follow the host agent's normal planning flow: inspect the codebase, delegate
    wide exploration when useful, gather the info needed, and ask native
    clarifying questions as needed before generating the plan.
-2. Call `create-visual-plan` with the title, brief, source, repo path, and
-   structured `content` blocks.
-3. Compose the canvas from the kit and write the document with native blocks
-   (see the two cores below). Keep the document close to the Markdown plan the
-   agent would normally output; add diagrams, wireframes, and visual callouts
-   only where they clarify the plan. Skip the canvas for non-visual work.
+2. Decide the top visual surface with the rules below, then call
+   `create-visual-plan` with the title, brief, source, repo path, and structured `content` blocks.
+3. Compose any top visual surface from the kit and write the document with
+   native blocks (see the cores below). Keep the document close to the Markdown
+   plan the agent would normally output; add diagrams, wireframes, prototypes,
+   and visual callouts only where they clarify the plan. Skip the top visual
+   surface for non-visual work.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
    other text-only hosts. When the host exposes an embedded browser/preview panel
    and a tool can open arbitrary URLs there, open the returned plan URL
    automatically for convenient review; do not rely on this as the only handoff.
 5. Call `get-plan-feedback` before editing, after review, after any long pause,
-   and before the final response.
+   and before the final response. Treat `anchorDetails`, resolver intent, recent
+   review events, and any focused screenshots from browser handoff as the source
+   of truth for exactly what changed and exactly what each comment points at.
 6. Apply changes with `update-visual-plan`, preferring targeted `contentPatches`.
    When the user wants source-control friendly edits, use
    `patch-visual-plan-source` against the MDX files instead of regenerating the
    plan.
 7. Export with `export-visual-plan` only when the user wants a shareable receipt
    or repo-check-in artifacts.
+
+## Visual Surface Choice
+
+Choose the surface before creating the plan. Do not add visual chrome by
+default:
+
+- **No visual surface** for architecture-only, backend-only, data migration,
+  copy-only, or otherwise non-visual plans. Use a strong document with diagrams
+  only when relationships need a visual explanation.
+- **Canvas only** for one static screen, a before/after comparison, a component
+  state, a small popover, or a visual direction that does not require clicking.
+  Put those wireframes in `content.canvas` and omit `content.prototype`.
+- **Canvas + prototype** for multi-step UI flows, onboarding, wizards,
+  review/approval flows, navigation changes, or anything where the reviewer
+  needs to operate the behavior. Keep the static wireframes in
+  `content.canvas`, add the aligned functional prototype in
+  `content.prototype`, and rely on the top visual tabs to switch between them.
+- **Prototype-first** when the user explicitly asks for `/prototype-plan`, asks
+  to operate the UI, or when interaction is the main question. Use
+  `create-prototype-plan`, which still preserves static mocks where useful.
+
+For mixed canvas + prototype plans, reuse the same real labels, app statuses,
+and screen ids across both surfaces. The canvas is the inspectable static reference;
+the prototype is the interactive version of that same flow, not a separate
+design direction.
 
 <!-- SHARED-CORE:wireframe-canvas START -->
 
@@ -242,13 +272,18 @@ hex colors:
 </div>
 ```
 
-**Mockups belong on the canvas.** When the user asks for a mockup, UI state,
-loading state, prototype, layout, screen, or visual comparison, make the top
-canvas the primary home for that visual. Document blocks can explain, compare,
-or map implementation, but they should not host the primary mockup just because
-`custom-html`, screenshots, or prose are easier to produce. If the canvas cannot
-represent the requested fidelity, still keep a canvas artboard and call out or
-extend the needed canvas renderer capability.
+**Mockups belong in the top visual review area.** Static visuals live on the
+canvas; multi-step flows get both canvas wireframes and a prototype. When the
+user asks for a mockup, UI state, loading state, layout, screen, or visual
+comparison, make the canvas the primary home for that static visual. When the
+user asks for a prototype or the plan contains a sequence the reviewer must
+feel, keep the canvas artboards and add `content.prototype` so the top surface
+shows Wireframes / Prototype tabs. Document blocks can explain, compare, or map
+implementation, but they should not host the primary mockup or prototype just
+because `custom-html`, screenshots, or prose are easier to produce. If the
+canvas/prototype surface cannot represent the requested fidelity, still keep the
+closest top-surface representation and call out or extend the needed renderer
+capability.
 
 **Legacy kit tree.** Older plans set a `screen` array of `{ el, ...props }` kit
 nodes instead of `html`; the renderer still accepts and displays it, but new
@@ -280,12 +315,14 @@ behavior). Replace vague prose with specifics; never ship a step like "make it
 work." No hero art, gradients, logos, nav bars, slogans, value props, giant
 landing-page headings, or marketing cards unless the user explicitly asks.
 
-**Canvas and document never duplicate each other.** The UI story lives on the
-canvas with on-canvas annotations; the document carries the technical depth the
-canvas cannot show — concrete file/symbol maps, API and data contracts, code
-snippets, migration or implementation phases, risks, and validation. Repeat a
-wireframe in the document only for a genuinely new detail view or comparison.
-Skip the canvas entirely for non-visual work and write a clean rich document.
+**Top visuals and document never duplicate each other.** The UI story lives in
+the top visual surface: canvas artboards for static inspection, plus prototype
+tabs when the flow should be functional. The document carries the technical depth
+the visuals cannot show — concrete file/symbol maps, API and data contracts,
+code snippets, migration or implementation phases, risks, and validation. Repeat
+a wireframe in the document only for a genuinely new detail view or comparison.
+Skip the visual surface entirely for non-visual work and write a clean rich
+document.
 
 **Use the right block, and make it carry substance.** For the authoritative,
 machine-checked list of block types and their data schemas, call `get-plan-blocks`
@@ -308,9 +345,14 @@ so you never emit a block the editor cannot render or round-trip:
   visual unless the tab is intentionally document-only.
 - `table`, `checklist`, `callout` for scannable structure.
 
-**Open questions are callouts, not buried prose.** Surface anything unresolved in
-a dedicated open-questions / needs-clarification block. Never put a
-questions/decisions wall inside the plan narrative.
+**Open questions live at the bottom as a form when answers would change the
+plan.** Surface answerable unresolved decisions in a final `question-form`
+block titled "Open Questions". Use `single` or `multi` for clear choices,
+`freeform` for constraints, `recommended: true` for the default you would pick,
+and option `wireframe` / `diagram` previews for visual directions when useful.
+Keep non-answerable assumptions or risks as concise `callout` blocks in the
+relevant section. Never bury a questions/decisions wall inside the plan
+narrative.
 
 **`custom-html` is a bounded escape hatch only** — a single complete fragment
 inside a block, never `html`/`head`/`body`/`script` tags, never a generic
@@ -342,22 +384,31 @@ designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
 done-criteria, an `implementation-map` naming the real components and actions
 with short highlighted snippets, a `decision` card weighing two real approaches,
-and a validation step — none of it repeating the canvas. This is the bar.
+and a validation step — none of it repeating the canvas. If the task also
+changes a multi-step completion flow, the same top area includes a Prototype tab
+whose screens use the same labels and states as the canvas artboards, with
+`data-goto` controls for the sequence. This is the bar.
 
 **BAD.** A `data.html` with hard-coded hex colors, a `font-family`, or fixed
 pixel width/height; gray placeholder bars "insinuating" text on a non-skeleton
 frame; a forced desktop + mobile pair for a popover; floating bordered
 annotation cards hugging the frames; a fresh hand-authored kit-tree `screen`
-instead of `html`; a mockup escaped into a document `custom-html` block; and a
-marketing-style document with a hero heading and value props that just restates
-what the canvas already shows. Never produce this.
+instead of `html`; a multi-step UI flow with only static frames and no prototype
+tab; a mockup escaped into a document `custom-html` block; and a marketing-style
+document with a hero heading and value props that just restates what the canvas
+already shows. Never produce this.
 
 <!-- SHARED-CORE:exemplar END -->
 
 ## Tool Guidance
 
-- `create-visual-plan`: start one structured visual plan per agent task/run.
+- `create-visual-plan`: start one structured visual plan per agent task/run;
+  `content` may include no visual surface, canvas only, or canvas + prototype.
 - `create-ui-plan`: start a UI-first plan when the work is primarily product UI.
+- `create-prototype-plan`: start a prototype-first plan with a functional top
+  review surface.
+- `convert-visual-plan-to-prototype`: convert an existing HTML wireframe canvas
+  into a prototype plan.
 - `create-visual-questions`: use only for the explicit `/visual-questions`
   command, not as `/visual-plan` preflight.
 - `visualize-plan`: build a visual companion from an existing text plan.
@@ -370,7 +421,9 @@ what the canvas already shows. Never produce this.
 - `import-visual-plan-source`: create or replace a plan from an MDX folder.
 - `get-visual-plan`: read the current structured plan, exported HTML, and
   annotations; it also returns the MDX folder for source workflows.
-- `get-plan-feedback`: read unconsumed human feedback. Use it frequently.
+- `get-plan-feedback`: read unconsumed human feedback. Use it frequently; it
+  returns grouped threads, exact anchor details, expected resolver, and recent
+  review-event payloads so agents can act only on the comments meant for them.
 - `export-visual-plan`: export HTML, Markdown fallback, structured JSON, and MDX
   files for repo check-in.
 
@@ -390,8 +443,8 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` (and `/ui-plan`, `/visual-questions`,
-`/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
+After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`,
+`/visual-questions`, `/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 

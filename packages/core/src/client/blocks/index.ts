@@ -37,7 +37,7 @@ export {
 } from "./provider.js";
 
 // Rendering
-export { BlockView } from "./BlockView.js";
+export { BlockView, blockEditSurface } from "./BlockView.js";
 export { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 // Schema-form helpers
@@ -70,6 +70,16 @@ export {
   renderBlockVocabularyReference,
   type BlockAgentDoc,
 } from "./agent.js";
+
+// Standard library registration. Apps call `registerLibraryBlocks(registry)` to
+// register the whole standard library (the five pre-built specs + the eight
+// dev-doc specs) in one place, then register only their app-specific blocks on
+// top. `libraryBlockSpecs` is the underlying ordered array.
+export {
+  libraryBlockSpecs,
+  registerLibraryBlocks,
+  type LibraryBlockOverrides,
+} from "./library/specs.js";
 
 // Standard block library (React specs). Apps register these in their browser
 // registry alongside their own app-specific blocks.
@@ -110,3 +120,85 @@ export {
   type TabsData,
   type TabsTab,
 } from "./library/tabs.config.js";
+
+// Dev-doc block library (React `Read`/`Edit` renderers + their React-free
+// schema/MDX config). Apps register these alongside their own blocks, supplying
+// app-specific spec metadata (label/description/editSurface/empty) via
+// `defineBlock`. Mirrors the standard library above.
+export { MermaidRead, MermaidEdit } from "./library/MermaidBlock.js";
+export {
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+} from "./library/mermaid.config.js";
+export {
+  ApiEndpointRead,
+  ApiEndpointEdit,
+} from "./library/ApiEndpointBlock.js";
+export {
+  apiEndpointSchema,
+  apiEndpointMdx,
+  API_ENDPOINT_METHODS,
+  API_PARAM_LOCATIONS,
+  type ApiEndpointData,
+  type ApiEndpointMethod,
+  type ApiEndpointParam,
+  type ApiEndpointRequest,
+  type ApiEndpointResponse,
+  type ApiParamLocation,
+} from "./library/api-endpoint.config.js";
+export { DataModelRead, DataModelEdit } from "./library/DataModelBlock.js";
+export {
+  dataModelSchema,
+  dataModelMdx,
+  DATA_MODEL_RELATION_KINDS,
+  type DataModelData,
+  type DataModelEntity,
+  type DataModelField,
+  type DataModelRelation,
+  type DataModelRelationKind,
+} from "./library/data-model.config.js";
+export { DiffRead, DiffEdit } from "./library/DiffBlock.js";
+export {
+  diffSchema,
+  diffMdx,
+  type DiffData,
+  type DiffMode,
+} from "./library/diff.config.js";
+export { FileTreeRead, FileTreeEdit } from "./library/FileTreeBlock.js";
+export {
+  fileTreeSchema,
+  fileTreeMdx,
+  FILE_TREE_CHANGES,
+  type FileTreeData,
+  type FileTreeEntry,
+  type FileTreeChange,
+} from "./library/file-tree.config.js";
+export {
+  JsonExplorerRead,
+  JsonExplorerEdit,
+} from "./library/JsonExplorerBlock.js";
+export {
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+} from "./library/json-explorer.config.js";
+export {
+  AnnotatedCodeRead,
+  AnnotatedCodeEdit,
+} from "./library/AnnotatedCodeBlock.js";
+export {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+  type AnnotatedCodeAnnotation,
+} from "./library/annotated-code.config.js";
+export {
+  OpenApiSpecRead,
+  OpenApiSpecEdit,
+} from "./library/OpenApiSpecBlock.js";
+export {
+  openApiSpecSchema,
+  openApiSpecMdx,
+  type OpenApiSpecData,
+} from "./library/openapi-spec.config.js";

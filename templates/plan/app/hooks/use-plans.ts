@@ -5,6 +5,8 @@ import type {
   PlanAuthor,
   PlanBundle,
   PlanCommentKind,
+  PlanCommentMention,
+  PlanCommentResolutionTarget,
   PlanCommentStatus,
   PlanSectionType,
   PlanSource,
@@ -34,6 +36,10 @@ export type PlanCommentInput = {
   createdBy?: PlanAuthor;
   authorEmail?: string;
   authorName?: string;
+  resolutionTarget?: PlanCommentResolutionTarget;
+  mentions?: PlanCommentMention[];
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
 };
 
 export type CreatePlanInput = {
@@ -56,6 +62,25 @@ export type CreateUiPlanInput = CreatePlanInput & {
   states?: Array<{ name: string; description: string }>;
   components?: Array<{ name: string; description: string }>;
   sketchiness?: number;
+  implementationNotes?: string;
+};
+
+export type CreatePrototypePlanInput = CreatePlanInput & {
+  screens?: Array<{
+    id?: string;
+    title: string;
+    summary?: string;
+    surface?: "desktop" | "mobile" | "popover" | "panel" | "browser";
+    html?: string;
+    state?: Array<{ id?: string; label: string; value: string }>;
+  }>;
+  transitions?: Array<{
+    id?: string;
+    from: string;
+    to: string;
+    label?: string;
+    trigger?: string;
+  }>;
   implementationNotes?: string;
 };
 
@@ -107,6 +132,13 @@ export type UpdatePlanInput = {
   comments?: PlanCommentInput[];
   consumedCommentIds?: string[];
   note?: string;
+};
+
+export type ConvertVisualPlanToPrototypeInput = {
+  planId: string;
+  title?: string;
+  brief?: string;
+  removeCanvas?: boolean;
 };
 
 function usePlanInvalidation() {
@@ -170,6 +202,17 @@ export function useCreateUiPlan() {
   });
 }
 
+export function useCreatePrototypePlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    CreatePrototypePlanInput
+  >("create-prototype-plan", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to create prototype plan"),
+  });
+}
+
 export function useCreateVisualQuestions() {
   const invalidate = usePlanInvalidation();
   return useActionMutation<
@@ -201,6 +244,17 @@ export function useUpdatePlan() {
       onError: showActionError("Failed to update visual plan"),
     },
   );
+}
+
+export function useConvertVisualPlanToPrototype() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { html?: string; path?: string; url?: string },
+    ConvertVisualPlanToPrototypeInput
+  >("convert-visual-plan-to-prototype", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to convert plan to prototype"),
+  });
 }
 
 /**

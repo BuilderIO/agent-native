@@ -13,8 +13,8 @@ metadata:
 Use `/visual-questions` when the next best step is not a plan yet, but a
 reviewable visual intake: single-choice chips, multi-select chips, freeform
 notes, mockup choices, sketch diagrams, and a generated answer summary that feeds
-the next planning prompt. It composes with `/visual-plan`, `/ui-plan`, and
-`/visualize-plan`.
+the next planning prompt. It composes with `/visual-plan`, `/ui-plan`,
+`/prototype-plan`, and `/visualize-plan`.
 
 ## When To Use
 
@@ -25,11 +25,11 @@ the next planning prompt. It composes with `/visual-plan`, `/ui-plan`, and
   than answering text-only prompts.
 
 Gate hard: skip this for tiny, unambiguous changes. If the agent can reasonably
-infer the answer, prefer `/ui-plan` or `/visual-plan` directly and put
+infer the answer, prefer `/ui-plan`, `/prototype-plan`, or `/visual-plan` directly and put
 assumptions in the plan.
 
 Visual questions are an explicit intake command, not an automatic preflight for
-`/visual-plan` or `/ui-plan`.
+`/visual-plan`, `/ui-plan`, or `/prototype-plan`.
 
 ## Workflow
 
@@ -38,10 +38,11 @@ Visual questions are an explicit intake command, not an automatic preflight for
 2. Omit `questions` for the default UI intake. Provide a custom `questions` array
    only when the task has domain-specific choices.
 3. Surface the returned Plans link and ask the user to answer visually.
-4. The generated summary drives the next step: `create-ui-plan` for UI flows,
+4. The generated summary drives the next step: `create-ui-plan` for static UI
+   review, `create-prototype-plan` for click-through UI flows,
    `create-visual-plan` for general plans, `visualize-plan` when a text plan
-   already exists, or `update-visual-plan` with targeted `contentPatches` to fold
-   answers into an active plan.
+   already exists, or `update-visual-plan` with targeted `contentPatches` to
+   fold answers into an active plan.
 5. If the user leaves comments, call `get-plan-feedback` before using the answers.
 
 ## Question Types
@@ -76,6 +77,8 @@ desktop/mobile pair for a popover, panel, or component.
 - `get-visual-plan`: inspect the current visual question plan.
 - `get-plan-feedback`: read comments before creating or updating the next plan.
 - `create-ui-plan`: create a UI-first plan from the answers.
+- `create-prototype-plan`: create a prototype-first plan from the answers when
+  interaction feel matters.
 - `create-visual-plan`: create a general visual plan from the answers.
 - `visualize-plan`: enrich an existing text plan after answers are gathered.
 - `export-visual-plan`: export answer plans as HTML, Markdown fallback,
@@ -96,8 +99,8 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` (and `/ui-plan`, `/visual-questions`,
-`/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
+After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`,
+`/visual-questions`, `/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 

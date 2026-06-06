@@ -1,4 +1,15 @@
 import type { PlanContent } from "./plan-content.js";
+import {
+  PLAN_COMMENT_RESOLUTION_TARGETS,
+  type PlanCommentMention,
+  type PlanCommentResolutionTarget,
+} from "./comment-context.js";
+
+export {
+  PLAN_COMMENT_RESOLUTION_TARGETS,
+  type PlanCommentMention,
+  type PlanCommentResolutionTarget,
+};
 
 export const PLAN_STATUSES = [
   "draft",
@@ -113,6 +124,11 @@ export interface PlanComment {
   createdBy: PlanAuthor;
   authorEmail?: string | null;
   authorName?: string | null;
+  resolutionTarget?: PlanCommentResolutionTarget;
+  mentions?: PlanCommentMention[];
+  mentionsJson?: string | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
   consumedAt?: string | null;
   createdAt: string;
   updatedAt: string;

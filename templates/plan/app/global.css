@@ -86,7 +86,7 @@
 @layer utilities {
   .plan-content-surface {
     --plan-document: hsl(42 18% 97%);
-    --plan-canvas: hsl(42 10% 91%);
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
     --plan-block: hsl(42 16% 94%);
     --plan-chrome: hsl(42 15% 96% / 0.92);
     --plan-line: hsl(36 9% 82%);
@@ -103,7 +103,7 @@
 
   .dark .plan-content-surface {
     --plan-document: hsl(32 3% 13%);
-    --plan-canvas: hsl(32 3% 11.2%);
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
     --plan-block: hsl(32 3% 15.5%);
     --plan-chrome: hsl(32 3% 15.5% / 0.92);
     --plan-line: hsl(34 4% 24%);
@@ -120,6 +120,10 @@
 
   .bg-plan-document {
     background-color: var(--plan-document);
+  }
+
+  .bg-plan-canvas {
+    background-color: var(--plan-canvas);
   }
 
   .bg-plan-block {
@@ -217,21 +221,32 @@
 
 .plan-document-flow > .plan-block,
 .plan-document-flow > .plan-callout,
-.plan-document-flow > .plan-questions-block {
+.plan-document-flow > .plan-questions-block,
+.plan-document-flow > .an-block-panel,
+.plan-document-flow > .plan-block-node {
   margin-top: 3.5rem;
   padding-top: 2.25rem;
   border-top: 1px solid var(--plan-line);
 }
 
-.plan-block h2,
-.plan-callout h2,
-.plan-questions-block h2 {
-  margin: 0 0 1.25rem;
-  color: var(--plan-text);
-  font-size: clamp(1.8rem, 3vw, 2.8rem);
-  line-height: 1.05;
-  letter-spacing: -0.025em;
-  font-weight: 650;
+/* The document header already owns a bottom divider; don't double it with the
+ * first block's top border/spacing. */
+.plan-document-flow > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Small, muted block label (not a document heading). Block titles used to render
+ * as large <h2> headings that read like the block's type name; they now render
+ * as this restrained eyebrow label instead. */
+.plan-block-label {
+  margin: 0 0 1rem;
+  color: var(--plan-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
 }
 
 .plan-block .plan-block {
@@ -240,10 +255,8 @@
   border-top: 0;
 }
 
-.plan-block .plan-block h2 {
-  margin-bottom: 0.9rem;
-  font-size: clamp(1.25rem, 2vw, 1.9rem);
-  line-height: 1.15;
+.plan-block .plan-block .plan-block-label {
+  margin-bottom: 0.75rem;
 }
 
 .plan-copy {
@@ -1098,4 +1111,122 @@
 
 .plans-grid {
   height: 100%;
+}
+
+/* ── Single-document plan editor: drag handle (block grip + reorder), block
+ * node spacing, and selected-node outline. Class names match the shared core
+ * `DragHandle` extension; the wrapper must be position:relative. ───────────── */
+.plan-document-editor {
+  position: relative;
+}
+
+.plan-document-editor > .an-rich-md-prose {
+  min-height: 45vh;
+}
+
+/* Inline custom blocks inside the document flow get their own breathing room;
+ * the inner `.plan-block` section shouldn't re-add the top divider/margins. */
+.plan-document-editor .plan-block-node {
+  position: relative;
+  margin: 2rem 0;
+}
+.plan-document-editor .plan-block-node > .plan-block,
+.plan-document-editor .plan-block-node .plan-block {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* "Won't sync to Notion" badge shown on incompatible blocks while the plan is
+ * in Sync-to-Notion mode. Anchored to the block's top-right corner. */
+.plan-block-notion-badge {
+  position: absolute;
+  top: -0.6rem;
+  right: 0;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid hsl(38 92% 50% / 0.35);
+  background: hsl(38 92% 50% / 0.12);
+  color: hsl(32 80% 36%);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dark .plan-block-notion-badge {
+  color: hsl(40 90% 70%);
+}
+
+.drag-handle {
+  position: absolute;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: grab;
+  color: var(--plan-muted);
+  opacity: 0.55;
+  z-index: 10;
+  user-select: none;
+  touch-action: none;
+}
+.drag-handle:hover {
+  opacity: 1;
+  background: var(--plan-block);
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.notion-editor-is-dragging,
+.notion-editor-is-dragging * {
+  cursor: grabbing !important;
+}
+
+.notion-block--dragging {
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+
+.notion-drag-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  max-width: min(720px, calc(100vw - 48px));
+  overflow: hidden;
+  background: transparent !important;
+  box-shadow: none;
+  opacity: 0.55;
+  pointer-events: none;
+  will-change: transform;
+}
+.notion-drag-preview > * {
+  margin: 0 !important;
+  max-height: 180px;
+  overflow: hidden;
+}
+
+.notion-drop-indicator {
+  position: absolute;
+  z-index: 60;
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(var(--ring));
+  box-shadow: 0 0 0 1px var(--plan-document);
+  pointer-events: none;
+  transform: translateY(-1px);
+}
+
+.plan-document-editor .ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--ring) / 0.45);
+  outline-offset: 2px;
+  border-radius: 6px;
 }

@@ -8,6 +8,8 @@ import {
 import {
   buildPlanContentHtml,
   createPlanContentFromSections,
+  createPrototypeFromPlanContent,
+  createPrototypePlanContent,
   createUiPlanContent,
   createVisualQuestionsContent,
   parsePlanContent,
@@ -174,6 +176,37 @@ describe("structured plan content", () => {
     expect(content.canvas?.frames[0]?.wireframe?.screen.length ?? 0).toBe(1);
   });
 
+  it("turns questions sections into reusable question-form blocks", () => {
+    const content = createPlanContentFromSections({
+      title: "Handoff review",
+      brief: "Collect open decisions before implementation.",
+      sections: [
+        {
+          id: "open-questions",
+          type: "questions",
+          title: "Open Questions",
+          body: "- Which billing states matter?\n- What should happen offline?",
+          html: null,
+        },
+      ],
+    });
+
+    expect(content.blocks).toHaveLength(1);
+    const block = content.blocks[0];
+    expect(block?.type).toBe("question-form");
+    if (block?.type !== "question-form") return;
+    expect(block.title).toBe("Open Questions");
+    expect(block.data.submitLabel).toBe("Send to agent");
+    expect(block.data.questions.map((question) => question.title)).toEqual([
+      "Which billing states matter?",
+      "What should happen offline?",
+    ]);
+    expect(block.data.questions[0]?.mode).toBe("freeform");
+    expect(block.data.questions[0]?.placeholder).toBe(
+      "Answer to revise the plan...",
+    );
+  });
+
   it("creates visual questions with kit-tree previews instead of standalone HTML", () => {
     const content = createVisualQuestionsContent({
       title: "Quick questions",
@@ -183,6 +216,8 @@ describe("structured plan content", () => {
           id: "layout",
           type: "visual",
           title: "Which layout direction?",
+          allowOther: true,
+          placeholder: "Describe another layout...",
           options: [
             { label: "Sidebar", preview: "desktop" },
             { label: "Mobile first", preview: "mobile" },
@@ -196,6 +231,10 @@ describe("structured plan content", () => {
     );
     expect(questionsBlock?.type).toBe("visual-questions");
     if (questionsBlock?.type !== "visual-questions") return;
+    expect(questionsBlock.data.questions[0]?.allowOther).toBe(true);
+    expect(questionsBlock.data.questions[0]?.placeholder).toBe(
+      "Describe another layout...",
+    );
     const preview = questionsBlock.data.questions[0]?.options?.[0]?.wireframe;
     expect(preview).toBeTruthy();
     // Preview must be the lean kit tree (surface + screen), never regions.
@@ -673,6 +712,189 @@ describe("back-compat parsing and migration", () => {
     expect(parsePlanContent("")).toBeNull();
     expect(parsePlanContent("<!doctype html><html></html>")).toBeNull();
     expect(parsePlanContent("{not json")).toBeNull();
+  });
+});
+
+describe("prototype plan content", () => {
+  it("accepts safe Alpine-like prototype directives but still rejects event handlers", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      prototype: {
+        initialScreenId: "todo",
+        screens: [
+          {
+            id: "todo",
+            title: "Todo prototype",
+            html: `<div x-data="{ draft: '', todos: [] }"><input x-model="draft" @keydown.enter="todos.push({ text: draft })"><button x-on:click="draft = ''" :class="{ primary: draft }" x-show="draft">Add</button></div>`,
+          },
+        ],
+      },
+      blocks: [],
+    });
+
+    expect(result.success).toBe(true);
+
+    const unsafe = planContentSchema.safeParse({
+      version: 2,
+      prototype: {
+        initialScreenId: "bad",
+        screens: [
+          {
+            id: "bad",
+            html: `<button onclick="alert(1)">Bad</button>`,
+          },
+        ],
+      },
+      blocks: [],
+    });
+
+    expect(unsafe.success).toBe(false);
+  });
+
+  it("creates prototype-first content with static mocks and export preview", () => {
+    const content = createPrototypePlanContent({
+      title: "Review prototype",
+      brief: "Does the review flow feel right?",
+      screens: [
+        {
+          id: "start",
+          title: "Start",
+          summary: "Reviewer sees the request.",
+          surface: "browser",
+          html: '<div><h1>Request</h1><button data-goto="approved">Approve</button></div>',
+          state: [{ label: "Mode", value: "Review" }],
+        },
+        {
+          id: "approved",
+          title: "Approved",
+          summary: "Approved confirmation.",
+          surface: "browser",
+          html: "<div><h1>Approved</h1></div>",
+        },
+      ],
+      transitions: [
+        {
+          from: "start",
+          to: "approved",
+          label: "Approve",
+          trigger: "Click Approve",
+        },
+      ],
+    });
+
+    expect(content.prototype?.initialScreenId).toBe("start");
+    expect(content.prototype?.screens).toHaveLength(2);
+    expect(content.canvas?.title).toContain("Static Mocks");
+    expect(
+      content.blocks.some(
+        (block) => block.type === "tabs" && block.title === "Static Mocks",
+      ),
+    ).toBe(true);
+
+    const html = buildPlanContentHtml({
+      content,
+      title: "Review prototype",
+      brief: "Does the review flow feel right?",
+    });
+    expect(html).toContain("prototype-export");
+    expect(html).toContain("Approve");
+  });
+
+  it("patches prototype screens without regenerating the plan", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      prototype: {
+        initialScreenId: "start",
+        screens: [
+          {
+            id: "start",
+            title: "Start",
+            html: "<div><h1>Start</h1><button>Next</button></div>",
+          },
+        ],
+      },
+      blocks: [],
+    });
+
+    const patched = applyPlanContentPatches(content, [
+      {
+        op: "patch-prototype-html",
+        screenId: "start",
+        edits: [{ find: ">Next<", replace: ">Continue<" }],
+      },
+      {
+        op: "update-prototype-screen",
+        screenId: "start",
+        patch: {
+          summary: "Updated interaction copy.",
+          state: [{ label: "Copy", value: "Updated" }],
+        },
+      },
+    ]);
+
+    expect(patched.prototype?.screens[0]?.html).toContain(">Continue<");
+    expect(patched.prototype?.screens[0]?.summary).toBe(
+      "Updated interaction copy.",
+    );
+    expect(patched.prototype?.screens[0]?.state?.[0]?.value).toBe("Updated");
+  });
+
+  it("derives a prototype from HTML canvas frames", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      title: "Canvas source",
+      brief: "Convert this visual plan.",
+      canvas: {
+        title: "Flow",
+        frames: [
+          {
+            id: "frame-start",
+            label: "Start",
+            surface: "browser",
+            wireframe: {
+              surface: "browser",
+              html: "<div><h1>Start</h1></div>",
+              caption: "Start state",
+            },
+          },
+          {
+            id: "frame-next",
+            label: "Next",
+            surface: "browser",
+            wireframe: {
+              surface: "browser",
+              html: "<div><h1>Next</h1></div>",
+            },
+          },
+        ],
+        flow: [{ from: "frame-start", to: "frame-next", label: "Continue" }],
+      },
+      blocks: [],
+    });
+
+    const prototype = createPrototypeFromPlanContent(content);
+    expect(prototype?.screens.map((screen) => screen.id)).toEqual([
+      "frame-start",
+      "frame-next",
+    ]);
+    expect(prototype?.transitions?.[0]).toMatchObject({
+      from: "frame-start",
+      to: "frame-next",
+      label: "Continue",
+    });
+  });
+
+  it("rejects prototype transitions that reference missing screens", () => {
+    expect(() =>
+      planContentSchema.parse({
+        version: 2,
+        prototype: {
+          screens: [{ id: "start", html: "<div>Start</div>" }],
+          transitions: [{ from: "start", to: "missing" }],
+        },
+        blocks: [],
+      }),
+    ).toThrow(/Transition target missing/);
   });
 });
 

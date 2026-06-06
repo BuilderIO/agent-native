@@ -91,7 +91,7 @@ export function TabsBlockReader({
   const compact = isCompact(title);
   return (
     <section className="plan-block" data-block-id={blockId}>
-      {title && <h2>{title}</h2>}
+      {title && <div className="plan-block-label">{title}</div>}
       <TabRail tabs={data.tabs} activeId={active?.id} onSelect={setActiveId} />
       {active && (
         <div>

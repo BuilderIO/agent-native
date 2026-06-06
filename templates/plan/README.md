@@ -29,6 +29,7 @@ Supported aliases include:
 - `npx @agent-native/core@latest skills add visual-plan`
 - `npx @agent-native/core@latest skills add visual-questions`
 - `npx @agent-native/core@latest skills add ui-plan`
+- `npx @agent-native/core@latest skills add prototype-plan`
 - `npx @agent-native/core@latest skills add visualize-plan`
 
 Restart or reload the host if the tools are not visible immediately.
@@ -41,6 +42,9 @@ Type `/visual-questions` when you explicitly want visual intake before a plan.
 
 Type `/ui-plan` when UI direction is the center of the work and you want
 high-fidelity mockups and states reviewed before implementation details.
+
+Type `/prototype-plan` when interaction feel matters and you want a clickable
+prototype above the plan document.
 
 Type `/visualize-plan` when you already have a Codex, Claude Code, Markdown, or
 pasted plan and want a richer visual companion.
@@ -58,6 +62,9 @@ Command behavior:
   wireframe or diagram canvas, then a refined Notion-like document with rich
   tabs, tables, sketchy diagrams, code tabs, comments, and handoff notes. When
   visual states are not useful, it stays document-only.
+- `/prototype-plan` creates a prototype-first plan with a clickable live
+  prototype, rough/clean and dark/light toggles, comment pins, a focused popout,
+  static mocks, and implementation notes below.
 - `/visualize-plan` imports an existing text plan, preserves its intent, and
   adds visual structure so the user can annotate and react before implementation.
 

@@ -44,7 +44,7 @@ export function ChecklistBlock({
 }) {
   return (
     <section className="plan-block" data-block-id={blockId}>
-      {title && <h2>{title}</h2>}
+      {title && <div className="plan-block-label">{title}</div>}
       <div className="grid gap-3">
         {data.items.map((item) =>
           onToggle ? (
@@ -194,6 +194,8 @@ export const checklistBlock = defineBlock<ChecklistData>({
   Read: ChecklistBlock as never,
   Edit: ChecklistEditor,
   placement: ["block"],
+  // A checklist maps to NFM to-do items, so it round-trips to Notion.
+  notionCompatible: true,
   label: "Checklist",
   icon: IconCheck,
   description:

@@ -10,10 +10,13 @@ import {
 } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
+  IconAt,
   IconArrowRight,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconAlertTriangle,
+  IconBrandNotion,
+  IconCheck,
   IconChevronDown,
   IconClipboardText,
   IconCopy,
@@ -30,7 +33,6 @@ import {
   IconShare3,
   IconLink,
   IconWorld,
-  IconSparkles,
   IconSun,
   IconX,
   IconSend,
@@ -39,6 +41,7 @@ import {
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import JSZip from "jszip";
+import html2canvas from "html2canvas";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
@@ -95,7 +98,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
@@ -104,6 +106,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
+import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
 import {
   toggleWireframeStyle,
   useWireframeStyle,
@@ -116,6 +119,7 @@ import type {
 import {
   usePlan,
   usePlans,
+  useConvertVisualPlanToPrototype,
   usePublishVisualPlan,
   useUpdatePlan,
   useExportPlan,
@@ -123,11 +127,24 @@ import {
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
 import type { PlanBundle, PlanSource } from "@shared/types";
+import {
+  extractCommentMentions,
+  formatPlanCommentAnchorForAgent,
+  formatPlanCommentMentionToken,
+  normalizePlanCommentResolutionTarget,
+  parsePlanCommentAnchor,
+  planCommentAnchorDetails,
+  type PlanCommentAnchor,
+  type PlanCommentMention,
+  type PlanCommentResolutionTarget,
+} from "@shared/comment-context";
 import type {
   PlanAnnotation,
+  PlanBlock,
   PlanContent,
   PlanContentPatch,
 } from "@shared/plan-content";
+import { describeIncompatibleBlocks } from "@shared/notion-compat";
 
 const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "codex", label: "Codex" },
@@ -184,27 +201,17 @@ function readPreferredEditor(): PreferredEditor {
     : "vscode";
 }
 
-type PlanAnnotationAnchor = {
-  x: number;
-  y: number;
-  sectionId?: string;
-  sectionTitle?: string;
-  tabPanelId?: string;
-  tabLabel?: string;
-  snippet?: string;
-  targetSelector?: string;
-  targetX?: number;
-  targetY?: number;
-  tagName?: string;
-  anchorKind?: "text" | "visual" | "point";
-  textQuote?: string;
-  visualLabel?: string;
-  visualX?: number;
-  visualY?: number;
-  canvasX?: number;
-  canvasY?: number;
-  markupType?: "text" | "callout";
-  planAnnotationId?: string;
+type PlanAnnotationAnchor = PlanCommentAnchor & { x: number; y: number };
+
+type CommentDraft = {
+  message: string;
+  mentions: PlanCommentMention[];
+  resolutionTarget: PlanCommentResolutionTarget;
+};
+
+type OrgMemberSuggestion = {
+  email: string;
+  role?: string;
 };
 
 type RuntimeAnnotation = {
@@ -427,6 +434,105 @@ function useCommentAvatarUrls(emails: string[]) {
   return urls;
 }
 
+function useOrgMemberMentionSearch(query: string | null) {
+  const [members, setMembers] = useState<OrgMemberSuggestion[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    const search = query?.trim() ?? "";
+    if (query === null) {
+      setMembers([]);
+      setIsLoading(false);
+      return;
+    }
+    const requestId = ++requestRef.current;
+    const controller = new AbortController();
+    setIsLoading(true);
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    params.set("limit", "8");
+    fetch(`${agentNativePath("/_agent-native/org/members")}?${params}`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load members");
+        return response.json() as Promise<{ members?: unknown }>;
+      })
+      .then((data) => {
+        if (controller.signal.aborted || requestId !== requestRef.current) {
+          return;
+        }
+        const next = Array.isArray(data.members)
+          ? data.members
+              .map((member) => {
+                if (!member || typeof member !== "object") return null;
+                const value = member as { email?: unknown; role?: unknown };
+                const email =
+                  typeof value.email === "string"
+                    ? normalizeCommentEmail(value.email)
+                    : null;
+                if (!email) return null;
+                const suggestion: OrgMemberSuggestion = { email };
+                if (typeof value.role === "string") {
+                  suggestion.role = value.role;
+                }
+                return suggestion;
+              })
+              .filter((member): member is OrgMemberSuggestion =>
+                Boolean(member),
+              )
+          : [];
+        setMembers(next);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted && requestId === requestRef.current) {
+          setMembers([]);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && requestId === requestRef.current) {
+          setIsLoading(false);
+        }
+      });
+    return () => controller.abort();
+  }, [query]);
+
+  return { members, isLoading };
+}
+
+function displayNameForMention(email: string) {
+  return emailToName(email).replace(/\s+/g, " ").trim() || email;
+}
+
+function renderCommentMessage(message: string) {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(message)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(message.slice(lastIndex, match.index));
+    }
+    const label = match[1] ?? "";
+    const email = decodeURIComponent(match[2] ?? "");
+    parts.push(
+      <span
+        key={`${email}-${match.index}`}
+        className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+        title={email}
+      >
+        <IconAt className="size-3" />
+        <span className="truncate">{label || email}</span>
+      </span>,
+    );
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < message.length) parts.push(message.slice(lastIndex));
+  return parts.length > 0 ? parts : message;
+}
+
 function CommentAvatar({
   author,
   size = "sm",
@@ -562,7 +668,7 @@ export function buildCommentThreads(
         root,
         replies: [],
         comments: [],
-        anchor: parseAnchor(root.anchor),
+        anchor: parseAnchorForComment(root),
       } satisfies CommentThread);
     thread.comments.push(comment);
     threads.set(root.id, thread);
@@ -575,9 +681,9 @@ export function buildCommentThreads(
         commentsInThread.find((comment) => comment.id === thread.id) ??
         thread.root;
       const anchor =
-        parseAnchor(root.anchor) ??
+        parseAnchorForComment(root) ??
         commentsInThread
-          .map((comment) => parseAnchor(comment.anchor))
+          .map((comment) => parseAnchorForComment(comment))
           .find(Boolean) ??
         null;
       return {
@@ -797,6 +903,392 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function percent(value: number, total: number) {
+  return clamp((value / Math.max(total, 1)) * 100, 0, 100);
+}
+
+const PLAN_TEXT_TARGET_SELECTOR = [
+  "p",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "td",
+  "th",
+  "blockquote",
+  "figcaption",
+  "summary",
+  "button",
+  "a",
+  "label",
+  "pre",
+  "code",
+  "[data-plan-text]",
+].join(",");
+
+const PLAN_VISUAL_TARGET_SELECTOR = [
+  "img",
+  "svg",
+  "canvas",
+  "video",
+  "iframe",
+  "table",
+  "pre",
+  "code",
+  "[data-plan-prototype-viewer]",
+  "[data-prototype-screen]",
+  "[data-canvas-frame]",
+  ".plan-artboard-frame",
+  ".plan-block",
+].join(",");
+
+function normalizedElementText(value: string | null | undefined) {
+  return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function textSnippetFromElement(element: Element | null, max = 220) {
+  if (!element) return "";
+  return normalizedElementText(element.textContent).slice(0, max);
+}
+
+function textQuoteContextForBlock(input: {
+  block: Element | null;
+  quote: string;
+  radius?: number;
+}) {
+  const quote = normalizedElementText(input.quote);
+  const blockText = normalizedElementText(input.block?.textContent);
+  if (!quote || !blockText) return {};
+  const index = blockText.indexOf(quote);
+  if (index < 0) return {};
+  const radius = input.radius ?? 60;
+  const contextBefore = blockText.slice(Math.max(0, index - radius), index);
+  const contextAfter = blockText.slice(
+    index + quote.length,
+    index + quote.length + radius,
+  );
+  const secondIndex = blockText.indexOf(quote, index + quote.length);
+  return {
+    contextBefore: contextBefore || undefined,
+    contextAfter: contextAfter || undefined,
+    ambiguous: secondIndex >= 0 || undefined,
+  };
+}
+
+function findPlanBlockById(blocks: PlanBlock[], id: string): PlanBlock | null {
+  for (const block of blocks) {
+    if (block.id === id) return block;
+    if (block.type !== "tabs") continue;
+    for (const tab of block.data.tabs) {
+      const match = findPlanBlockById(tab.blocks, id);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
+function cssAttr(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function elementIndexAmongType(element: Element) {
+  const parent = element.parentElement;
+  if (!parent) return 1;
+  const tag = element.tagName;
+  return (
+    Array.from(parent.children)
+      .filter((child) => child.tagName === tag)
+      .indexOf(element) + 1
+  );
+}
+
+function selectorForElementWithin(root: HTMLElement, element: Element | null) {
+  if (!element || !root.contains(element)) return undefined;
+  const prototype = element.closest<HTMLElement>("[data-prototype-screen]");
+  if (prototype?.dataset.prototypeScreen) {
+    if (prototype === element) {
+      return `[data-prototype-screen="${cssAttr(prototype.dataset.prototypeScreen)}"]`;
+    }
+    const tag = element.tagName.toLowerCase();
+    return `[data-prototype-screen="${cssAttr(
+      prototype.dataset.prototypeScreen,
+    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  }
+  const block = element.closest<HTMLElement>("[data-block-id]");
+  if (block?.dataset.blockId) {
+    if (block === element) {
+      return `[data-block-id="${cssAttr(block.dataset.blockId)}"]`;
+    }
+    const tag = element.tagName.toLowerCase();
+    return `[data-block-id="${cssAttr(
+      block.dataset.blockId,
+    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  }
+  const frame = element.closest<HTMLElement>("[data-canvas-frame]");
+  if (frame?.dataset.canvasFrame) {
+    if (frame === element) {
+      return `[data-canvas-frame="${cssAttr(frame.dataset.canvasFrame)}"]`;
+    }
+    const tag = element.tagName.toLowerCase();
+    return `[data-canvas-frame="${cssAttr(
+      frame.dataset.canvasFrame,
+    )}"] ${tag}:nth-of-type(${elementIndexAmongType(element)})`;
+  }
+  if (element.id) return `#${cssAttr(element.id)}`;
+  return undefined;
+}
+
+function prototypeScreenIdFromSelector(selector: string | undefined) {
+  if (!selector) return undefined;
+  const match = selector.match(/\[data-prototype-screen="([^"]+)"\]/);
+  return match?.[1]?.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+export function prototypeScreenIdForAnchor(anchor: PlanAnnotationAnchor) {
+  return (
+    anchor.screenId ??
+    prototypeScreenIdFromSelector(anchor.targetSelector) ??
+    (anchor.targetKind === "prototype" ? anchor.sectionId : undefined)
+  );
+}
+
+function prototypeScopeForAnchor(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+) {
+  const screenId = prototypeScreenIdForAnchor(anchor);
+  if (!screenId) return undefined;
+  return (
+    reader.querySelector<HTMLElement>(
+      `[data-prototype-screen="${cssAttr(screenId)}"]`,
+    ) ?? null
+  );
+}
+
+function sectionTitleForElement(element: Element | null, fallback?: string) {
+  const block = element?.closest<HTMLElement>("[data-block-id]");
+  const prototype = element?.closest<HTMLElement>("[data-prototype-screen]");
+  const frame = element?.closest<HTMLElement>("[data-canvas-frame]");
+  const title =
+    prototype
+      ?.querySelector<HTMLElement>("h1,h2,h3,[data-plan-section-title]")
+      ?.textContent?.replace(/\s+/g, " ")
+      .trim() ||
+    block
+      ?.querySelector<HTMLElement>("h1,h2,h3,[data-plan-section-title]")
+      ?.textContent?.replace(/\s+/g, " ")
+      .trim() ||
+    frame
+      ?.querySelector<HTMLElement>(".plan-artboard-label")
+      ?.textContent?.replace(/\s+/g, " ")
+      .trim() ||
+    element
+      ?.closest<HTMLElement>(".plan-block,.plan-canvas")
+      ?.querySelector<HTMLElement>("h1,h2,h3,[data-plan-section-title]")
+      ?.textContent?.replace(/\s+/g, " ")
+      .trim() ||
+    fallback;
+  return title || undefined;
+}
+
+function targetKindForElement(
+  element: Element | null,
+): PlanCommentAnchor["targetKind"] {
+  if (!element) return undefined;
+  const tag = element.tagName.toLowerCase();
+  if (tag === "img") return "image";
+  if (tag === "table") return "table";
+  if (tag === "pre" || tag === "code") return "code";
+  if (tag === "svg") return "diagram";
+  if (element.closest("[data-plan-prototype-viewer]")) return "prototype";
+  if (tag === "canvas" || element.closest(".plan-canvas")) return "canvas";
+  if (element.closest("[data-canvas-frame],.plan-artboard-frame")) {
+    return "wireframe";
+  }
+  if (element.matches("button,a,input,textarea,select,label")) return "control";
+  if (element.closest("[data-block-id]")) return "block";
+  return "unknown";
+}
+
+function buildNativeAnchorFromElement(input: {
+  reader: HTMLElement;
+  target: HTMLElement;
+  pointX: number;
+  pointY: number;
+  planTitle?: string;
+}): PlanAnnotationAnchor {
+  const { reader, target, pointX, pointY } = input;
+  const scrollWidth = Math.max(reader.scrollWidth, 1);
+  const scrollHeight = Math.max(reader.scrollHeight, 1);
+  const base: PlanAnnotationAnchor = {
+    x: percent(pointX + reader.scrollLeft, scrollWidth),
+    y: percent(pointY + reader.scrollTop, scrollHeight),
+    anchorKind: "point",
+    visualLabel: input.planTitle,
+    resolutionTarget: "agent",
+  };
+
+  const textElement = target.closest<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR);
+  const visualElement = target.closest<HTMLElement>(
+    PLAN_VISUAL_TARGET_SELECTOR,
+  );
+  const anchorElement =
+    textElement && textSnippetFromElement(textElement)
+      ? textElement
+      : (visualElement ?? target);
+  const rect = anchorElement.getBoundingClientRect();
+  const readerRect = reader.getBoundingClientRect();
+  const localX = pointX + readerRect.left;
+  const localY = pointY + readerRect.top;
+  const targetX = percent(
+    clamp(localX, rect.left, rect.right) - rect.left,
+    rect.width,
+  );
+  const targetY = percent(
+    clamp(localY, rect.top, rect.bottom) - rect.top,
+    rect.height,
+  );
+  const sectionTitle = sectionTitleForElement(anchorElement, input.planTitle);
+  const prototype = anchorElement.closest<HTMLElement>(
+    "[data-prototype-screen]",
+  );
+  const block = anchorElement.closest<HTMLElement>("[data-block-id]");
+  const frame = anchorElement.closest<HTMLElement>("[data-canvas-frame]");
+  const targetText = textSnippetFromElement(anchorElement);
+  const targetKind = targetKindForElement(anchorElement);
+  const image =
+    anchorElement.tagName.toLowerCase() === "img"
+      ? (anchorElement as HTMLImageElement)
+      : anchorElement.querySelector<HTMLImageElement>("img");
+  const visualContext =
+    prototype?.dataset.prototypeScreen && sectionTitle
+      ? `Inside prototype screen ${prototype.dataset.prototypeScreen} (${sectionTitle})`
+      : prototype?.dataset.prototypeScreen
+        ? `Inside prototype screen ${prototype.dataset.prototypeScreen}`
+        : frame?.dataset.canvasFrame && sectionTitle
+          ? `Inside canvas frame ${frame.dataset.canvasFrame} (${sectionTitle})`
+          : frame?.dataset.canvasFrame
+            ? `Inside canvas frame ${frame.dataset.canvasFrame}`
+            : undefined;
+
+  return {
+    ...base,
+    sectionId:
+      block?.dataset.blockId ??
+      prototype?.dataset.prototypeScreen ??
+      frame?.dataset.canvasFrame,
+    screenId: prototype?.dataset.prototypeScreen,
+    sectionTitle,
+    targetSelector: selectorForElementWithin(reader, anchorElement),
+    targetX,
+    targetY,
+    tagName: anchorElement.tagName.toLowerCase(),
+    anchorKind:
+      textElement && targetText ? "text" : targetKind ? "visual" : "point",
+    textQuote: textElement && targetText ? targetText.slice(0, 220) : undefined,
+    snippet: targetText || sectionTitle,
+    visualLabel: sectionTitle ?? input.planTitle,
+    visualX: targetX,
+    visualY: targetY,
+    targetKind,
+    targetLabel:
+      image?.alt?.trim() ||
+      anchorElement.getAttribute("aria-label") ||
+      sectionTitle ||
+      targetText.slice(0, 80) ||
+      input.planTitle,
+    targetText: targetText || undefined,
+    targetAlt: image?.alt?.trim() || undefined,
+    targetSrc: image?.currentSrc || image?.src || undefined,
+    visualContext,
+  };
+}
+
+export function resolveNativeAnchorTarget(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+) {
+  const prototypeScope = prototypeScopeForAnchor(anchor, reader);
+  if (prototypeScope === null) return null;
+  const queryRoot = prototypeScope ?? reader;
+  if (anchor.targetSelector) {
+    try {
+      const target = queryRoot.matches(anchor.targetSelector)
+        ? queryRoot
+        : queryRoot.querySelector<HTMLElement>(anchor.targetSelector);
+      if (target) return target;
+    } catch {
+      // Fall back to quote matching below.
+    }
+  }
+  if (
+    anchor.planAnnotationId ||
+    anchor.canvasX !== undefined ||
+    anchor.targetKind === "canvas"
+  ) {
+    const canvasWorld = reader.querySelector<HTMLElement>(
+      "[data-plan-canvas-world], .plan-canvas-world",
+    );
+    if (canvasWorld) return canvasWorld;
+  }
+  const quote = normalizedElementText(anchor.textQuote || anchor.snippet);
+  if (!quote) return null;
+  const needle = quote.slice(0, 120);
+  const scopes: Element[] = [];
+  if (prototypeScope) {
+    scopes.push(prototypeScope);
+  } else if (anchor.sectionId) {
+    const byBlock = reader.querySelector<HTMLElement>(
+      `[data-block-id="${cssAttr(anchor.sectionId)}"]`,
+    );
+    const byFrame = reader.querySelector<HTMLElement>(
+      `[data-canvas-frame="${cssAttr(anchor.sectionId)}"]`,
+    );
+    if (byBlock) scopes.push(byBlock);
+    if (byFrame) scopes.push(byFrame);
+  }
+  if (!prototypeScope) scopes.push(reader);
+  for (const scope of scopes) {
+    const candidates = Array.from(
+      scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR),
+    );
+    const match = candidates.find((candidate) =>
+      normalizedElementText(candidate.textContent).includes(needle),
+    );
+    if (match) return match;
+  }
+  return null;
+}
+
+export function nativePointForAnchor(
+  anchor: PlanAnnotationAnchor,
+  reader: HTMLElement,
+) {
+  const target = resolveNativeAnchorTarget(anchor, reader);
+  if (!target && prototypeScreenIdForAnchor(anchor)) return null;
+  const readerRect = reader.getBoundingClientRect();
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      return {
+        left:
+          rect.left -
+          readerRect.left +
+          ((anchor.targetX ?? anchor.visualX ?? 50) / 100) * rect.width,
+        top:
+          rect.top -
+          readerRect.top +
+          ((anchor.targetY ?? anchor.visualY ?? 50) / 100) * rect.height,
+      };
+    }
+  }
+  return {
+    left: (anchor.x / 100) * reader.scrollWidth - reader.scrollLeft,
+    top: (anchor.y / 100) * reader.scrollHeight - reader.scrollTop,
+  };
+}
+
 function resolveInlineCommentPosition(input: {
   pointX: number;
   pointY: number;
@@ -832,6 +1324,7 @@ function buildPlanAgentContext(input: {
   bundle: PlanBundle & { html?: string };
   documentHtml: string;
   url: string;
+  screenshotNote?: string;
 }) {
   const contentBlockCount = input.bundle.plan.content?.blocks.length ?? 0;
   const contentBlocks = input.bundle.plan.content?.blocks
@@ -841,18 +1334,96 @@ function buildPlanAgentContext(input: {
         `- ${block.id}: ${block.type}${block.title ? `, "${block.title}"` : ""}`,
     )
     .join("\n");
-  const openComments = buildCommentThreads(input.bundle.comments)
-    .filter((thread) => commentThreadStatus(thread) === "open")
-    .slice(0, 6)
+  const openThreads = buildCommentThreads(input.bundle.comments).filter(
+    (thread) => commentThreadStatus(thread) === "open",
+  );
+  const actionableThreads = openThreads.filter(
+    (thread) =>
+      normalizePlanCommentResolutionTarget(thread.anchor?.resolutionTarget) ===
+      "agent",
+  );
+  const humanReviewThreads = openThreads.filter(
+    (thread) =>
+      normalizePlanCommentResolutionTarget(thread.anchor?.resolutionTarget) ===
+      "human",
+  );
+  const formatThreadGroup = (
+    threads: CommentThread[],
+    input: { offset?: number; limit?: number } = {},
+  ) =>
+    threads
+      .slice(0, input.limit ?? 20)
+      .map((thread, index) => {
+        const commentNumber = (input.offset ?? 0) + index + 1;
+        const anchorContext = formatAnchorForAgent(thread.anchor);
+        const anchorDetails = planCommentAnchorDetails(thread.anchor);
+        const messages = thread.comments
+          .map((comment, messageIndex) => {
+            const prefix = messageIndex === 0 ? "" : "   Reply ";
+            return `${prefix}${comment.id} / ${commentAuthorLabel(
+              comment,
+            )}: ${comment.message}`;
+          })
+          .join("\n");
+        return [
+          `${commentNumber}. Thread ${thread.id}`,
+          messages,
+          anchorContext ? `   Context: ${anchorContext}` : "",
+          ...anchorDetails.map((detail) => `   ${detail}`),
+        ]
+          .filter(Boolean)
+          .join("\n");
+      })
+      .join("\n");
+  const actionableComments = formatThreadGroup(actionableThreads, {
+    limit: 16,
+  });
+  const humanReviewComments = formatThreadGroup(humanReviewThreads, {
+    offset: actionableThreads.length,
+    limit: 8,
+  });
+  const omittedComments =
+    Math.max(0, actionableThreads.length - 16) +
+    Math.max(0, humanReviewThreads.length - 8);
+  const omittedCommentNote =
+    omittedComments > 0
+      ? `\n${omittedComments} additional open thread(s) omitted from this composer context. Call get-plan-feedback for the full list before editing.`
+      : "";
+  const legacyUnroutedThreads = openThreads.filter(
+    (thread) => !thread.anchor?.resolutionTarget,
+  );
+  const legacyUnroutedComments = legacyUnroutedThreads
+    .filter((thread) => !actionableThreads.includes(thread))
+    .slice(0, 4)
     .map((thread, index) => {
       const anchorContext = formatAnchorForAgent(thread.anchor);
+      const anchorDetails = planCommentAnchorDetails(thread.anchor);
       const messages = thread.comments
         .map((comment, messageIndex) => {
           const prefix = messageIndex === 0 ? "" : "   Reply ";
-          return `${prefix}${commentAuthorLabel(comment)}: ${comment.message}`;
+          return `${prefix}${comment.id} / ${commentAuthorLabel(
+            comment,
+          )}: ${comment.message}`;
         })
         .join("\n");
-      return `${index + 1}. ${messages}${anchorContext ? `\n   Context: ${anchorContext}` : ""}`;
+      return [
+        `${index + 1}. Thread ${thread.id}`,
+        messages,
+        anchorContext ? `   Context: ${anchorContext}` : "",
+        ...anchorDetails.map((detail) => `   ${detail}`),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n");
+  const recentReviewEvents = input.bundle.events
+    .filter((event) => event.type === "plan.updated")
+    .slice(-6)
+    .map((event) => {
+      const payload = event.payload
+        ? `\n   Payload: ${JSON.stringify(event.payload)}`
+        : "";
+      return `- ${event.createdAt} / ${event.createdBy}: ${event.message}${payload}`;
     })
     .join("\n");
 
@@ -868,19 +1439,46 @@ function buildPlanAgentContext(input: {
     "",
     "Fast iteration workflow:",
     "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
-    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
+    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
     "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
     "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
     "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
+    "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
+    "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
+    "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
     contentBlocks ? `\nStructured content blocks:\n${contentBlocks}` : "",
-    openComments ? `\nOpen comments:\n${openComments}` : "",
+    recentReviewEvents
+      ? `\nRecent review/edit events:\n${recentReviewEvents}`
+      : "",
+    input.screenshotNote
+      ? `\nScreenshot context:\n${input.screenshotNote}`
+      : "",
+    actionableComments
+      ? `\nActionable agent comments:\n${actionableComments}`
+      : "",
+    humanReviewComments
+      ? `\nHuman-review / FYI comments:\n${humanReviewComments}`
+      : "",
+    legacyUnroutedComments
+      ? `\nLegacy unrouted comments:\n${legacyUnroutedComments}`
+      : "",
+    omittedCommentNote,
   ]
     .filter(Boolean)
     .join("\n");
 }
 
 function buildApplyFeedbackMessage(openCommentCount: number) {
-  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, then update structured content blocks and any related implementation details as needed. Use HTML only for legacy imported artifacts.`;
+  return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual or prototype plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
+}
+
+function buildQuestionFormRevisionMessage(summary: string) {
+  return [
+    "Use these answered open questions to revise the existing Agent-Native Plan.",
+    "Read the plan with get-visual-plan, then update the structured content with update-visual-plan contentPatches. Preserve the user's answers as direction, remove or update the answered question block if it is no longer useful, and keep any remaining unanswered decisions at the bottom as a question-form block.",
+    "",
+    summary,
+  ].join("\n");
 }
 
 function newCanvasMarkupId() {
@@ -897,9 +1495,131 @@ function buildCanvasMarkupFeedbackMessage(annotation: PlanAnnotation) {
   return `${prefix}: ${annotation.text}`;
 }
 
+const MAX_FEEDBACK_SCREENSHOTS = 8;
+
+function shouldCaptureAnchor(anchor: PlanAnnotationAnchor | null) {
+  if (!anchor) return false;
+  if (anchor.anchorKind === "text" && anchor.textQuote) return false;
+  return (
+    anchor.anchorKind === "visual" ||
+    anchor.anchorKind === "point" ||
+    anchor.targetKind === "image" ||
+    anchor.targetKind === "prototype" ||
+    anchor.targetKind === "wireframe" ||
+    anchor.targetKind === "canvas" ||
+    anchor.targetKind === "diagram" ||
+    Boolean(anchor.planAnnotationId)
+  );
+}
+
+function feedbackScreenshotPriority(thread: CommentThread) {
+  const anchor = thread.anchor;
+  const resolver =
+    normalizePlanCommentResolutionTarget(anchor?.resolutionTarget) === "agent"
+      ? 2
+      : 0;
+  const visualWeight =
+    anchor?.targetKind === "canvas" ||
+    anchor?.targetKind === "prototype" ||
+    anchor?.targetKind === "wireframe" ||
+    anchor?.targetKind === "diagram" ||
+    anchor?.targetKind === "image" ||
+    Boolean(anchor?.planAnnotationId)
+      ? 1
+      : 0;
+  const replyWeight = Math.min(thread.replies.length, 3) * 0.2;
+  const latestTime = Math.max(
+    ...thread.comments.map((comment) => {
+      const time = Date.parse(comment.createdAt ?? "");
+      return Number.isFinite(time) ? time : 0;
+    }),
+  );
+  return (
+    resolver + visualWeight + replyWeight + latestTime / 10_000_000_000_000
+  );
+}
+
+function nextFrame() {
+  return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function cropFeedbackScreenshot(input: {
+  canvas: HTMLCanvasElement;
+  surfaceWidth: number;
+  surfaceHeight: number;
+  pointX: number;
+  pointY: number;
+  label: string;
+}) {
+  const scaleX = input.canvas.width / Math.max(input.surfaceWidth, 1);
+  const scaleY = input.canvas.height / Math.max(input.surfaceHeight, 1);
+  const cropCssWidth = Math.min(760, input.surfaceWidth);
+  const cropCssHeight = Math.min(520, input.surfaceHeight);
+  const cropWidth = Math.round(cropCssWidth * scaleX);
+  const cropHeight = Math.round(cropCssHeight * scaleY);
+  const centerX = input.pointX * scaleX;
+  const centerY = input.pointY * scaleY;
+  const cropX = clamp(
+    centerX - cropWidth / 2,
+    0,
+    input.canvas.width - cropWidth,
+  );
+  const cropY = clamp(
+    centerY - cropHeight / 2,
+    0,
+    input.canvas.height - cropHeight,
+  );
+  const output = document.createElement("canvas");
+  output.width = cropWidth;
+  output.height = cropHeight;
+  const ctx = output.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(
+    input.canvas,
+    cropX,
+    cropY,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    cropWidth,
+    cropHeight,
+  );
+  const markerX = centerX - cropX;
+  const markerY = centerY - cropY;
+  ctx.save();
+  ctx.lineWidth = Math.max(4, 2.5 * scaleX);
+  ctx.strokeStyle = "#ff334e";
+  ctx.fillStyle = "rgba(255, 51, 78, 0.14)";
+  ctx.beginPath();
+  ctx.arc(markerX, markerY, Math.max(22, 14 * scaleX), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "rgba(12, 12, 14, 0.88)";
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
+  ctx.lineWidth = 1;
+  const label = input.label.slice(0, 72);
+  ctx.font = `${Math.max(13, 12 * scaleX)}px ui-sans-serif, system-ui`;
+  const labelWidth = Math.min(
+    cropWidth - 24,
+    ctx.measureText(label).width + 24,
+  );
+  const labelX = clamp(markerX + 18, 12, cropWidth - labelWidth - 12);
+  const labelY = clamp(markerY - 36, 12, cropHeight - 34);
+  ctx.beginPath();
+  ctx.roundRect(labelX, labelY, labelWidth, 28, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(label, labelX + 12, labelY + 19);
+  ctx.restore();
+  return output.toDataURL("image/png");
+}
+
 type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
 
 type PlanAccessResponse = {
+  ownerEmail?: string | null;
   role?: PlanAccessRole | null;
 };
 
@@ -926,10 +1646,13 @@ export function PlansPage() {
   const [annotateMode, setAnnotateMode] = useState(false);
   const [canvasMarkupMode, setCanvasMarkupMode] =
     useState<CanvasMarkupMode>("none");
+  const [visualSurfaceMode, setVisualSurfaceMode] =
+    useState<PlanVisualSurfaceMode>("none");
   const [preferredEditor, setPreferredEditor] = useState<PreferredEditor>(() =>
     readPreferredEditor(),
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
+  const [sendingFeedback, setSendingFeedback] = useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
   const [inlineCommentPosition, setInlineCommentPosition] =
@@ -941,6 +1664,11 @@ export function PlansPage() {
     position: InlineCommentPosition;
   } | null>(null);
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
+  // Holds the human summary of blocks that can't sync to Notion, shown in a
+  // non-blocking warning dialog when "Sync to Notion" is enabled. `null` = closed.
+  const [notionSyncWarning, setNotionSyncWarning] = useState<string | null>(
+    null,
+  );
   const { session, isLoading: sessionLoading } = useSession();
   const plansQuery = usePlans({
     enabled: Boolean(session),
@@ -1014,7 +1742,13 @@ export function PlansPage() {
     sessionLoading,
   ]);
   const selectedId = params.id;
-  const immersiveReader = Boolean(selectedId && planFullscreen);
+  const prototypeOnly = useMemo(() => {
+    const search = new URLSearchParams(location.search);
+    return search.get("prototype") === "1";
+  }, [location.search]);
+  const immersiveReader = Boolean(
+    selectedId && (planFullscreen || prototypeOnly),
+  );
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
   const accessResourceId = bundle?.plan.id ?? selectedId ?? "";
@@ -1024,6 +1758,30 @@ export function PlansPage() {
     { enabled: Boolean(accessResourceId) },
   );
   const canEditPlanContent = canEditPlanContentRole(planAccessQuery.data?.role);
+  const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
+    const ownerEmail = normalizeCommentEmail(planAccessQuery.data?.ownerEmail);
+    const currentEmail = normalizeCommentEmail(collabUser?.email);
+    if (
+      !ownerEmail ||
+      planAccessQuery.data?.role === "owner" ||
+      ownerEmail === currentEmail
+    ) {
+      return { message: "", mentions: [], resolutionTarget: "agent" };
+    }
+    const mention = {
+      email: ownerEmail,
+      label: displayNameForMention(ownerEmail),
+    };
+    return {
+      message: `${formatPlanCommentMentionToken(mention)} `,
+      mentions: [mention],
+      resolutionTarget: "human",
+    };
+  }, [
+    collabUser?.email,
+    planAccessQuery.data?.ownerEmail,
+    planAccessQuery.data?.role,
+  ]);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
@@ -1067,6 +1825,7 @@ export function PlansPage() {
       return fresh ? { ...current, annotation: fresh } : current;
     });
   }, [runtimeCommentThreads]);
+  const convertPlanToPrototype = useConvertVisualPlanToPrototype();
   const updatePlan = useUpdatePlan();
   const exportPlan = useExportPlan(selectedId);
   const { resolvedTheme, setTheme } = useTheme();
@@ -1080,9 +1839,17 @@ export function PlansPage() {
   iframeRuntimeDefaultsRef.current = { planTheme, preferredEditor };
   const reviewMode: CanvasMarkupMode = annotateMode
     ? "comment"
-    : canEditPlanContent
-      ? canvasMarkupMode
-      : "none";
+    : canvasMarkupMode;
+  const commentMarkersVisible =
+    annotationsOpen || annotateMode || Boolean(activeAnnotation);
+  const showingPrototypeSurface =
+    prototypeOnly || visualSurfaceMode === "prototype";
+
+  useEffect(() => {
+    if (visualSurfaceMode !== "wireframes" && canvasMarkupMode !== "none") {
+      setCanvasMarkupMode("none");
+    }
+  }, [canvasMarkupMode, visualSurfaceMode]);
 
   useSetPageTitle(bundle?.plan.title || "Plans");
 
@@ -1301,13 +2068,11 @@ export function PlansPage() {
     const nativeReader = nativeReaderRef.current;
     if (nativeReader) {
       const rect = nativeReader.getBoundingClientRect();
-      const pointX =
-        (anchor.x / 100) * nativeReader.scrollWidth - nativeReader.scrollLeft;
-      const pointY =
-        (anchor.y / 100) * nativeReader.scrollHeight - nativeReader.scrollTop;
+      const point = nativePointForAnchor(anchor, nativeReader);
+      if (!point) return null;
       return resolveInlineCommentPosition({
-        pointX,
-        pointY,
+        pointX: point.left,
+        pointY: point.top,
         viewportWidth: rect.width,
         viewportHeight: rect.height,
       });
@@ -1415,11 +2180,11 @@ export function PlansPage() {
       ) {
         sendToAgentChat({
           type: "content",
-          submit: false,
+          submit: true,
           context: planAgentContext,
-          message: data.summary,
+          message: buildQuestionFormRevisionMessage(data.summary),
         });
-        toast.success("Visual answers added to the agent draft");
+        toast.success("Sent answers to the agent");
       }
     };
     window.addEventListener("message", onMessage);
@@ -1445,6 +2210,35 @@ export function PlansPage() {
     if (!planShareUrl) return;
     await navigator.clipboard.writeText(planShareUrl);
     toast.success("Plan link copied");
+  };
+
+  const openPrototypeWindow = () => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("prototype", "1");
+    window.open(url.toString(), "_blank", "noopener,noreferrer");
+  };
+
+  const leavePrototypeOnlyMode = () => {
+    const search = new URLSearchParams(location.search);
+    search.delete("prototype");
+    const nextSearch = search.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  };
+
+  const convertCurrentPlanToPrototype = async () => {
+    if (!bundle?.plan.content) return;
+    await convertPlanToPrototype.mutateAsync({
+      planId: bundle.plan.id,
+    });
+    toast.success("Prototype plan ready");
   };
 
   const readPlanExport = async () => {
@@ -1532,16 +2326,17 @@ export function PlansPage() {
         startCommenting();
         return;
       }
-      if (!canEditPlanContent) {
+      if (!bundle?.plan.content?.canvas || prototypeOnly) {
         setCanvasMarkupMode("none");
         setAnnotateMode(false);
-        toast.error("Only editors can add canvas markup.");
+        toast.error("Canvas markup needs a wireframe canvas.");
         return;
       }
       setActiveAnnotation(null);
       setAnnotationsOpen(false);
       clearInlineCommentDraft();
       setAnnotateMode(false);
+      setVisualSurfaceMode("wireframes");
       setCanvasMarkupMode(mode);
     });
   };
@@ -1583,25 +2378,32 @@ export function PlansPage() {
         ? range.startContainer
         : range.startContainer.parentElement;
     const blockElement = startElement?.closest<HTMLElement>("[data-block-id]");
-    const sectionTitle =
-      blockElement
-        ?.querySelector<HTMLElement>("h1,h2,h3,[data-plan-section-title]")
-        ?.textContent?.replace(/\s+/g, " ")
-        .trim() ||
-      blockElement?.getAttribute("aria-label") ||
-      bundle?.plan.title;
+    const blockType = blockElement?.dataset.blockId
+      ? findPlanBlockById(
+          bundle?.plan.content?.blocks ?? [],
+          blockElement.dataset.blockId,
+        )?.type
+      : undefined;
+    const quoteContext = textQuoteContextForBlock({
+      block: blockElement,
+      quote: textQuote,
+    });
     const snippet = textQuote.slice(0, 220);
-    const anchor: PlanAnnotationAnchor = {
-      x: ((pointX + reader.scrollLeft) / Math.max(reader.scrollWidth, 1)) * 100,
-      y: ((pointY + reader.scrollTop) / Math.max(reader.scrollHeight, 1)) * 100,
-      sectionId: blockElement?.dataset.blockId,
-      sectionTitle,
+    const anchor = {
+      ...buildNativeAnchorFromElement({
+        reader,
+        target: startElement instanceof HTMLElement ? startElement : reader,
+        pointX,
+        pointY,
+        planTitle: bundle?.plan.title,
+      }),
       snippet,
       textQuote: snippet,
       anchorKind: "text",
       tagName: "selection",
-      visualLabel: sectionTitle,
-    };
+      blockType,
+      ...quoteContext,
+    } satisfies PlanAnnotationAnchor;
     const toolbarWidth = 132;
     const toolbarLeft = clamp(
       pointX - toolbarWidth / 2,
@@ -1674,12 +2476,13 @@ export function PlansPage() {
     const rect = reader.getBoundingClientRect();
     const pointX = event.clientX - rect.left;
     const pointY = event.clientY - rect.top;
-    const anchor: PlanAnnotationAnchor = {
-      x: ((pointX + reader.scrollLeft) / Math.max(reader.scrollWidth, 1)) * 100,
-      y: ((pointY + reader.scrollTop) / Math.max(reader.scrollHeight, 1)) * 100,
-      anchorKind: "point",
-      visualLabel: bundle?.plan.title,
-    };
+    const anchor = buildNativeAnchorFromElement({
+      reader,
+      target,
+      pointX,
+      pointY,
+      planTitle: bundle?.plan.title,
+    });
     documentStateRef.current = readNativeDocumentState();
     setActiveAnnotation(null);
     setPendingAnnotation(anchor);
@@ -1714,15 +2517,41 @@ export function PlansPage() {
     });
   };
 
+  const notionSyncEnabled = Boolean(bundle?.plan.content?.notionSync);
+
+  const setNotionSync = (next: boolean) => {
+    if (!bundle) return;
+    void patchStructuredContent({ op: "set-notion-sync", value: next });
+  };
+
+  // Toggle the per-plan "Sync to Notion" setting. Optimistic + non-blocking: the
+  // flag flips immediately (a targeted `set-notion-sync` patch, so it can't
+  // clobber concurrent block edits), and on enable — when the plan holds blocks
+  // with no Notion (NFM) analog — we surface a warning listing them rather than
+  // refusing the toggle. The warning open is DEFERRED to the next macrotask so
+  // the dropdown's closing pointer event doesn't immediately dismiss the freshly
+  // opened dialog (the Radix menu→dialog race).
+  const toggleNotionSync = () => {
+    if (!bundle) return;
+    const next = !notionSyncEnabled;
+    setNotionSync(next);
+    if (!next) {
+      setNotionSyncWarning(null);
+      return;
+    }
+    const incompatible = describeIncompatibleBlocks(
+      bundle.plan.content?.blocks ?? [],
+    );
+    if (incompatible) {
+      window.setTimeout(() => setNotionSyncWarning(incompatible), 0);
+    }
+  };
+
   const appendCanvasMarkup = async (
     annotation: Omit<PlanAnnotation, "id">,
     context: CanvasMarkupCreateContext,
   ) => {
     if (!bundle?.plan.content?.canvas) return;
-    if (!canEditPlanContent) {
-      toast.error("Only editors can add canvas markup.");
-      return;
-    }
     const nextAnnotation: PlanAnnotation = {
       id: newCanvasMarkupId(),
       ...annotation,
@@ -1731,6 +2560,18 @@ export function PlansPage() {
       ...context.anchor,
       planAnnotationId: nextAnnotation.id,
       markupType: context.anchor.markupType,
+      resolutionTarget: "agent",
+      targetKind: "canvas",
+      targetSelector: "[data-plan-canvas-world]",
+      targetX: context.anchor.x,
+      targetY: context.anchor.y,
+      targetLabel:
+        nextAnnotation.type === "callout" ? "Canvas callout" : "Canvas note",
+      targetText: nextAnnotation.text,
+      visualContext:
+        nextAnnotation.type === "callout"
+          ? "Reviewer drew an arrow callout on the canvas."
+          : "Reviewer placed a text note on the canvas.",
     };
     await updatePlan.mutateAsync({
       planId: bundle.plan.id,
@@ -1778,20 +2619,163 @@ export function PlansPage() {
     });
   };
 
-  const sendPlanFeedbackToInlineAgent = () => {
+  const captureFocusedFeedbackImages = async (threads: CommentThread[]) => {
+    const reader = nativeReaderRef.current;
+    const surface = reader?.parentElement;
+    if (!reader || !surface) {
+      return { images: [] as string[], note: "" };
+    }
+    const allEligible = threads
+      .filter((thread) => shouldCaptureAnchor(thread.anchor))
+      .sort(
+        (a, b) => feedbackScreenshotPriority(b) - feedbackScreenshotPriority(a),
+      );
+    const eligible = allEligible.slice(0, MAX_FEEDBACK_SCREENSHOTS);
+    const overflow = allEligible.slice(MAX_FEEDBACK_SCREENSHOTS);
+    if (eligible.length === 0) {
+      return { images: [] as string[], note: "" };
+    }
+
+    const restore = readNativeDocumentState();
+    const images: string[] = [];
+    const labels: string[] = [];
+    try {
+      for (const [index, thread] of eligible.entries()) {
+        const anchor = thread.anchor;
+        if (!anchor) continue;
+        const target = resolveNativeAnchorTarget(anchor, reader);
+        if (!target && prototypeScreenIdForAnchor(anchor)) continue;
+        const readerRectBeforeScroll = reader.getBoundingClientRect();
+        const targetRect = target?.getBoundingClientRect();
+        const pointInReader = targetRect
+          ? {
+              left:
+                targetRect.left -
+                readerRectBeforeScroll.left +
+                reader.scrollLeft +
+                ((anchor.targetX ?? anchor.visualX ?? 50) / 100) *
+                  targetRect.width,
+              top:
+                targetRect.top -
+                readerRectBeforeScroll.top +
+                reader.scrollTop +
+                ((anchor.targetY ?? anchor.visualY ?? 50) / 100) *
+                  targetRect.height,
+            }
+          : {
+              left: (anchor.x / 100) * reader.scrollWidth,
+              top: (anchor.y / 100) * reader.scrollHeight,
+            };
+        reader.scrollTo({
+          left: clamp(
+            pointInReader.left - reader.clientWidth / 2,
+            0,
+            Math.max(0, reader.scrollWidth - reader.clientWidth),
+          ),
+          top: clamp(
+            pointInReader.top - reader.clientHeight / 2,
+            0,
+            Math.max(0, reader.scrollHeight - reader.clientHeight),
+          ),
+          behavior: "auto",
+        });
+        await nextFrame();
+        await nextFrame();
+        setNativeMarkerVersion((version) => version + 1);
+        const point = nativePointForAnchor(anchor, reader);
+        const surfaceRect = surface.getBoundingClientRect();
+        const readerRect = reader.getBoundingClientRect();
+        const pointX = readerRect.left - surfaceRect.left + point.left;
+        const pointY = readerRect.top - surfaceRect.top + point.top;
+        const canvas = await html2canvas(surface, {
+          backgroundColor: null,
+          logging: false,
+          scale: Math.min(2, window.devicePixelRatio || 1),
+          useCORS: true,
+          width: surface.clientWidth,
+          height: surface.clientHeight,
+        });
+        const label = `Comment ${index + 1}: ${thread.id}`;
+        const dataUrl = cropFeedbackScreenshot({
+          canvas,
+          surfaceWidth: surface.clientWidth,
+          surfaceHeight: surface.clientHeight,
+          pointX,
+          pointY,
+          label,
+        });
+        if (dataUrl) {
+          images.push(dataUrl);
+          labels.push(`${label} — ${formatAnchorForAgent(anchor)}`);
+        }
+      }
+    } finally {
+      restoreNativeDocumentScroll(restore);
+      schedulePlanDocumentRestore(restore);
+    }
+
+    const overflowLabels = overflow
+      .slice(0, 12)
+      .map(
+        (thread) =>
+          `- ${thread.id}: ${formatAnchorForAgent(thread.anchor)} (${planCommentAnchorDetails(
+            thread.anchor,
+          ).join("; ")})`,
+      );
+    const note = [
+      images.length
+        ? `Attached ${images.length} focused screenshot crop(s):`
+        : "",
+      ...labels.map((label) => `- ${label}`),
+      overflow.length > 0
+        ? `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use get-plan-feedback anchorDetails/coordinates for these overflow comments:`
+        : "",
+      ...overflowLabels,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return { images, note };
+  };
+
+  const sendPlanFeedbackToInlineAgent = async () => {
     if (!bundle) return;
     const openCommentCount = bundle.summary.openCommentCount;
     if (openCommentCount === 0) {
       startCommenting();
       return;
     }
-    sendToAgentChat({
-      type: "content",
-      submit: true,
-      context: planAgentContext,
-      message: buildApplyFeedbackMessage(openCommentCount),
-    });
-    toast.success("Sent comments to the agent");
+    setSendingFeedback(true);
+    try {
+      const openThreads = commentThreads.filter(
+        (thread) => commentThreadStatus(thread) === "open",
+      );
+      const capture = await captureFocusedFeedbackImages(openThreads);
+      const context = buildPlanAgentContext({
+        bundle,
+        documentHtml,
+        url:
+          typeof window === "undefined"
+            ? appPath(`/plans/${selectedId ?? bundle.plan.id}`)
+            : `${window.location.origin}${appPath(
+                `/plans/${selectedId ?? bundle.plan.id}`,
+              )}`,
+        screenshotNote: capture.note,
+      });
+      sendToAgentChat({
+        type: "content",
+        submit: true,
+        context,
+        images: capture.images,
+        message: buildApplyFeedbackMessage(openCommentCount),
+      });
+      toast.success(
+        capture.images.length > 0
+          ? "Sent comments and focused screenshots to the agent"
+          : "Sent comments to the agent",
+      );
+    } finally {
+      setSendingFeedback(false);
+    }
   };
 
   const copyPlanFeedbackForAgent = async () => {
@@ -1809,14 +2793,17 @@ export function PlansPage() {
     toast.success("Feedback instructions copied");
   };
 
-  const submitInlineComment = async (message: string) => {
+  const submitInlineComment = async (draft: CommentDraft) => {
     if (!bundle || !pendingAnnotation) return;
+    const anchor: PlanAnnotationAnchor = {
+      ...pendingAnnotation,
+      resolutionTarget: draft.resolutionTarget,
+      mentions: draft.mentions,
+    };
     const sectionId =
-      pendingAnnotation.sectionId &&
-      bundle.sections.some(
-        (section) => section.id === pendingAnnotation.sectionId,
-      )
-        ? pendingAnnotation.sectionId
+      anchor.sectionId &&
+      bundle.sections.some((section) => section.id === anchor.sectionId)
+        ? anchor.sectionId
         : undefined;
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
@@ -1827,9 +2814,9 @@ export function PlansPage() {
           {
             kind: "annotation",
             status: "open",
-            message,
+            message: draft.message,
             sectionId,
-            anchor: JSON.stringify(pendingAnnotation),
+            anchor: JSON.stringify(anchor),
             createdBy: "human",
             authorEmail: collabUser?.email,
             authorName: collabUser?.name,
@@ -1852,6 +2839,13 @@ export function PlansPage() {
     message: string,
   ) => {
     if (!bundle) return;
+    const anchor: PlanAnnotationAnchor = {
+      ...annotation.anchor,
+      mentions: extractCommentMentions(message),
+      resolutionTarget: normalizePlanCommentResolutionTarget(
+        annotation.anchor.resolutionTarget,
+      ),
+    };
     updatePlan.mutate(
       {
         planId: bundle.plan.id,
@@ -1862,8 +2856,8 @@ export function PlansPage() {
             status:
               annotation.status as PlanBundle["comments"][number]["status"],
             message,
-            sectionId: annotation.sectionId ?? annotation.anchor.sectionId,
-            anchor: JSON.stringify(annotation.anchor),
+            sectionId: annotation.sectionId ?? anchor.sectionId,
+            anchor: JSON.stringify(anchor),
             createdBy: "human",
             authorEmail: collabUser?.email,
             authorName: collabUser?.name,
@@ -1926,12 +2920,50 @@ export function PlansPage() {
     toast.success("Reply added");
   };
 
+  const setCommentThreadStatus = (
+    annotation: RuntimeAnnotation,
+    status: PlanBundle["comments"][number]["status"],
+  ) => {
+    if (!bundle || !canEditPlanContent) return;
+    const thread = commentThreads.find((item) => item.id === annotation.id);
+    if (!thread) return;
+    updatePlan.mutate(
+      {
+        planId: bundle.plan.id,
+        comments: thread.comments.map((comment) => ({
+          id: comment.id,
+          kind: comment.kind,
+          status,
+          message: comment.message,
+          sectionId: comment.sectionId ?? undefined,
+          anchor: comment.anchor ?? JSON.stringify(annotation.anchor),
+          createdBy: "human",
+          authorEmail: collabUser?.email,
+          authorName: collabUser?.name,
+        })),
+        note:
+          status === "resolved"
+            ? "Human resolved visual plan feedback."
+            : "Human reopened visual plan feedback.",
+      },
+      {
+        onSuccess: () => {
+          setActiveAnnotation(null);
+          toast.success(
+            status === "resolved" ? "Comment resolved" : "Comment reopened",
+          );
+        },
+      },
+    );
+  };
+
   const nativeMarkerPosition = (anchor: PlanAnnotationAnchor) => {
     void nativeMarkerVersion;
     const reader = nativeReaderRef.current;
     if (!reader) return null;
-    const left = (anchor.x / 100) * reader.scrollWidth - reader.scrollLeft;
-    const top = (anchor.y / 100) * reader.scrollHeight - reader.scrollTop;
+    const point = nativePointForAnchor(anchor, reader);
+    if (!point) return null;
+    const { left, top } = point;
     if (
       left < -40 ||
       top < -40 ||
@@ -2001,9 +3033,44 @@ export function PlansPage() {
                 <ReviewMarkupToolbar
                   mode={reviewMode}
                   hasCanvas={Boolean(bundle.plan.content?.canvas)}
-                  canUseCanvasMarkup={canEditPlanContent}
+                  canUseCanvasMarkup={
+                    Boolean(bundle.plan.content?.canvas) && !prototypeOnly
+                  }
                   onModeChange={selectReviewMode}
                 />
+                {bundle.plan.content?.prototype && showingPrototypeSurface && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="pointer-events-auto size-8"
+                        onClick={() =>
+                          preservePlanReaderScroll(() => {
+                            if (prototypeOnly) {
+                              leavePrototypeOnlyMode();
+                            } else {
+                              openPrototypeWindow();
+                            }
+                          })
+                        }
+                        aria-label={
+                          prototypeOnly
+                            ? "Open full plan"
+                            : "Open prototype window"
+                        }
+                      >
+                        <IconExternalLink className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {prototypeOnly
+                        ? "Open full plan"
+                        : "Open prototype window"}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 {bundle.summary.openCommentCount > 0 && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -2012,8 +3079,9 @@ export function PlansPage() {
                         variant="default"
                         size="sm"
                         className="pointer-events-auto gap-1.5"
+                        disabled={sendingFeedback}
                       >
-                        Send to agent
+                        {sendingFeedback ? "Sending" : "Send to agent"}
                         <span className="flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
                           {bundle.summary.openCommentCount}
                         </span>
@@ -2028,11 +3096,12 @@ export function PlansPage() {
                       <DropdownMenuGroup>
                         <DropdownMenuItem
                           onClick={() =>
-                            preservePlanReaderScroll(
-                              sendPlanFeedbackToInlineAgent,
-                            )
+                            preservePlanReaderScroll(() => {
+                              void sendPlanFeedbackToInlineAgent();
+                            })
                           }
                           className="items-start gap-2"
+                          disabled={sendingFeedback}
                         >
                           <IconSend className="mt-0.5 size-4" />
                           <span className="grid gap-0.5">
@@ -2080,8 +3149,12 @@ export function PlansPage() {
                         onClick={() => {
                           preservePlanReaderScroll(() => {
                             setAnnotationsOpen((value) => {
-                              if (!value) closeInlineComment();
-                              return !value;
+                              const next = !value;
+                              if (!next) {
+                                closeInlineComment();
+                                setActiveAnnotation(null);
+                              }
+                              return next;
                             });
                           });
                         }}
@@ -2100,6 +3173,11 @@ export function PlansPage() {
                       <DropdownMenuItem
                         onClick={() => {
                           preservePlanReaderScroll(() => {
+                            if (prototypeOnly) {
+                              closeInlineComment();
+                              leavePrototypeOnlyMode();
+                              return;
+                            }
                             setPlanFullscreen((value) => {
                               if (value) closeInlineComment();
                               return !value;
@@ -2113,7 +3191,11 @@ export function PlansPage() {
                         ) : (
                           <IconArrowsMaximize className="size-4" />
                         )}
-                        {immersiveReader ? "App view" : "Full screen"}
+                        {prototypeOnly
+                          ? "Full plan"
+                          : immersiveReader
+                            ? "App view"
+                            : "Full screen"}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
@@ -2141,6 +3223,52 @@ export function PlansPage() {
                           ? "Clean wireframes"
                           : "Sketchy wireframes"}
                       </DropdownMenuItem>
+                      {canEditPlanContent && (
+                        <DropdownMenuItem
+                          onClick={() =>
+                            preservePlanReaderScroll(toggleNotionSync)
+                          }
+                          className="gap-2"
+                        >
+                          <IconBrandNotion className="size-4" />
+                          <span className="flex-1">
+                            {notionSyncEnabled
+                              ? "Disable Notion sync"
+                              : "Sync to Notion"}
+                          </span>
+                          {notionSyncEnabled && (
+                            <IconCheck className="size-4 text-muted-foreground" />
+                          )}
+                        </DropdownMenuItem>
+                      )}
+                      {bundle.plan.content?.prototype ? (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            preservePlanReaderScroll(openPrototypeWindow);
+                          }}
+                          className="gap-2"
+                        >
+                          <IconExternalLink className="size-4" />
+                          Open prototype window
+                        </DropdownMenuItem>
+                      ) : bundle.plan.content?.canvas && canEditPlanContent ? (
+                        <DropdownMenuItem
+                          onClick={() =>
+                            preservePlanReaderScroll(() => {
+                              void convertCurrentPlanToPrototype();
+                            })
+                          }
+                          className="gap-2"
+                          disabled={convertPlanToPrototype.isPending}
+                        >
+                          {convertPlanToPrototype.isPending ? (
+                            <IconLoader2 className="size-4 animate-spin" />
+                          ) : (
+                            <IconArrowRight className="size-4" />
+                          )}
+                          Convert to prototype
+                        </DropdownMenuItem>
+                      ) : null}
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
@@ -2258,26 +3386,31 @@ export function PlansPage() {
                       content={bundle.plan.content}
                       fallbackTitle={bundle.plan.title}
                       fallbackBrief={bundle.plan.brief}
-                      onContentChange={updateStructuredContent}
-                      onContentPatch={patchStructuredContent}
-                      contentUpdatedAt={bundle.plan.updatedAt}
-                      editingDisabled={reviewMode !== "none"}
-                      canvasMarkupMode={reviewMode}
-                      onCanvasMarkupCreate={
-                        canEditPlanContent ? appendCanvasMarkup : undefined
+                      onContentChange={
+                        canEditPlanContent ? updateStructuredContent : undefined
                       }
+                      onContentPatch={
+                        canEditPlanContent ? patchStructuredContent : undefined
+                      }
+                      contentUpdatedAt={bundle.plan.updatedAt}
+                      editingDisabled={
+                        !canEditPlanContent || reviewMode !== "none"
+                      }
+                      canvasMarkupMode={reviewMode}
+                      onCanvasMarkupCreate={appendCanvasMarkup}
                       planId={bundle.plan.id}
                       collabUser={collabUser}
+                      prototypeOnly={prototypeOnly}
+                      visualSurfaceMode={visualSurfaceMode}
+                      onVisualSurfaceModeChange={setVisualSurfaceMode}
                       onVisualQuestionsSubmit={(summary) => {
                         sendToAgentChat({
                           type: "content",
-                          submit: false,
+                          submit: true,
                           context: planAgentContext,
-                          message: summary,
+                          message: buildQuestionFormRevisionMessage(summary),
                         });
-                        toast.success(
-                          "Visual answers added to the agent draft",
-                        );
+                        toast.success("Sent answers to the agent");
                       }}
                     />
                   </div>
@@ -2300,37 +3433,41 @@ export function PlansPage() {
                       </Button>
                     </div>
                   )}
-                  <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-                    {runtimeCommentThreads.map((annotation) => {
-                      const position = nativeMarkerPosition(annotation.anchor);
-                      if (!position) return null;
-                      const participants = annotation.participants.map(
-                        runtimeParticipantPresentation,
-                      );
-                      return (
-                        <CommentThreadMarker
-                          key={annotation.id}
-                          participants={participants}
-                          count={annotation.commentCount}
-                          title={runtimeAnnotationMarkerTitle(annotation)}
-                          className="absolute"
-                          style={position}
-                          onClick={() => {
-                            const popoverPosition = getPositionFromAnchor(
-                              annotation.anchor,
-                            );
-                            if (!popoverPosition) return;
-                            closeInlineComment();
-                            setAnnotationsOpen(false);
-                            setActiveAnnotation({
-                              annotation,
-                              position: popoverPosition,
-                            });
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
+                  {commentMarkersVisible && (
+                    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+                      {runtimeCommentThreads.map((annotation) => {
+                        const position = nativeMarkerPosition(
+                          annotation.anchor,
+                        );
+                        if (!position) return null;
+                        const participants = annotation.participants.map(
+                          runtimeParticipantPresentation,
+                        );
+                        return (
+                          <CommentThreadMarker
+                            key={annotation.id}
+                            participants={participants}
+                            count={annotation.commentCount}
+                            title={runtimeAnnotationMarkerTitle(annotation)}
+                            className="absolute"
+                            style={position}
+                            onClick={() => {
+                              const popoverPosition = getPositionFromAnchor(
+                                annotation.anchor,
+                              );
+                              if (!popoverPosition) return;
+                              closeInlineComment();
+                              setAnnotationsOpen(false);
+                              setActiveAnnotation({
+                                annotation,
+                                position: popoverPosition,
+                              });
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <iframe
@@ -2362,6 +3499,7 @@ export function PlansPage() {
                   </div>
                   <InlineCommentPopover
                     position={inlineCommentPosition}
+                    initialDraft={defaultInlineCommentDraft}
                     onCancel={closeInlineComment}
                     onSubmit={submitInlineComment}
                   />
@@ -2380,6 +3518,8 @@ export function PlansPage() {
                     )
                   }
                   onReply={replyToCommentThread}
+                  canResolve={canEditPlanContent}
+                  onStatusChange={setCommentThreadStatus}
                 />
               )}
               {annotationsOpen && (
@@ -2403,6 +3543,47 @@ export function PlansPage() {
         canCreate={Boolean(session)}
         onRequireSignIn={() => openSignIn("/plans?create=1")}
       />
+
+      <Dialog
+        open={notionSyncWarning !== null}
+        onOpenChange={(open) => {
+          if (!open) setNotionSyncWarning(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IconAlertTriangle className="size-5 text-amber-500" />
+              Some blocks won't sync to Notion
+            </DialogTitle>
+            <DialogDescription>
+              Notion sync is on. These blocks have no Notion equivalent and will
+              be skipped when this plan is pushed to Notion: {notionSyncWarning}
+              .
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Prose, callouts, tables, images, and checklists sync normally. New
+            blocks you add from the slash menu are limited to Notion-compatible
+            types while sync is on.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setNotionSync(false);
+                setNotionSyncWarning(null);
+              }}
+            >
+              Turn off sync
+            </Button>
+            <Button type="button" onClick={() => setNotionSyncWarning(null)}>
+              Keep enabled
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2725,6 +3906,27 @@ function PlanSkeleton() {
   );
 }
 
+const PLAN_SKELETON_FILL = {
+  line: {
+    backgroundColor:
+      "color-mix(in srgb, var(--plan-placeholder-line) 42%, transparent)",
+  },
+  box: {
+    backgroundColor:
+      "color-mix(in srgb, var(--plan-placeholder-line) 26%, transparent)",
+  },
+  control: {
+    backgroundColor:
+      "color-mix(in srgb, var(--plan-placeholder-line) 32%, transparent)",
+  },
+  title: {
+    backgroundColor: "color-mix(in srgb, var(--plan-text) 6%, transparent)",
+  },
+  heading: {
+    backgroundColor: "color-mix(in srgb, var(--plan-text) 5%, transparent)",
+  },
+} satisfies Record<string, CSSProperties>;
+
 function PlanCanvasSkeleton() {
   return (
     <section
@@ -2741,28 +3943,36 @@ function PlanCanvasSkeleton() {
 
       <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2 rounded-lg border border-plan-line bg-plan-chrome p-1.5 shadow-md backdrop-blur">
         <PlanSkeletonIcon />
-        <PlanSkeletonIcon />
-        <Skeleton className="h-9 w-36 rounded-md bg-[var(--plan-text)]/90" />
-        <PlanSkeletonIcon />
+        <Skeleton
+          className="h-9 w-32 rounded-md"
+          style={PLAN_SKELETON_FILL.control}
+        />
         <PlanSkeletonIcon />
       </div>
 
-      <div className="absolute inset-x-4 bottom-14 top-16 mx-auto flex max-w-6xl items-start gap-6 overflow-hidden px-1 sm:px-6">
+      <div className="absolute inset-x-4 bottom-20 top-24 mx-auto flex max-w-5xl items-center gap-7 overflow-hidden px-1 sm:px-6">
         <div className="min-w-0 flex-[1_1_44rem]">
-          <PlanSkeletonBar className="mb-3 h-4 w-28" />
           <DesktopArtboardSkeleton />
         </div>
 
-        <div className="hidden w-[17rem] shrink-0 lg:block">
-          <PlanSkeletonBar className="mb-3 h-4 w-20" />
+        <div className="hidden w-[15rem] shrink-0 lg:block">
           <PhoneArtboardSkeleton />
         </div>
       </div>
 
       <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-lg border border-plan-line bg-plan-chrome p-1 shadow-md backdrop-blur">
-        <Skeleton className="size-6 rounded-md bg-[var(--plan-placeholder-line)]" />
-        <Skeleton className="h-4 w-10 rounded-full bg-[var(--plan-placeholder-line)]" />
-        <Skeleton className="size-6 rounded-md bg-[var(--plan-placeholder-line)]" />
+        <Skeleton
+          className="size-6 rounded-md"
+          style={PLAN_SKELETON_FILL.control}
+        />
+        <Skeleton
+          className="h-4 w-10 rounded-full"
+          style={PLAN_SKELETON_FILL.line}
+        />
+        <Skeleton
+          className="size-6 rounded-md"
+          style={PLAN_SKELETON_FILL.control}
+        />
       </div>
     </section>
   );
@@ -2776,7 +3986,10 @@ function PlanDocumentSkeleton() {
     >
       <header className="border-b border-plan-line pb-8">
         <PlanSkeletonBar className="mb-4 h-4 w-20" />
-        <Skeleton className="h-16 w-full max-w-[720px] rounded-lg bg-[var(--plan-text)]/18 sm:h-20" />
+        <Skeleton
+          className="h-16 w-full max-w-[720px] rounded-lg sm:h-20"
+          style={PLAN_SKELETON_FILL.title}
+        />
         <div className="mt-5 max-w-2xl space-y-3">
           <PlanSkeletonBar className="h-6 w-full" />
           <PlanSkeletonBar className="h-6 w-5/6" />
@@ -2785,7 +3998,10 @@ function PlanDocumentSkeleton() {
 
       <div className="plan-document-flow">
         <section className="plan-block">
-          <Skeleton className="mb-6 h-11 w-72 max-w-full rounded-lg bg-[var(--plan-text)]/16" />
+          <Skeleton
+            className="mb-6 h-11 w-72 max-w-full rounded-lg"
+            style={PLAN_SKELETON_FILL.heading}
+          />
           <div className="grid gap-8 sm:grid-cols-2">
             <div className="space-y-3">
               <PlanSkeletonBar className="h-4 w-32" />
@@ -2801,7 +4017,10 @@ function PlanDocumentSkeleton() {
         </section>
 
         <section className="plan-block">
-          <Skeleton className="mb-6 h-10 w-64 max-w-full rounded-lg bg-[var(--plan-text)]/14" />
+          <Skeleton
+            className="mb-6 h-10 w-64 max-w-full rounded-lg"
+            style={PLAN_SKELETON_FILL.heading}
+          />
           <div className="space-y-3">
             <PlanSkeletonBar className="h-4 w-full" />
             <PlanSkeletonBar className="h-4 w-11/12" />
@@ -2815,42 +4034,18 @@ function PlanDocumentSkeleton() {
 
 function DesktopArtboardSkeleton() {
   return (
-    <div className="h-[21rem] overflow-hidden rounded-[10px] border border-plan-line bg-plan-wireframe shadow-[0_10px_34px_rgba(24,24,27,0.08)] sm:h-[25rem]">
-      <div className="flex h-8 items-center gap-2 border-b border-plan-line px-3">
-        <Skeleton className="size-1.5 rounded-full bg-[var(--plan-placeholder-line)]" />
-        <Skeleton className="size-1.5 rounded-full bg-[var(--plan-placeholder-line)]" />
-        <Skeleton className="size-1.5 rounded-full bg-[var(--plan-placeholder-line)]" />
-        <PlanSkeletonBar className="ml-2 h-3 w-24" />
+    <div className="h-[20rem] overflow-hidden rounded-[12px] border border-plan-line bg-plan-wireframe p-6 shadow-[0_10px_34px_rgba(24,24,27,0.08)] sm:h-[23rem] sm:p-8">
+      <Skeleton
+        className="h-14 w-2/5 max-w-[20rem] rounded-lg"
+        style={PLAN_SKELETON_FILL.heading}
+      />
+      <div className="mt-6 space-y-3">
+        <PlanSkeletonBar className="h-4 w-4/5 max-w-[34rem]" />
+        <PlanSkeletonBar className="h-4 w-3/5 max-w-[26rem]" />
       </div>
-      <div className="p-5 sm:p-6">
-        <div className="mb-5 flex items-start justify-between gap-5">
-          <div className="min-w-0 flex-1">
-            <Skeleton className="mb-3 h-9 w-56 max-w-full rounded-lg bg-[var(--plan-text)]/16" />
-            <div className="space-y-2">
-              <PlanSkeletonBar className="h-3.5 w-full max-w-[34rem]" />
-              <PlanSkeletonBar className="h-3.5 w-4/5 max-w-[28rem]" />
-            </div>
-          </div>
-          <PlanSkeletonBox className="hidden h-9 w-24 shrink-0 sm:block" />
-        </div>
-
-        <div className="mb-6 flex gap-2">
-          <PlanSkeletonPill className="w-14" />
-          <PlanSkeletonPill className="w-16" />
-          <PlanSkeletonPill className="w-12" />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <PlanSkeletonBox className="h-24" />
-          <PlanSkeletonBox className="h-24" />
-          <PlanSkeletonBox className="h-24" />
-        </div>
-
-        <div className="mt-6 space-y-3">
-          <PlanSkeletonBar className="h-3.5 w-full" />
-          <PlanSkeletonBar className="h-3.5 w-11/12" />
-          <PlanSkeletonBar className="h-3.5 w-2/3" />
-        </div>
+      <div className="mt-10 grid gap-4 sm:grid-cols-[1fr_0.72fr]">
+        <PlanSkeletonBox className="h-28 sm:h-36" />
+        <PlanSkeletonBox className="hidden h-28 sm:block sm:h-36" />
       </div>
     </div>
   );
@@ -2858,34 +4053,11 @@ function DesktopArtboardSkeleton() {
 
 function PhoneArtboardSkeleton() {
   return (
-    <div className="h-[25rem] overflow-hidden rounded-[24px] border border-plan-line bg-plan-wireframe shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
-      <div className="flex h-9 items-center justify-between border-b border-plan-line px-4">
-        <PlanSkeletonBar className="h-2.5 w-8" />
-        <div className="flex gap-1">
-          <Skeleton className="h-1.5 w-5 rounded-full bg-[var(--plan-placeholder-line)]" />
-          <Skeleton className="h-1.5 w-3 rounded-full bg-[var(--plan-placeholder-line)]" />
-          <Skeleton className="h-1.5 w-3 rounded-full bg-[var(--plan-placeholder-line)]" />
-        </div>
-      </div>
-      <div className="border-b border-plan-line px-4 py-3">
-        <div className="mb-4 flex items-center justify-between">
-          <PlanSkeletonBar className="h-3 w-10" />
-          <PlanSkeletonBar className="h-4 w-20" />
-          <PlanSkeletonIcon className="size-5" />
-        </div>
-        <div className="flex gap-2">
-          <PlanSkeletonPill className="w-9" />
-          <PlanSkeletonPill className="w-14" />
-          <PlanSkeletonPill className="w-12" />
-        </div>
-      </div>
-      <div className="px-4 py-4">
-        <PlanSkeletonBox className="mb-4 h-24" />
-        <div className="space-y-3">
-          <PlanSkeletonBar className="h-3 w-full" />
-          <PlanSkeletonBar className="h-3 w-5/6" />
-          <PlanSkeletonBar className="h-3 w-2/3" />
-        </div>
+    <div className="h-[22rem] overflow-hidden rounded-[26px] border border-plan-line bg-plan-wireframe p-5 shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
+      <PlanSkeletonBox className="h-28" />
+      <div className="mt-5 space-y-3">
+        <PlanSkeletonBar className="h-3 w-full" />
+        <PlanSkeletonBar className="h-3 w-3/4" />
       </div>
     </div>
   );
@@ -2894,10 +4066,8 @@ function PhoneArtboardSkeleton() {
 function PlanSkeletonBar({ className }: { className?: string }) {
   return (
     <Skeleton
-      className={cn(
-        "rounded-full bg-[var(--plan-placeholder-line)]",
-        className,
-      )}
+      className={cn("rounded-full", className)}
+      style={PLAN_SKELETON_FILL.line}
     />
   );
 }
@@ -2905,21 +4075,8 @@ function PlanSkeletonBar({ className }: { className?: string }) {
 function PlanSkeletonBox({ className }: { className?: string }) {
   return (
     <Skeleton
-      className={cn(
-        "rounded-md bg-[var(--plan-placeholder-line)]/55",
-        className,
-      )}
-    />
-  );
-}
-
-function PlanSkeletonPill({ className }: { className?: string }) {
-  return (
-    <Skeleton
-      className={cn(
-        "h-6 rounded-full border border-plan-line bg-[var(--plan-placeholder-line)]/35",
-        className,
-      )}
+      className={cn("rounded-md", className)}
+      style={PLAN_SKELETON_FILL.box}
     />
   );
 }
@@ -2927,10 +4084,8 @@ function PlanSkeletonPill({ className }: { className?: string }) {
 function PlanSkeletonIcon({ className }: { className?: string }) {
   return (
     <Skeleton
-      className={cn(
-        "size-8 rounded-md bg-[var(--plan-placeholder-line)]",
-        className,
-      )}
+      className={cn("size-8 rounded-md", className)}
+      style={PLAN_SKELETON_FILL.control}
     />
   );
 }
@@ -3078,7 +4233,7 @@ function EmptyPlan({
     <div className="flex h-full items-center justify-center p-8">
       <div className="max-w-md text-center">
         <div className="mx-auto flex size-11 items-center justify-center rounded-xl border border-border bg-muted/30">
-          <IconSparkles className="size-5 text-muted-foreground" />
+          <IconClipboardText className="size-5 text-muted-foreground" />
         </div>
         <h2 className="mt-4 text-xl font-semibold tracking-tight">
           Start with a visual plan
@@ -3570,41 +4725,403 @@ function CreatePlanDialog({
   );
 }
 
+function createMentionChip(mention: PlanCommentMention) {
+  const chip = document.createElement("span");
+  chip.contentEditable = "false";
+  chip.dataset.mentionEmail = mention.email;
+  chip.dataset.mentionLabel = mention.label;
+  chip.className =
+    "inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary";
+  chip.textContent = `@${mention.label}`;
+  return chip;
+}
+
+function appendMessageToEditor(root: HTMLElement, message: string) {
+  root.replaceChildren();
+  const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(message)) !== null) {
+    if (match.index > lastIndex) {
+      root.append(
+        document.createTextNode(message.slice(lastIndex, match.index)),
+      );
+    }
+    const label = match[1]?.trim();
+    const email = decodeURIComponent(match[2] ?? "")
+      .trim()
+      .toLowerCase();
+    if (label && email) {
+      root.append(createMentionChip({ label, email }));
+    }
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < message.length) {
+    root.append(document.createTextNode(message.slice(lastIndex)));
+  }
+}
+
+function serializeCommentEditor(root: HTMLElement) {
+  const serialize = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+    if (!(node instanceof HTMLElement)) return "";
+    const mentionEmail = node.dataset.mentionEmail;
+    if (mentionEmail) {
+      return formatPlanCommentMentionToken({
+        email: mentionEmail,
+        label: node.dataset.mentionLabel || displayNameForMention(mentionEmail),
+      });
+    }
+    if (node.tagName === "BR") return "\n";
+    return Array.from(node.childNodes).map(serialize).join("");
+  };
+  return Array.from(root.childNodes)
+    .map(serialize)
+    .join("")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+function commentBodyText(message: string) {
+  return message
+    .replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function mentionQueryAtCaret(root: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return null;
+  const textBeforeCaretRange = range.cloneRange();
+  textBeforeCaretRange.selectNodeContents(root);
+  textBeforeCaretRange.setEnd(range.startContainer, range.startOffset);
+  const text = textBeforeCaretRange.toString();
+  const match = /(?:^|\s)@([a-zA-Z0-9._+-]{0,64})$/.exec(text);
+  if (!match) return null;
+  const start = text.lastIndexOf("@");
+  const end = text.length;
+  const startPosition = textPositionInRoot(root, start);
+  const endPosition = textPositionInRoot(root, end);
+  if (!startPosition || !endPosition) return null;
+  const queryRange = document.createRange();
+  queryRange.setStart(startPosition.node, startPosition.offset);
+  queryRange.setEnd(endPosition.node, endPosition.offset);
+  return {
+    query: match[1] ?? "",
+    range: queryRange,
+  };
+}
+
+function textPositionInRoot(root: HTMLElement, offset: number) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let seen = 0;
+  let lastText: Text | null = null;
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    const length = node.textContent?.length ?? 0;
+    if (offset <= seen + length) {
+      return { node, offset: Math.max(0, offset - seen) };
+    }
+    seen += length;
+    lastText = node;
+    node = walker.nextNode() as Text | null;
+  }
+  if (lastText && offset === seen) {
+    return { node: lastText, offset: lastText.textContent?.length ?? 0 };
+  }
+  return null;
+}
+
+function CommentMentionEditor({
+  initialMessage,
+  resetKey,
+  placeholder,
+  className,
+  autoFocus,
+  onChange,
+  onSubmitShortcut,
+}: {
+  initialMessage?: string;
+  resetKey?: string;
+  placeholder: string;
+  className?: string;
+  autoFocus?: boolean;
+  onChange: (draft: Pick<CommentDraft, "message" | "mentions">) => void;
+  onSubmitShortcut?: () => void;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const activeQueryRef = useRef<ReturnType<typeof mentionQueryAtCaret>>(null);
+  const onChangeRef = useRef(onChange);
+  const [query, setQuery] = useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [empty, setEmpty] = useState(true);
+  const { members, isLoading } = useOrgMemberMentionSearch(query);
+  onChangeRef.current = onChange;
+
+  const emitChange = useCallback(() => {
+    const root = editorRef.current;
+    if (!root) return;
+    const message = serializeCommentEditor(root);
+    setEmpty(message.length === 0);
+    onChangeRef.current({
+      message,
+      mentions: extractCommentMentions(message),
+    });
+    const nextQuery = mentionQueryAtCaret(root);
+    activeQueryRef.current = nextQuery;
+    setQuery(nextQuery?.query ?? null);
+    setSelectedIndex(0);
+  }, []);
+
+  useEffect(() => {
+    const root = editorRef.current;
+    if (!root) return;
+    appendMessageToEditor(root, initialMessage ?? "");
+    emitChange();
+    if (autoFocus) {
+      root.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(root);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+  }, [autoFocus, emitChange, initialMessage, resetKey]);
+
+  const selectMember = (member: OrgMemberSuggestion) => {
+    const root = editorRef.current;
+    const active = activeQueryRef.current;
+    if (!root || !active) return;
+    const label = displayNameForMention(member.email);
+    const range = active.range.cloneRange();
+    range.deleteContents();
+    const chip = createMentionChip({
+      email: member.email,
+      label,
+      role: member.role,
+    });
+    const trailing = document.createTextNode(" ");
+    range.insertNode(trailing);
+    range.insertNode(chip);
+    range.setStartAfter(trailing);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    setQuery(null);
+    activeQueryRef.current = null;
+    emitChange();
+  };
+
+  const suggestionsOpen = query !== null;
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      {empty && (
+        <span className="pointer-events-none absolute left-3 top-2.5 text-sm text-muted-foreground">
+          {placeholder}
+        </span>
+      )}
+      <div
+        ref={editorRef}
+        contentEditable
+        role="textbox"
+        aria-multiline="true"
+        data-plan-interactive
+        className={cn(
+          "min-h-11 max-h-36 overflow-y-auto rounded-md border border-border/80 bg-background px-3 py-2.5 text-sm leading-6 shadow-none outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          className,
+        )}
+        onInput={emitChange}
+        onKeyUp={emitChange}
+        onMouseUp={emitChange}
+        onKeyDown={(event) => {
+          if (suggestionsOpen && event.key === "ArrowDown") {
+            event.preventDefault();
+            setSelectedIndex((index) =>
+              members.length === 0 ? 0 : (index + 1) % members.length,
+            );
+            return;
+          }
+          if (suggestionsOpen && event.key === "ArrowUp") {
+            event.preventDefault();
+            setSelectedIndex((index) =>
+              members.length === 0
+                ? 0
+                : (index - 1 + members.length) % members.length,
+            );
+            return;
+          }
+          if (suggestionsOpen && event.key === "Enter" && members[0]) {
+            event.preventDefault();
+            selectMember(members[selectedIndex] ?? members[0]);
+            return;
+          }
+          if (suggestionsOpen && event.key === "Escape") {
+            event.preventDefault();
+            setQuery(null);
+            return;
+          }
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            onSubmitShortcut?.();
+          }
+        }}
+      />
+      {suggestionsOpen && (
+        <div
+          role="listbox"
+          aria-label="Mention organization member"
+          className="absolute bottom-full left-0 z-50 mb-2 w-[min(320px,calc(100vw-48px))] overflow-hidden rounded-xl border border-border/80 bg-background/98 p-1 shadow-2xl backdrop-blur-xl"
+        >
+          {isLoading && members.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              Searching people...
+            </div>
+          ) : members.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              No matching organization members.
+            </div>
+          ) : (
+            members.map((member, index) => {
+              const name = displayNameForMention(member.email);
+              return (
+                <button
+                  key={member.email}
+                  type="button"
+                  role="option"
+                  aria-selected={index === selectedIndex}
+                  data-plan-interactive
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
+                    index === selectedIndex
+                      ? "bg-primary/10 text-foreground"
+                      : "text-foreground hover:bg-muted",
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectMember(member)}
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <IconAt className="size-3.5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {member.email}
+                    </span>
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResolutionTargetToggle({
+  value,
+  onChange,
+}: {
+  value: PlanCommentResolutionTarget;
+  onChange: (value: PlanCommentResolutionTarget) => void;
+}) {
+  return (
+    <ToggleGroup
+      type="single"
+      value={value}
+      onValueChange={(next) => {
+        if (next === "agent" || next === "human") onChange(next);
+      }}
+      variant="default"
+      size="sm"
+      className="w-fit gap-0.5 rounded-md border border-border/70 bg-muted/35 p-0.5"
+      aria-label="Expected resolver"
+    >
+      <ToggleGroupItem value="agent" className="h-7 gap-1.5 px-2 text-xs">
+        <IconSend className="size-3.5" />
+        Agent
+      </ToggleGroupItem>
+      <ToggleGroupItem value="human" className="h-7 gap-1.5 px-2 text-xs">
+        <IconMessageCircle className="size-3.5" />
+        Human
+      </ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
+
+function CommentResolverHint({ draft }: { draft: CommentDraft }) {
+  const hasMentions = draft.mentions.length > 0;
+  const isAgent = draft.resolutionTarget === "agent" && !hasMentions;
+  const label = hasMentions
+    ? "Mentioned"
+    : draft.resolutionTarget === "human"
+      ? "Human"
+      : "Agent";
+  const tooltip = hasMentions
+    ? "This comment is routed to the mentioned people."
+    : draft.resolutionTarget === "human"
+      ? "This comment is marked for human review."
+      : "This comment will go to the agent.";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            "inline-flex h-6 items-center rounded px-1.5 text-[11px] font-medium text-muted-foreground",
+            isAgent && "bg-muted/50",
+          )}
+        >
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function InlineCommentPopover({
   position,
+  initialDraft,
   onCancel,
   onSubmit,
 }: {
   position: InlineCommentPosition;
+  initialDraft: CommentDraft;
   onCancel: () => void;
-  onSubmit: (message: string) => Promise<void>;
+  onSubmit: (draft: CommentDraft) => Promise<void>;
 }) {
-  const [message, setMessage] = useState("");
+  const initialMessageRef = useRef(initialDraft.message);
+  const [draft, setDraft] = useState<CommentDraft>(initialDraft);
+  const [resolverTouched, setResolverTouched] = useState(false);
   const [submitError, setSubmitError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const mountedRef = useRef(true);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "44px";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 44), 144);
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY =
-      textarea.scrollHeight > nextHeight ? "auto" : "hidden";
-  }, [message]);
-  const canSubmit = message.trim().length > 0 && !isSubmitting;
+  const canSubmit = commentBodyText(draft.message).length > 0 && !isSubmitting;
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitError(false);
     setIsSubmitting(true);
     try {
-      await onSubmit(message.trim());
+      await onSubmit({
+        ...draft,
+        message: draft.message.trim(),
+        resolutionTarget:
+          !resolverTouched && draft.mentions.length > 0
+            ? "human"
+            : draft.resolutionTarget,
+      });
     } catch {
       if (mountedRef.current) {
         setSubmitError(true);
@@ -3617,28 +5134,49 @@ function InlineCommentPopover({
   };
   return (
     <div
+      data-plan-interactive
       className="absolute z-30 rounded-xl border border-border/80 bg-background/96 p-2 shadow-2xl backdrop-blur-xl"
       style={{ left: position.left, top: position.top, width: position.width }}
     >
-      <div className="flex items-start gap-2">
-        <Textarea
-          ref={textareaRef}
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-              event.preventDefault();
-              submit();
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onCancel();
-            }
+      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+        <ResolutionTargetToggle
+          value={draft.resolutionTarget}
+          onChange={(resolutionTarget) => {
+            setResolverTouched(true);
+            setDraft((current) => ({ ...current, resolutionTarget }));
           }}
-          rows={1}
-          autoFocus
+        />
+        <div className="flex items-center gap-1">
+          <CommentResolverHint draft={draft} />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+            onClick={onCancel}
+            aria-label="Cancel comment"
+          >
+            <IconX className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      <div className="flex items-start gap-2">
+        <CommentMentionEditor
+          initialMessage={initialMessageRef.current}
           placeholder="Add a comment..."
-          className="h-11 min-h-11 max-h-36 resize-none overflow-hidden border-border/80 bg-background py-2.5 text-sm leading-5 shadow-none focus-visible:ring-1"
+          autoFocus
+          onSubmitShortcut={submit}
+          onChange={(value) =>
+            setDraft((current) => ({
+              ...current,
+              ...value,
+              resolutionTarget: resolverTouched
+                ? current.resolutionTarget
+                : value.mentions.length > 0
+                  ? "human"
+                  : "agent",
+            }))
+          }
         />
         <Button
           type="button"
@@ -3648,16 +5186,6 @@ function InlineCommentPopover({
           disabled={!canSubmit}
         >
           {isSubmitting ? "Saving" : "Save"}
-        </Button>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
-          onClick={onCancel}
-          aria-label="Cancel comment"
-        >
-          <IconX className="size-3.5" />
         </Button>
       </div>
       {submitError && (
@@ -3690,7 +5218,7 @@ function CommentThreadMessage({
           )}
         </div>
         <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
-          {comment.message}
+          {renderCommentMessage(comment.message)}
         </p>
       </div>
       {action}
@@ -3709,29 +5237,26 @@ function ReplyComposer({
   placeholder?: string;
   onSubmit: (message: string) => Promise<void>;
 }) {
-  const [message, setMessage] = useState("");
+  const [draft, setDraft] = useState<
+    Pick<CommentDraft, "message" | "mentions">
+  >({
+    message: "",
+    mentions: [],
+  });
   const [submitError, setSubmitError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [resetKey, setResetKey] = useState(0);
 
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "40px";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 40), 128);
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY =
-      textarea.scrollHeight > nextHeight ? "auto" : "hidden";
-  }, [message]);
-
-  const canSubmit = message.trim().length > 0 && !isSubmitting && !isPending;
+  const canSubmit =
+    commentBodyText(draft.message).length > 0 && !isSubmitting && !isPending;
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitError(false);
     setIsSubmitting(true);
     try {
-      await onSubmit(message.trim());
-      setMessage("");
+      await onSubmit(draft.message.trim());
+      setDraft({ message: "", mentions: [] });
+      setResetKey((key) => key + 1);
     } catch {
       setSubmitError(true);
     } finally {
@@ -3744,19 +5269,12 @@ function ReplyComposer({
       <div className="flex items-end gap-2">
         <CommentAvatar author={author} size="md" className="mb-1" />
         <div className="flex min-w-0 flex-1 items-end gap-2 rounded-full border border-border/80 bg-muted/40 px-3 py-1.5 focus-within:border-primary/60 focus-within:bg-background">
-          <Textarea
-            ref={textareaRef}
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                event.preventDefault();
-                void submit();
-              }
-            }}
-            rows={1}
+          <CommentMentionEditor
             placeholder={placeholder}
-            className="h-10 min-h-10 resize-none overflow-hidden border-0 bg-transparent px-0 py-2 text-sm leading-5 shadow-none focus-visible:ring-0"
+            resetKey={`reply-${resetKey}`}
+            className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
+            onChange={setDraft}
+            onSubmitShortcut={() => void submit()}
           />
           <Button
             type="button"
@@ -3790,6 +5308,8 @@ function AnnotationPopover({
   pendingAuthor,
   onSave,
   onReply,
+  canResolve,
+  onStatusChange,
 }: {
   annotation: RuntimeAnnotation;
   position: InlineCommentPosition;
@@ -3797,22 +5317,40 @@ function AnnotationPopover({
   pendingAuthor: CommentAuthorPresentation;
   onSave: (message: string) => void;
   onReply: (threadRootId: string, message: string) => Promise<void>;
+  canResolve: boolean;
+  onStatusChange: (
+    annotation: RuntimeAnnotation,
+    status: PlanBundle["comments"][number]["status"],
+  ) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [message, setMessage] = useState(annotation.message);
+  const [messageDraft, setMessageDraft] = useState<
+    Pick<CommentDraft, "message" | "mentions">
+  >({
+    message: annotation.message,
+    mentions: extractCommentMentions(annotation.message),
+  });
   useEffect(() => {
-    setMessage(annotation.message);
+    setMessageDraft({
+      message: annotation.message,
+      mentions: extractCommentMentions(annotation.message),
+    });
     setEditing(false);
   }, [annotation.id, annotation.message, annotation.commentCount]);
   const rootComment = runtimeAnnotationRootComment(annotation);
   const replies = annotation.replies ?? [];
-  const canSave = message.trim().length > 0 && !isPending;
+  const canSave = messageDraft.message.trim().length > 0 && !isPending;
+  const resolver = normalizePlanCommentResolutionTarget(
+    annotation.anchor.resolutionTarget,
+  );
+  const isResolved = annotation.status === "resolved";
   const save = () => {
     if (!canSave) return;
-    onSave(message.trim());
+    onSave(messageDraft.message.trim());
   };
   return (
     <div
+      data-plan-interactive
       className="pointer-events-auto absolute z-30 flex max-h-[min(520px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-border/80 bg-background/96 shadow-2xl backdrop-blur-xl"
       style={{ left: position.left, top: position.top, width: position.width }}
     >
@@ -3825,47 +5363,65 @@ function AnnotationPopover({
               {annotation.commentCount}
             </Badge>
           )}
+          <Badge
+            variant="outline"
+            className="h-5 rounded-md px-1.5 text-[11px]"
+          >
+            {resolver === "human" ? "Human review" : "Agent action"}
+          </Badge>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-8 shrink-0"
-              onClick={() => setEditing(true)}
-              aria-label="Edit first comment"
-            >
-              <IconPencil className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Edit first comment</TooltipContent>
-        </Tooltip>
+        <div className="flex shrink-0 items-center gap-1">
+          {canResolve && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={isResolved ? "outline" : "ghost"}
+                  className="h-8 gap-1.5 px-2 text-xs"
+                  onClick={() =>
+                    onStatusChange(annotation, isResolved ? "open" : "resolved")
+                  }
+                  disabled={isPending}
+                >
+                  <IconCheck className="size-3.5" />
+                  {isResolved ? "Reopen" : "Resolve"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isResolved ? "Reopen thread" : "Resolve thread"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8 shrink-0"
+                onClick={() => setEditing(true)}
+                aria-label="Edit first comment"
+              >
+                <IconPencil className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit first comment</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
       <div className="max-h-[min(360px,calc(100vh-180px))] overflow-y-auto">
         <div className="grid gap-4 p-4">
           {editing ? (
             <div className="grid gap-2">
-              <Textarea
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    (event.metaKey || event.ctrlKey) &&
-                    event.key === "Enter"
-                  ) {
-                    event.preventDefault();
-                    save();
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setEditing(false);
-                    setMessage(annotation.message);
-                  }
-                }}
-                rows={4}
+              <CommentMentionEditor
+                initialMessage={annotation.message}
+                resetKey={`edit-${annotation.id}-${editing ? "on" : "off"}`}
+                placeholder="Edit comment..."
                 autoFocus
-                className="min-h-24 resize-none border-border/80 bg-background text-sm shadow-none focus-visible:ring-1"
+                className="min-h-24"
+                onChange={setMessageDraft}
+                onSubmitShortcut={save}
               />
               <div className="flex justify-end gap-2">
                 <Button
@@ -3874,7 +5430,10 @@ function AnnotationPopover({
                   variant="ghost"
                   onClick={() => {
                     setEditing(false);
-                    setMessage(annotation.message);
+                    setMessageDraft({
+                      message: annotation.message,
+                      mentions: extractCommentMentions(annotation.message),
+                    });
                   }}
                 >
                   Cancel
@@ -3928,7 +5487,10 @@ function AnnotationsPanel({
   );
   const visibleThreads = openThreads.length > 0 ? openThreads : threads;
   return (
-    <aside className="absolute right-3 top-16 z-20 flex h-[min(640px,calc(100%-5rem))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-border/80 bg-background/96 shadow-2xl backdrop-blur-xl">
+    <aside
+      data-plan-interactive
+      className="absolute right-3 top-16 z-20 flex h-[min(640px,calc(100%-5rem))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-border/80 bg-background/96 shadow-2xl backdrop-blur-xl"
+    >
       <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4">
         <div className="flex min-w-0 items-center gap-2">
           <IconMessageCircle className="size-4 text-muted-foreground" />
@@ -3961,6 +5523,19 @@ function AnnotationsPanel({
                   key={thread.id}
                   className="grid gap-3 rounded-lg border border-border/80 bg-muted/20 p-3"
                 >
+                  {thread.anchor && (
+                    <div className="rounded-md border border-border/60 bg-background/60 px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        {normalizePlanCommentResolutionTarget(
+                          thread.anchor.resolutionTarget,
+                        ) === "human"
+                          ? "Human review"
+                          : "Agent action"}
+                      </span>
+                      {" · "}
+                      {formatAnchorForAgent(thread.anchor)}
+                    </div>
+                  )}
                   {thread.comments.map((comment) => (
                     <CommentThreadMessage
                       key={comment.id}
@@ -3986,51 +5561,30 @@ function AnnotationsPanel({
 }
 
 function parseAnchor(anchor: string | PlanAnnotationAnchor | null | undefined) {
-  if (!anchor) return null;
-  if (typeof anchor !== "string") return anchor;
-  try {
-    const parsed = JSON.parse(anchor) as Partial<PlanAnnotationAnchor>;
-    if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-      return parsed as PlanAnnotationAnchor;
-    }
-  } catch {
-    return null;
+  const parsed = parsePlanCommentAnchor(anchor);
+  if (typeof parsed?.x === "number" && typeof parsed.y === "number") {
+    return parsed as PlanAnnotationAnchor;
   }
   return null;
 }
 
+function parseAnchorForComment(comment: PlanCommentItem) {
+  const parsed = parseAnchor(comment.anchor);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    resolutionTarget: normalizePlanCommentResolutionTarget(
+      comment.resolutionTarget ?? parsed.resolutionTarget,
+    ),
+    mentions:
+      comment.mentions && comment.mentions.length > 0
+        ? comment.mentions
+        : parsed.mentions,
+  } satisfies PlanAnnotationAnchor;
+}
+
 function formatAnchorForAgent(anchor: PlanAnnotationAnchor | null) {
-  if (!anchor) return "";
-  const section =
-    anchor.sectionTitle && anchor.sectionTitle !== "Visible plan area"
-      ? `${anchor.sectionTitle}: `
-      : "";
-  const tab = anchor.tabLabel ? `${anchor.tabLabel} tab / ` : "";
-  const quote = anchor.textQuote || anchor.snippet;
-  if (quote) return `${tab}${section}"${quote}"`;
-  if (anchor.planAnnotationId || anchor.canvasX !== undefined) {
-    const label = anchor.visualLabel || "canvas";
-    const kind =
-      anchor.markupType === "callout"
-        ? "callout"
-        : anchor.markupType === "text"
-          ? "note"
-          : "markup";
-    const canvasPoint =
-      anchor.canvasX !== undefined && anchor.canvasY !== undefined
-        ? ` at canvas ${Math.round(anchor.canvasX)}, ${Math.round(anchor.canvasY)}`
-        : "";
-    return `${tab}${section}${label} ${kind}${canvasPoint}`;
-  }
-  if (anchor.anchorKind === "visual") {
-    const label = anchor.visualLabel || anchor.sectionTitle || "visual";
-    const x = Math.round(anchor.visualX ?? anchor.x);
-    const y = Math.round(anchor.visualY ?? anchor.y);
-    return `${tab}${section}${label} at ${x}% across / ${y}% down`;
-  }
-  return tab || section
-    ? `${tab}${section}`.replace(/: $/, "")
-    : "Pinned to plan";
+  return formatPlanCommentAnchorForAgent(anchor);
 }
 
 function injectAnnotationRuntime(

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ZodType } from "zod";
+import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import type { BlockRenderContext } from "./types.js";
 import { introspect, type FieldDescriptor } from "./schema-form/introspect.js";
@@ -102,6 +103,63 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
       {children}
     </span>
   );
+}
+
+/** A sensible empty value for a single field, used when adding array items. */
+function emptyForField(field: FieldDescriptor): unknown {
+  switch (field.kind) {
+    case "text":
+      // A field literally named `id` gets a fresh stable id so new rows are
+      // distinguishable without the user having to type one.
+      return field.key === "id"
+        ? `item-${Math.random().toString(36).slice(2, 10)}`
+        : "";
+    case "longtext":
+    case "markdown":
+    case "richtext":
+      return "";
+    case "boolean":
+      return false;
+    case "enum":
+      return field.enumValues?.[0];
+    case "array":
+      return [];
+    case "object":
+      return emptyObjectFromFields(field.fields);
+    case "number":
+    default:
+      // number → undefined (the input shows blank until the user types); any
+      // unsupported kind also defaults to undefined.
+      return undefined;
+  }
+}
+
+/** Build an empty object value from a descriptor's child fields. */
+function emptyObjectFromFields(
+  fields: FieldDescriptor[] | undefined,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const child of fields ?? []) {
+    result[child.key] = emptyForField(child);
+  }
+  return result;
+}
+
+/** A scalar element kind classified from an array's inner element schema. */
+function scalarKindFromInner(
+  inner: FieldDescriptor["inner"],
+): "number" | "boolean" | "text" {
+  const type = (inner?._def as { type?: string } | undefined)?.type;
+  if (type === "number" || type === "bigint") return "number";
+  if (type === "boolean") return "boolean";
+  return "text";
+}
+
+/** An empty value for a scalar array element of the given kind. */
+function emptyScalar(kind: "number" | "boolean" | "text"): unknown {
+  if (kind === "boolean") return false;
+  if (kind === "number") return undefined;
+  return "";
 }
 
 function FieldControl({
@@ -232,9 +290,152 @@ function FieldControl({
     );
   }
 
-  // array / object / unsupported: the auto-editor intentionally does not render
-  // a control for positional/structured data. Blocks with these fields should
-  // ship a custom `Edit`. Surface a hint in dev so the gap is visible.
+  if (field.kind === "object" && field.fields && field.fields.length > 0) {
+    const objValue =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+    return (
+      <div className="flex flex-col gap-3 rounded-md border border-input px-3 py-3">
+        <FieldLabel>{field.label}</FieldLabel>
+        <div className="flex flex-col gap-3">
+          {field.fields.map((child) => (
+            <FieldControl
+              key={child.key}
+              field={child}
+              value={objValue[child.key]}
+              onChange={(childVal) =>
+                onChange({ ...objValue, [child.key]: childVal })
+              }
+              editable={editable}
+              blockId={blockId}
+              ctx={ctx}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.kind === "array") {
+    const items = Array.isArray(value) ? (value as unknown[]) : [];
+    const replaceItem = (index: number, next: unknown) => {
+      const copy = items.slice();
+      copy[index] = next;
+      onChange(copy);
+    };
+    const removeItem = (index: number) => {
+      onChange(items.filter((_, i) => i !== index));
+    };
+    const objectElement =
+      Array.isArray(field.fields) && field.fields.length > 0;
+    const scalarKind = objectElement ? null : scalarKindFromInner(field.inner);
+    const addItem = () => {
+      if (objectElement) {
+        onChange([...items, emptyObjectFromFields(field.fields)]);
+      } else {
+        onChange([...items, emptyScalar(scalarKind ?? "text")]);
+      }
+    };
+    return (
+      <div className="flex flex-col gap-2">
+        <FieldLabel>{field.label}</FieldLabel>
+        <div className="flex flex-col gap-2">
+          {items.map((item, index) => (
+            <div
+              key={index}
+              className="flex items-start gap-2 rounded-md border border-input px-3 py-3"
+            >
+              <div className="flex flex-1 flex-col gap-3">
+                {objectElement ? (
+                  field.fields!.map((child) => {
+                    const itemValue =
+                      item && typeof item === "object" && !Array.isArray(item)
+                        ? (item as Record<string, unknown>)
+                        : {};
+                    return (
+                      <FieldControl
+                        key={child.key}
+                        field={child}
+                        value={itemValue[child.key]}
+                        onChange={(childVal) =>
+                          replaceItem(index, {
+                            ...itemValue,
+                            [child.key]: childVal,
+                          })
+                        }
+                        editable={editable}
+                        blockId={blockId}
+                        ctx={ctx}
+                      />
+                    );
+                  })
+                ) : scalarKind === "boolean" ? (
+                  <input
+                    type="checkbox"
+                    data-plan-interactive
+                    className="size-4 self-start rounded border-input accent-primary"
+                    checked={Boolean(item)}
+                    disabled={!editable}
+                    onChange={(event) =>
+                      replaceItem(index, event.target.checked)
+                    }
+                  />
+                ) : scalarKind === "number" ? (
+                  <input
+                    type="number"
+                    data-plan-interactive
+                    className={inputClass}
+                    value={typeof item === "number" ? item : ""}
+                    disabled={!editable}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      replaceItem(index, raw === "" ? undefined : Number(raw));
+                    }}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    data-plan-interactive
+                    className={inputClass}
+                    value={typeof item === "string" ? item : ""}
+                    disabled={!editable}
+                    onChange={(event) => replaceItem(index, event.target.value)}
+                  />
+                )}
+              </div>
+              {editable && (
+                <button
+                  type="button"
+                  data-plan-interactive
+                  aria-label="Remove item"
+                  className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  onClick={() => removeItem(index)}
+                >
+                  <IconTrash className="size-4" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        {editable && (
+          <button
+            type="button"
+            data-plan-interactive
+            className="inline-flex items-center gap-1.5 self-start text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            onClick={addItem}
+          >
+            <IconPlus className="size-4" />
+            Add {field.label.replace(/s$/i, "").toLowerCase() || "item"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Unsupported / structured-without-fields: the auto-editor cannot infer a
+  // control. Blocks with these fields should ship a custom `Edit`. Surface a
+  // hint in dev so the gap is visible.
   return (
     <div
       className={cn(

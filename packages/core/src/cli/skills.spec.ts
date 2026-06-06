@@ -11,6 +11,7 @@ const PLANS_SKILL_NAMES = [
   "visual-plan",
   "visual-questions",
   "ui-plan",
+  "prototype-plan",
   "visualize-plan",
 ];
 
@@ -238,6 +239,8 @@ describe("agent-native skills", () => {
           "--skill",
           "ui-plan",
           "--skill",
+          "prototype-plan",
+          "--skill",
           "visualize-plan",
           "-a",
           "codex",
@@ -292,6 +295,8 @@ describe("agent-native skills", () => {
         "--skill",
         "ui-plan",
         "--skill",
+        "prototype-plan",
+        "--skill",
         "visualize-plan",
       ]),
     );
@@ -332,6 +337,8 @@ describe("agent-native skills", () => {
         "visual-questions",
         "--skill",
         "ui-plan",
+        "--skill",
+        "prototype-plan",
         "--skill",
         "visualize-plan",
       ]),
@@ -374,6 +381,8 @@ describe("agent-native skills", () => {
         "--skill",
         "ui-plan",
         "--skill",
+        "prototype-plan",
+        "--skill",
         "visualize-plan",
       ]),
     );
@@ -388,6 +397,7 @@ describe("agent-native skills", () => {
       ["visual-plan", "visual-plans"],
       ["visual-questions", "visual-questions"],
       ["ui-plan", "ui-plan"],
+      ["prototype-plan", "prototype-plan"],
       ["visualize-plan", "visualize-plan"],
     ];
 
