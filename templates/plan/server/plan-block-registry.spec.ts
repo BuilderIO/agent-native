@@ -5,7 +5,11 @@ import {
   introspect,
 } from "@agent-native/core/blocks/server";
 import { calloutSchema } from "../shared/blocks/callout.config.js";
-import { registerPlanBlocks } from "../shared/plan-block-registry.js";
+import {
+  registerPlanBlocks,
+  describePlanBlocksForAgent,
+  renderPlanBlockVocabulary,
+} from "../shared/plan-block-registry.js";
 import {
   applyPlanContentPatches,
   planContentSchema,
@@ -122,6 +126,43 @@ describe("plan block registry — callout", () => {
     if (callout && callout.type === "callout") {
       expect(callout.data.tone).toBe("success");
       expect(callout.data.body).toContain("happy path");
+    }
+  });
+});
+
+describe("plan block agent vocabulary export", () => {
+  it("describes every registered plan block with type, MDX tag, and schema", () => {
+    const docs = describePlanBlocksForAgent();
+    const byType = Object.fromEntries(docs.map((doc) => [doc.type, doc]));
+    // Each converted block the `get-plan-blocks` action exposes to the agent.
+    for (const type of [
+      "callout",
+      "checklist",
+      "code-tabs",
+      "custom-html",
+      "diagram",
+      "table",
+      "tabs",
+      "wireframe",
+    ]) {
+      expect(byType[type], `missing block ${type}`).toBeDefined();
+      expect(byType[type].mdxTag.length).toBeGreaterThan(0);
+      expect(byType[type].description.length).toBeGreaterThan(0);
+    }
+    // tabs is the one block that can also be placed inline.
+    expect(byType.tabs.placement).toContain("inline");
+  });
+
+  it("renders a markdown vocabulary reference covering every block", () => {
+    const ref = renderPlanBlockVocabulary();
+    expect(ref).toContain("| type | mdx tag | placement |");
+    expect(ref).toContain("`callout`");
+    expect(ref).toContain("`<Callout>`");
+    expect(ref).toContain("`wireframe`");
+    expect(ref).toContain("`<WireframeBlock>`");
+    // Every described block appears as a row.
+    for (const doc of describePlanBlocksForAgent()) {
+      expect(ref).toContain(`\`${doc.type}\``);
     }
   });
 });

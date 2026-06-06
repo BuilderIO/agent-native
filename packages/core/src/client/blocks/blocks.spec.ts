@@ -10,7 +10,10 @@ import {
   parseSpecBlock,
   type MdxJsxNode,
 } from "./mdx.js";
-import { describeBlocksForAgent } from "./agent.js";
+import {
+  describeBlocksForAgent,
+  renderBlockVocabularyReference,
+} from "./agent.js";
 
 /** A callout-shaped spec mirroring the plan callout, sans React Read. */
 function calloutSpec(): BlockSpec<{ tone?: "info" | "risk"; body: string }> {
@@ -159,5 +162,21 @@ describe("agent schema export", () => {
       placement: ["block"],
     });
     expect(docs[0].dataSchema).toBeDefined();
+  });
+
+  it("renders a compact markdown vocabulary reference from the registry", () => {
+    const registry = new BlockRegistry();
+    registerBlocks(registry, [calloutSpec()]);
+    const ref = renderBlockVocabularyReference(registry, {
+      heading: "## Blocks",
+    });
+    expect(ref).toContain("## Blocks");
+    expect(ref).toContain("| type | mdx tag | placement |");
+    // The callout row carries its type, MDX tag, placement, key fields, and desc.
+    expect(ref).toContain("`callout`");
+    expect(ref).toContain("`<Callout>`");
+    expect(ref).toContain("block");
+    expect(ref).toContain("`body`");
+    expect(ref).toContain("An emphasized note.");
   });
 });
