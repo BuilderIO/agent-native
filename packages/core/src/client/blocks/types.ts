@@ -212,6 +212,19 @@ export interface BlockSpec<TData = unknown> {
   /** Allowed placements: `["block"]`, `["inline"]`, or both. */
   placement: BlockPlacement[];
   /**
+   * When `true`, this block's data maps to a Notion-Flavored-Markdown (NFM)
+   * analog and therefore round-trips into a Notion page. Apps can derive
+   * registry-backed Notion allowlists with
+   * {@link BlockRegistry.notionCompatibleTypes} instead of hand-maintaining
+   * per-app sets. Set it on registry-atom blocks with an NFM counterpart
+   * (checklist, table); leave it `false`/undefined on dev-doc blocks
+   * (api-endpoint, data-model, diff, file-tree, json-explorer, annotated-code,
+   * mermaid, html, tabs, code-tabs) and visual/plan-only blocks (wireframe,
+   * diagram). Prose blocks that aren't registry atoms (rich-text, callout) carry
+   * their NFM analog through the prose path, not this flag.
+   */
+  notionCompatible?: boolean;
+  /**
    * How the block is edited in a `block`-placed document:
    * - `"inline"` — the `Edit`/auto-form renders in place (direct manipulation:
    *   prose, checklists, tables).

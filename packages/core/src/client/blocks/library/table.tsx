@@ -253,6 +253,8 @@ export const tableBlock = defineBlock<TableData>({
   Read: TableBlockRead,
   Edit: TableBlockEdit,
   placement: ["block"],
+  // A simple grid maps to an NFM table, so it round-trips to Notion.
+  notionCompatible: true,
   label: "Table",
   icon: ({ size, className }) => (
     <IconTable size={size} className={className} />

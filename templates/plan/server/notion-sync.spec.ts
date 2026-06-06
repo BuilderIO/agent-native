@@ -31,6 +31,8 @@ describe("notion-compat helpers", () => {
     }
     expect(isNotionCompatibleBlockType("rich-text")).toBe(true);
     expect(isNotionCompatibleBlockType("callout")).toBe(true);
+    expect(isNotionCompatibleBlockType("checklist")).toBe(true);
+    expect(isNotionCompatibleBlockType("table")).toBe(true);
     expect(isNotionCompatibleBlockType("wireframe")).toBe(false);
     expect(isNotionCompatibleBlockType("diagram")).toBe(false);
     expect(isNotionCompatibleBlockType("tabs")).toBe(false);

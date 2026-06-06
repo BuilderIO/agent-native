@@ -115,6 +115,9 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       // Server stub — the browser registry supplies the real renderer.
       Read: () => null,
       placement: ["block"],
+      // Mirrors core's `checklistBlock` flag so the single-sourced Notion
+      // allowlist (`notion-compat.ts`) is the same on server and client.
+      notionCompatible: true,
       label: "Checklist",
       description:
         "A list of toggleable items, each with a label and an optional note.",
@@ -137,6 +140,9 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       // Server stub — the browser registry supplies the real renderer.
       Read: () => null,
       placement: ["block"],
+      // Mirrors core's `tableBlock` flag so the single-sourced Notion allowlist
+      // (`notion-compat.ts`) is the same on server and client.
+      notionCompatible: true,
       label: "Table",
       description:
         "A simple grid with header columns and string rows for comparisons, parameters, or structured lists.",
@@ -289,6 +295,18 @@ function planAgentRegistry(): BlockRegistry {
     registerPlanBlocks(cachedAgentRegistry);
   }
   return cachedAgentRegistry;
+}
+
+/**
+ * The set of registered plan block `type`s that round-trip to Notion-Flavored
+ * Markdown (the specs flagged `notionCompatible`). Single source for the Notion
+ * gating allowlist — `notion-compat.ts` unions these with the prose-only NFM
+ * analogs (`rich-text`, `callout`, `image`) that are not registry atoms. Reads
+ * from the shared React-free registry so it is safe to call from server, agent,
+ * and browser code alike.
+ */
+export function planNotionCompatibleBlockTypes(): Set<string> {
+  return planAgentRegistry().notionCompatibleTypes();
 }
 
 /**

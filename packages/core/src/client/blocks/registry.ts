@@ -43,6 +43,21 @@ export class BlockRegistry {
     return new Set(this.byTag.keys());
   }
 
+  /**
+   * The set of registered block `type`s whose specs declare
+   * `notionCompatible: true` — i.e. they round-trip to Notion-Flavored Markdown
+   * and may sync to Notion. Apps use this as the registry-backed part of their
+   * Notion gating allowlist; prose-only NFM analogs that are not registry atoms
+   * (rich-text, callout) are NOT in here — apps union those in separately.
+   */
+  notionCompatibleTypes(): Set<string> {
+    const types = new Set<string>();
+    for (const spec of this.byType.values()) {
+      if (spec.notionCompatible) types.add(spec.type);
+    }
+    return types;
+  }
+
   /** All registered specs, optionally filtered by placement. */
   list(placement?: BlockPlacement): BlockSpec<any>[] {
     const all = [...this.byType.values()];

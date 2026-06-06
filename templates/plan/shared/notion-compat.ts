@@ -1,4 +1,5 @@
 import type { PlanBlock } from "./plan-content.js";
+import { planNotionCompatibleBlockTypes } from "./plan-block-registry.js";
 
 /**
  * Notion-sync compatibility. When a plan opts into "Sync to Notion", its blocks
@@ -10,13 +11,31 @@ import type { PlanBlock } from "./plan-content.js";
  * mode, and degrade to a callout placeholder on push.
  */
 
-/** Plan block types that DO round-trip to NFM (prose, callout, table, image, tasks). */
-export const NOTION_COMPATIBLE_BLOCK_TYPES: ReadonlySet<string> = new Set([
+/**
+ * Prose / non-registry-atom NFM analogs. These round-trip to Notion but are not
+ * registry atoms carrying a `notionCompatible` flag: `rich-text` and `callout`
+ * are prose blocks rendered through the markdown path, and `image` is a native
+ * editor node, not a registered block spec. They're unioned with the
+ * registry-flagged atoms below so the allowlist stays single-sourced for the
+ * blocks that DO live in the registry (checklist, table).
+ */
+const PROSE_NOTION_COMPATIBLE_TYPES: readonly string[] = [
   "rich-text",
   "callout",
-  "table",
   "image",
-  "checklist",
+];
+
+/**
+ * Plan block types that DO round-trip to NFM (prose, callout, table, image,
+ * tasks). The registry-atom members (checklist, table) are derived from the
+ * shared block registry's `notionCompatible` flag
+ * (`plan-block-registry.ts` → core `BlockRegistry.notionCompatibleTypes()`) so
+ * the gating allowlist is single-sourced with content; the prose analogs are
+ * unioned in.
+ */
+export const NOTION_COMPATIBLE_BLOCK_TYPES: ReadonlySet<string> = new Set([
+  ...PROSE_NOTION_COMPATIBLE_TYPES,
+  ...planNotionCompatibleBlockTypes(),
 ]);
 
 /** True when this block type round-trips to a Notion (NFM) block. */
