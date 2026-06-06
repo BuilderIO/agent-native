@@ -473,6 +473,87 @@ test("annotation text does not overlap any artboard frame", async ({
   ).toEqual([]);
 });
 
+test("canvas arrow callout labels choose a readable side instead of overlapping the target frame", async ({
+  page,
+}) => {
+  const content = {
+    version: 2,
+    title: `callout-label-${Date.now()}`,
+    brief: "callout label placement",
+    canvas: {
+      frames: [
+        {
+          id: "target-panel",
+          label: "Target Panel",
+          surface: "panel",
+          x: 520,
+          y: 180,
+          width: 420,
+          height: 420,
+          wireframe: {
+            surface: "panel",
+            html: "<div class='wf'><h1>Panel</h1><p>The callout points here.</p></div>",
+          },
+        },
+      ],
+      annotations: [
+        {
+          id: "callout-left",
+          type: "callout",
+          text: "This callout label should stay readable and wrap LongUnbrokenPrototypeAnnotationTextWithoutClipping.",
+          x: 500,
+          y: 320,
+          points: [
+            { x: 500, y: 320 },
+            { x: 650, y: 320 },
+          ],
+          style: { tone: "accent", stroke: "dashed", width: 2 },
+        },
+      ],
+    },
+    blocks: [
+      {
+        id: "d",
+        type: "rich-text",
+        data: { markdown: "# Callout label placement" },
+      },
+    ],
+  };
+  const planId = await createPlan(page, content, "callout-label");
+  await openCanvas(page, planId, ["target-panel"]);
+  await ensureCanvasReady(page);
+
+  const label = await boxOf(page, ".plan-canvas-markup-note");
+  const frame = await boxOf(page, FRAME("target-panel"));
+  expect(label, "callout label should render").toBeTruthy();
+  expect(frame, "target frame should render").toBeTruthy();
+  expect(
+    overlapArea(label!, frame!),
+    "callout label must not overlap the target frame",
+  ).toBeLessThanOrEqual(4);
+  expect(
+    label!.right,
+    "callout label should pick the clear left side for this geometry",
+  ).toBeLessThanOrEqual(frame!.left - 8);
+
+  const overflow = await page.evaluate(() => {
+    const labelEl = document.querySelector(
+      ".plan-canvas-markup-note",
+    ) as HTMLElement | null;
+    if (!labelEl) return null;
+    return {
+      clientWidth: labelEl.clientWidth,
+      scrollWidth: labelEl.scrollWidth,
+      text: labelEl.textContent,
+    };
+  });
+  expect(overflow?.text).toContain("LongUnbrokenPrototypeAnnotationText");
+  expect(
+    overflow!.scrollWidth,
+    "long callout text should wrap inside the label instead of clipping",
+  ).toBeLessThanOrEqual(overflow!.clientWidth + 2);
+});
+
 test("EDGE: many annotations crowding one frame's gutter never overlap each other or the frame", async ({
   page,
 }) => {

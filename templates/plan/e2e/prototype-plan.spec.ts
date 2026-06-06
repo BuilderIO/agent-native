@@ -546,10 +546,53 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   // Prototype tab is active by default: the live functional viewer is shown.
   await expect(prototypeTab).toHaveAttribute("aria-selected", "true");
   await expect(viewer).toBeVisible();
-  await expect(page.getByRole("radio", { name: "Text note" })).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: "Arrow callout" })).toHaveCount(
-    0,
+  const textNoteTool = page.getByRole("radio", { name: "Text note" });
+  const arrowCalloutTool = page.getByRole("radio", { name: "Arrow callout" });
+  await expect(
+    textNoteTool,
+    "drawing tools stay available beside Comment when a canvas exists",
+  ).toBeVisible();
+  await expect(arrowCalloutTool).toBeVisible();
+
+  // Choosing a drawing tool from Prototype switches back to the wireframe canvas,
+  // because freeform notes and arrow callouts are authored on the canvas layer.
+  await textNoteTool.click();
+  await expect(wireframesTab).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByText("Click the canvas to place a note"),
+  ).toBeVisible();
+  await expect(
+    page.locator("[data-prototype-screen]"),
+    "activating a draw tool hides the live prototype screen",
+  ).toHaveCount(0);
+  const viewportBox = await page.locator(".plan-canvas-viewport").boundingBox();
+  expect(
+    viewportBox,
+    "wireframe canvas viewport must be measurable",
+  ).toBeTruthy();
+  await page.mouse.click(
+    viewportBox!.x + viewportBox!.width * 0.55,
+    viewportBox!.y + viewportBox!.height * 0.45,
   );
+  const markupText = "Canvas note from prototype toolbar for the agent.";
+  const markupInput = page.getByPlaceholder("Add a text note...");
+  await expect(markupInput).toBeVisible();
+  await markupInput.fill(markupText);
+  const markupComposer = page
+    .locator("form[data-plan-interactive]")
+    .filter({ has: markupInput });
+  await markupComposer.getByRole("button", { name: "Save" }).click();
+  await expect(
+    page.locator(".plan-canvas-markup-note", { hasText: markupText }),
+    "saved canvas markup should render on the wireframe canvas",
+  ).toBeVisible({ timeout: 15000 });
+  await expect(async () => {
+    const fb = await getFeedback(req, planId);
+    const commentText = JSON.stringify(fb.body.comments ?? []);
+    const actionableText = JSON.stringify(fb.body.actionableThreads ?? []);
+    expect(commentText).toContain(`Canvas note: ${markupText}`);
+    expect(actionableText).toContain(markupText);
+  }).toPass({ timeout: 15000 });
 
   // Flip to Wireframes: the live viewer's screen container goes away and the
   // canvas board shows instead, with drawing tools available in the one shared

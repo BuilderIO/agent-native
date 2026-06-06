@@ -8,16 +8,22 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
+import { cn } from "../../utils.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   DataModelData,
   DataModelEntity,
   DataModelField,
   DataModelRelation,
   DataModelRelationKind,
-} from "@shared/blocks/data-model.config";
-import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
+} from "./data-model.config.js";
+import { DevInput } from "./dev-doc-ui.js";
+
+/**
+ * Read + Edit renderers for a `data-model` block — a dbdiagram / Prisma-style
+ * entity-relationship diagram. Lives in core so any app can register the dev-doc
+ * block (no shadcn import).
+ */
 
 /* ── Resolution helpers (shared by Read + relation inference) ──────────────── */
 
@@ -382,8 +388,6 @@ export function DataModelRead({
 
 /* ── Edit (panel form) ─────────────────────────────────────────────────────── */
 
-const fieldLabelClass = "text-xs font-medium text-muted-foreground";
-
 let entitySeq = 0;
 /** Stable-enough new entity id for a freshly-added entity in the editor. */
 function newEntityId(): string {
@@ -468,7 +472,7 @@ export function DataModelEdit({
         >
           <div className="flex items-center gap-2">
             <IconDatabase className="size-4 shrink-0 text-muted-foreground" />
-            <Input
+            <DevInput
               className="h-8 font-mono text-sm font-semibold"
               value={entity.name}
               disabled={!editable}
@@ -498,7 +502,7 @@ export function DataModelEdit({
                 className="flex flex-col gap-1.5 rounded-md border border-input/60 bg-accent/20 p-2"
               >
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5">
-                  <Input
+                  <DevInput
                     className="h-7 font-mono text-xs"
                     value={field.name}
                     disabled={!editable}
@@ -509,7 +513,7 @@ export function DataModelEdit({
                       })
                     }
                   />
-                  <Input
+                  <DevInput
                     className="h-7 font-mono text-xs"
                     value={field.type ?? ""}
                     disabled={!editable}
@@ -561,7 +565,7 @@ export function DataModelEdit({
                     />
                     Nullable
                   </label>
-                  <Input
+                  <DevInput
                     className="h-7 flex-1 font-mono text-xs"
                     value={field.fk ?? ""}
                     disabled={!editable}

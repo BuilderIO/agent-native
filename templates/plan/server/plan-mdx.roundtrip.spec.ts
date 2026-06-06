@@ -656,6 +656,81 @@ describe("plan MDX round-trip fidelity per block type", () => {
     expect(block.data.questions[1]?.mode).toBe("freeform");
   });
 
+  it("question-form: round-trips reusable questions and optional answer fields", async () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Question form",
+      blocks: [
+        {
+          id: "question-form-1",
+          type: "question-form",
+          title: "Open Questions",
+          data: {
+            submitLabel: "Send answers",
+            questions: [
+              {
+                id: "q1",
+                title: "Which integration path should we optimize?",
+                subtitle: "Pick all that apply.",
+                mode: "multi",
+                allowOther: true,
+                placeholder: "Describe another path...",
+                required: true,
+                options: [
+                  {
+                    id: "opt-api",
+                    label: "API-first",
+                    detail: "Document endpoints before UI work.",
+                    recommended: true,
+                    wireframe: {
+                      surface: "desktop",
+                      html: "<main><h1>Desktop</h1></main>",
+                    },
+                  },
+                  {
+                    id: "opt-flow",
+                    label: "Flow diagram",
+                    diagram: {
+                      nodes: [{ id: "start", label: "Start" }],
+                      edges: [],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "q2",
+                title: "What constraints should the agent preserve?",
+                mode: "freeform",
+                placeholder: "Add constraints...",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const result = await roundTrip(content);
+    const block = findBlock(result, "question-form-1");
+    if (block?.type !== "question-form") {
+      throw new Error("expected question-form");
+    }
+    expect(block.title).toBe("Open Questions");
+    expect(block.data.submitLabel).toBe("Send answers");
+    expect(block.data.questions[0]?.allowOther).toBe(true);
+    expect(block.data.questions[0]?.required).toBe(true);
+    expect(block.data.questions[0]?.placeholder).toBe(
+      "Describe another path...",
+    );
+    expect(block.data.questions[0]?.options?.[0]?.recommended).toBe(true);
+    expect(block.data.questions[0]?.options?.[0]?.wireframe?.html).toBe(
+      "<main><h1>Desktop</h1></main>",
+    );
+    expect(block.data.questions[0]?.options?.[1]?.diagram?.nodes[0]?.id).toBe(
+      "start",
+    );
+    expect(block.data.questions[1]?.mode).toBe("freeform");
+  });
+
   it("legacy-wireframe: round-trips region data", async () => {
     const content: PlanContent = {
       version: 2,

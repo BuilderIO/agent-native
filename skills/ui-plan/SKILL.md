@@ -35,9 +35,10 @@ plan already exists.
 - **Clarify vs. assume.** Do not ask how to build the UI — present the direction
   and options as mockups and tabs. Ask a clarifying question only when an
   ambiguity would change the design; use the host agent's normal
-  ask-user-question flow and batch 2-4 before finalizing. Do not create visual
-  questions from `/ui-plan`. Otherwise state the assumption in the plan and
-  proceed.
+  ask-user-question flow and batch 2-4 before finalizing. Do not call
+  `create-visual-questions` from `/ui-plan`; keep answerable follow-up inside
+  the same plan as a bottom `question-form` Open Questions block. Otherwise
+  state the assumption in the plan and proceed.
 - **The plan is the approval gate.** Ask the user to review and approve the UI
   direction before you write code, and name the files/areas the work touches.
 
@@ -303,9 +304,14 @@ so you never emit a block the editor cannot render or round-trip:
   visual unless the tab is intentionally document-only.
 - `table`, `checklist`, `callout` for scannable structure.
 
-**Open questions are callouts, not buried prose.** Surface anything unresolved in
-a dedicated open-questions / needs-clarification block. Never put a
-questions/decisions wall inside the plan narrative.
+**Open questions live at the bottom as a form when answers would change the
+plan.** Surface answerable unresolved decisions in a final `question-form`
+block titled "Open Questions". Use `single` or `multi` for clear choices,
+`freeform` for constraints, `recommended: true` for the default you would pick,
+and option `wireframe` / `diagram` previews for visual directions when useful.
+Keep non-answerable assumptions or risks as concise `callout` blocks in the
+relevant section. Never bury a questions/decisions wall inside the plan
+narrative.
 
 **`custom-html` is a bounded escape hatch only** — a single complete fragment
 inside a block, never `html`/`head`/`body`/`script` tags, never a generic

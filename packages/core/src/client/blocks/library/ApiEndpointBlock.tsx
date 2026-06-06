@@ -5,30 +5,32 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
+import { cn } from "../../utils.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   ApiEndpointData,
   ApiEndpointMethod,
   ApiEndpointParam,
   ApiEndpointResponse,
   ApiParamLocation,
-} from "@shared/blocks/api-endpoint.config";
+} from "./api-endpoint.config.js";
 import {
   API_ENDPOINT_METHODS,
   API_PARAM_LOCATIONS,
-} from "@shared/blocks/api-endpoint.config";
-import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+} from "./api-endpoint.config.js";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DevBadge,
+  DevInput,
+  DevSwitch,
+  DevTextarea,
+  DevSelect,
+} from "./dev-doc-ui.js";
+
+/**
+ * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style
+ * API reference. Lives in core so any app can register the dev-doc block (no
+ * shadcn import).
+ */
 
 /* ── Theme-aware color tokens ──────────────────────────────────────────────── */
 
@@ -157,12 +159,9 @@ export function ApiEndpointRead({
             {data.path}
           </span>
           {data.deprecated && (
-            <Badge
-              variant="outline"
-              className="shrink-0 border-amber-500/40 text-amber-600 dark:text-amber-300"
-            >
+            <DevBadge className="shrink-0 border-amber-500/40 text-amber-600 dark:text-amber-300">
               Deprecated
-            </Badge>
+            </DevBadge>
           )}
           {(data.summary || summary) && (
             <span className="ml-1 min-w-0 flex-1 truncate text-sm text-plan-muted">
@@ -385,28 +384,22 @@ export function ApiEndpointEdit({
       <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabelClass}>Method</span>
-          <Select
+          <DevSelect
+            className="h-9"
             value={data.method}
             disabled={!editable}
             onValueChange={(value) =>
               patch({ method: value as ApiEndpointMethod })
             }
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {API_ENDPOINT_METHODS.map((method) => (
-                <SelectItem key={method} value={method}>
-                  {method}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={API_ENDPOINT_METHODS.map((method) => ({
+              value: method,
+              label: method,
+            }))}
+          />
         </label>
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabelClass}>Path</span>
-          <Input
+          <DevInput
             className="h-9 font-mono"
             value={data.path}
             disabled={!editable}
@@ -418,7 +411,7 @@ export function ApiEndpointEdit({
 
       <label className="flex flex-col gap-1.5">
         <span className={fieldLabelClass}>Summary</span>
-        <Input
+        <DevInput
           className="h-9"
           value={data.summary ?? ""}
           disabled={!editable}
@@ -431,7 +424,7 @@ export function ApiEndpointEdit({
 
       <label className="flex flex-col gap-1.5">
         <span className={fieldLabelClass}>Description (markdown)</span>
-        <Textarea
+        <DevTextarea
           className="min-h-[80px]"
           value={data.description ?? ""}
           disabled={!editable}
@@ -445,7 +438,7 @@ export function ApiEndpointEdit({
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabelClass}>Auth</span>
-          <Input
+          <DevInput
             className="h-9"
             value={data.auth ?? ""}
             disabled={!editable}
@@ -456,7 +449,7 @@ export function ApiEndpointEdit({
           />
         </label>
         <label className="flex items-center gap-2 pb-2">
-          <Switch
+          <DevSwitch
             checked={Boolean(data.deprecated)}
             disabled={!editable}
             onCheckedChange={(checked) =>
@@ -489,7 +482,7 @@ export function ApiEndpointEdit({
             className="flex flex-col gap-2 rounded-md border border-input p-2"
           >
             <div className="grid grid-cols-[minmax(0,1fr)_96px_auto] gap-2">
-              <Input
+              <DevInput
                 className="h-8 font-mono text-xs"
                 value={param.name}
                 disabled={!editable}
@@ -498,24 +491,18 @@ export function ApiEndpointEdit({
                   updateParam(index, { name: event.target.value })
                 }
               />
-              <Select
+              <DevSelect
+                className="h-8"
                 value={param.in}
                 disabled={!editable}
                 onValueChange={(value) =>
                   updateParam(index, { in: value as ApiParamLocation })
                 }
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {API_PARAM_LOCATIONS.map((location) => (
-                    <SelectItem key={location} value={location}>
-                      {location}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={API_PARAM_LOCATIONS.map((location) => ({
+                  value: location,
+                  label: location,
+                }))}
+              />
               {editable && (
                 <button
                   type="button"
@@ -529,7 +516,7 @@ export function ApiEndpointEdit({
               )}
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-              <Input
+              <DevInput
                 className="h-8 font-mono text-xs"
                 value={param.type ?? ""}
                 disabled={!editable}
@@ -553,7 +540,7 @@ export function ApiEndpointEdit({
                 Required
               </label>
             </div>
-            <Input
+            <DevInput
               className="h-8 text-xs"
               value={param.description ?? ""}
               disabled={!editable}
@@ -571,7 +558,7 @@ export function ApiEndpointEdit({
       {/* Request body */}
       <div className="flex flex-col gap-2">
         <span className={fieldLabelClass}>Request body</span>
-        <Input
+        <DevInput
           className="h-8 font-mono text-xs"
           value={data.request?.contentType ?? ""}
           disabled={!editable}
@@ -580,7 +567,7 @@ export function ApiEndpointEdit({
             updateRequest({ contentType: event.target.value || undefined })
           }
         />
-        <Textarea
+        <DevTextarea
           className="min-h-[80px] font-mono text-xs"
           value={data.request?.example ?? ""}
           disabled={!editable}
@@ -613,7 +600,7 @@ export function ApiEndpointEdit({
             className="flex flex-col gap-2 rounded-md border border-input p-2"
           >
             <div className="grid grid-cols-[96px_minmax(0,1fr)_auto] gap-2">
-              <Input
+              <DevInput
                 className="h-8 font-mono text-xs"
                 value={response.status}
                 disabled={!editable}
@@ -622,7 +609,7 @@ export function ApiEndpointEdit({
                   updateResponse(index, { status: event.target.value })
                 }
               />
-              <Input
+              <DevInput
                 className="h-8 text-xs"
                 value={response.description ?? ""}
                 disabled={!editable}
@@ -645,7 +632,7 @@ export function ApiEndpointEdit({
                 </button>
               )}
             </div>
-            <Textarea
+            <DevTextarea
               className="min-h-[64px] font-mono text-xs"
               value={response.example ?? ""}
               disabled={!editable}

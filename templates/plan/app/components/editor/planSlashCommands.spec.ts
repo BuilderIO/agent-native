@@ -7,7 +7,7 @@ import { buildPlanSlashCommands } from "./planSlashCommands";
  * specs, and in Notion-sync mode they must be filtered to the NFM-representable
  * allowlist. We stub the registry's `list("block")` with a representative mix of
  * compatible (callout, checklist, table) and incompatible (wireframe, diagram,
- * code-tabs, html, tabs) specs.
+ * code-tabs, html, tabs, question-form) specs.
  */
 function stubRegistry(): BlockRegistry {
   const specs = [
@@ -19,6 +19,7 @@ function stubRegistry(): BlockRegistry {
     { type: "code-tabs", label: "Code Tabs" },
     { type: "html", label: "HTML" },
     { type: "tabs", label: "Tabs" },
+    { type: "question-form", label: "Question Form" },
   ];
   return { list: () => specs } as unknown as BlockRegistry;
 }
@@ -38,6 +39,7 @@ function blockTypesOffered(
     "code-tabs",
     "html",
     "tabs",
+    "question-form",
   ]);
   return items
     .map((item) => item.description)
@@ -58,6 +60,7 @@ describe("buildPlanSlashCommands", () => {
         "code-tabs",
         "html",
         "tabs",
+        "question-form",
       ]),
     );
     // Base prose commands are always present.
@@ -75,7 +78,14 @@ describe("buildPlanSlashCommands", () => {
       expect.arrayContaining(["callout", "checklist", "table"]),
     );
     // Incompatible types are filtered out.
-    for (const type of ["wireframe", "diagram", "code-tabs", "html", "tabs"]) {
+    for (const type of [
+      "wireframe",
+      "diagram",
+      "code-tabs",
+      "html",
+      "tabs",
+      "question-form",
+    ]) {
       expect(offered).not.toContain(type);
     }
     // Prose commands are unaffected.

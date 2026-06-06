@@ -32,8 +32,8 @@ visualization when its HTML wireframes should drive a prototype review.
   edits while building or reviewing the companion.
 - **The companion is the approval gate.** Ask the user to review and approve the
   direction before you write code, and name which files/areas the work touches.
-  Carry unresolved assumptions and open questions into a clear block instead of
-  guessing silently.
+  Carry answerable unresolved assumptions and open questions into a bottom
+  `question-form` block instead of guessing silently.
 
 ## Workflow
 
@@ -325,9 +325,14 @@ so you never emit a block the editor cannot render or round-trip:
   visual unless the tab is intentionally document-only.
 - `table`, `checklist`, `callout` for scannable structure.
 
-**Open questions are callouts, not buried prose.** Surface anything unresolved in
-a dedicated open-questions / needs-clarification block. Never put a
-questions/decisions wall inside the plan narrative.
+**Open questions live at the bottom as a form when answers would change the
+plan.** Surface answerable unresolved decisions in a final `question-form`
+block titled "Open Questions". Use `single` or `multi` for clear choices,
+`freeform` for constraints, `recommended: true` for the default you would pick,
+and option `wireframe` / `diagram` previews for visual directions when useful.
+Keep non-answerable assumptions or risks as concise `callout` blocks in the
+relevant section. Never bury a questions/decisions wall inside the plan
+narrative.
 
 **`custom-html` is a bounded escape hatch only** — a single complete fragment
 inside a block, never `html`/`head`/`body`/`script` tags, never a generic

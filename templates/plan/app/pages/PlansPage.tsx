@@ -1472,6 +1472,15 @@ function buildApplyFeedbackMessage(openCommentCount: number) {
   return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual or prototype plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
+function buildQuestionFormRevisionMessage(summary: string) {
+  return [
+    "Use these answered open questions to revise the existing Agent-Native Plan.",
+    "Read the plan with get-visual-plan, then update the structured content with update-visual-plan contentPatches. Preserve the user's answers as direction, remove or update the answered question block if it is no longer useful, and keep any remaining unanswered decisions at the bottom as a question-form block.",
+    "",
+    summary,
+  ].join("\n");
+}
+
 function newCanvasMarkupId() {
   const id =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -1830,9 +1839,7 @@ export function PlansPage() {
   iframeRuntimeDefaultsRef.current = { planTheme, preferredEditor };
   const reviewMode: CanvasMarkupMode = annotateMode
     ? "comment"
-    : canEditPlanContent
-      ? canvasMarkupMode
-      : "none";
+    : canvasMarkupMode;
   const commentMarkersVisible =
     annotationsOpen || annotateMode || Boolean(activeAnnotation);
   const showingPrototypeSurface =
@@ -2173,11 +2180,11 @@ export function PlansPage() {
       ) {
         sendToAgentChat({
           type: "content",
-          submit: false,
+          submit: true,
           context: planAgentContext,
-          message: data.summary,
+          message: buildQuestionFormRevisionMessage(data.summary),
         });
-        toast.success("Visual answers added to the agent draft");
+        toast.success("Sent answers to the agent");
       }
     };
     window.addEventListener("message", onMessage);
@@ -2319,16 +2326,17 @@ export function PlansPage() {
         startCommenting();
         return;
       }
-      if (!canEditPlanContent) {
+      if (!bundle?.plan.content?.canvas || prototypeOnly) {
         setCanvasMarkupMode("none");
         setAnnotateMode(false);
-        toast.error("Only editors can add canvas markup.");
+        toast.error("Canvas markup needs a wireframe canvas.");
         return;
       }
       setActiveAnnotation(null);
       setAnnotationsOpen(false);
       clearInlineCommentDraft();
       setAnnotateMode(false);
+      setVisualSurfaceMode("wireframes");
       setCanvasMarkupMode(mode);
     });
   };
@@ -2544,10 +2552,6 @@ export function PlansPage() {
     context: CanvasMarkupCreateContext,
   ) => {
     if (!bundle?.plan.content?.canvas) return;
-    if (!canEditPlanContent) {
-      toast.error("Only editors can add canvas markup.");
-      return;
-    }
     const nextAnnotation: PlanAnnotation = {
       id: newCanvasMarkupId(),
       ...annotation,
@@ -3030,7 +3034,7 @@ export function PlansPage() {
                   mode={reviewMode}
                   hasCanvas={Boolean(bundle.plan.content?.canvas)}
                   canUseCanvasMarkup={
-                    canEditPlanContent && visualSurfaceMode === "wireframes"
+                    Boolean(bundle.plan.content?.canvas) && !prototypeOnly
                   }
                   onModeChange={selectReviewMode}
                 />
@@ -3393,23 +3397,20 @@ export function PlansPage() {
                         !canEditPlanContent || reviewMode !== "none"
                       }
                       canvasMarkupMode={reviewMode}
-                      onCanvasMarkupCreate={
-                        canEditPlanContent ? appendCanvasMarkup : undefined
-                      }
+                      onCanvasMarkupCreate={appendCanvasMarkup}
                       planId={bundle.plan.id}
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
+                      visualSurfaceMode={visualSurfaceMode}
                       onVisualSurfaceModeChange={setVisualSurfaceMode}
                       onVisualQuestionsSubmit={(summary) => {
                         sendToAgentChat({
                           type: "content",
-                          submit: false,
+                          submit: true,
                           context: planAgentContext,
-                          message: summary,
+                          message: buildQuestionFormRevisionMessage(summary),
                         });
-                        toast.success(
-                          "Visual answers added to the agent draft",
-                        );
+                        toast.success("Sent answers to the agent");
                       }}
                     />
                   </div>

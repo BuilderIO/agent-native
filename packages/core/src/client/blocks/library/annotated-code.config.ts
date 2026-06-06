@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BlockMdxConfig } from "@agent-native/core/blocks/server";
+import type { BlockMdxConfig } from "../types.js";
 
 /**
  * Pure (React-free) part of the PLAN-SPECIFIC `annotated-code` block: its data

@@ -22,36 +22,10 @@ import {
   type WireframeData,
 } from "./blocks/wireframe.config.js";
 import {
-  mermaidSchema,
-  mermaidMdx,
-  type MermaidData,
-} from "./blocks/mermaid.config.js";
-import {
-  apiEndpointSchema,
-  apiEndpointMdx,
-  type ApiEndpointData,
-} from "./blocks/api-endpoint.config.js";
-import {
-  dataModelSchema,
-  dataModelMdx,
-  type DataModelData,
-} from "./blocks/data-model.config.js";
-import { diffSchema, diffMdx, type DiffData } from "./blocks/diff.config.js";
-import {
-  fileTreeSchema,
-  fileTreeMdx,
-  type FileTreeData,
-} from "./blocks/file-tree.config.js";
-import {
-  jsonExplorerSchema,
-  jsonExplorerMdx,
-  type JsonExplorerData,
-} from "./blocks/json-explorer.config.js";
-import {
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
-} from "./blocks/annotated-code.config.js";
+  questionFormSchema,
+  questionFormMdx,
+  type QuestionFormData,
+} from "./blocks/question-form.config.js";
 import {
   checklistSchema,
   checklistMdx,
@@ -68,6 +42,30 @@ import {
   tabsSchema,
   tabsMdx,
   type TabsData,
+  // Dev-doc block config (schema + MDX round-trip) now lives in core, shared
+  // with the client registry (`planBlocks.tsx`) — same objects, so source
+  // round-trip can never drift.
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+  apiEndpointSchema,
+  apiEndpointMdx,
+  type ApiEndpointData,
+  dataModelSchema,
+  dataModelMdx,
+  type DataModelData,
+  diffSchema,
+  diffMdx,
+  type DiffData,
+  fileTreeSchema,
+  fileTreeMdx,
+  type FileTreeData,
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
 } from "@agent-native/core/blocks/server";
 
 /**
@@ -161,6 +159,17 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       label: "HTML / Tailwind",
       description:
         "An author-supplied HTML (with optional CSS) fragment rendered in a sandboxed iframe, with inline source editing.",
+    }),
+    defineBlock<QuestionFormData>({
+      type: "question-form",
+      schema: questionFormSchema,
+      mdx: questionFormMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "Question form",
+      description:
+        "An interactive form block for open questions, single-choice or multi-choice chips, freeform answers, recommended options, and optional wireframe/diagram previews.",
     }),
     defineBlock<TabsData>({
       type: "tabs",

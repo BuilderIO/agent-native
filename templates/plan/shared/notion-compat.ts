@@ -5,7 +5,7 @@ import type { PlanBlock } from "./plan-content.js";
  * must map to the content app's Notion-Flavored-Markdown (NFM) vocabulary
  * (`templates/content/shared/nfm.ts`) to round-trip into a Notion page. Plan
  * blocks that have NO NFM analog (wireframes, diagrams, tabs, code-tabs,
- * decisions, visual questions, custom HTML, implementation maps) can't sync —
+ * decisions, question forms, visual questions, custom HTML, implementation maps) can't sync —
  * they're flagged on enable and excluded from the slash menu in compatible-only
  * mode, and degrade to a callout placeholder on push.
  */

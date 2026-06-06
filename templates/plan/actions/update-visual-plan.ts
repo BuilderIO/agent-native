@@ -105,6 +105,87 @@ function contentPatchTargetId(patch: PlanContentPatch) {
   return null;
 }
 
+function isNewOpenHumanComment(comment: {
+  id?: string;
+  status: string;
+  createdBy: string;
+}) {
+  return (
+    !comment.id && comment.status === "open" && comment.createdBy === "human"
+  );
+}
+
+function anchorPlanAnnotationId(anchor?: string) {
+  if (!anchor) return null;
+  try {
+    const parsed = JSON.parse(anchor) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const value = (parsed as { planAnnotationId?: unknown }).planAnnotationId;
+    return typeof value === "string" && value ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function isCanvasReviewMarkupRequest(args: {
+  title?: string;
+  brief?: string;
+  status?: string;
+  currentFocus?: string;
+  html?: string;
+  content?: PlanContent;
+  contentPatches: PlanContentPatch[];
+  markdown?: string;
+  sections: unknown[];
+  consumedCommentIds: string[];
+  comments: Array<{
+    id?: string;
+    status: string;
+    createdBy: string;
+    kind: string;
+    anchor?: string;
+  }>;
+}) {
+  if (
+    args.title ||
+    args.brief ||
+    args.status ||
+    args.currentFocus ||
+    args.html !== undefined ||
+    args.content !== undefined ||
+    args.markdown !== undefined ||
+    args.sections.length > 0 ||
+    args.consumedCommentIds.length > 0 ||
+    args.contentPatches.length === 0 ||
+    args.comments.length === 0 ||
+    args.contentPatches.length !== args.comments.length
+  ) {
+    return false;
+  }
+  if (
+    !args.contentPatches.every(
+      (patch) => patch.op === "append-canvas-annotation",
+    ) ||
+    !args.comments.every(
+      (comment) =>
+        isNewOpenHumanComment(comment) && comment.kind === "annotation",
+    )
+  ) {
+    return false;
+  }
+  const commentAnnotationIds = new Set(
+    args.comments
+      .map((comment) => anchorPlanAnnotationId(comment.anchor))
+      .filter((id): id is string => Boolean(id)),
+  );
+  if (commentAnnotationIds.size !== args.contentPatches.length) return false;
+  return args.contentPatches.every(
+    (patch) =>
+      patch.op === "append-canvas-annotation" &&
+      commentAnnotationIds.has(patch.annotation.id),
+  );
+}
+
 function prototypeItemExcerpt(
   content: PlanContent | null,
   patch: PlanContentPatch,
@@ -268,19 +349,17 @@ export default defineAction({
       args.sections.length === 0 &&
       args.consumedCommentIds.length === 0 &&
       args.comments.length > 0 &&
-      args.comments.every(
-        (comment) =>
-          !comment.id &&
-          comment.status === "open" &&
-          comment.createdBy === "human",
-      );
+      args.comments.every((comment) => isNewOpenHumanComment(comment));
+    const onlyAddsCanvasReviewMarkup = isCanvasReviewMarkupRequest(args);
+    const onlyAddsReviewerFeedback =
+      onlyAddsNewComments || onlyAddsCanvasReviewMarkup;
 
     const commentRequestEmail =
-      onlyAddsNewComments && !isAnonymousPublicViewer(requesterEmail)
+      onlyAddsReviewerFeedback && !isAnonymousPublicViewer(requesterEmail)
         ? resolvePlanOwnerEmailForWrite(requesterEmail)
         : requesterEmail;
 
-    if (onlyAddsNewComments) {
+    if (onlyAddsReviewerFeedback) {
       // Commenting on a plan (including a public-link plan) requires an
       // agent-native account. The two synthetic anonymous identities must NOT be
       // able to comment — only a real account (or the local single-user identity
@@ -438,7 +517,7 @@ export default defineAction({
     // the proper long-term fix.)
     await (async (tx: typeof db) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
-      // viewer access plus new-open-human-comment-only validation.
+      // viewer access plus new-open-human-comment / canvas-review-markup validation.
       const updatedRows = await tx
         .update(schema.plans)
         .set(planPatch)
@@ -557,11 +636,11 @@ export default defineAction({
         planId: args.planId,
         type: "plan.updated",
         message:
-          !onlyAddsNewComments && args.note
+          !onlyAddsReviewerFeedback && args.note
             ? args.note
             : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
         payload: JSON.stringify(reviewEventPayload),
-        createdBy: onlyAddsNewComments ? "human" : "agent",
+        createdBy: onlyAddsReviewerFeedback ? "human" : "agent",
         createdAt: now,
       });
     })(db);

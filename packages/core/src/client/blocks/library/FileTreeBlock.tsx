@@ -7,23 +7,21 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
+import { cn } from "../../utils.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   FileTreeChange,
   FileTreeData,
   FileTreeEntry,
-} from "@shared/blocks/file-tree.config";
-import { FILE_TREE_CHANGES } from "@shared/blocks/file-tree.config";
-import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+} from "./file-tree.config.js";
+import { FILE_TREE_CHANGES } from "./file-tree.config.js";
+import { DevInput, DevTextarea, DevSelect } from "./dev-doc-ui.js";
+
+/**
+ * Read + Edit renderers for a `file-tree` block — a VS Code / GitHub-explorer
+ * file and change tree. Lives in core so any app can register the dev-doc block
+ * (no shadcn import; the editor's enum picker is the core `DevSelect`).
+ */
 
 /* ── Theme-aware change tokens ─────────────────────────────────────────────── */
 
@@ -470,7 +468,7 @@ export function FileTreeEdit({
     <div className="flex flex-col gap-4" data-plan-interactive>
       <label className="flex flex-col gap-1.5">
         <span className={fieldLabelClass}>Title (optional)</span>
-        <Input
+        <DevInput
           className="h-9"
           value={data.title ?? ""}
           disabled={!editable}
@@ -488,7 +486,7 @@ export function FileTreeEdit({
             className="flex flex-col gap-2 rounded-lg border border-input p-3"
           >
             <div className="grid grid-cols-[minmax(0,1fr)_120px_auto] gap-2">
-              <Input
+              <DevInput
                 className="h-8 font-mono text-xs"
                 value={entry.path}
                 disabled={!editable}
@@ -497,7 +495,8 @@ export function FileTreeEdit({
                   updateEntry(index, { path: event.target.value })
                 }
               />
-              <Select
+              <DevSelect
+                className="h-8"
                 value={entry.change ?? "none"}
                 disabled={!editable}
                 onValueChange={(value) =>
@@ -506,19 +505,14 @@ export function FileTreeEdit({
                       value === "none" ? undefined : (value as FileTreeChange),
                   })
                 }
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No change</SelectItem>
-                  {FILE_TREE_CHANGES.map((change) => (
-                    <SelectItem key={change} value={change}>
-                      {CHANGE_LABEL[change]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "none", label: "No change" },
+                  ...FILE_TREE_CHANGES.map((change) => ({
+                    value: change,
+                    label: CHANGE_LABEL[change],
+                  })),
+                ]}
+              />
               {editable && (
                 <button
                   type="button"
@@ -531,7 +525,7 @@ export function FileTreeEdit({
                 </button>
               )}
             </div>
-            <Input
+            <DevInput
               className="h-8 text-xs"
               value={entry.note ?? ""}
               disabled={!editable}
@@ -541,7 +535,7 @@ export function FileTreeEdit({
               }
             />
             <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
-              <Textarea
+              <DevTextarea
                 className="min-h-[64px] font-mono text-xs"
                 value={entry.snippet ?? ""}
                 disabled={!editable}
@@ -552,7 +546,7 @@ export function FileTreeEdit({
                   })
                 }
               />
-              <Input
+              <DevInput
                 className="h-8 self-start font-mono text-xs"
                 value={entry.language ?? ""}
                 disabled={!editable}

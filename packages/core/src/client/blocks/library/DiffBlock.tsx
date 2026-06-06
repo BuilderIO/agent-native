@@ -1,36 +1,130 @@
 import { useMemo, useState } from "react";
-import { diffLines, type Change } from "diff";
 import {
   IconColumns,
   IconDotsVertical,
   IconFileDiff,
   IconList,
 } from "@tabler/icons-react";
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
-import type { DiffData, DiffMode } from "@shared/blocks/diff.config";
-import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { cn } from "../../utils.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
+import type { DiffData, DiffMode } from "./diff.config.js";
+import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 
 /**
  * GitHub-style before/after diff block. The read renderer computes a line-level
- * diff with jsdiff (`diffLines`), then renders it either unified (one column,
- * `+`/`−` gutters) or split (side-by-side). Long unchanged runs collapse into an
- * expandable "N unchanged lines" row (progressive disclosure). All colors are
- * theme-aware: greens/reds use Tailwind `light`/`dark:` pairs and the chrome uses
- * the plan `--plan-*` tokens, so the block reads correctly in BOTH modes.
+ * diff, then renders it either unified (one column, `+`/`−` gutters) or split
+ * (side-by-side). Long unchanged runs collapse into an expandable "N unchanged
+ * lines" row (progressive disclosure). All colors are theme-aware: greens/reds
+ * use Tailwind `light`/`dark:` pairs and the chrome uses the plan `--plan-*`
+ * tokens, so the block reads correctly in BOTH modes.
+ *
+ * Lives in core so any app can register the dev-doc block. The line differ is
+ * inlined (a small LCS-based `diffLines`) rather than pulling the `diff` package
+ * into core, so core stays dependency-free; the output shape (`{ value, added,
+ * removed }` change records) is identical to what the read renderer consumed
+ * before.
  *
  * Editing is panel-driven (config-style, like the HTML block): two monospace
  * textareas (Before / After) plus filename, language, and mode controls.
  */
+
+/* ── Inline line differ (LCS) — replaces jsdiff `diffLines` ─────────────────── */
+
+interface Change {
+  value: string;
+  added?: boolean;
+  removed?: boolean;
+}
+
+/**
+ * Split text into lines, each KEEPING its trailing newline (so the change
+ * `value`s concatenate back to the original and `splitLines` below behaves the
+ * same as it did against jsdiff output).
+ */
+function toLineTokens(text: string): string[] {
+  if (text === "") return [];
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "\n") {
+      out.push(text.slice(start, i + 1));
+      start = i + 1;
+    }
+  }
+  if (start < text.length) out.push(text.slice(start));
+  return out;
+}
+
+/**
+ * A minimal line-level diff producing jsdiff-compatible `Change[]` records
+ * (`{ value }` for context, `{ value, added: true }`, `{ value, removed: true }`).
+ * Uses a classic LCS table over line tokens; the inputs here are short code
+ * snippets so the O(n·m) table is fine. Removed lines are emitted before added
+ * lines within a change region, matching jsdiff's ordering.
+ */
+function diffLines(before: string, after: string): Change[] {
+  const a = toLineTokens(before);
+  const b = toLineTokens(after);
+  const n = a.length;
+  const m = b.length;
+
+  // LCS length table.
+  const lcs: number[][] = Array.from({ length: n + 1 }, () =>
+    new Array<number>(m + 1).fill(0),
+  );
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      lcs[i][j] =
+        a[i] === b[j]
+          ? lcs[i + 1][j + 1] + 1
+          : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  const changes: Change[] = [];
+  // Push a token onto the last change if same kind, else open a new change.
+  const push = (value: string, kind: "context" | "added" | "removed") => {
+    const last = changes[changes.length - 1];
+    const sameKind =
+      last &&
+      Boolean(last.added) === (kind === "added") &&
+      Boolean(last.removed) === (kind === "removed");
+    if (sameKind) {
+      last.value += value;
+    } else {
+      changes.push({
+        value,
+        added: kind === "added" ? true : undefined,
+        removed: kind === "removed" ? true : undefined,
+      });
+    }
+  };
+
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      push(a[i], "context");
+      i += 1;
+      j += 1;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      push(a[i], "removed");
+      i += 1;
+    } else {
+      push(b[j], "added");
+      j += 1;
+    }
+  }
+  while (i < n) {
+    push(a[i], "removed");
+    i += 1;
+  }
+  while (j < m) {
+    push(b[j], "added");
+    j += 1;
+  }
+  return changes;
+}
 
 /* ── Diff model ────────────────────────────────────────────────────────────── */
 
@@ -59,9 +153,9 @@ const COLLAPSE_THRESHOLD = 6;
 const CONTEXT_EDGE = 3;
 
 /**
- * Split a jsdiff change `value` into individual lines. jsdiff appends a trailing
- * newline to most hunks; drop the empty final element it produces so a 2-line
- * change does not render a phantom 3rd blank line.
+ * Split a change `value` into individual lines. Most hunks carry a trailing
+ * newline; drop the empty final element it produces so a 2-line change does not
+ * render a phantom 3rd blank line.
  */
 function splitLines(value: string): string[] {
   const lines = value.split("\n");
@@ -69,7 +163,7 @@ function splitLines(value: string): string[] {
   return lines;
 }
 
-/** Flatten jsdiff change objects into numbered diff rows. */
+/** Flatten change objects into numbered diff rows. */
 function buildRows(changes: Change[]): DiffRow[] {
   const rows: DiffRow[] = [];
   let oldNo = 0;
@@ -464,10 +558,10 @@ function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
     <div className="flex flex-col gap-3" data-plan-interactive>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="diff-filename" className="text-xs">
+          <DevLabel htmlFor="diff-filename" className="text-xs">
             Filename
-          </Label>
-          <Input
+          </DevLabel>
+          <DevInput
             id="diff-filename"
             value={data.filename ?? ""}
             placeholder="src/add.ts"
@@ -478,10 +572,10 @@ function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="diff-language" className="text-xs">
+          <DevLabel htmlFor="diff-language" className="text-xs">
             Language
-          </Label>
-          <Input
+          </DevLabel>
+          <DevInput
             id="diff-language"
             value={data.language ?? ""}
             placeholder="ts"
@@ -494,27 +588,23 @@ function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Layout</Label>
-        <Select
+        <DevLabel className="text-xs">Layout</DevLabel>
+        <DevSelect
           value={mode}
           disabled={!editable}
           onValueChange={(value) => patch({ mode: value as DiffMode })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="unified">Unified</SelectItem>
-            <SelectItem value="split">Split (side-by-side)</SelectItem>
-          </SelectContent>
-        </Select>
+          options={[
+            { value: "unified", label: "Unified" },
+            { value: "split", label: "Split (side-by-side)" },
+          ]}
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="diff-before" className="text-xs">
+        <DevLabel htmlFor="diff-before" className="text-xs">
           Before
-        </Label>
-        <Textarea
+        </DevLabel>
+        <DevTextarea
           id="diff-before"
           spellCheck={false}
           className={codeAreaClass}
@@ -525,10 +615,10 @@ function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="diff-after" className="text-xs">
+        <DevLabel htmlFor="diff-after" className="text-xs">
           After
-        </Label>
-        <Textarea
+        </DevLabel>
+        <DevTextarea
           id="diff-after"
           spellCheck={false}
           className={codeAreaClass}

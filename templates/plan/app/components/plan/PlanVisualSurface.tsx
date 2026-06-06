@@ -23,6 +23,7 @@ type PlanVisualSurfaceProps = {
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
   prototypeOnly?: boolean;
+  visualMode?: PlanVisualSurfaceMode;
   onVisualModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
 
@@ -33,18 +34,31 @@ export function PlanVisualSurface({
   canvasMarkupMode = "none",
   onCanvasMarkupCreate,
   prototypeOnly = false,
+  visualMode: requestedVisualMode,
   onVisualModeChange,
 }: PlanVisualSurfaceProps) {
   const [tabValue, setTabValue] = useState<"prototype" | "wireframes">(
     prototype ? "prototype" : "wireframes",
   );
+  const requestedTabValue =
+    requestedVisualMode === "prototype" || requestedVisualMode === "wireframes"
+      ? requestedVisualMode
+      : undefined;
+  const activeTabValue =
+    prototype && canvas ? (requestedTabValue ?? tabValue) : tabValue;
   const visualMode = useMemo<PlanVisualSurfaceMode>(() => {
     if (prototypeOnly && prototype) return "prototype";
-    if (prototype && canvas) return tabValue;
+    if (prototype && canvas) return activeTabValue;
     if (prototype) return "prototype";
     if (canvas) return "wireframes";
     return "none";
-  }, [canvas, prototype, prototypeOnly, tabValue]);
+  }, [activeTabValue, canvas, prototype, prototypeOnly]);
+
+  useEffect(() => {
+    if (requestedTabValue && tabValue !== requestedTabValue) {
+      setTabValue(requestedTabValue);
+    }
+  }, [requestedTabValue, tabValue]);
 
   useEffect(() => {
     if (tabValue === "prototype" && !prototype && canvas) {
@@ -71,10 +85,12 @@ export function PlanVisualSurface({
   if (canvas && prototype) {
     return (
       <Tabs
-        value={tabValue}
-        onValueChange={(value) =>
-          setTabValue(value === "wireframes" ? "wireframes" : "prototype")
-        }
+        value={activeTabValue}
+        onValueChange={(value) => {
+          const next = value === "wireframes" ? "wireframes" : "prototype";
+          setTabValue(next);
+          onVisualModeChange?.(next);
+        }}
         className="relative"
         data-plan-visual-tabs
       >

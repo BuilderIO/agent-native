@@ -81,3 +81,59 @@ export {
   type TabsData,
   type TabsTab,
 } from "./library/tabs.config.js";
+
+// Dev-doc block library — React-free schema + MDX config only. The React
+// `Read`/`Edit` live in the matching `./library/<Name>Block.tsx` (imported from
+// the full `@agent-native/core/blocks` entry), never from here.
+export {
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+} from "./library/mermaid.config.js";
+export {
+  apiEndpointSchema,
+  apiEndpointMdx,
+  API_ENDPOINT_METHODS,
+  API_PARAM_LOCATIONS,
+  type ApiEndpointData,
+  type ApiEndpointMethod,
+  type ApiEndpointParam,
+  type ApiEndpointRequest,
+  type ApiEndpointResponse,
+  type ApiParamLocation,
+} from "./library/api-endpoint.config.js";
+export {
+  dataModelSchema,
+  dataModelMdx,
+  DATA_MODEL_RELATION_KINDS,
+  type DataModelData,
+  type DataModelEntity,
+  type DataModelField,
+  type DataModelRelation,
+  type DataModelRelationKind,
+} from "./library/data-model.config.js";
+export {
+  diffSchema,
+  diffMdx,
+  type DiffData,
+  type DiffMode,
+} from "./library/diff.config.js";
+export {
+  fileTreeSchema,
+  fileTreeMdx,
+  FILE_TREE_CHANGES,
+  type FileTreeData,
+  type FileTreeEntry,
+  type FileTreeChange,
+} from "./library/file-tree.config.js";
+export {
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+} from "./library/json-explorer.config.js";
+export {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+  type AnnotatedCodeAnnotation,
+} from "./library/annotated-code.config.js";

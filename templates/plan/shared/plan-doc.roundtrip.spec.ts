@@ -333,4 +333,44 @@ describe("plan-doc id stability", () => {
     expect(blocks[0].type).toBe("callout");
     expect((blocks[0] as { data: unknown }).data).toEqual({});
   });
+
+  it("a reminted duplicate block copies data from its source block id", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "planBlock",
+          attrs: {
+            blockType: "wireframe",
+            blockId: "wireframe-copy",
+            sourceBlockId: "wireframe-original",
+            title: "Copied screen",
+            summary: null,
+          },
+        },
+      ],
+    };
+    const prev: PlanBlock[] = [
+      {
+        id: "wireframe-original",
+        type: "wireframe",
+        editable: false,
+        data: {
+          surface: "desktop",
+          caption: "Original",
+          html: "<section><h1>Copied structure</h1></section>",
+        },
+      },
+    ];
+
+    const blocks = proseJSONToBlocks(doc, prev);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      id: "wireframe-copy",
+      type: "wireframe",
+      title: "Copied screen",
+      editable: false,
+    });
+    expect((blocks[0] as { data: unknown }).data).toEqual(prev[0].data);
+  });
 });

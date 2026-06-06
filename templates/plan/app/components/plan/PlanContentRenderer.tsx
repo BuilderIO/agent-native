@@ -40,6 +40,7 @@ type PlanContentRendererProps = {
   collabUser?: RichMarkdownCollabUser | null;
   /** Focus the reader on the live prototype only, for popout windows. */
   prototypeOnly?: boolean;
+  visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
 
@@ -63,6 +64,7 @@ export function PlanContentRenderer({
   planId,
   collabUser,
   prototypeOnly = false,
+  visualSurfaceMode,
   onVisualSurfaceModeChange,
 }: PlanContentRendererProps) {
   const planLabel = content.prototype
@@ -161,6 +163,15 @@ export function PlanContentRenderer({
     onContentPatch
       ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks })
       : onContentChange?.({ ...content, blocks: nextBlocks });
+  const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});
+  scheduleSaveRef.current = (delayMs = AUTOSAVE_DEBOUNCE_MS) => {
+    if (saveTimerRef.current !== null)
+      window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      flushSaveRef.current();
+    }, delayMs);
+  };
   const flushSaveRef = useRef<() => void>(() => {});
   flushSaveRef.current = () => {
     if (savingRef.current) return; // serialize: the in-flight save re-flushes below
@@ -168,25 +179,33 @@ export function PlanContentRenderer({
     if (next === null) return;
     pendingBlocksRef.current = null;
     savingRef.current = true;
+    let failed = false;
     void Promise.resolve(persistBlocksRef.current(next))
       .catch((error) => {
+        failed = true;
+        // Keep the last unsaved snapshot live. If the user typed a newer edit
+        // while this save was in-flight, that newer pending snapshot wins.
+        if (pendingBlocksRef.current === null) {
+          pendingBlocksRef.current = next;
+        }
         // eslint-disable-next-line no-console
         console.error("Failed to autosave plan document:", error);
       })
       .finally(() => {
         savingRef.current = false;
-        // A newer edit landed while saving → save it now (with the bumped version).
-        if (pendingBlocksRef.current !== null) flushSaveRef.current();
+        if (pendingBlocksRef.current !== null) {
+          if (failed) {
+            scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
+          } else {
+            // A newer edit landed while saving → save it now (with the bumped version).
+            flushSaveRef.current();
+          }
+        }
       });
   };
   const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
     pendingBlocksRef.current = nextBlocks;
-    if (saveTimerRef.current !== null)
-      window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => {
-      saveTimerRef.current = null;
-      flushSaveRef.current();
-    }, AUTOSAVE_DEBOUNCE_MS);
+    scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
   };
   useEffect(
     () => () => {
@@ -246,6 +265,7 @@ export function PlanContentRenderer({
             canvasMarkupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
             prototypeOnly={prototypeOnly}
+            visualMode={visualSurfaceMode}
             onVisualModeChange={onVisualSurfaceModeChange}
           />
         )}

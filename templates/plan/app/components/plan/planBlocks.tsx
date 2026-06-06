@@ -7,12 +7,51 @@ import {
   codeTabsBlock,
   htmlBlock,
   tabsBlock,
+  // Dev-doc block library now lives in core (config + React Read/Edit). Plan
+  // composes the app-specific specs (label/description/editSurface/empty) below
+  // with `defineBlock`, but the schema/MDX config and renderers are shared.
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+  apiEndpointSchema,
+  apiEndpointMdx,
+  type ApiEndpointData,
+  dataModelSchema,
+  dataModelMdx,
+  type DataModelData,
+  diffSchema,
+  diffMdx,
+  type DiffData,
+  fileTreeSchema,
+  fileTreeMdx,
+  type FileTreeData,
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+  MermaidRead,
+  MermaidEdit,
+  ApiEndpointRead,
+  ApiEndpointEdit,
+  DataModelRead,
+  DataModelEdit,
+  DiffRead,
+  DiffEdit,
+  FileTreeRead,
+  FileTreeEdit,
+  JsonExplorerRead,
+  JsonExplorerEdit,
+  AnnotatedCodeRead,
+  AnnotatedCodeEdit,
   type BlockRenderContext,
+  type BlockReadProps,
   type NestedBlock,
 } from "@agent-native/core/blocks";
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
 import type { PlanBlock } from "@shared/plan-content";
-import { PlanBlockView } from "./DocumentArea";
+import { PlanBlockView, QuestionFormBlock } from "./DocumentArea";
 import {
   calloutSchema,
   calloutMdx,
@@ -28,50 +67,14 @@ import {
   wireframeMdx,
   type WireframeData,
 } from "@shared/blocks/wireframe.config";
+import {
+  questionFormSchema,
+  questionFormMdx,
+  type QuestionFormData,
+} from "@shared/blocks/question-form.config";
 import { CalloutBlock } from "./blocks/CalloutBlock";
 import { DiagramBlock, DiagramBlockEdit } from "./blocks/DiagramBlock";
 import { WireframeBlock, WireframeEditor } from "./blocks/WireframeBlock";
-import {
-  mermaidSchema,
-  mermaidMdx,
-  type MermaidData,
-} from "@shared/blocks/mermaid.config";
-import {
-  apiEndpointSchema,
-  apiEndpointMdx,
-  type ApiEndpointData,
-} from "@shared/blocks/api-endpoint.config";
-import {
-  dataModelSchema,
-  dataModelMdx,
-  type DataModelData,
-} from "@shared/blocks/data-model.config";
-import { diffSchema, diffMdx, type DiffData } from "@shared/blocks/diff.config";
-import {
-  fileTreeSchema,
-  fileTreeMdx,
-  type FileTreeData,
-} from "@shared/blocks/file-tree.config";
-import {
-  jsonExplorerSchema,
-  jsonExplorerMdx,
-  type JsonExplorerData,
-} from "@shared/blocks/json-explorer.config";
-import {
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
-} from "@shared/blocks/annotated-code.config";
-import { MermaidRead, MermaidEdit } from "./blocks/MermaidBlock";
-import { ApiEndpointRead, ApiEndpointEdit } from "./blocks/ApiEndpointBlock";
-import { DataModelRead, DataModelEdit } from "./blocks/DataModelBlock";
-import { DiffRead, DiffEdit } from "./blocks/DiffBlock";
-import { FileTreeRead, FileTreeEdit } from "./blocks/FileTreeBlock";
-import { JsonExplorerRead, JsonExplorerEdit } from "./blocks/JsonExplorerBlock";
-import {
-  AnnotatedCodeRead,
-  AnnotatedCodeEdit,
-} from "./blocks/AnnotatedCodeBlock";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import {
@@ -79,6 +82,32 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+
+type PlanBlockRenderContextExtras = {
+  onQuestionFormSubmit?: (summary: string) => void;
+};
+
+function QuestionFormRead({
+  data,
+  blockId,
+  title,
+  summary,
+  ctx,
+}: BlockReadProps<QuestionFormData>) {
+  const extras = ctx as BlockRenderContext & PlanBlockRenderContextExtras;
+  return (
+    <QuestionFormBlock
+      block={{
+        id: blockId,
+        type: "question-form",
+        title,
+        summary,
+        data,
+      }}
+      onSubmit={extras.onQuestionFormSubmit}
+    />
+  );
+}
 
 /**
  * Browser-side plan block registry. Registers the full specs (with their React
@@ -165,6 +194,27 @@ registerBlocks(planBlockRegistry, [
   // `Read`/`Edit` and the schema + MDX config all come from core; the same
   // React-free config is registered server-side in `shared/plan-block-registry`.
   htmlBlock,
+  defineBlock<QuestionFormData>({
+    type: "question-form",
+    schema: questionFormSchema,
+    mdx: questionFormMdx,
+    Read: QuestionFormRead,
+    placement: ["block"],
+    label: "Question form",
+    description:
+      "An interactive form block for open questions, single-choice or multi-choice chips, freeform answers, recommended options, and optional wireframe/diagram previews.",
+    empty: () => ({
+      submitLabel: "Send to agent",
+      questions: [
+        {
+          id: "open-question",
+          title: "What should the agent clarify before revising this plan?",
+          mode: "freeform",
+          placeholder: "Add constraints, preferences, or a decision...",
+        },
+      ],
+    }),
+  }),
   // Standard horizontal-tabs block from the core library (the registry form of
   // the legacy plan `tabs` block): a pill-tab container whose tabs each hold a
   // list of child blocks. Children render RECURSIVELY through `ctx.renderBlock`
@@ -338,8 +388,9 @@ export function createPlanBlockRenderContext(options: {
   onVisualQuestionsSubmit?: (summary: string) => void;
   editingDisabled?: boolean;
 }): BlockRenderContext {
-  return {
+  const ctx: BlockRenderContext & PlanBlockRenderContextExtras = {
     dialect: "gfm",
+    onQuestionFormSubmit: options.onVisualQuestionsSubmit,
     renderMarkdown: (markdown) => <PlanMarkdownReader markdown={markdown} />,
     renderMarkdownEditor: ({ value, onChange, editable, blockId }) => (
       <PlanMarkdownEditor
@@ -393,4 +444,5 @@ export function createPlanBlockRenderContext(options: {
       </Popover>
     ),
   };
+  return ctx;
 }

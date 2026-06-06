@@ -175,6 +175,21 @@ function sanitizeMaybeWireframeData(data: unknown) {
   }
 }
 
+function sanitizeMaybeQuestionPreviews(data: unknown) {
+  if (!data || typeof data !== "object") return;
+  const questions = (data as Record<string, unknown>).questions;
+  if (!Array.isArray(questions)) return;
+  for (const question of questions) {
+    if (!question || typeof question !== "object") continue;
+    const options = (question as Record<string, unknown>).options;
+    if (!Array.isArray(options)) continue;
+    for (const option of options) {
+      if (!option || typeof option !== "object") continue;
+      sanitizeMaybeWireframeData((option as Record<string, unknown>).wireframe);
+    }
+  }
+}
+
 function sanitizeMaybeBlocks(blocks: unknown) {
   if (!Array.isArray(blocks)) return;
   for (const block of blocks) {
@@ -183,6 +198,9 @@ function sanitizeMaybeBlocks(blocks: unknown) {
     const data = record.data as Record<string, unknown> | undefined;
     if (record.type === "custom-html" || record.type === "wireframe") {
       sanitizeMaybeWireframeData(data);
+    }
+    if (record.type === "question-form" || record.type === "visual-questions") {
+      sanitizeMaybeQuestionPreviews(data);
     }
     if (record.type === "tabs" && data && Array.isArray(data.tabs)) {
       for (const tab of data.tabs) {
@@ -268,6 +286,21 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
           block.data.css === undefined
             ? undefined
             : sanitizeCustomHtml(block.data.css),
+      },
+    };
+  }
+  if (block.type === "question-form" || block.type === "visual-questions") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        questions: block.data.questions.map((question) => ({
+          ...question,
+          options: question.options?.map((option) => ({
+            ...option,
+            wireframe: sanitizeWireframeData(option.wireframe),
+          })),
+        })),
       },
     };
   }
@@ -1805,6 +1838,7 @@ export type VisualQuestionBuilderInput = {
   }>;
   allowOther?: boolean;
   placeholder?: string;
+  required?: boolean;
 };
 
 type VisualQuestionPreview = NonNullable<
@@ -1829,6 +1863,9 @@ export function createVisualQuestionsContent(input: {
         : question.type === "freeform"
           ? "freeform"
           : "single",
+    allowOther: question.allowOther,
+    placeholder: question.placeholder,
+    required: question.required,
     options: question.options?.map((option, index) => ({
       id: option.value || slug(option.label) || `option-${index + 1}`,
       label: option.label,
@@ -1957,7 +1994,26 @@ function blockFromSection(section: SectionLike, index: number): PlanBlock {
       data: createBasicDiagram(section.title, section.body),
     };
   }
-  if (section.type === "questions" || section.type === "decisions") {
+  if (section.type === "questions") {
+    const questions = markdownLines(section.body);
+    return {
+      id: section.id || createPlanBlockId(section.title),
+      type: "question-form",
+      title: section.title,
+      data: {
+        submitLabel: "Send to agent",
+        questions: (questions.length ? questions : [section.title]).map(
+          (question, questionIndex) => ({
+            id: `question-${questionIndex + 1}`,
+            title: question,
+            mode: "freeform" as const,
+            placeholder: "Answer to revise the plan...",
+          }),
+        ),
+      },
+    };
+  }
+  if (section.type === "decisions") {
     return {
       id: section.id || createPlanBlockId(section.title),
       type: "decision",
@@ -2559,7 +2615,7 @@ function renderBlockHtml(block: PlanBlock): string {
       .join("\n");
     return `<section class="plan-block">${title}<div class="custom-fragment"><p class="caption">Custom HTML fragment. Plans renders this safely in a sandboxed iframe; standalone exports show the source instead of executing it.</p><pre><code>${escapeHtml(source)}</code></pre></div>${block.data.caption ? `<p class="caption">${escapeHtml(block.data.caption)}</p>` : ""}</section>`;
   }
-  if (block.type === "visual-questions") {
+  if (block.type === "question-form" || block.type === "visual-questions") {
     return `<section class="plan-block">${title}${block.data.questions.map((question, index) => `<article class="question"><h3>${index + 1}. ${escapeHtml(question.title)}</h3>${question.subtitle ? `<p>${escapeHtml(question.subtitle)}</p>` : ""}<div class="chips">${question.options?.map((option) => `<span>${escapeHtml(option.label)}</span>`).join("") ?? ""}</div></article>`).join("")}</section>`;
   }
   return "";

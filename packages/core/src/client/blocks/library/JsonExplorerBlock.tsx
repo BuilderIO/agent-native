@@ -1,18 +1,16 @@
 import { useId, useMemo, useState } from "react";
 import { IconChevronRight } from "@tabler/icons-react";
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
-import type { JsonExplorerData } from "@shared/blocks/json-explorer.config";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { cn } from "../../utils.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
+import type { JsonExplorerData } from "./json-explorer.config.js";
+import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
  * Read + Edit renderers for a `json-explorer` block — a browser-devtools /
  * Postman-style collapsible JSON tree. The raw JSON TEXT (`data.json`) is the
  * source of truth; the Read renderer parses it defensively and, on any parse
  * error, falls back to the raw text plus the error message (it never throws).
+ * Lives in core so any app can register the dev-doc block (no shadcn import).
  *
  * Progressive disclosure is the whole point: object/array nodes show a chevron
  * and a one-line summary ("{…} 3 keys" / "[…] 5 items"); each node tracks its
@@ -21,10 +19,10 @@ import { Textarea } from "@/components/ui/textarea";
  * boolean = violet, null = muted); keys use a stable accent color; subtle indent
  * guide lines mark nesting.
  *
- * DARK/LIGHT: the plan editor toggles `next-themes` (adding `.dark` on <html>).
- * Every color token — value types, keys, guide lines, chrome — uses Tailwind
- * `dark:` variants or the theme-aware plan CSS-var utilities, so the tree reads
- * correctly in BOTH modes (no hardcoded dark-only palette).
+ * DARK/LIGHT: the plan editor toggles a `.dark` class on <html>. Every color
+ * token — value types, keys, guide lines, chrome — uses Tailwind `dark:` variants
+ * or the theme-aware plan CSS-var utilities, so the tree reads correctly in BOTH
+ * modes (no hardcoded dark-only palette).
  */
 
 /* ── Theme-aware value-type color tokens ───────────────────────────────────── */
@@ -360,8 +358,8 @@ export function JsonExplorerEdit({
   return (
     <div className="grid gap-3" data-plan-interactive>
       <div className="grid gap-1.5">
-        <Label htmlFor={titleId}>Title</Label>
-        <Input
+        <DevLabel htmlFor={titleId}>Title</DevLabel>
+        <DevInput
           id={titleId}
           value={data.title ?? ""}
           readOnly={!editable}
@@ -374,20 +372,19 @@ export function JsonExplorerEdit({
 
       <div className="grid gap-1.5">
         <div className="flex items-center justify-between">
-          <Label htmlFor={jsonId}>JSON payload</Label>
+          <DevLabel htmlFor={jsonId}>JSON payload</DevLabel>
           {editable && (
-            <Button
+            <button
               type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 cursor-pointer px-2 text-xs"
+              data-plan-interactive
               onClick={handleFormat}
+              className="inline-flex h-7 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-2 text-xs font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
             >
               Format
-            </Button>
+            </button>
           )}
         </div>
-        <Textarea
+        <DevTextarea
           id={jsonId}
           value={data.json}
           readOnly={!editable}
@@ -410,8 +407,8 @@ export function JsonExplorerEdit({
       </div>
 
       <div className="grid gap-1.5">
-        <Label htmlFor={depthId}>Collapsed depth</Label>
-        <Input
+        <DevLabel htmlFor={depthId}>Collapsed depth</DevLabel>
+        <DevInput
           id={depthId}
           type="number"
           min={0}

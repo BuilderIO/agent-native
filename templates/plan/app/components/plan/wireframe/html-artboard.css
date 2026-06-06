@@ -54,6 +54,12 @@
 .plan-html-frame[data-prototype-live="true"] {
   overflow: auto;
 }
+.plan-html-frame[data-prototype-live="true"] > :first-child {
+  height: 100%;
+  min-height: 0;
+  overflow: auto !important;
+  overscroll-behavior: contain;
+}
 
 .plan-html-frame[data-theme="dark"] {
   --wf-ink: #ece8e1;

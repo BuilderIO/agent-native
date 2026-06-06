@@ -51,7 +51,7 @@ export function PlanDocumentEditor({
   collabUser?: RichMarkdownCollabUser | null;
   editable: boolean;
   onBlocksChange: (blocks: PlanBlock[]) => void | Promise<void>;
-  /** Forwarded to legacy `visual-questions` blocks rendered inline in the doc. */
+  /** Forwarded to question-form and legacy visual-questions blocks. */
   onVisualQuestionsSubmit?: (summary: string) => void;
 }) {
   const registryValue = useOptionalBlockRegistry();
@@ -166,9 +166,21 @@ export function PlanDocumentEditor({
         } catch {
           return;
         }
-        editor.commands.setContent(blocksToProseJSON(parsed), {
-          emitUpdate: options.emitUpdate ?? false,
-        });
+        const nextDoc = blocksToProseJSON(parsed);
+        if (options.addToHistory === false) {
+          editor
+            .chain()
+            .command(({ tr }) => {
+              tr.setMeta("addToHistory", false);
+              return true;
+            })
+            .setContent(nextDoc, { emitUpdate: options.emitUpdate ?? false })
+            .run();
+        } else {
+          editor.commands.setContent(nextDoc, {
+            emitUpdate: options.emitUpdate ?? false,
+          });
+        }
         if (parsed.length > 0) hasSeededRef.current = true;
       },
     [],
@@ -210,13 +222,12 @@ export function PlanDocumentEditor({
     } catch {
       return;
     }
-    // Hard data-loss guard: NEVER persist an empty document over existing blocks.
-    // The editor can momentarily serialize empty during a seed/collab race; that
-    // must never wipe real content. (A genuine "delete everything" is rare and
-    // recoverable; silent data loss is not.) Also refuse a catastrophic drop
-    // (>=80% of blocks gone) before the editor has confirmed a real seed.
+    // Hard data-loss guard: before the first real seed, the editor can
+    // momentarily serialize empty during a seed/collab race. Ignore only those
+    // pre-seed empties; after seeding, an empty document is an intentional clear
+    // and must persist as `blocks: []`.
     const prevCount = blocksRef.current.length;
-    if (next.length === 0 && prevCount > 0) return;
+    if (!hasSeededRef.current && next.length === 0 && prevCount > 0) return;
     if (
       !hasSeededRef.current &&
       prevCount >= 3 &&
@@ -224,9 +235,19 @@ export function PlanDocumentEditor({
     ) {
       return;
     }
+    if (next.length > 0) hasSeededRef.current = true;
     const prevIds = new Set(blocksRef.current.map((block) => block.id));
     next = next.map((block) => {
       if (block.type === "rich-text" || prevIds.has(block.id)) return block;
+      const data = (block as { data?: unknown }).data;
+      if (
+        data &&
+        typeof data === "object" &&
+        !Array.isArray(data) &&
+        Object.keys(data).length > 0
+      ) {
+        return block;
+      }
       const spec = registry?.get(block.type);
       const seeded = spec?.empty?.();
       return seeded ? ({ ...block, data: seeded } as PlanBlock) : block;
@@ -256,10 +277,10 @@ export function PlanDocumentEditor({
         );
         commit(next);
       },
-      // Render unregistered block types (decision, visual-questions, image, …)
-      // through the same `PlanBlockView` dispatcher the per-block reader uses, so
-      // every block type renders in the document. Edits replace the whole block
-      // by id; nested rich-text edits patch that block's markdown.
+      // Render unregistered block types (decision, legacy visual-questions,
+      // image, …) through the same `PlanBlockView` dispatcher the per-block
+      // reader uses, so every block type renders in the document. Edits replace
+      // the whole block by id; nested rich-text edits patch that block's markdown.
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },

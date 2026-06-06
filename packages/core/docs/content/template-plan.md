@@ -69,10 +69,15 @@ wrong direction would be costly. The returned Plans link opens the review UI so
 you can annotate, correct, choose options, and ask for updates before code
 changes begin.
 
+If the first pass still has answerable decisions, the agent can place an
+**Open Questions** form at the bottom of the same plan. Answering it and sending
+it to the agent starts a revision turn against the existing plan.
+
 ## What you can do with it
 
 - **Review before implementation.** React to diagrams, wireframes, option tabs,
-  risk notes, file maps, and code previews before the agent edits files.
+  Open Questions forms, risk notes, file maps, and code previews before the
+  agent edits files.
 - **Comment directly on the plan.** Pin feedback to text, images, wireframes, or
   canvas locations; choose whether the comment is for the agent or a human
   reviewer; @mention teammates with inline chips; and resolve comments as the

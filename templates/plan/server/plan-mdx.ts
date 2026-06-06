@@ -257,6 +257,7 @@ const BLOCK_COMPONENTS = new Set([
   "Decision",
   "TabsBlock",
   "HtmlBlock",
+  "QuestionForm",
   "VisualQuestions",
 ]);
 

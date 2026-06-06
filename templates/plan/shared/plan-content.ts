@@ -37,6 +37,7 @@ export type PlanBlockType =
   | "decision"
   | "tabs"
   | "custom-html"
+  | "question-form"
   | "visual-questions"
   | "mermaid"
   | "api-endpoint"
@@ -405,20 +406,35 @@ export type PlanCustomHtmlBlock = PlanBlockBase & {
   };
 };
 
-export type PlanVisualQuestion = {
+export type PlanQuestionOption = {
+  id: string;
+  label: string;
+  detail?: string;
+  /** Authored recommendation only — see PlanDecisionBlock note. */
+  recommended?: boolean;
+  wireframe?: PlanWireframeBlock["data"];
+  diagram?: PlanDiagramBlock["data"];
+};
+
+export type PlanQuestion = {
   id: string;
   title: string;
   subtitle?: string;
   mode: "single" | "multi" | "freeform";
-  options?: Array<{
-    id: string;
-    label: string;
-    detail?: string;
-    /** Authored recommendation only — see PlanDecisionBlock note. */
-    recommended?: boolean;
-    wireframe?: PlanWireframeBlock["data"];
-    diagram?: PlanDiagramBlock["data"];
-  }>;
+  options?: PlanQuestionOption[];
+  allowOther?: boolean;
+  placeholder?: string;
+  required?: boolean;
+};
+
+export type PlanVisualQuestion = PlanQuestion;
+
+export type PlanQuestionFormBlock = PlanBlockBase & {
+  type: "question-form";
+  data: {
+    questions: PlanQuestion[];
+    submitLabel?: string;
+  };
 };
 
 export type PlanVisualQuestionsBlock = PlanBlockBase & {
@@ -546,6 +562,7 @@ export type PlanBlock =
   | PlanDecisionBlock
   | PlanTabsBlock
   | PlanCustomHtmlBlock
+  | PlanQuestionFormBlock
   | PlanVisualQuestionsBlock
   | PlanMermaidBlock
   | PlanApiEndpointBlock
@@ -1166,6 +1183,32 @@ const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
     message: "Image block requires an assetId or url.",
   });
 
+const planQuestionOptionSchema: z.ZodType<PlanQuestionOption> = z.object({
+  id: idSchema,
+  label: z.string().trim().min(1).max(220),
+  detail: z.string().trim().max(800).optional(),
+  recommended: z.boolean().optional(),
+  wireframe: wireframeDataSchema.optional(),
+  diagram: diagramDataSchema.optional(),
+});
+
+const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
+  id: idSchema,
+  title: z.string().trim().min(1).max(260),
+  subtitle: z.string().trim().max(700).optional(),
+  mode: z.enum(["single", "multi", "freeform"]),
+  options: z.array(planQuestionOptionSchema).max(40).optional(),
+  allowOther: z.boolean().optional(),
+  placeholder: z.string().trim().max(240).optional(),
+  required: z.boolean().optional(),
+});
+
+export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
+  z.object({
+    questions: z.array(planQuestionSchema).min(1).max(40),
+    submitLabel: z.string().trim().max(80).optional(),
+  });
+
 export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   z.discriminatedUnion("type", [
     baseBlockSchema.extend({
@@ -1308,34 +1351,12 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         .strict(),
     }),
     baseBlockSchema.extend({
+      type: z.literal("question-form"),
+      data: questionFormDataSchema,
+    }),
+    baseBlockSchema.extend({
       type: z.literal("visual-questions"),
-      data: z.object({
-        questions: z
-          .array(
-            z.object({
-              id: idSchema,
-              title: z.string().trim().min(1).max(260),
-              subtitle: z.string().trim().max(700).optional(),
-              mode: z.enum(["single", "multi", "freeform"]),
-              options: z
-                .array(
-                  z.object({
-                    id: idSchema,
-                    label: z.string().trim().min(1).max(220),
-                    detail: z.string().trim().max(800).optional(),
-                    recommended: z.boolean().optional(),
-                    wireframe: wireframeDataSchema.optional(),
-                    diagram: diagramDataSchema.optional(),
-                  }),
-                )
-                .max(40)
-                .optional(),
-            }),
-          )
-          .min(1)
-          .max(40),
-        submitLabel: z.string().trim().max(80).optional(),
-      }),
+      data: questionFormDataSchema,
     }),
     baseBlockSchema.extend({
       type: z.literal("mermaid"),

@@ -176,6 +176,37 @@ describe("structured plan content", () => {
     expect(content.canvas?.frames[0]?.wireframe?.screen.length ?? 0).toBe(1);
   });
 
+  it("turns questions sections into reusable question-form blocks", () => {
+    const content = createPlanContentFromSections({
+      title: "Handoff review",
+      brief: "Collect open decisions before implementation.",
+      sections: [
+        {
+          id: "open-questions",
+          type: "questions",
+          title: "Open Questions",
+          body: "- Which billing states matter?\n- What should happen offline?",
+          html: null,
+        },
+      ],
+    });
+
+    expect(content.blocks).toHaveLength(1);
+    const block = content.blocks[0];
+    expect(block?.type).toBe("question-form");
+    if (block?.type !== "question-form") return;
+    expect(block.title).toBe("Open Questions");
+    expect(block.data.submitLabel).toBe("Send to agent");
+    expect(block.data.questions.map((question) => question.title)).toEqual([
+      "Which billing states matter?",
+      "What should happen offline?",
+    ]);
+    expect(block.data.questions[0]?.mode).toBe("freeform");
+    expect(block.data.questions[0]?.placeholder).toBe(
+      "Answer to revise the plan...",
+    );
+  });
+
   it("creates visual questions with kit-tree previews instead of standalone HTML", () => {
     const content = createVisualQuestionsContent({
       title: "Quick questions",
@@ -185,6 +216,8 @@ describe("structured plan content", () => {
           id: "layout",
           type: "visual",
           title: "Which layout direction?",
+          allowOther: true,
+          placeholder: "Describe another layout...",
           options: [
             { label: "Sidebar", preview: "desktop" },
             { label: "Mobile first", preview: "mobile" },
@@ -198,6 +231,10 @@ describe("structured plan content", () => {
     );
     expect(questionsBlock?.type).toBe("visual-questions");
     if (questionsBlock?.type !== "visual-questions") return;
+    expect(questionsBlock.data.questions[0]?.allowOther).toBe(true);
+    expect(questionsBlock.data.questions[0]?.placeholder).toBe(
+      "Describe another layout...",
+    );
     const preview = questionsBlock.data.questions[0]?.options?.[0]?.wireframe;
     expect(preview).toBeTruthy();
     // Preview must be the lean kit tree (surface + screen), never regions.

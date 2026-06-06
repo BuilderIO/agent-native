@@ -29,6 +29,8 @@
  *         rich-text blocks);
  *       * each `planBlock` node is reconstructed from `prevBlocks` by `blockId`,
  *         taking `data` from the previous block (the document never stores it).
+ *         If the editor re-minted a duplicated pasted block id, the node may
+ *         carry `sourceBlockId`; data is copied from that previous source once.
  *
  * IMPORTANT — two adjacent `rich-text` blocks legitimately MERGE. Two prose
  * blocks sitting next to each other in `blocks[]` form a single contiguous prose
@@ -61,6 +63,7 @@ type PlanBlockNodeAttrs = {
   blockId: string;
   title: string | null;
   summary: string | null;
+  sourceBlockId?: string | null;
 };
 
 function isPlanBlockNode(node: JSONContent | undefined): boolean {
@@ -152,14 +155,16 @@ function makeRichTextBlock(id: string, markdown: string): PlanRichTextBlock {
  * Reconstruct a structured block from a `planBlock` node + the previous blocks.
  *
  * The document never stores a structured block's `data`, so we recover it from
- * `prevBlocks` by id. When no previous block is found (a node pasted/inserted
- * with an id we have never seen — e.g. a slash-command insert before the editor
- * has seeded its data), we fall back to an empty `{}` data object. This module is
- * pure and React-free, so it cannot reach the block registry's `spec.empty()`
- * here; the editor (which DOES have the registry) seeds `spec.empty()` data into
- * `blocks[]` the moment a new `planBlock` id appears, so by the time this runs in
- * the live path the previous block is present. The `{}` fallback only guards the
- * pure/headless case and the caller re-validates via `planBlockSchema`.
+ * `prevBlocks` by id. When a duplicated/pasted block was re-minted, its node
+ * carries `sourceBlockId`, letting us copy the original block's data into the
+ * new block instead of replacing it with the registry's empty shape. When no
+ * previous block or source is found (e.g. a slash-command insert before the
+ * editor has seeded its data), we fall back to an empty `{}` data object. This
+ * module is pure and React-free, so it cannot reach the block registry's
+ * `spec.empty()` here; the editor (which DOES have the registry) seeds
+ * `spec.empty()` data into `blocks[]` the moment a brand-new `planBlock` id
+ * appears. The `{}` fallback only guards the pure/headless case and the caller
+ * re-validates via `planBlockSchema`.
  */
 function reconstructStructuredBlock(
   node: JSONContent,
@@ -174,9 +179,19 @@ function reconstructStructuredBlock(
   }
 
   const prev = prevById.get(blockId);
-  const data =
+  const source =
+    typeof attrs.sourceBlockId === "string"
+      ? prevById.get(attrs.sourceBlockId)
+      : undefined;
+  const dataSource =
     prev && prev.type === blockType
-      ? (prev as { data: unknown }).data
+      ? prev
+      : source && source.type === blockType
+        ? source
+        : undefined;
+  const data =
+    dataSource && dataSource.type === blockType
+      ? (dataSource as { data: unknown }).data
       : ((prev as { data?: unknown } | undefined)?.data ?? {});
 
   const title = attrs.title;
@@ -192,8 +207,8 @@ function reconstructStructuredBlock(
 
   // Preserve `editable` from the previous block if present — the document does
   // not carry it.
-  if (prev && typeof prev.editable === "boolean") {
-    block.editable = prev.editable;
+  if (dataSource && typeof dataSource.editable === "boolean") {
+    block.editable = dataSource.editable;
   }
   return block;
 }

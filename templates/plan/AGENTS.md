@@ -56,12 +56,17 @@ viewer for clickable review, comments, rough/clean mode, dark/light mode, and
 prototype popout.
 
 The markdown/document portion should stay close to the plan the agent would
-normally produce. Diagrams, wireframes, mockups, and annotations are additive
-review aids, not a separate intake flow.
+normally produce. Diagrams, wireframes, mockups, annotations, and an optional
+bottom `question-form` Open Questions block are additive review aids, not a
+separate intake flow.
 
 Do not automatically call `create-visual-questions` from `/visual-plan` or
-`/ui-plan`. If the user types `/visual-questions`, treat it as an explicit visual
-intake command before a later plan.
+`/ui-plan`. If a normal plan has answerable unresolved decisions, keep them in
+the same plan as a bottom `question-form` block with single-choice,
+multi-choice, or freeform questions, recommended options when useful, and
+wireframe/diagram previews for visual directions. If the user types
+`/visual-questions`, treat it as an explicit visual intake command before a
+later plan.
 
 ## Skills
 

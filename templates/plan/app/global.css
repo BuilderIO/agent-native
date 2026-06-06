@@ -86,7 +86,7 @@
 @layer utilities {
   .plan-content-surface {
     --plan-document: hsl(42 18% 97%);
-    --plan-canvas: hsl(42 10% 91%);
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
     --plan-block: hsl(42 16% 94%);
     --plan-chrome: hsl(42 15% 96% / 0.92);
     --plan-line: hsl(36 9% 82%);
@@ -103,7 +103,7 @@
 
   .dark .plan-content-surface {
     --plan-document: hsl(32 3% 13%);
-    --plan-canvas: hsl(32 3% 11.2%);
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
     --plan-block: hsl(32 3% 15.5%);
     --plan-chrome: hsl(32 3% 15.5% / 0.92);
     --plan-line: hsl(34 4% 24%);
@@ -120,6 +120,10 @@
 
   .bg-plan-document {
     background-color: var(--plan-document);
+  }
+
+  .bg-plan-canvas {
+    background-color: var(--plan-canvas);
   }
 
   .bg-plan-block {

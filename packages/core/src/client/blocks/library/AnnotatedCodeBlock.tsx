@@ -5,15 +5,13 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
+import { cn } from "../../utils.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   AnnotatedCodeAnnotation,
   AnnotatedCodeData,
-} from "@shared/blocks/annotated-code.config";
-import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+} from "./annotated-code.config.js";
+import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
  * Stripe-docs / Sourcegraph "explain this code" walkthrough block. The read
@@ -21,7 +19,8 @@ import { Textarea } from "@/components/ui/textarea";
  * by an annotation get a subtle highlight band and a numbered gutter marker. The
  * annotation notes render below, each with its `lines` range, optional `label`,
  * and markdown `note` (via `ctx.renderMarkdown`). Hovering a note highlights its
- * line range and vice-versa, so the line-anchoring is the differentiator.
+ * line range and vice-versa, so the line-anchoring is the differentiator. Lives
+ * in core so any app can register the dev-doc block (no shadcn import).
  *
  * All colors are theme-aware: the surface uses the plan `--plan-code*`/`--plan-*`
  * tokens and the highlight/marker accents use Tailwind `light`/`dark:` pairs, so
@@ -337,10 +336,10 @@ function AnnotatedCodeEdit({
     <div className="flex flex-col gap-3" data-plan-interactive>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="annotated-code-filename" className="text-xs">
+          <DevLabel htmlFor="annotated-code-filename" className="text-xs">
             Filename
-          </Label>
-          <Input
+          </DevLabel>
+          <DevInput
             id="annotated-code-filename"
             value={data.filename ?? ""}
             placeholder="src/server/auth.ts"
@@ -351,10 +350,10 @@ function AnnotatedCodeEdit({
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="annotated-code-language" className="text-xs">
+          <DevLabel htmlFor="annotated-code-language" className="text-xs">
             Language
-          </Label>
-          <Input
+          </DevLabel>
+          <DevInput
             id="annotated-code-language"
             value={data.language ?? ""}
             placeholder="ts"
@@ -367,10 +366,10 @@ function AnnotatedCodeEdit({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="annotated-code-code" className="text-xs">
+        <DevLabel htmlFor="annotated-code-code" className="text-xs">
           Code
-        </Label>
-        <Textarea
+        </DevLabel>
+        <DevTextarea
           id="annotated-code-code"
           spellCheck={false}
           className={codeAreaClass}
@@ -382,7 +381,7 @@ function AnnotatedCodeEdit({
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs">Annotations</Label>
+          <DevLabel className="text-xs">Annotations</DevLabel>
           {editable && annotations.length < 80 && (
             <button
               type="button"
@@ -406,7 +405,7 @@ function AnnotatedCodeEdit({
             className="flex flex-col gap-2 rounded-md border border-plan-line bg-plan-block/30 p-2"
           >
             <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)_auto]">
-              <Input
+              <DevInput
                 aria-label={`Annotation ${index + 1} lines`}
                 value={annotation.lines}
                 placeholder="3-5"
@@ -415,7 +414,7 @@ function AnnotatedCodeEdit({
                   updateAnnotation(index, { lines: event.target.value })
                 }
               />
-              <Input
+              <DevInput
                 aria-label={`Annotation ${index + 1} label`}
                 value={annotation.label ?? ""}
                 placeholder="Label (optional)"
@@ -438,7 +437,7 @@ function AnnotatedCodeEdit({
                 </button>
               )}
             </div>
-            <Textarea
+            <DevTextarea
               aria-label={`Annotation ${index + 1} note`}
               className="min-h-[60px] text-sm"
               value={annotation.note}

@@ -5,6 +5,9 @@ const request = vi.hoisted(() => ({
 }));
 const assertPlanEditorMock = vi.hoisted(() => vi.fn());
 const buildUpdatedPlanCommentRowsMock = vi.hoisted(() => vi.fn(() => []));
+const exportPlanContentToMdxFolderMock = vi.hoisted(() =>
+  vi.fn(async () => ({ "plan.mdx": "# Plan" })),
+);
 const getDbMock = vi.hoisted(() =>
   vi.fn(() => {
     throw new Error("DB should not be reached for synthetic commenter rejects");
@@ -71,7 +74,8 @@ vi.mock("../server/plan-content.js", () => ({
 }));
 
 vi.mock("../server/plan-mdx.js", () => ({
-  exportPlanContentToMdxFolder: vi.fn(),
+  exportPlanContentToMdxFolder: (...args: unknown[]) =>
+    exportPlanContentToMdxFolderMock(...args),
 }));
 
 vi.mock("../server/lib/local-plan-files.js", () => ({
@@ -145,6 +149,10 @@ describe("update-visual-plan comments", () => {
     assertPlanEditorMock.mockResolvedValue(undefined);
     buildUpdatedPlanCommentRowsMock.mockReset();
     buildUpdatedPlanCommentRowsMock.mockReturnValue([]);
+    exportPlanContentToMdxFolderMock.mockReset();
+    exportPlanContentToMdxFolderMock.mockResolvedValue({
+      "plan.mdx": "# Plan",
+    });
     getDbMock.mockReset();
     getDbMock.mockImplementation(() => {
       throw new Error(
@@ -267,6 +275,156 @@ describe("update-visual-plan comments", () => {
         createdBy: "human",
       }),
     );
+  });
+
+  it("allows authenticated reviewers to add comment-backed canvas markup without editor access", async () => {
+    request.email = "reviewer@example.com";
+    resolveAccessMock.mockResolvedValueOnce({ resource: {} });
+    buildUpdatedPlanCommentRowsMock.mockReturnValueOnce([
+      {
+        id: "comment_test",
+        planId: "plan_public",
+        parentCommentId: null,
+        sectionId: null,
+        kind: "annotation",
+        status: "open",
+        anchor: JSON.stringify({ planAnnotationId: "mark_1" }),
+        message: "Drawn note",
+        createdBy: "human",
+        authorEmail: "reviewer@example.com",
+        authorName: null,
+        resolutionTarget: "agent",
+        mentionsJson: null,
+        resolvedBy: null,
+        resolvedAt: null,
+        consumedAt: null,
+        createdAt: "2026-06-05T00:00:00.000Z",
+        updatedAt: "2026-06-05T00:00:00.000Z",
+      },
+    ]);
+    const txUpdateSetMock = vi.fn(() => ({
+      where: vi.fn(() => ({
+        returning: vi.fn(async () => [{ id: "plan_public" }]),
+      })),
+    }));
+    const txUpdateMock = vi.fn(() => ({
+      set: txUpdateSetMock,
+    }));
+    const txInsertValuesMock = vi.fn(async () => undefined);
+    const txInsertMock = vi.fn(() => ({
+      values: txInsertValuesMock,
+    }));
+    getDbMock.mockReturnValue({
+      update: txUpdateMock,
+      insert: txInsertMock,
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })),
+    });
+    loadPlanBundleMock.mockResolvedValue({
+      plan: {
+        id: "plan_public",
+        title: "Plan",
+        brief: "",
+        updatedAt: "2026-06-05T00:00:00.000Z",
+        content: {
+          version: 2,
+          title: "Plan",
+          brief: "",
+          blocks: [],
+          canvas: {
+            title: "Review canvas",
+            frames: [],
+            annotations: [],
+          },
+        },
+      },
+      sections: [],
+      comments: [],
+      events: [],
+    });
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "append-canvas-annotation",
+            annotation: {
+              id: "mark_1",
+              type: "text",
+              text: "Drawn note",
+              x: 120,
+              y: 90,
+            },
+          },
+        ],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [
+          {
+            message: "Drawn note",
+            kind: "annotation",
+            status: "open",
+            createdBy: "human",
+            anchor: JSON.stringify({ planAnnotationId: "mark_1" }),
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+
+    expect(assertPlanEditorMock).not.toHaveBeenCalled();
+    expect(resolveAccessMock).toHaveBeenCalledWith("plan", "plan_public");
+    expect(txUpdateSetMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updatedAt: "2026-06-05T00:00:00.000Z",
+      }),
+    );
+    expect(txInsertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "comment_test",
+        kind: "annotation",
+      }),
+    );
+    expect(txInsertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "evt_test",
+        type: "plan.updated",
+        createdBy: "human",
+      }),
+    );
+  });
+
+  it("keeps arbitrary reviewer content patches behind the editor gate", async () => {
+    request.email = "reviewer@example.com";
+    assertPlanEditorMock.mockRejectedValueOnce(new Error("editor required"));
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "Reviewer edit",
+          },
+        ],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [
+          {
+            message: "Reviewer edit",
+            kind: "annotation",
+            status: "open",
+            createdBy: "human",
+            anchor: JSON.stringify({ planAnnotationId: "mark_1" }),
+          },
+        ],
+      }),
+    ).rejects.toThrow("editor required");
+
+    expect(assertPlanEditorMock).toHaveBeenCalledWith("plan_public");
+    expect(resolveAccessMock).not.toHaveBeenCalled();
   });
 
   it("validates new threaded comments before persisting plan changes", async () => {

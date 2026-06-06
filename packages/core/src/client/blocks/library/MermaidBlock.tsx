@@ -1,32 +1,52 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { useTheme } from "next-themes";
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
-import type { MermaidData } from "@shared/blocks/mermaid.config";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
+import type { MermaidData } from "./mermaid.config.js";
+import { DevInput, DevLabel } from "./dev-doc-ui.js";
 
 /**
  * Read + Edit renderers for a `mermaid` block — a Mermaid diagram definition
  * (flowchart, sequence, etc.) edited as raw text and rendered with Mermaid's
  * `handDrawn` look so it matches the plan's hand-drawn / sketchy house style.
+ * Lives in core so any app can register the dev-doc block; it stays app-agnostic
+ * (no shadcn / next-themes import).
  *
  * `mermaid` is a browser-only runtime (it touches `document`/DOM measurement),
  * so the Read renderer SSR-guards: it renders a lightweight placeholder until a
- * `useEffect` confirms it is mounted, then dynamically `import("mermaid")` and
+ * `useEffect` confirms it is mounted, then dynamically imports `mermaid` and
  * injects the rendered SVG. Parse errors never throw — they fall back to the raw
- * source in a styled monospace block plus the error message.
+ * source in a styled monospace block plus the error message. (The dynamic import
+ * uses a runtime specifier so this module never forces `mermaid` into the core
+ * package's own dependency graph — the host app provides it.)
  *
- * Dark mode: the plan editor toggles `next-themes` (adding `.dark` on <html>).
- * The Read renderer reads `useTheme().resolvedTheme` and re-renders the diagram
- * with Mermaid's `dark` theme (vs `neutral` in light) — the resolved theme is in
- * the render effect's deps so toggling dark/light updates the SVG live. The
- * surrounding chrome (caption, error box, edit form) uses the theme-aware plan
- * CSS-var utilities so it flips with the rest of the document.
+ * Dark mode: the plan editor toggles a `.dark` class on <html>. The Read renderer
+ * reads `document.documentElement.classList.contains("dark")` (re-checking on a
+ * `MutationObserver` of the html class) and re-renders the diagram with Mermaid's
+ * `dark` theme (vs `neutral` in light) — the resolved theme is in the render
+ * effect's deps so toggling dark/light updates the SVG live.
  */
+
+/** Module specifier kept in a variable so the bundler/tsc treats it as a runtime
+ * import (core does not depend on `mermaid`; the host app provides it). */
+const MERMAID_MODULE = "mermaid";
 
 interface MermaidRenderState {
   svg?: string;
   error?: string;
+}
+
+/** Read the live dark-mode flag from the document root (next-themes-free). */
+function useIsDark(): boolean {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const read = () => setIsDark(root.classList.contains("dark"));
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark;
 }
 
 function MermaidDiagram({
@@ -36,8 +56,7 @@ function MermaidDiagram({
   source: string;
   idSeed: string;
 }) {
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const isDark = useIsDark();
   // Only render the diagram after mount: `mermaid` is client-only and SSR has no
   // DOM for it to measure against.
   const [mounted, setMounted] = useState(false);
@@ -63,7 +82,8 @@ function MermaidDiagram({
     }
     (async () => {
       try {
-        const mermaid = (await import("mermaid")).default;
+        const mermaid = ((await import(MERMAID_MODULE)) as { default: any })
+          .default;
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
@@ -174,7 +194,7 @@ export function MermaidEdit({
   return (
     <div className="grid gap-3" data-plan-interactive>
       <div className="grid gap-1.5">
-        <Label htmlFor={sourceId}>Diagram source</Label>
+        <DevLabel htmlFor={sourceId}>Diagram source</DevLabel>
         <textarea
           id={sourceId}
           value={data.source}
@@ -191,8 +211,8 @@ export function MermaidEdit({
         </p>
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor={captionId}>Caption</Label>
-        <Input
+        <DevLabel htmlFor={captionId}>Caption</DevLabel>
+        <DevInput
           id={captionId}
           value={data.caption ?? ""}
           readOnly={!editable}

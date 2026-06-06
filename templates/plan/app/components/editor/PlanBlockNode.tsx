@@ -39,9 +39,10 @@ export interface PlanBlockDataValue {
    */
   notionSync: boolean;
   /**
-   * Render a block whose type is NOT in the registry (decision, visual-questions,
-   * image, …) through the plan's `PlanBlockView` dispatcher, so every block type
-   * renders in the document instead of a bare fallback. Supplied by the
+   * Render a block whose type is NOT in the registry (decision, legacy
+   * visual-questions, image, …) through the plan's `PlanBlockView` dispatcher,
+   * so every block type renders in the document instead of a bare fallback.
+   * Supplied by the
    * orchestrator (`PlanDocumentEditor`); omitted in non-plan hosts.
    */
   renderLegacyBlock?: (
@@ -122,8 +123,8 @@ export function PlanBlockNodeView(props: NodeViewProps) {
   //     auto-form when selected). This is the common path (callout, table,
   //     code-tabs, wireframe, …).
   //  2. No spec, but the side-map provides `renderLegacyBlock` → delegate to the
-  //     plan's `PlanBlockView` dispatcher (decision, visual-questions, image,
-  //     and any other type rendered by a bespoke component rather than the
+  //     plan's `PlanBlockView` dispatcher (decision, legacy visual-questions,
+  //     image, and any other type rendered by a bespoke component rather than the
   //     registry), so EVERY block type renders in the document exactly as it
   //     does in the per-block reader — never a bare title fallback.
   //  3. Neither → a small non-crashing fallback.
@@ -191,14 +192,24 @@ function collectPlanBlockEntries(state: EditorState): Array<{
   pos: number;
   blockType: string;
   blockId: string;
+  sourceBlockId?: string;
 }> {
-  const found: Array<{ pos: number; blockType: string; blockId: string }> = [];
+  const found: Array<{
+    pos: number;
+    blockType: string;
+    blockId: string;
+    sourceBlockId?: string;
+  }> = [];
   state.doc.descendants((node, pos) => {
     if (node.type.name === "planBlock") {
       found.push({
         pos,
         blockType: String(node.attrs.blockType ?? ""),
         blockId: String(node.attrs.blockId ?? ""),
+        sourceBlockId:
+          typeof node.attrs.sourceBlockId === "string"
+            ? node.attrs.sourceBlockId
+            : undefined,
       });
     }
     return true;
@@ -229,6 +240,7 @@ function buildPlanBlockDedupeTransaction(state: EditorState) {
         tr = tr.setNodeMarkup(entry.pos, undefined, {
           ...node.attrs,
           blockId: freshId,
+          sourceBlockId: entry.sourceBlockId || entry.blockId || null,
         });
         changed = true;
       }
@@ -255,6 +267,7 @@ export const PlanBlockNode = Node.create({
       blockId: { default: "" },
       title: { default: null },
       summary: { default: null },
+      sourceBlockId: { default: null },
     };
   },
 
@@ -269,6 +282,7 @@ export const PlanBlockNode = Node.create({
             blockId: node.getAttribute("data-block-id") || "",
             title: node.getAttribute("data-title") || null,
             summary: node.getAttribute("data-summary") || null,
+            sourceBlockId: node.getAttribute("data-source-block-id") || null,
           };
         },
       },
@@ -284,6 +298,7 @@ export const PlanBlockNode = Node.create({
         "data-block-id": HTMLAttributes.blockId ?? "",
         "data-title": HTMLAttributes.title ?? undefined,
         "data-summary": HTMLAttributes.summary ?? undefined,
+        "data-source-block-id": HTMLAttributes.sourceBlockId ?? undefined,
       }),
     ];
   },
