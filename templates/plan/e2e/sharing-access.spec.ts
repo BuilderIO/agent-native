@@ -571,8 +571,8 @@ test.describe("sharing + publish + access control", () => {
       timeout: 20_000,
     });
 
-    // Owner has the Share affordance.
-    const shareBtn = page.getByRole("button", { name: /share plan/i });
+    // Owner has the Share affordance (core ShareButton renders a "Share" label).
+    const shareBtn = page.getByRole("button", { name: /share/i });
     await expect(shareBtn.first()).toBeVisible();
 
     // Owner's document exposes a contentEditable surface (the inline editor).
