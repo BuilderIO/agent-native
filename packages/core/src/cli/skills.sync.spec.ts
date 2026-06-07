@@ -44,48 +44,62 @@ const ROOT = workspaceRoot();
 // Each Plans skill: the shipped constant + its template path + its top-level
 // mirror path. The template uses the canonical singular `visual-plan` directory;
 // the top-level mirror exports the headline command as `visual-plans` (plural).
+// `cores` lists the SHARED-CORE marker regions a skill interpolates from the
+// single-source partials in skills.ts. The `wireframe-quality` core is shared
+// across visual-plan, ui-plan, AND visual-recap; the canvas/document/exemplar
+// cores apply only to the canvas-bearing forward plans (visual-plan, ui-plan).
 const PLAN_SKILLS = [
   {
     label: "visual-plan",
     constant: VISUAL_PLANS_SKILL_MD,
     templateDir: "visual-plan",
     exportedDir: "visual-plans",
-    hasCores: true,
+    cores: [
+      "wireframe-quality",
+      "canvas-surface",
+      "document-quality",
+      "exemplar",
+    ],
   },
   {
     label: "visual-recap",
     constant: VISUAL_RECAP_SKILL_MD,
     templateDir: "visual-recap",
     exportedDir: "visual-recap",
-    hasCores: false,
+    cores: ["wireframe-quality"],
   },
   {
     label: "ui-plan",
     constant: UI_PLAN_SKILL_MD,
     templateDir: "ui-plan",
     exportedDir: "ui-plan",
-    hasCores: true,
+    cores: [
+      "wireframe-quality",
+      "canvas-surface",
+      "document-quality",
+      "exemplar",
+    ],
   },
   {
     label: "prototype-plan",
     constant: PROTOTYPE_PLAN_SKILL_MD,
     templateDir: "prototype-plan",
     exportedDir: "prototype-plan",
-    hasCores: false,
+    cores: [],
   },
   {
     label: "plan-design",
     constant: PLAN_DESIGN_SKILL_MD,
     templateDir: "plan-design",
     exportedDir: "plan-design",
-    hasCores: false,
+    cores: [],
   },
   {
     label: "visual-questions",
     constant: VISUAL_QUESTIONS_SKILL_MD,
     templateDir: "visual-questions",
     exportedDir: "visual-questions",
-    hasCores: false,
+    cores: [],
   },
 ] as const;
 
@@ -193,23 +207,42 @@ describe("Plans skills sync guard", () => {
     );
   });
 
-  it("keeps the shared Wireframe & Document cores identical across plan skills", () => {
+  it("keeps each shared core byte-identical across the skills that consume it", () => {
+    // Each marker is single-sourced from one partial in skills.ts and
+    // interpolated into its consumers. `wireframe-quality` is shared by three
+    // skills; the canvas/document/exemplar cores by the two forward plans.
     const coreMarkers = [
-      "wireframe-canvas",
+      "wireframe-quality",
+      "canvas-surface",
       "document-quality",
       "exemplar",
     ] as const;
-    const coreSkills = PLAN_SKILLS.filter((s) => s.hasCores);
     for (const marker of coreMarkers) {
-      const cores = coreSkills.map((s) =>
+      const consumers = PLAN_SKILLS.filter((s) =>
+        (s.cores as readonly string[]).includes(marker),
+      );
+      expect(
+        consumers.length,
+        `no skill declares it consumes shared core "${marker}"`,
+      ).toBeGreaterThan(0);
+      const regions = consumers.map((s) =>
         extractSharedCore(s.constant, marker),
       );
-      const [first, ...rest] = cores;
+      const [first, ...rest] = regions;
       for (let i = 0; i < rest.length; i += 1) {
         expect(
           rest[i],
-          `shared core "${marker}" drifted between ${coreSkills[0].label} and ${coreSkills[i + 1].label}`,
+          `shared core "${marker}" drifted between ${consumers[0].label} and ${consumers[i + 1].label}`,
         ).toBe(first);
+      }
+      // A skill that does not declare the core must not carry the marker, so
+      // an undeclared copy can never silently drift.
+      for (const s of PLAN_SKILLS) {
+        if ((s.cores as readonly string[]).includes(marker)) continue;
+        expect(
+          s.constant.includes(`<!-- SHARED-CORE:${marker} START -->`),
+          `${s.label} carries shared core "${marker}" without declaring it in PLAN_SKILLS.cores`,
+        ).toBe(false);
       }
     }
   });
