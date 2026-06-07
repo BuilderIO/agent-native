@@ -942,6 +942,8 @@ const baseBlockSchema = z.object({
 
 const unsafeCustomHtmlPattern =
   /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)[\s>/]|@(?:import|font-face|keyframes|page|namespace|charset)\b|\b(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml))\s*:?\s*|\bsrcdoc\s*=|(?:^|\s)(?:on[a-z][\w:-]*|:on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=|expression\s*\(|url\s*\(\s*['"]?\s*(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml)))/i;
+const unsafeDiagramHtmlPattern =
+  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form|math|foreignObject|noscript|frame|frameset|applet|portal|marquee)[\s>/]|@(?:import|font-face|keyframes|page|namespace|charset)\b|\b(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml))\s*:?\s*|\bsrcdoc\s*=|(?:^|\s)(?:on[a-z][\w:-]*|@[\w:.-]+|x-on:[\w:.-]+|:on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=|expression\s*\(|url\s*\(\s*['"]?\s*(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml)))/i;
 
 function decodeSafetyEntities(value: string): string {
   return value
@@ -986,6 +988,19 @@ const noFullHtmlDocument = (value: string) => {
   return (
     !unsafeCustomHtmlPattern.test(value) &&
     !unsafeCustomHtmlPattern.test(decoded) &&
+    !unsafeViewportCssPattern.test(decoded) &&
+    !/(?:javascript|vbscript):|data:(?:text\/html|image\/svg\+xml)|expression\(|url\(['"]?(?:javascript|vbscript|data:(?:text\/html|image\/svg\+xml))/.test(
+      compact,
+    )
+  );
+};
+
+const noActiveDiagramHtml = (value: string) => {
+  const decoded = decodedSafetyText(value);
+  const compact = compactSafetyText(value);
+  return (
+    !unsafeDiagramHtmlPattern.test(value) &&
+    !unsafeDiagramHtmlPattern.test(decoded) &&
     !unsafeViewportCssPattern.test(decoded) &&
     !/(?:javascript|vbscript):|data:(?:text\/html|image\/svg\+xml)|expression\(|url\(['"]?(?:javascript|vbscript|data:(?:text\/html|image\/svg\+xml))/.test(
       compact,
@@ -1232,8 +1247,22 @@ const diagramEdgeSchema: z.ZodType<PlanDiagramEdge> = z.object({
 
 const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
   .object({
-    html: z.string().trim().max(100_000).optional(),
-    css: z.string().max(50_000).optional(),
+    html: z
+      .string()
+      .trim()
+      .max(100_000)
+      .refine(noActiveDiagramHtml, {
+        message:
+          "Diagram html must be an inert fragment; SVG is allowed, scripts/events are not.",
+      })
+      .optional(),
+    css: z
+      .string()
+      .max(50_000)
+      .refine(noFullHtmlDocument, {
+        message: "Diagram css must not include document or script tags.",
+      })
+      .optional(),
     caption: z.string().trim().max(600).optional(),
     nodes: z.array(diagramNodeSchema).max(80).optional(),
     edges: z.array(diagramEdgeSchema).max(120).optional(),
