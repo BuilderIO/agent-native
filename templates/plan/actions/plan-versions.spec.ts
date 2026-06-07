@@ -123,6 +123,7 @@ async function seedPlan() {
 }
 
 async function mutatePlanAfterSnapshot() {
+  // guard:allow-unscoped -- test-only fixture mutation updates the seeded plan in an isolated temp DB.
   await db
     .update(planSchema.plans)
     .set({

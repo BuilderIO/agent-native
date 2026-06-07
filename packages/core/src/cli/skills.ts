@@ -475,6 +475,15 @@ the current screen's real layout and footprint FIRST, then change only the delta
 and call it out with a single annotation. Do not restack the page into a new
 layout. For net-new surfaces, compose from the real app shell.
 
+**Classify mockup scope before implementation.** Before turning a plan mockup
+into source code, decide whether each artboard represents the whole page/app
+shell, a route body inside an existing shell, or a component/sub-surface. If an
+artboard includes navigation, sidebars, auth banners, or a signup/login form,
+map those pieces to the real shared shell/auth components instead of nesting the
+entire mockup inside the current page. When a mockup references the product's
+standard signup/login page, find and reuse that existing implementation; do not
+approximate it from the wireframe.
+
 **Zoom in on sub-surfaces, don't redraw the page.** For a small sub-surface (a
 popover, menu, dialog, toast), show the full screen once, then add a small
 separate artboard whose \`html\` contains ONLY that sub-surface — do not re-draw
@@ -545,7 +554,9 @@ composed from the helper classes and tokens, layout in inline flex, no fonts or
 hex colors:
 
 \`\`\`html
-<div style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%">
+<div
+  style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"
+>
   <div style="display:flex;align-items:center;justify-content:space-between">
     <h1>Contacts</h1>
     <button class="primary">New contact</button>
@@ -555,15 +566,28 @@ hex colors:
     <span class="wf-pill">Favorites</span>
     <span class="wf-pill">Archived</span>
   </div>
-  <div class="wf-card" style="display:flex;flex-direction:column;gap:0;padding:0">
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">
-      <div style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"></div>
-      <div style="flex:1"><strong>Jane Cooper</strong><br /><small>jane@acme.co</small></div>
+  <div
+    class="wf-card"
+    style="display:flex;flex-direction:column;gap:0;padding:0"
+  >
+    <div
+      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)"
+    >
+      <div
+        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
+      ></div>
+      <div style="flex:1">
+        <strong>Jane Cooper</strong><br /><small>jane@acme.co</small>
+      </div>
       <span class="wf-pill">Lead</span>
     </div>
     <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
-      <div style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"></div>
-      <div style="flex:1"><strong>Marcus Lee</strong><br /><small>marcus@globex.io</small></div>
+      <div
+        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
+      ></div>
+      <div style="flex:1">
+        <strong>Marcus Lee</strong><br /><small>marcus@globex.io</small>
+      </div>
       <span class="wf-pill">Customer</span>
     </div>
   </div>
@@ -955,6 +979,15 @@ the current screen's real layout and footprint FIRST, then change only the delta
 and call it out with a single annotation. Do not restack the page into a new
 layout. For net-new surfaces, compose from the real app shell.
 
+**Classify mockup scope before implementation.** Before turning a plan mockup
+into source code, decide whether each artboard represents the whole page/app
+shell, a route body inside an existing shell, or a component/sub-surface. If an
+artboard includes navigation, sidebars, auth banners, or a signup/login form,
+map those pieces to the real shared shell/auth components instead of nesting the
+entire mockup inside the current page. When a mockup references the product's
+standard signup/login page, find and reuse that existing implementation; do not
+approximate it from the wireframe.
+
 **Zoom in on sub-surfaces, don't redraw the page.** For a small sub-surface (a
 popover, menu, dialog, toast), show the full screen once, then add a small
 separate artboard whose \`html\` contains ONLY that sub-surface — do not re-draw
@@ -1025,7 +1058,9 @@ composed from the helper classes and tokens, layout in inline flex, no fonts or
 hex colors:
 
 \`\`\`html
-<div style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%">
+<div
+  style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"
+>
   <div style="display:flex;align-items:center;justify-content:space-between">
     <h1>Contacts</h1>
     <button class="primary">New contact</button>
@@ -1035,15 +1070,28 @@ hex colors:
     <span class="wf-pill">Favorites</span>
     <span class="wf-pill">Archived</span>
   </div>
-  <div class="wf-card" style="display:flex;flex-direction:column;gap:0;padding:0">
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">
-      <div style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"></div>
-      <div style="flex:1"><strong>Jane Cooper</strong><br /><small>jane@acme.co</small></div>
+  <div
+    class="wf-card"
+    style="display:flex;flex-direction:column;gap:0;padding:0"
+  >
+    <div
+      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)"
+    >
+      <div
+        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
+      ></div>
+      <div style="flex:1">
+        <strong>Jane Cooper</strong><br /><small>jane@acme.co</small>
+      </div>
       <span class="wf-pill">Lead</span>
     </div>
     <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
-      <div style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"></div>
-      <div style="flex:1"><strong>Marcus Lee</strong><br /><small>marcus@globex.io</small></div>
+      <div
+        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
+      ></div>
+      <div style="flex:1">
+        <strong>Marcus Lee</strong><br /><small>marcus@globex.io</small>
+      </div>
       <span class="wf-pill">Customer</span>
     </div>
   </div>
