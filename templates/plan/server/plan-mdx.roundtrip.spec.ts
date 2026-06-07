@@ -599,6 +599,103 @@ describe("plan MDX round-trip fidelity per block type", () => {
     expect(wf.data.html).toBe("<section><h2>Inside tab html</h2></section>");
   });
 
+  it("columns: round-trips nested blocks in side-by-side panes", async () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Columns",
+      blocks: [
+        {
+          id: "columns-1",
+          type: "columns",
+          title: "Before and after",
+          data: {
+            columns: [
+              {
+                id: "col-before",
+                label: "Before",
+                blocks: [
+                  {
+                    id: "col-before-text",
+                    type: "rich-text",
+                    data: { markdown: "Old behavior" },
+                  },
+                ],
+              },
+              {
+                id: "col-after",
+                label: "After",
+                blocks: [
+                  {
+                    id: "col-after-model",
+                    type: "data-model",
+                    data: {
+                      entities: [
+                        {
+                          id: "plans",
+                          name: "plans",
+                          fields: [
+                            { name: "id", type: "text", pk: true },
+                            { name: "visibility", type: "text" },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const folder = await exportPlanContentToMdxFolder({
+      content,
+      title: content.title ?? "Columns",
+    });
+    expect(folder["plan.mdx"]).toContain("<Columns");
+    expect(folder["plan.mdx"]).toContain("<Column");
+    expect(folder["plan.mdx"]).toContain('contentId="col-before-text"');
+    expect(folder["plan.mdx"]).toContain("Old behavior");
+
+    const result = await parsePlanMdxFolder(folder);
+    const block = findBlock(result, "columns-1");
+    if (block?.type !== "columns") throw new Error("expected columns");
+    expect(block.data.columns[0]?.label).toBe("Before");
+    const before = block.data.columns[0]?.blocks[0];
+    expect(before?.id).toBe("col-before-text");
+    expect(before?.type).toBe("rich-text");
+    if (before?.type === "rich-text") {
+      expect(before.data.markdown).toContain("Old behavior");
+    }
+    const after = block.data.columns[1]?.blocks[0];
+    expect(after?.type).toBe("data-model");
+    if (after?.type === "data-model") {
+      expect(after.data.entities[0]?.fields.map((field) => field.name)).toEqual(
+        ["id", "visibility"],
+      );
+    }
+  });
+
+  it("columns: still parses the generated JSON-attribute MDX form", async () => {
+    const result = await parsePlanMdxFolder({
+      "plan.mdx": [
+        "---",
+        'title: "Generated columns"',
+        "version: 2",
+        "---",
+        "",
+        '<Columns id="cols-generated" columns={[{"id":"before","label":"Before","blocks":[{"id":"before-text","type":"rich-text","data":{"markdown":"Old generated form"}}]},{"id":"after","label":"After","blocks":[{"id":"after-text","type":"rich-text","data":{"markdown":"New generated form"}}]}]} />',
+      ].join("\n"),
+    });
+    const block = findBlock(result, "cols-generated");
+    if (block?.type !== "columns") throw new Error("expected columns");
+    expect(block.data.columns[0]?.blocks[0]?.type).toBe("rich-text");
+    const after = block.data.columns[1]?.blocks[0];
+    if (after?.type !== "rich-text") throw new Error("expected rich-text");
+    expect(after.data.markdown).toBe("New generated form");
+  });
+
   it("visual-questions: round-trips questions, options, embedded wireframe/diagram", async () => {
     const content: PlanContent = {
       version: 2,

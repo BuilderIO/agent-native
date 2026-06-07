@@ -14,6 +14,7 @@ import {
 } from "../server/plan-content.js";
 import {
   isLocalPlanRuntime,
+  resolvePlanOrgIdForWrite,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
@@ -161,6 +162,10 @@ export default defineAction({
       requesterEmail,
       "Creating visual questions",
     );
+    const ownerOrgId = resolvePlanOrgIdForWrite(
+      requesterEmail,
+      getRequestOrgId(),
+    );
     await assertGuestCreateWithinLimits(ownerEmail);
 
     const id = newId("plan");
@@ -221,7 +226,7 @@ export default defineAction({
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,
         ownerEmail,
-        orgId: getRequestOrgId(),
+        orgId: ownerOrgId,
         visibility: "private",
       });
 

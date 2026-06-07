@@ -38,7 +38,8 @@ export interface DiagramNote {
 export interface DiagramData {
   /**
    * Preferred authoring path for architecture/code diagrams: a scoped, inert
-   * HTML/SVG fragment. The renderer supplies theme + sketch/clean style hooks.
+   * HTML/SVG fragment. Use .diagram-* primitives and --wf-* tokens; the
+   * renderer supplies Tailwind-backed theme tokens plus sketch/clean style hooks.
    */
   html?: string;
   css?: string;

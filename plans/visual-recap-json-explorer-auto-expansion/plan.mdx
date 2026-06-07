@@ -1,0 +1,146 @@
+---
+# Visual plan: open https://plan.agent-native.com/plans/plan-4609414de45141c4 in a browser for the canvas and review UI.
+visualUrl: "https://plan.agent-native.com/plans/plan-4609414de45141c4"
+title: "Visual recap — JSON explorer auto expansion"
+brief: "Review aid for the shared JSON explorer block changes: default expansion depth, edit presets, deep Alt/Option-click toggles, and coverage."
+version: 2
+---
+
+<RichText id="recap-intro" title="What changed">
+
+> Visual recap — this is an aid, not a replacement for reviewing the actual diff.
+
+This change updates the shared `json-explorer` block used by plan and content surfaces. The diff adds a deeper default expansion depth, edit-popover presets for auto expansion, Alt/Option-click deep subtree toggling on disclosure rows, and focused tests for the new behavior and serialization.
+
+</RichText>
+
+<FileTree
+  id="recap-files"
+  title="Files touched"
+  title="Files touched"
+  entries={[
+    {
+      path: "packages/core/src/client/blocks/library/JsonExplorerBlock.tsx",
+      change: "modified",
+      note: "Changed renderer behavior, edit controls, and subtree pulse handling.",
+    },
+    {
+      path: "packages/core/src/client/blocks/library/json-explorer.config.ts",
+      change: "modified",
+      note: "Added default/max depth constants and reused max in schema validation.",
+    },
+    {
+      path: "packages/core/src/client/blocks/library/JsonExplorerBlock.spec.tsx",
+      change: "added",
+      note: "Added component tests for default expansion, edit presets, and Alt/Option-click deep toggles.",
+    },
+    {
+      path: "templates/content/app/components/editor/registryBlocks.roundtrip.test.ts",
+      change: "modified",
+      note: "Added collapsedDepth round-trip coverage for content NFM registry blocks.",
+    },
+    {
+      path: "templates/plan/e2e/dev-doc-blocks.spec.ts",
+      change: "modified",
+      note: "Updated the JSON explorer default-depth comment to match the new behavior.",
+    },
+    {
+      path: ".changeset/json-explorer-auto-expand.md",
+      change: "added",
+      note: "Patch changeset for @agent-native/core.",
+    },
+  ]}
+/>
+
+<RichText id="recap-compatibility" title="Behavior compatibility">
+
+- **JsonExplorerRead default collapsedDepth**: changed (risky). Before:
+  `data.collapsedDepth ?? 1`. After:
+  `data.collapsedDepth ?? JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH (2)`. Existing
+  blocks with an explicit collapsedDepth are unchanged; blocks omitting it now
+  open one additional container level.
+- **JsonExplorerEdit auto-expand presets**: added (non-breaking). After: `Off, 2
+levels, 3 levels, All`. The existing numeric input remains for custom depth.
+- **JsonNode disclosure click**: added (non-breaking). After: `Alt/Option-click
+expands or collapses all rendered descendants for that subtree`. Regular click
+  still toggles only the clicked node.
+- **jsonExplorerSchema.data.collapsedDepth.max**: changed (neutral). Before:
+  `max(20)`. After: `max(JSON_EXPLORER_MAX_COLLAPSED_DEPTH)`.
+
+</RichText>
+
+<Columns id="recap-before-after">
+<Column id="before" label="Before" contentId="before-text">
+
+JSON explorer blocks opened only the root container by default. The edit popover exposed a raw `Collapsed depth` number input. Disclosure rows only toggled their own node.
+
+</Column>
+
+<Column id="after" label="After" contentId="after-text">
+
+JSON explorer blocks open two container levels by default. The edit popover has Off / 2 levels / 3 levels / All presets plus a custom number input. Alt/Option-clicking a disclosure row deeply expands or collapses that subtree.
+
+</Column>
+</Columns>
+
+<Diff
+  id="diff-default-and-presets"
+  title="Default depth and edit controls"
+  filename="packages/core/src/client/blocks/library/JsonExplorerBlock.tsx"
+  language="tsx"
+  mode="split"
+  before={
+    'import type { JsonExplorerData } from "./json-explorer.config.js";\n\nconst collapsedDepth = data.collapsedDepth ?? 1;\n\n<DevLabel htmlFor={depthId}>Collapsed depth</DevLabel>\n<DevInput max={20} value={data.collapsedDepth ?? 1} />'
+  }
+  after={
+    'import {\n  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,\n  JSON_EXPLORER_MAX_COLLAPSED_DEPTH,\n  type JsonExplorerData,\n} from "./json-explorer.config.js";\n\nconst collapsedDepth =\n  data.collapsedDepth ?? JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH;\n\n<DevLabel htmlFor={depthId}>Auto expand</DevLabel>\n{JSON_EXPLORER_DEPTH_PRESETS.map((preset) => (\n  <button aria-pressed={collapsedDepth === preset.value}>\n    {preset.label}\n  </button>\n))}\n<DevInput max={JSON_EXPLORER_MAX_COLLAPSED_DEPTH} value={collapsedDepth} />'
+  }
+/>
+
+<Diff
+  id="diff-alt-click"
+  title="Alt/Option-click deep subtree toggle"
+  filename="packages/core/src/client/blocks/library/JsonExplorerBlock.tsx"
+  language="tsx"
+  mode="split"
+  before={
+    "const [open, setOpen] = useState(seededOpen);\n\n<button\n  aria-expanded={open}\n  onClick={() => setOpen((value) => !value)}\n>"
+  }
+  after={
+    "const [open, setOpen] = useState(seededOpen);\nconst [subtreePulse, setSubtreePulse] = useState<JsonTreePulse | null>(null);\n\nconst handleToggle = (event: ReactMouseEvent<HTMLButtonElement>) => {\n  const nextOpen = !open;\n  setOpen(nextOpen);\n  if (event.altKey) {\n    setSubtreePulse((prev) => ({\n      open: nextOpen,\n      nonce: (prev?.nonce ?? 0) + 1,\n    }));\n  } else {\n    setSubtreePulse(null);\n  }\n};\n\n<button aria-expanded={open} onClick={handleToggle}>"
+  }
+/>
+
+<Diff
+  id="diff-config"
+  title="Config constants"
+  filename="packages/core/src/client/blocks/library/json-explorer.config.ts"
+  language="ts"
+  mode="split"
+  before={
+    "export interface JsonExplorerData {\n  /**\n   * Depth beyond which nodes start collapsed (default 1).\n   */\n  collapsedDepth?: number;\n}\n\ncollapsedDepth: z.number().int().min(0).max(20).optional(),"
+  }
+  after={
+    "export const JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH = 2;\nexport const JSON_EXPLORER_MAX_COLLAPSED_DEPTH = 20;\n\nexport interface JsonExplorerData {\n  /**\n   * Depth beyond which nodes start collapsed (default 2).\n   */\n  collapsedDepth?: number;\n}\n\ncollapsedDepth: z\n  .number()\n  .int()\n  .min(0)\n  .max(JSON_EXPLORER_MAX_COLLAPSED_DEPTH)\n  .optional(),"
+  }
+/>
+
+<Diff
+  id="diff-tests"
+  title="Focused coverage"
+  filename="packages/core/src/client/blocks/library/JsonExplorerBlock.spec.tsx"
+  language="tsx"
+  mode="split"
+  before="// No component-level JSON explorer test file existed in this diff."
+  after={
+    'it("auto-expands two container levels by default", () => { /* ... */ });\n\nit("offers auto-expand presets from the edit surface", () => { /* ... */ });\n\nit("alt-click expands and collapses a node\'s descendants deeply", () => { /* ... */ });'
+  }
+/>
+
+<RichText id="recap-risk" title="Review notes">
+
+- Main compatibility note: the only behavior change for existing data is when `collapsedDepth` is omitted; that now defaults to 2 instead of 1.
+- The deep toggle is intentionally local to the clicked subtree. Global **Expand all** / **Collapse all** still work through the root pulse.
+- The recap is grounded in the current git diff, but it does not certify correctness. Review the changed lines, especially the recursive pulse/remount behavior in `JsonNode`.
+
+</RichText>

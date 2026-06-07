@@ -15,24 +15,24 @@
 /* Hand-drawn fonts. Virgil is served by the app; no remote font dependency. */
 
 .plan-wf {
-  /* ---- Light palette (default) ------------------------------------------ */
-  --ink: #34322e;
-  --ink-soft: #97918a;
-  --line: #ddd8ce;
+  /* ---- Theme palette ----------------------------------------------------- */
+  --ink: var(--plan-text, hsl(var(--foreground)));
+  --ink-soft: var(--plan-muted, hsl(var(--muted-foreground)));
+  --line: var(--plan-line, hsl(var(--border)));
   /* Sketch stroke = a soft gray a step more pronounced than --line so rough
      strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */
-  --wf-sketch: #c4beb3;
-  --paper: #fbfaf6;
-  --card: #ffffff;
-  --accent: #3f6cd6;
-  --accent-soft: color-mix(in srgb, var(--accent) 15%, #fff);
-  --warn: #b5503a;
-  --warn-soft: color-mix(in srgb, var(--warn) 14%, #fff);
-  --ok: #5b8c6e;
-  --ok-soft: color-mix(in srgb, var(--ok) 15%, #fff);
+  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --paper: var(--plan-document, hsl(var(--background)));
+  --card: var(--plan-block, hsl(var(--card)));
+  --accent: hsl(var(--ring));
+  --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);
+  --warn: hsl(var(--destructive));
+  --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);
+  --ok: var(--accent);
+  --ok-soft: color-mix(in srgb, var(--ok) 15%, transparent);
 
   /* Page backdrop behind artboards (board surface, not the screen paper). */
-  --plan-wf-page-bg: #f0eee9;
+  --plan-wf-page-bg: var(--plan-canvas, hsl(var(--background)));
 
   /* ---- Fonts ------------------------------------------------------------- */
   --font-hand:
@@ -88,23 +88,6 @@
   --font-script: var(--font-clean);
 }
 
-/* ---- Dark palette -------------------------------------------------------- */
-.plan-wf[data-theme="dark"] {
-  --ink: #ece8e1;
-  --ink-soft: #8d877f;
-  --line: #3a3833;
-  --wf-sketch: #59554d;
-  --paper: #201f1c;
-  --card: #2a2825;
-  --accent: #6f93e6;
-  --accent-soft: color-mix(in srgb, var(--accent) 22%, #201f1c);
-  --warn: #d7745d;
-  --warn-soft: color-mix(in srgb, var(--warn) 20%, #201f1c);
-  --ok: #79a98c;
-  --ok-soft: color-mix(in srgb, var(--ok) 22%, #201f1c);
-  --plan-wf-page-bg: #161513;
-}
-
 /* ---- Rough sketch layer -------------------------------------------------- */
 /* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).
    Once it has measured + drawn, hide the crisp CSS borders so there is never a
@@ -130,12 +113,8 @@
   --ok: var(--skeleton-fill);
   --ok-soft: var(--skeleton-block);
   --stroke: 0px;
-  --skeleton-fill: #e2ded5;
-  --skeleton-block: #ece8e1;
-}
-.plan-wf[data-theme="dark"][data-skeleton="true"] {
-  --skeleton-fill: #322f2b;
-  --skeleton-block: #2a2825;
+  --skeleton-fill: var(--plan-muted-line, hsl(var(--border)));
+  --skeleton-block: var(--plan-block, hsl(var(--card)));
 }
 /* Textless: hide real labels but keep their layout footprint. */
 .plan-wf[data-skeleton="true"] * {

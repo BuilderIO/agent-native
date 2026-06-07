@@ -16,8 +16,6 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconAlertTriangle,
-  IconBrandNotion,
-  IconCheck,
   IconChevronDown,
   IconClipboardText,
   IconCopy,
@@ -161,7 +159,6 @@ import type {
   PlanContent,
   PlanContentPatch,
 } from "@shared/plan-content";
-import { describeIncompatibleBlocks } from "@shared/notion-compat";
 
 const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
   { value: "codex", label: "Codex" },
@@ -1772,11 +1769,6 @@ export function PlansPage() {
     position: InlineCommentPosition;
   } | null>(null);
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
-  // Holds the human summary of blocks that can't sync to Notion, shown in a
-  // non-blocking warning dialog when "Sync to Notion" is enabled. `null` = closed.
-  const [notionSyncWarning, setNotionSyncWarning] = useState<string | null>(
-    null,
-  );
   const { session, isLoading: sessionLoading } = useSession();
   const plansQuery = usePlans({
     enabled: Boolean(session),
@@ -1865,16 +1857,20 @@ export function PlansPage() {
     { resourceType: "plan", resourceId: accessResourceId },
     { enabled: Boolean(accessResourceId) },
   );
-  const canEditPlanContent = canEditPlanContentRole(planAccessQuery.data?.role);
+  const effectivePlanAccessRole =
+    planAccessQuery.data?.role ?? bundle?.access?.role ?? null;
+  const canEditPlanContent = canEditPlanContentRole(effectivePlanAccessRole);
   const canResolveCommentThreads = Boolean(
     bundle && (session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
-    const ownerEmail = normalizeCommentEmail(planAccessQuery.data?.ownerEmail);
+    const ownerEmail = normalizeCommentEmail(
+      planAccessQuery.data?.ownerEmail ?? bundle?.access?.ownerEmail,
+    );
     const currentEmail = normalizeCommentEmail(collabUser?.email);
     if (
       !ownerEmail ||
-      planAccessQuery.data?.role === "owner" ||
+      effectivePlanAccessRole === "owner" ||
       ownerEmail === currentEmail
     ) {
       return { message: "", mentions: [], resolutionTarget: "agent" };
@@ -1889,9 +1885,10 @@ export function PlansPage() {
       resolutionTarget: "human",
     };
   }, [
+    bundle?.access?.ownerEmail,
     collabUser?.email,
+    effectivePlanAccessRole,
     planAccessQuery.data?.ownerEmail,
-    planAccessQuery.data?.role,
   ]);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
@@ -2657,34 +2654,18 @@ export function PlansPage() {
     });
   };
 
-  const notionSyncEnabled = Boolean(bundle?.plan.content?.notionSync);
-
-  const setNotionSync = (next: boolean) => {
+  const updatePlanMetadata = async (patch: {
+    title?: string;
+    brief?: string;
+  }) => {
     if (!bundle) return;
-    void patchStructuredContent({ op: "set-notion-sync", value: next });
-  };
-
-  // Toggle the per-plan "Sync to Notion" setting. Optimistic + non-blocking: the
-  // flag flips immediately (a targeted `set-notion-sync` patch, so it can't
-  // clobber concurrent block edits), and on enable — when the plan holds blocks
-  // with no Notion (NFM) analog — we surface a warning listing them rather than
-  // refusing the toggle. The warning open is DEFERRED to the next macrotask so
-  // the dropdown's closing pointer event doesn't immediately dismiss the freshly
-  // opened dialog (the Radix menu→dialog race).
-  const toggleNotionSync = () => {
-    if (!bundle) return;
-    const next = !notionSyncEnabled;
-    setNotionSync(next);
-    if (!next) {
-      setNotionSyncWarning(null);
-      return;
-    }
-    const incompatible = describeIncompatibleBlocks(
-      bundle.plan.content?.blocks ?? [],
-    );
-    if (incompatible) {
-      window.setTimeout(() => setNotionSyncWarning(incompatible), 0);
-    }
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.brief !== undefined ? { brief: patch.brief } : {}),
+      contentPatches: [{ op: "set-metadata", ...patch }],
+      note: "Updated plan title and brief.",
+    });
   };
 
   const appendCanvasMarkup = async (
@@ -3373,24 +3354,6 @@ export function PlansPage() {
                           ? "Clean wireframes"
                           : "Sketchy wireframes"}
                       </DropdownMenuItem>
-                      {canEditPlanContent && (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            preservePlanReaderScroll(toggleNotionSync)
-                          }
-                          className="gap-2"
-                        >
-                          <IconBrandNotion className="size-4" />
-                          <span className="flex-1">
-                            {notionSyncEnabled
-                              ? "Disable Notion sync"
-                              : "Sync to Notion"}
-                          </span>
-                          {notionSyncEnabled && (
-                            <IconCheck className="size-4 text-muted-foreground" />
-                          )}
-                        </DropdownMenuItem>
-                      )}
                       {bundle.plan.content?.prototype ? (
                         <DropdownMenuItem
                           onClick={() => {
@@ -3541,6 +3504,9 @@ export function PlansPage() {
                       }
                       onContentPatch={
                         canEditPlanContent ? patchStructuredContent : undefined
+                      }
+                      onMetadataChange={
+                        canEditPlanContent ? updatePlanMetadata : undefined
                       }
                       contentUpdatedAt={bundle.plan.updatedAt}
                       editingDisabled={
@@ -3713,47 +3679,6 @@ export function PlansPage() {
           canRestore={canEditPlanContent}
         />
       )}
-
-      <Dialog
-        open={notionSyncWarning !== null}
-        onOpenChange={(open) => {
-          if (!open) setNotionSyncWarning(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <IconAlertTriangle className="size-5 text-amber-500" />
-              Some blocks won't sync to Notion
-            </DialogTitle>
-            <DialogDescription>
-              Notion sync is on. These blocks have no Notion equivalent and will
-              be skipped when this plan is pushed to Notion: {notionSyncWarning}
-              .
-            </DialogDescription>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Prose, callouts, tables, images, and checklists sync normally. New
-            blocks you add from the slash menu are limited to Notion-compatible
-            types while sync is on.
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setNotionSync(false);
-                setNotionSyncWarning(null);
-              }}
-            >
-              Turn off sync
-            </Button>
-            <Button type="button" onClick={() => setNotionSyncWarning(null)}>
-              Keep enabled
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -4079,7 +4004,7 @@ function PlanSkeleton() {
 const PLAN_SKELETON_FILL = {
   line: {
     backgroundColor:
-      "color-mix(in srgb, var(--plan-placeholder-line) 42%, transparent)",
+      "color-mix(in srgb, var(--plan-placeholder-line) 26%, transparent)",
   },
   box: {
     backgroundColor:
@@ -4087,13 +4012,15 @@ const PLAN_SKELETON_FILL = {
   },
   control: {
     backgroundColor:
-      "color-mix(in srgb, var(--plan-placeholder-line) 32%, transparent)",
+      "color-mix(in srgb, var(--plan-placeholder-line) 26%, transparent)",
   },
   title: {
-    backgroundColor: "color-mix(in srgb, var(--plan-text) 6%, transparent)",
+    backgroundColor:
+      "color-mix(in srgb, var(--plan-placeholder-line) 26%, transparent)",
   },
   heading: {
-    backgroundColor: "color-mix(in srgb, var(--plan-text) 5%, transparent)",
+    backgroundColor:
+      "color-mix(in srgb, var(--plan-placeholder-line) 26%, transparent)",
   },
 } satisfies Record<string, CSSProperties>;
 
@@ -4166,7 +4093,7 @@ function PlanDocumentSkeleton() {
         </div>
       </header>
 
-      <div className="plan-document-flow">
+      <div className="plan-document-flow pt-9">
         <section className="plan-block">
           <Skeleton
             className="mb-6 h-11 w-72 max-w-full rounded-lg"

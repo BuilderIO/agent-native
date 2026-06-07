@@ -11,6 +11,7 @@ export {
 export {
   useCollabReconcile,
   getEditorMarkdown,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   type UseCollabReconcileOptions,
   type UseCollabReconcileResult,
 } from "./useCollabReconcile.js";
@@ -50,6 +51,8 @@ export { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
 export {
   DragHandle,
   DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  type DragHandleDropContext,
+  type DragHandleDropPlacement,
   type DragHandleOptions,
 } from "./DragHandle.js";
 export {
@@ -63,5 +66,7 @@ export {
 } from "./RegistryBlockNode.js";
 export {
   buildRegistryBlockSlashItems,
+  getRegistryBlockSlashDescription,
+  getRegistryBlockSlashSearchText,
   type BuildRegistryBlockSlashItemsOptions,
 } from "./registrySlashCommands.js";

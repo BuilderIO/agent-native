@@ -68,6 +68,16 @@ export interface ShareableResourceRegistration {
    * Default: `false` (matches the historical behavior — any email can be granted).
    */
   requireOrgMemberForUserShares?: boolean;
+  /**
+   * Optional per-resource access-context adapter. Most resources should use the
+   * request user/org unchanged. Templates with an intentional alternate local
+   * identity can normalize here so the generic framework sharing actions and
+   * access helpers stay in sync with template-owned actions.
+   */
+  resolveAccessContext?: (ctx: { userEmail?: string; orgId?: string }) => {
+    userEmail?: string;
+    orgId?: string;
+  };
 }
 
 // Stash the registry on globalThis so it survives SSR bundle duplication.

@@ -1,5 +1,51 @@
 import type { BlockRegistry, BlockSpec } from "../blocks/index.js";
 
+const COMPACT_REGISTRY_BLOCK_DESCRIPTIONS: Record<string, string> = {
+  callout: "Emphasized note",
+  diagram: "Inline diagram",
+  wireframe: "Screen mockup",
+  "question-form": "Interactive questions",
+  checklist: "Checklist items",
+  table: "Editable grid",
+  "table-block": "Editable grid",
+  "code-tabs": "Tabbed code snippets",
+  "custom-html": "Sandboxed HTML",
+  tabs: "Tabbed block group",
+  columns: "Side-by-side columns",
+  mermaid: "Mermaid diagram",
+  "api-endpoint": "API reference",
+  "openapi-spec": "OpenAPI document",
+  "data-model": "ERD schema",
+  diff: "Code diff",
+  "file-tree": "File/change tree",
+  "json-explorer": "JSON tree",
+  "annotated-code": "Code walkthrough",
+};
+
+/**
+ * Compact, user-facing slash-menu copy for structured registry blocks. The full
+ * registry description remains available through search text, but the visible
+ * row should scan like a command palette, not a block reference page.
+ */
+export function getRegistryBlockSlashDescription(
+  spec: Pick<BlockSpec, "type" | "description">,
+): string {
+  return (
+    COMPACT_REGISTRY_BLOCK_DESCRIPTIONS[spec.type] ??
+    spec.description.trim().replace(/\s+/g, " ")
+  );
+}
+
+/** Searchable text for registry block slash items, including raw type keywords. */
+export function getRegistryBlockSlashSearchText(
+  spec: Pick<BlockSpec, "type" | "label" | "description">,
+): string {
+  return [spec.label, spec.description, spec.type]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 /**
  * Shared builder for the registry-derived block slash commands both the plan and
  * content editors offer. Both apps take every `BlockSpec` whose `placement`
@@ -33,6 +79,12 @@ export interface BuildRegistryBlockSlashItemsOptions<TItem, TEditor> {
   /** Build one app-shaped slash item from a surviving block spec. */
   toItem: (spec: BlockSpec, insert: (editor: TEditor) => void) => TItem;
   /**
+   * Optional app-level capability gate. Use this for blocks whose schema is
+   * registered for parse/render compatibility but whose authoring experience is
+   * not available in this editor yet.
+   */
+  includeSpec?: (spec: BlockSpec) => boolean;
+  /**
    * Insert this spec's block atom into the editor. Plan inserts a `planBlock`
    * node; content inserts a `registryBlock` node seeded with inline `__raw`.
    */
@@ -52,6 +104,7 @@ export function buildRegistryBlockSlashItems<TItem, TEditor>(
     options.isNotionCompatible ?? ((spec) => Boolean(spec.notionCompatible));
   return registry
     .list("block")
+    .filter((spec) => options.includeSpec?.(spec) ?? true)
     .filter((spec) => !options.notionCompatibleOnly || isCompatible(spec))
     .map((spec) =>
       options.toItem(spec, (editor) => options.insertBlock(editor, spec)),

@@ -628,7 +628,28 @@ async function createDbExecInternal(
             rows: unknown[];
             rowCount?: number;
           }>(async () => {
-            const client = await pool.connect();
+            // Bound the pooled-connection ACQUIRE, not just the query below.
+            // Neon's pooler can stall on `connect()` when cold or exhausted,
+            // and that happens BEFORE `client.query`, so the query-level
+            // timeout never fires — the request hangs until the platform kills
+            // the function (~"the site won't load" for authenticated users,
+            // whose every request runs a session/org lookup). Time the acquire
+            // out into a retryable CONNECT_TIMEOUT that retryOnConnectionError
+            // already handles, and release the connection if it resolves after
+            // we've given up so the scarce pool slot isn't leaked.
+            let acquireTimedOut = false;
+            const client = await withDbTimeout(
+              "connect",
+              () =>
+                pool.connect().then((c) => {
+                  if (acquireTimedOut) c.release();
+                  return c;
+                }),
+              dbOpTimeoutMs(),
+              () => {
+                acquireTimedOut = true;
+              },
+            );
             let released = false;
             const releaseClient = (err?: Error | boolean) => {
               if (released) return;

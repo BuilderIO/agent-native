@@ -232,7 +232,7 @@
 /* The document header already owns a bottom divider; don't double it with the
  * first block's top border/spacing. */
 .plan-document-flow > :first-child {
-  margin-top: 0;
+  margin-top: 2.25rem;
   padding-top: 0;
   border-top: 0;
 }
@@ -372,6 +372,37 @@
 .plan-rich-markdown-editor .an-rich-md-prose p {
   margin: 0.9rem 0;
   color: var(--plan-muted);
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown {
+  max-width: none;
+  min-height: 1.5rem;
+  color: inherit;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown .an-rich-md-prose {
+  min-height: 1.5rem;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown .an-rich-md-prose p {
+  min-height: 1.5rem;
+  margin: 0;
+  color: inherit;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown
+  .an-rich-md-prose
+  > :first-child {
+  margin-top: 0;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown
+  .an-rich-md-prose
+  > :last-child {
+  margin-bottom: 0;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose h1,
@@ -605,12 +636,12 @@
   color: var(--plan-muted);
 }
 
-/* ── Code block: dark theme regardless of light/dark page ───────────── */
+/* ── Code block: follows the current plan light/dark surface ─────────── */
 .plan-code-surface {
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid hsl(220 13% 22%);
-  background: hsl(220 13% 11%);
+  border: 1px solid var(--plan-line);
+  background: var(--plan-code);
 }
 
 .plan-code-surface .plan-shiki,
@@ -619,22 +650,38 @@
   max-height: 520px;
   overflow: auto;
   padding: 1.1rem 1.25rem;
-  background: hsl(220 13% 11%) !important;
+  background: var(--shiki-light-bg, var(--plan-code)) !important;
+  color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85rem;
   line-height: 1.65;
 }
 
 .plan-code-surface pre code {
-  color: hsl(210 14% 84%);
+  color: inherit;
   background: none;
   padding: 0;
 }
 
-/* Shiki emits inline color styles; pin it to the dark theme. */
 .plan-code-surface .plan-shiki pre,
 .plan-code-surface .plan-shiki code {
-  background: transparent !important;
+  background: var(--shiki-light-bg, transparent) !important;
+}
+
+.plan-code-surface .plan-shiki pre span {
+  color: var(--shiki-light);
+  background: var(--shiki-light-bg);
+}
+
+.dark .plan-code-surface .plan-shiki,
+.dark .plan-code-surface .plan-shiki pre {
+  background: var(--shiki-dark-bg, var(--plan-code)) !important;
+  color: var(--shiki-dark, var(--plan-code-text));
+}
+
+.dark .plan-code-surface .plan-shiki pre span {
+  color: var(--shiki-dark);
+  background: var(--shiki-dark-bg);
 }
 
 .plan-callout {
@@ -1191,6 +1238,28 @@
   height: 100%;
 }
 
+.plan-header-editable {
+  border-radius: 6px;
+  outline: none;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+.plan-header-editable:hover {
+  background: hsl(var(--muted) / 0.35);
+  box-shadow: 0 0 0 4px hsl(var(--muted) / 0.35);
+}
+.plan-header-editable:focus {
+  background: hsl(var(--background) / 0.6);
+  box-shadow:
+    0 0 0 2px hsl(var(--background)),
+    0 0 0 4px hsl(var(--ring) / 0.4);
+}
+.plan-header-editable:empty::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground) / 0.72);
+}
+
 /* ── Single-document plan editor: drag handle (block grip + reorder), block
  * node spacing, and selected-node outline. Class names match the shared core
  * `DragHandle` extension; the wrapper must be position:relative. ───────────── */
@@ -1198,8 +1267,21 @@
   position: relative;
 }
 
+.plan-nested-document-editor {
+  position: relative;
+}
+
+.plan-document-flow > .plan-document-editor {
+  margin-top: 2.25rem;
+}
+
 .plan-document-editor > .an-rich-md-prose {
   min-height: 45vh;
+}
+
+.plan-nested-document-editor > .an-rich-md-prose {
+  min-height: 4rem;
+  padding: 0.125rem 0;
 }
 
 /* Inline custom blocks inside the document flow get their own breathing room;
@@ -1207,6 +1289,27 @@
 .plan-document-editor .plan-block-node {
   position: relative;
   margin: 2rem 0;
+}
+
+.plan-nested-document-editor .plan-block-node {
+  position: relative;
+  margin: 1rem 0;
+}
+
+.plan-nested-document-editor .an-rich-md-prose > :first-child {
+  margin-top: 0;
+}
+
+.plan-nested-document-editor .an-rich-md-prose > :last-child {
+  margin-bottom: 0;
+}
+
+.plan-nested-document-editor-region:empty {
+  min-height: 3rem;
+}
+
+.plan-nested-document-editor-region .an-rich-md-wrapper {
+  border-radius: 6px;
 }
 .plan-document-editor .plan-block-node > .plan-block,
 .plan-document-editor .plan-block-node .plan-block {
@@ -1303,7 +1406,30 @@
   transform: translateY(-1px);
 }
 
-.plan-document-editor .ProseMirror-selectednode {
+.plan-document-editor .plan-block-node,
+.plan-document-editor .plan-block-node:focus,
+.plan-document-editor .plan-block-node:focus-visible,
+.plan-document-editor .plan-block-node.ProseMirror-selectednode,
+.plan-document-editor .plan-block-node__shell:focus,
+.plan-document-editor .plan-block-node__shell:focus-visible,
+.plan-document-editor .plan-block-node__shell:focus-within,
+.plan-document-editor .ProseMirror-selectednode:has(.plan-block-node),
+.plan-nested-document-editor .plan-block-node,
+.plan-nested-document-editor .plan-block-node:focus,
+.plan-nested-document-editor .plan-block-node:focus-visible,
+.plan-nested-document-editor .plan-block-node.ProseMirror-selectednode,
+.plan-nested-document-editor .plan-block-node__shell:focus,
+.plan-nested-document-editor .plan-block-node__shell:focus-visible,
+.plan-nested-document-editor .plan-block-node__shell:focus-within,
+.plan-nested-document-editor .ProseMirror-selectednode:has(.plan-block-node) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.plan-document-editor
+  .ProseMirror-selectednode:not(.plan-block-node):not(:has(.plan-block-node)),
+.plan-nested-document-editor
+  .ProseMirror-selectednode:not(.plan-block-node):not(:has(.plan-block-node)) {
   outline: 2px solid hsl(var(--ring) / 0.45);
   outline-offset: 2px;
   border-radius: 6px;

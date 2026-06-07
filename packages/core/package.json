@@ -211,6 +211,8 @@
     "@ai-sdk/groq": ">=3",
     "@ai-sdk/mistral": ">=3",
     "@ai-sdk/openai": ">=3",
+    "@excalidraw/excalidraw": ">=0.18",
+    "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@openrouter/ai-sdk-provider": ">=2",
     "@supabase/supabase-js": ">=2",
     "@tabler/icons-react": ">=3",
@@ -224,6 +226,7 @@
     "ai-sdk-ollama": ">=3",
     "convex": ">=1",
     "drizzle-kit": ">=0.31",
+    "mermaid": ">=11",
     "node-pty": ">=1",
     "postgres": ">=3",
     "react": ">=18",
@@ -259,6 +262,12 @@
     "@ai-sdk/cohere": {
       "optional": true
     },
+    "@excalidraw/excalidraw": {
+      "optional": true
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "optional": true
+    },
     "ai-sdk-ollama": {
       "optional": true
     },
@@ -292,6 +301,9 @@
     "drizzle-kit": {
       "optional": true
     },
+    "mermaid": {
+      "optional": true
+    },
     "@xterm/xterm": {
       "optional": true
     },
@@ -318,6 +330,8 @@
     "@ai-sdk/openai": "^3.0.53",
     "@assistant-ui/react": "^0.12.19",
     "@assistant-ui/react-markdown": "^0.12.6",
+    "@excalidraw/excalidraw": "0.18.1",
+    "@excalidraw/mermaid-to-excalidraw": "2.2.2",
     "@react-router/dev": "^7.16.0",
     "@react-router/fs-routes": "^7.16.0",
     "@supabase/supabase-js": "^2.49.0",
@@ -340,6 +354,7 @@
     "autoprefixer": "^10.4.21",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
+    "mermaid": "11.15.0",
     "node-pty": "^1.1.0",
     "playwright": "^1.60.0",
     "react": "^19.2.7",

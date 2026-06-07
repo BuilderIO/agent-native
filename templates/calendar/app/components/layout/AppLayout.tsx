@@ -70,6 +70,7 @@ interface CalendarContextValue {
   /** The currently open unsent event draft, if any */
   eventDraft: CalendarEventDraft | null;
   setEventDraft: (draft: CalendarEventDraft | null) => void;
+  openSidebar: () => void;
 }
 
 const CalendarContext = createContext<CalendarContextValue>({
@@ -94,6 +95,7 @@ const CalendarContext = createContext<CalendarContextValue>({
   setFocusedEvent: () => {},
   eventDraft: null,
   setEventDraft: () => {},
+  openSidebar: () => {},
 });
 
 export function useCalendarContext() {
@@ -231,6 +233,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         setFocusedEvent,
         eventDraft,
         setEventDraft,
+        openSidebar: () => setSidebarOpen(true),
       }}
     >
       <NavigationSync />
@@ -259,25 +262,26 @@ export function AppLayout({ children }: AppLayoutProps) {
             {!pageOwnsToolbar(location.pathname) && (
               <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 lg:hidden"
+                    onClick={() => setSidebarOpen(true)}
+                    aria-label="Open navigation"
+                  >
+                    <IconMenu className="h-5 w-5" />
+                  </Button>
                   {headerControls?.left ?? (
-                    <div className="flex items-center lg:hidden">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-10 w-10"
-                        onClick={() => setSidebarOpen(true)}
-                      >
-                        <IconMenu className="h-5 w-5" />
-                      </Button>
-                      <span className="ml-2 text-sm font-semibold">
-                        Calendar
-                      </span>
-                    </div>
+                    <span className="text-sm font-semibold lg:hidden">
+                      Calendar
+                    </span>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {headerControls?.right}
-                  <NotificationsBell emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes." />
+                  {!isMobile && (
+                    <NotificationsBell emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes." />
+                  )}
                   <AgentToggleButton />
                 </div>
               </header>

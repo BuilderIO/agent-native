@@ -160,6 +160,7 @@ function ArtboardFrame({
   canvasWidth,
   skeleton,
   renderMode,
+  roughOverlay = true,
   selector,
   caption,
   render,
@@ -170,6 +171,7 @@ function ArtboardFrame({
   canvasWidth?: number;
   skeleton?: boolean;
   renderMode?: "wireframe" | "design";
+  roughOverlay?: boolean;
   selector: string;
   caption?: string;
   render: (ctx: {
@@ -190,23 +192,16 @@ function ArtboardFrame({
   const [fitScale, setFitScale] = useState(baseScale);
   const designMode = renderMode === "design";
   const sketchy = !designMode && style === "sketchy" && !skeleton;
+  const roughEnabled = sketchy && roughOverlay;
   const paper = designMode
-    ? theme === "dark"
-      ? "#0f1115"
-      : "#ffffff"
-    : theme === "dark"
-      ? "#201f1c"
-      : "#fbfaf6";
+    ? "hsl(var(--background))"
+    : "var(--plan-document, hsl(var(--background)))";
   // Frame border for clean + skeleton modes (sketchy draws its frame via the
   // rough overlay). Soft, matching --wf-line — not hard ink. Skeleton uses its
   // own neutral fill so the loader frame still reads as a frame.
   const frameBorder = skeleton
-    ? theme === "dark"
-      ? "#322f2b"
-      : "#e7e3db"
-    : theme === "dark"
-      ? "#43403a"
-      : "#d8d3c9";
+    ? "var(--plan-placeholder-line, var(--plan-line, hsl(var(--border))))"
+    : "var(--plan-line, hsl(var(--border)))";
 
   useEffect(() => {
     const element = fitRef.current;
@@ -252,7 +247,7 @@ function ArtboardFrame({
             height,
             borderRadius: preset.radius,
             background: paper,
-            boxShadow: "0 10px 34px rgba(24, 24, 27, 0.10)",
+            boxShadow: "0 10px 34px hsl(var(--foreground) / 0.10)",
             ...(fitScale !== 1
               ? {
                   transform: `scale(${fitScale})`,
@@ -269,8 +264,9 @@ function ArtboardFrame({
           </div>
           {/* Clean + skeleton draw a crisp rounded frame (un-clipped, so corners
               are never cut, and a skeleton frame still reads as a frame). Sketchy
-              mode gets its frame from the rough overlay. */}
-          {!sketchy && (
+              mode gets its frame from the rough overlay unless the caller needs
+              all borders to stay in the normal scrolling DOM. */}
+          {!roughEnabled && (
             <div
               className="pointer-events-none absolute inset-0"
               style={{
@@ -281,7 +277,7 @@ function ArtboardFrame({
           )}
           <RoughOverlay
             scopeRef={ref}
-            enabled={sketchy}
+            enabled={roughEnabled}
             frameRadius={preset.radius}
             selector={selector}
           />
@@ -322,7 +318,7 @@ function HtmlArtboard({
   // Sanitize model-authored HTML at the render point (defense-in-depth against
   // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
   // html changes, not on every theme/zoom re-render.
-  const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
+  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
   const renderMode = data.renderMode ?? "wireframe";
   const designMode = renderMode === "design";
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -439,6 +435,7 @@ function HtmlArtboard({
       canvasWidth={canvasWidth}
       skeleton={data.skeleton}
       renderMode={renderMode}
+      roughOverlay={!interactive}
       selector={HTML_ROUGH_SELECTOR}
       caption={data.caption}
       render={({ theme, style }) => (
@@ -539,7 +536,7 @@ function renderKitScreen(
 /* -------------------------------------------------------------------------- */
 
 const DIAGRAM_ROUGH_SELECTOR =
-  "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,hr";
+  "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr";
 
 export function SketchDiagram({
   data,
@@ -646,7 +643,7 @@ function HtmlDiagram({
   const style = useWireframeStyle();
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopeSelector = `[data-plan-diagram-scope="${scopeId}"]`;
-  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);
     return scopeDesignCss(safeCss, scopeSelector);

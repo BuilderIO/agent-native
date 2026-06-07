@@ -208,8 +208,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // provided alongside the content block registry so every registry block in the
   // editor subtree renders through the same wiring.
   const blockRenderContext = useMemo(
-    () => createContentBlockRenderContext(),
-    [],
+    () => createContentBlockRenderContext({ documentId }),
+    [documentId],
   );
   const navigate = useNavigate();
   const { data: documents = [] } = useDocuments();

@@ -5,8 +5,9 @@ import { test, expect, type Page, type APIResponse } from "@playwright/test";
  *
  * Area under test: the seven "dev-doc" plan block types — `mermaid`,
  * `api-endpoint`, `data-model`, `diff`, `file-tree`, `json-explorer`, and
- * `annotated-code` — all registered in `planBlocks.tsx` and rendered inside the
- * single-document plan editor (PlanDocumentEditor / SharedRichEditor). Each
+ * `annotated-code` —
+ * rendered inside the single-document plan editor (PlanDocumentEditor /
+ * SharedRichEditor). Each
  * registered block is an inline `planBlock` NodeView wrapped in
  * `.plan-block-node[data-block-id=<id>]`; the block's own `Read` component then
  * renders a `section.plan-block[data-block-id=<id>]` with the block-specific UI.
@@ -17,7 +18,8 @@ import { test, expect, type Page, type APIResponse } from "@playwright/test";
  *      block's recognizable rendered content is visible (e.g. api-endpoint → the
  *      "GET" method pill + path; data-model → the "User" entity name; diff → an
  *      added/removed code token; json-explorer → a JSON key; file-tree → a path
- *      segment; annotated-code → a code token; mermaid → an <svg> OR the graceful
+ *      segment; annotated-code → a filename/code token/annotation label;
+ *      mermaid → an <svg> OR the graceful
  *      source / parse-error fallback — never a thrown render).
  *   2. PERSIST (no wipe) — the persisted block list still contains exactly the
  *      blocks the fixture created (rich-text seed + the one dev-doc block), i.e.
@@ -333,7 +335,7 @@ test.describe("dev-doc blocks render + persist", () => {
     });
   });
 
-  // json-explorer → devtools tree: a JSON key renders (collapsed-depth default).
+  // json-explorer → devtools tree: JSON keys render (collapsed-depth default).
   test("json-explorer renders a JSON key and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "json-explorer",
@@ -354,8 +356,9 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // The root object renders expanded (depth 0 < collapsedDepth default 1),
-        // so the top-level keys are visible.
+        // The root object and one nested container level render expanded by
+        // default, so the top-level keys are visible while deeper payloads stay
+        // scannable.
         await expect(node).toContainText("id", { timeout: 15_000 });
         await expect(node).toContainText("active");
         await expect(node).toContainText("abc123");
@@ -363,7 +366,7 @@ test.describe("dev-doc blocks render + persist", () => {
     });
   });
 
-  // annotated-code → line-numbered walkthrough: a code token + the annotation.
+  // annotated-code → line-numbered walkthrough: code token + annotation label.
   test("annotated-code renders a code token and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "annotated-code",
@@ -384,10 +387,10 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // The line-numbered code surface renders the source verbatim, and the
-        // annotation summary ("1 annotation" + its "Lookup" label) renders below.
-        await expect(node).toContainText("resolveAuth", { timeout: 15_000 });
-        await expect(node).toContainText("src/server/auth.ts");
+        await expect(node).toContainText("src/server/auth.ts", {
+          timeout: 15_000,
+        });
+        await expect(node).toContainText("resolveAuth");
         await expect(node).toContainText("Lookup");
       },
     });

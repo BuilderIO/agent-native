@@ -12,7 +12,8 @@ import { cn } from "../../utils.js";
 /**
  * Minimal, app-agnostic form primitives for the core "dev-doc" block library
  * (mermaid / api-endpoint / data-model / diff / file-tree / json-explorer /
- * annotated-code). These blocks previously imported the plan app's shadcn/ui
+ * annotated-code).
+ * These blocks previously imported the plan app's shadcn/ui
  * components (`@/components/ui/*`); core blocks must stay portable, so these are
  * plain styled elements that reproduce the SAME shadcn Tailwind classes byte-for
  * -byte. They resolve against whatever shadcn token theme (`border-input`,

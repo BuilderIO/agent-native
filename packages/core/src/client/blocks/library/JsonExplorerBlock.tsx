@@ -1,8 +1,17 @@
-import { useId, useMemo, useState } from "react";
+import {
+  useId,
+  useMemo,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { IconChevronRight } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
-import type { JsonExplorerData } from "./json-explorer.config.js";
+import {
+  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
+  JSON_EXPLORER_MAX_COLLAPSED_DEPTH,
+  type JsonExplorerData,
+} from "./json-explorer.config.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
@@ -40,6 +49,17 @@ const KEY_CLASS = "text-rose-700 dark:text-rose-300";
 /** Structural punctuation (braces, brackets, commas, colons). */
 const PUNCT_CLASS = "text-plan-muted";
 
+const JSON_EXPLORER_DEPTH_PRESETS = [
+  { label: "Off", value: 0 },
+  { label: "2 levels", value: JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH },
+  { label: "3 levels", value: 3 },
+  { label: "All", value: JSON_EXPLORER_MAX_COLLAPSED_DEPTH },
+] as const;
+
+function clampCollapsedDepth(value: number): number {
+  return Math.max(0, Math.min(JSON_EXPLORER_MAX_COLLAPSED_DEPTH, value));
+}
+
 type JsonValue =
   | string
   | number
@@ -53,6 +73,11 @@ interface ParseResult {
   ok: boolean;
   value?: JsonValue;
   error?: string;
+}
+
+interface JsonTreePulse {
+  open: boolean;
+  nonce: number;
 }
 
 function parseJson(raw: string): ParseResult {
@@ -106,8 +131,8 @@ interface JsonNodeProps {
   depth: number;
   /** Depth beyond which nodes start collapsed. */
   collapsedDepth: number;
-  /** Global expand/collapse pulse — overrides per-node seed when changed. */
-  forceOpen: boolean | null;
+  /** Global or parent expand/collapse pulse — overrides per-node seed when changed. */
+  forceOpen: JsonTreePulse | null;
   /** True when this node is followed by a sibling (renders a trailing comma). */
   trailingComma?: boolean;
 }
@@ -125,16 +150,33 @@ function JsonNode({
   forceOpen,
   trailingComma,
 }: JsonNodeProps) {
-  const seededOpen = depth < collapsedDepth;
+  const seededOpen = forceOpen?.open ?? depth < collapsedDepth;
   // `forceOpen` is the global pulse: when the user hits expand/collapse all we
-  // flip every node, but per-node toggles still win afterward (the pulse is part
-  // of the state key via `useMemo` reseed below).
-  const [open, setOpen] = useState(seededOpen);
-  // Re-seed when the global pulse changes. Keyed by `forceOpen` identity.
-  useMemo(() => {
-    if (forceOpen !== null) setOpen(forceOpen);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forceOpen]);
+  // flip every node, but per-node toggles still win afterward.
+  const [openState, setOpenState] = useState<{
+    forceOpen: JsonTreePulse | null;
+    open: boolean;
+  }>({ forceOpen, open: seededOpen });
+  const [subtreePulse, setSubtreePulse] = useState<JsonTreePulse | null>(null);
+
+  let open = openState.open;
+  if (forceOpen !== openState.forceOpen) {
+    open = forceOpen?.open ?? openState.open;
+    setOpenState({ forceOpen, open });
+  }
+
+  const handleToggle = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    const nextOpen = !open;
+    setOpenState((prev) => ({ ...prev, open: nextOpen }));
+    if (event.altKey) {
+      setSubtreePulse((prev) => ({
+        open: nextOpen,
+        nonce: (prev?.nonce ?? 0) + 1,
+      }));
+    } else {
+      setSubtreePulse(null);
+    }
+  };
 
   const keyEl =
     label !== undefined ? (
@@ -163,6 +205,8 @@ function JsonNode({
   const openBrace = isArray ? "[" : "{";
   const closeBrace = isArray ? "]" : "}";
   const empty = entries.length === 0;
+  const childForceOpen = subtreePulse ?? forceOpen;
+  const childPulseNonce = childForceOpen?.nonce ?? 0;
 
   return (
     <div className="leading-relaxed">
@@ -171,7 +215,7 @@ function JsonNode({
         data-plan-interactive
         aria-expanded={open}
         disabled={empty}
-        onClick={() => setOpen((value) => !value)}
+        onClick={handleToggle}
         className={cn(
           "group flex w-full items-start gap-1 rounded py-0.5 text-left transition-colors",
           !empty && "hover:bg-accent/40",
@@ -209,12 +253,12 @@ function JsonNode({
           <div className="ml-[7px] border-l border-plan-line pl-3.5">
             {entries.map(([entryKey, entryValue], index) => (
               <JsonNode
-                key={String(entryKey)}
+                key={`${String(entryKey)}:${childPulseNonce}`}
                 label={entryKey}
                 value={entryValue}
                 depth={depth + 1}
                 collapsedDepth={collapsedDepth}
-                forceOpen={forceOpen}
+                forceOpen={childForceOpen}
                 trailingComma={index < entries.length - 1}
               />
             ))}
@@ -246,80 +290,101 @@ export function JsonExplorerRead({
   title,
   summary,
 }: BlockReadProps<JsonExplorerData>) {
-  const parsed = useMemo(() => parseJson(data.json), [data.json]);
-  const collapsedDepth = data.collapsedDepth ?? 1;
-  // `pulse` carries a boolean (expand/collapse) plus a nonce so repeated clicks
-  // of the same action still re-fire the reseed in each node.
-  const [pulse, setPulse] = useState<{ open: boolean; nonce: number } | null>(
-    null,
-  );
   const heading = data.title ?? title;
 
   return (
     <section className="plan-block" data-block-id={blockId}>
       {heading && <div className="plan-block-label">{heading}</div>}
-      <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-code">
-        <div className="flex items-center justify-between gap-2 border-b border-plan-line px-3 py-1.5">
-          <span className="font-mono text-xs uppercase tracking-wide text-plan-muted">
-            JSON
-          </span>
-          {parsed.ok && isContainer(parsed.value as JsonValue) && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                data-plan-interactive
-                onClick={() =>
-                  setPulse((prev) => ({
-                    open: true,
-                    nonce: (prev?.nonce ?? 0) + 1,
-                  }))
-                }
-                className="rounded px-1.5 py-0.5 text-xs text-plan-muted transition-colors hover:bg-accent/60 hover:text-plan-text"
-              >
-                Expand all
-              </button>
-              <span className="text-plan-muted">·</span>
-              <button
-                type="button"
-                data-plan-interactive
-                onClick={() =>
-                  setPulse((prev) => ({
-                    open: false,
-                    nonce: (prev?.nonce ?? 0) + 1,
-                  }))
-                }
-                className="rounded px-1.5 py-0.5 text-xs text-plan-muted transition-colors hover:bg-accent/60 hover:text-plan-text"
-              >
-                Collapse all
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="overflow-auto px-3 py-2.5 font-mono text-sm text-plan-code-text">
-          {parsed.ok ? (
-            <JsonNode
-              // Remount the whole tree when the global pulse fires so every node
-              // re-seeds from the new open/closed state cleanly.
-              key={pulse?.nonce ?? 0}
-              value={parsed.value as JsonValue}
-              depth={0}
-              collapsedDepth={collapsedDepth}
-              forceOpen={pulse?.open ?? null}
-            />
-          ) : (
-            <div className="space-y-2">
-              <pre className="overflow-auto whitespace-pre-wrap break-words text-plan-code-text">
-                {data.json || "—"}
-              </pre>
-              <p className="text-xs text-red-600 dark:text-red-300">
-                Could not parse JSON: {parsed.error}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+      <JsonExplorerSurface data={data} />
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
+  );
+}
+
+export function JsonExplorerSurface({
+  data,
+  className,
+  label = "JSON",
+}: {
+  data: Pick<JsonExplorerData, "json" | "collapsedDepth">;
+  className?: string;
+  label?: string;
+}) {
+  const parsed = useMemo(() => parseJson(data.json), [data.json]);
+  const collapsedDepth =
+    data.collapsedDepth ?? JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH;
+  // `pulse` carries a boolean (expand/collapse) plus a nonce so repeated clicks
+  // of the same action still re-fire the reseed in each node.
+  const [pulse, setPulse] = useState<{ open: boolean; nonce: number } | null>(
+    null,
+  );
+
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-xl border border-plan-line bg-plan-code",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-plan-line px-3 py-1.5">
+        <span className="font-mono text-xs uppercase tracking-wide text-plan-muted">
+          {label}
+        </span>
+        {parsed.ok && isContainer(parsed.value as JsonValue) && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              data-plan-interactive
+              onClick={() =>
+                setPulse((prev) => ({
+                  open: true,
+                  nonce: (prev?.nonce ?? 0) + 1,
+                }))
+              }
+              className="rounded px-1.5 py-0.5 text-xs text-plan-muted transition-colors hover:bg-accent/60 hover:text-plan-text"
+            >
+              Expand all
+            </button>
+            <span className="text-plan-muted">·</span>
+            <button
+              type="button"
+              data-plan-interactive
+              onClick={() =>
+                setPulse((prev) => ({
+                  open: false,
+                  nonce: (prev?.nonce ?? 0) + 1,
+                }))
+              }
+              className="rounded px-1.5 py-0.5 text-xs text-plan-muted transition-colors hover:bg-accent/60 hover:text-plan-text"
+            >
+              Collapse all
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="overflow-auto px-3 py-2.5 font-mono text-sm text-plan-code-text">
+        {parsed.ok ? (
+          <JsonNode
+            // Remount the whole tree when the global pulse fires so every node
+            // re-seeds from the new open/closed state cleanly.
+            key={pulse?.nonce ?? 0}
+            value={parsed.value as JsonValue}
+            depth={0}
+            collapsedDepth={collapsedDepth}
+            forceOpen={pulse}
+          />
+        ) : (
+          <div className="space-y-2">
+            <pre className="overflow-auto whitespace-pre-wrap break-words text-plan-code-text">
+              {data.json || "—"}
+            </pre>
+            <p className="text-xs text-red-600 dark:text-red-300">
+              Could not parse JSON: {parsed.error}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -329,9 +394,9 @@ export function JsonExplorerRead({
  * Panel editor for a `json-explorer` block: a monospace textarea bound to the
  * raw `json`, a "Format" button that pretty-prints via `JSON.parse` →
  * `JSON.stringify(_, null, 2)` (guarded — shows an INLINE error, never
- * `window.alert`), a `collapsedDepth` number input, and a `title` input. Renders
- * BARE content (no `<section>`); the registry's panel surface supplies the
- * popover chrome.
+ * `window.alert`), an auto-expand depth picker/input, and a `title` input.
+ * Renders BARE content (no `<section>`); the registry's panel surface supplies
+ * the popover chrome.
  */
 export function JsonExplorerEdit({
   data,
@@ -342,6 +407,12 @@ export function JsonExplorerEdit({
   const titleId = useId();
   const depthId = useId();
   const [formatError, setFormatError] = useState<string | null>(null);
+  const collapsedDepth =
+    data.collapsedDepth ?? JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH;
+
+  const setCollapsedDepth = (value: number) => {
+    onChange({ ...data, collapsedDepth: clampCollapsedDepth(value) });
+  };
 
   const handleFormat = () => {
     try {
@@ -407,27 +478,51 @@ export function JsonExplorerEdit({
       </div>
 
       <div className="grid gap-1.5">
-        <DevLabel htmlFor={depthId}>Collapsed depth</DevLabel>
+        <DevLabel htmlFor={depthId}>Auto expand</DevLabel>
+        <div className="flex flex-wrap gap-1">
+          {JSON_EXPLORER_DEPTH_PRESETS.map((preset) => {
+            const active = collapsedDepth === preset.value;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                data-plan-interactive
+                aria-pressed={active}
+                disabled={!editable}
+                onClick={() => setCollapsedDepth(preset.value)}
+                className={cn(
+                  "inline-flex h-7 items-center justify-center rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+                  active
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
         <DevInput
           id={depthId}
           type="number"
           min={0}
-          max={20}
-          value={data.collapsedDepth ?? 1}
+          max={JSON_EXPLORER_MAX_COLLAPSED_DEPTH}
+          value={collapsedDepth}
           readOnly={!editable}
           onChange={(event) => {
             const next = Number.parseInt(event.target.value, 10);
             onChange({
               ...data,
               collapsedDepth: Number.isFinite(next)
-                ? Math.max(0, Math.min(20, next))
+                ? clampCollapsedDepth(next)
                 : undefined,
             });
           }}
           className="w-24"
         />
         <p className="text-xs text-muted-foreground">
-          Nodes deeper than this start collapsed (default 1).
+          Levels open automatically. Use 0 to start collapsed,{" "}
+          {JSON_EXPLORER_MAX_COLLAPSED_DEPTH} for all.
         </p>
       </div>
     </div>

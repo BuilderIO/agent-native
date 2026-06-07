@@ -5,33 +5,116 @@ import { DevInput, DevLabel } from "./dev-doc-ui.js";
 
 /**
  * Read + Edit renderers for a `mermaid` block — a Mermaid diagram definition
- * (flowchart, sequence, etc.) edited as raw text and rendered with Mermaid's
- * `handDrawn` look so it matches the plan's hand-drawn / sketchy house style.
+ * (flowchart, sequence, etc.) edited as raw text and rendered as an
+ * Excalidraw-style SVG so it matches the plan's hand-drawn / sketchy house
+ * style.
  * Lives in core so any app can register the dev-doc block; it stays app-agnostic
  * (no shadcn / next-themes import).
  *
- * `mermaid` is a browser-only runtime (it touches `document`/DOM measurement),
+ * The Mermaid and Excalidraw runtimes are browser-only,
  * so the Read renderer SSR-guards: it renders a lightweight placeholder until a
- * `useEffect` confirms it is mounted, then dynamically imports `mermaid` and
- * injects the rendered SVG. Parse errors never throw — they fall back to the raw
- * source in a styled monospace block plus the error message. (The dynamic import
- * uses a runtime specifier so this module never forces `mermaid` into the core
- * package's own dependency graph — the host app provides it.)
+ * `useEffect` confirms it is mounted, then dynamically imports
+ * `@excalidraw/mermaid-to-excalidraw` + `@excalidraw/excalidraw` and injects
+ * the exported SVG. If Excalidraw conversion fails, it falls back to Mermaid's
+ * hand-drawn renderer. Parse errors never throw; they show the raw source and
+ * the error message.
  *
  * Dark mode: the plan editor toggles a `.dark` class on <html>. The Read renderer
  * reads `document.documentElement.classList.contains("dark")` (re-checking on a
- * `MutationObserver` of the html class) and re-renders the diagram with Mermaid's
- * `dark` theme (vs `neutral` in light) — the resolved theme is in the render
- * effect's deps so toggling dark/light updates the SVG live.
+ * `MutationObserver` of the html class) and re-renders the diagram with matching
+ * light/dark export settings.
  */
-
-/** Module specifier kept in a variable so the bundler/tsc treats it as a runtime
- * import (core does not depend on `mermaid`; the host app provides it). */
-const MERMAID_MODULE = "mermaid";
 
 interface MermaidRenderState {
   svg?: string;
   error?: string;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Failed to render diagram";
+}
+
+function sanitizeSvgMarkup(svg: string): string {
+  if (typeof DOMParser === "undefined") return svg;
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  doc
+    .querySelectorAll("script, foreignObject")
+    .forEach((node) => node.remove());
+  for (const element of Array.from(doc.querySelectorAll("*"))) {
+    for (const attr of Array.from(element.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (
+        name.startsWith("on") ||
+        ((name === "href" || name.endsWith(":href")) &&
+          value.startsWith("javascript:"))
+      ) {
+        element.removeAttribute(attr.name);
+      }
+    }
+  }
+  return doc.documentElement.outerHTML;
+}
+
+async function renderExcalidrawSvg(
+  source: string,
+  isDark: boolean,
+): Promise<string> {
+  const [{ parseMermaidToExcalidraw }, excalidraw] = await Promise.all([
+    import("@excalidraw/mermaid-to-excalidraw") as Promise<{
+      parseMermaidToExcalidraw: (source: string) => Promise<{
+        elements: unknown[];
+        files?: Record<string, unknown>;
+      }>;
+    }>,
+    import("@excalidraw/excalidraw") as Promise<{
+      convertToExcalidrawElements: (elements: unknown[]) => unknown[];
+      exportToSvg: (options: {
+        elements: unknown[];
+        appState: {
+          theme: "dark" | "light";
+          viewBackgroundColor: string;
+          exportWithDarkMode: boolean;
+        };
+        files: Record<string, unknown>;
+      }) => Promise<{ outerHTML: string }>;
+    }>,
+  ]);
+  const { elements, files } = await parseMermaidToExcalidraw(source);
+  const excalidrawElements = excalidraw.convertToExcalidrawElements(elements);
+  const svg = await excalidraw.exportToSvg({
+    elements: excalidrawElements,
+    appState: {
+      theme: isDark ? "dark" : "light",
+      viewBackgroundColor: "transparent",
+      exportWithDarkMode: isDark,
+    },
+    files: files ?? {},
+  });
+  return sanitizeSvgMarkup(svg.outerHTML);
+}
+
+async function renderMermaidSvg(
+  source: string,
+  id: string,
+  isDark: boolean,
+): Promise<string> {
+  const mermaid = (
+    (await import("mermaid")) as {
+      default: {
+        initialize: (config: Record<string, unknown>) => void;
+        render: (id: string, source: string) => Promise<{ svg: string }>;
+      };
+    }
+  ).default;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    look: "handDrawn",
+    theme: isDark ? "dark" : "neutral",
+  });
+  const { svg } = await mermaid.render(id, source);
+  return sanitizeSvgMarkup(svg);
 }
 
 /** Read the live dark-mode flag from the document root (next-themes-free). */
@@ -82,29 +165,29 @@ function MermaidDiagram({
     }
     (async () => {
       try {
-        const mermaid = ((await import(MERMAID_MODULE)) as { default: any })
-          .default;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          look: "handDrawn",
-          theme: isDark ? "dark" : "neutral",
-        });
-        // Unique id per render pass so re-renders (theme/source change) never
-        // collide with a stale, still-mounted SVG node id.
-        const { svg } = await mermaid.render(
-          `${renderId}-${isDark ? "d" : "l"}`,
-          trimmed,
-        );
+        const svg = await renderExcalidrawSvg(trimmed, isDark);
         if (!cancelled) setState({ svg });
-      } catch (error) {
-        if (!cancelled) {
-          setState({
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to render diagram",
-          });
+      } catch (excalidrawError) {
+        try {
+          // Fallback keeps diagrams usable if a Mermaid feature is not supported
+          // by the Excalidraw converter in a given host app.
+          const svg = await renderMermaidSvg(
+            trimmed,
+            `${renderId}-${isDark ? "d" : "l"}`,
+            isDark,
+          );
+          if (!cancelled) setState({ svg });
+        } catch (mermaidError) {
+          const excalidrawMessage = errorMessage(excalidrawError);
+          const mermaidMessage = errorMessage(mermaidError);
+          if (!cancelled) {
+            setState({
+              error:
+                excalidrawMessage === mermaidMessage
+                  ? mermaidMessage
+                  : `Excalidraw: ${excalidrawMessage}; Mermaid fallback: ${mermaidMessage}`,
+            });
+          }
         }
       }
     })();
@@ -146,8 +229,8 @@ function MermaidDiagram({
 
   return (
     <div
-      className="mt-2 flex justify-center overflow-auto [&_svg]:max-w-full [&_svg]:h-auto"
-      // Mermaid output is already sanitized under `securityLevel: "strict"`.
+      className="mt-2 flex justify-center overflow-auto [&_svg]:h-auto [&_svg]:max-w-full"
+      // Excalidraw and Mermaid output are sanitized before injection.
       dangerouslySetInnerHTML={{ __html: state.svg }}
     />
   );

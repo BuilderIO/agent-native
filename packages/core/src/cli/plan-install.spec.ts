@@ -38,6 +38,7 @@ import {
   PROTOTYPE_PLAN_SKILL_MD,
   UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
+  VISUAL_RECAP_SKILL_MD,
   VISUAL_QUESTIONS_SKILL_MD,
 } from "./skills.js";
 import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
@@ -164,6 +165,7 @@ describe(
       const skillsDir = path.join(tmpDir, "plan", ".agents", "skills");
       for (const name of [
         "visual-plan",
+        "visual-recap",
         "ui-plan",
         "prototype-plan",
         "plan-design",
@@ -303,6 +305,7 @@ describe("Plans skills install — materialized output", () => {
     expect(result.id).toBe("visual-plans");
     expect(result.skillNames).toEqual([
       "visual-plan",
+      "visual-recap",
       "visual-questions",
       "ui-plan",
       "prototype-plan",
@@ -315,6 +318,7 @@ describe("Plans skills install — materialized output", () => {
 
     const expected: Array<[string, string]> = [
       ["visual-plan", VISUAL_PLANS_SKILL_MD],
+      ["visual-recap", VISUAL_RECAP_SKILL_MD],
       ["visual-questions", VISUAL_QUESTIONS_SKILL_MD],
       ["ui-plan", UI_PLAN_SKILL_MD],
       ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
@@ -332,12 +336,17 @@ describe("Plans skills install — materialized output", () => {
       "ui-plan",
       "visual-plan",
       "visual-questions",
+      "visual-recap",
     ]);
   });
 
   it("normalizes every Plans alias to the same hosted Plans skill", async () => {
     for (const alias of [
       "visual-plans",
+      "visual-recap",
+      "visual-recaps",
+      "code-review-recap",
+      "code-review-recaps",
       "ui-plan",
       "prototype-plan",
       "plan-design",
@@ -352,6 +361,7 @@ describe("Plans skills install — materialized output", () => {
       expect(result.id, `alias ${alias}`).toBe("visual-plans");
       expect(result.skillNames, `alias ${alias} skills`).toEqual([
         "visual-plan",
+        "visual-recap",
         "visual-questions",
         "ui-plan",
         "prototype-plan",
@@ -379,6 +389,11 @@ describe("Plans skill three-copy sync (deep)", () => {
       constant: VISUAL_PLANS_SKILL_MD,
       templateDir: "visual-plan",
       exportedDir: "visual-plans",
+    },
+    {
+      constant: VISUAL_RECAP_SKILL_MD,
+      templateDir: "visual-recap",
+      exportedDir: "visual-recap",
     },
     {
       constant: UI_PLAN_SKILL_MD,
@@ -433,8 +448,8 @@ describe("Plans skill three-copy sync (deep)", () => {
         `${s.templateDir} frontmatter`,
       ).toBe(true);
       expect(s.constant).toMatch(/\nname:\s*\S+/);
-      // visual-plan / ui-plan are `exported`; visual-questions
-      // is `both`. Either way the skill must declare a visibility.
+      // Plans skills may be exported or both. Either way each skill must
+      // declare a visibility.
       expect(s.constant, `${s.templateDir} visibility`).toMatch(
         /visibility:\s*(exported|both)/,
       );

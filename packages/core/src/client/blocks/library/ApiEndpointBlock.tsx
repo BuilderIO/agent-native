@@ -18,6 +18,7 @@ import {
   API_ENDPOINT_METHODS,
   API_PARAM_LOCATIONS,
 } from "./api-endpoint.config.js";
+import { JsonExplorerSurface } from "./JsonExplorerBlock.js";
 import {
   DevBadge,
   DevInput,
@@ -25,6 +26,7 @@ import {
   DevTextarea,
   DevSelect,
 } from "./dev-doc-ui.js";
+import { CodeSurface } from "./HighlightedCode.js";
 
 /**
  * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style
@@ -83,11 +85,42 @@ function fenceLangForContentType(contentType?: string): string {
   return "json";
 }
 
-/** Wrap a raw example string in a fenced code block for `ctx.renderMarkdown`. */
-function fence(example: string, lang: string): string {
-  // Never let the example's own content break out of the fence.
-  const safe = example.replace(/```/g, "ʼʼʼ");
-  return `\`\`\`${lang}\n${safe.trim()}\n\`\`\``;
+function shouldUseJsonExplorer(example: string, contentType?: string): boolean {
+  const ct = (contentType ?? "").toLowerCase();
+  if (contentType && !ct.includes("json")) return false;
+  try {
+    JSON.parse(example);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ApiExample({
+  example,
+  contentType,
+  className,
+}: {
+  example: string;
+  contentType?: string;
+  className?: string;
+}) {
+  if (shouldUseJsonExplorer(example, contentType)) {
+    return (
+      <JsonExplorerSurface
+        data={{ json: example, collapsedDepth: 2 }}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <CodeSurface
+      code={example}
+      language={fenceLangForContentType(contentType)}
+      className={className}
+    />
+  );
 }
 
 /* ── Read (collapsed-by-default swagger row) ───────────────────────────────── */
@@ -266,14 +299,11 @@ export function ApiEndpointRead({
                   )}
                 </div>
                 {data.request?.example && (
-                  <div className="mt-2 an-api-endpoint-example">
-                    {ctx.renderMarkdown?.(
-                      fence(
-                        data.request.example,
-                        fenceLangForContentType(data.request.contentType),
-                      ),
-                    )}
-                  </div>
+                  <ApiExample
+                    example={data.request.example}
+                    contentType={data.request.contentType}
+                    className="mt-2 an-api-endpoint-example"
+                  />
                 )}
               </div>
             )}
@@ -305,10 +335,11 @@ export function ApiEndpointRead({
                         )}
                       </div>
                       {response.example && (
-                        <div className="border-t border-plan-line px-3 pb-3 pt-1 an-api-endpoint-example">
-                          {ctx.renderMarkdown?.(
-                            fence(response.example, "json"),
-                          )}
+                        <div className="border-t border-plan-line px-3 pb-3 pt-3 an-api-endpoint-example">
+                          <ApiExample
+                            example={response.example}
+                            className="mt-0"
+                          />
                         </div>
                       )}
                     </div>
