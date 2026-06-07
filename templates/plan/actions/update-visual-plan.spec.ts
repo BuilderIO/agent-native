@@ -542,6 +542,11 @@ describe("update-visual-plan comments", () => {
       }),
     ).resolves.toMatchObject({ planId: "plan_public" });
 
+    expect(createPlanVersionSnapshotMock).toHaveBeenCalledWith("plan_public", {
+      force: true,
+      label: "Before plan update",
+      createdBy: "agent",
+    });
     expect(dbUpdateMock).toHaveBeenCalled();
     expect(dbInsertValuesMock).toHaveBeenCalledWith(
       expect.objectContaining({

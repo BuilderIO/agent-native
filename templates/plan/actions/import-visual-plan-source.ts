@@ -82,6 +82,7 @@ export default defineAction({
     if (args.planId) {
       await assertPlanEditor(args.planId);
       await createPlanVersionSnapshot(args.planId, {
+        force: true,
         label: "Before source import",
         createdBy: "agent",
       });

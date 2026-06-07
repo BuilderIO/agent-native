@@ -202,8 +202,9 @@ const VALID_ACTION_METHODS = new Set([
  * route's method. A naive `content.includes('method: "GET"')` did exactly
  * that, and it also missed PUT/PATCH/DELETE and dropped `http.path`.
  *
- * The http config is shallow (method + path scalars), so a non-greedy match
- * to the first closing brace is sufficient.
+ * The http config may contain nested object literals before `method` or
+ * `path`, so extract the object body with a small balanced-brace scan rather
+ * than a non-greedy regex that stops at the first closing brace.
  *
  * Returns `false` when the action opts out of HTTP (`http: false`); otherwise
  * `{ method, path? }` with method lowercased and defaulting to "post".
@@ -211,15 +212,14 @@ const VALID_ACTION_METHODS = new Set([
 export function parseActionHttpConfig(
   content: string,
 ): false | { method: string; path?: string } {
-  // `http: false` (whitespace-tolerant) → agent-only, no route.
-  if (/\bhttp\s*:\s*false\b/.test(content)) return false;
-
   let method = "post";
   let path: string | undefined;
 
-  const httpBlock = content.match(/\bhttp\s*:\s*\{([\s\S]*?)\}/);
-  if (httpBlock) {
-    const body = httpBlock[1];
+  const httpConfig = extractActionHttpConfig(content);
+  if (httpConfig === false) return false;
+
+  if (typeof httpConfig === "string") {
+    const body = httpConfig;
     const methodMatch = body.match(/\bmethod\s*:\s*['"]([A-Za-z]+)['"]/);
     if (methodMatch) {
       const m = methodMatch[1].toLowerCase();
@@ -230,6 +230,126 @@ export function parseActionHttpConfig(
   }
 
   return { method, path };
+}
+
+function extractActionHttpConfig(content: string): false | string | undefined {
+  for (let i = 0; i < content.length; ) {
+    const skipped = skipNonCode(content, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+
+    if (
+      content.startsWith("http", i) &&
+      !isIdentifierChar(content[i - 1]) &&
+      !isIdentifierChar(content[i + 4])
+    ) {
+      let valueStart = skipWhitespaceAndComments(content, i + 4);
+      if (content[valueStart] !== ":") {
+        i += 4;
+        continue;
+      }
+
+      valueStart = skipWhitespaceAndComments(content, valueStart + 1);
+      if (
+        content.startsWith("false", valueStart) &&
+        !isIdentifierChar(content[valueStart + 5])
+      ) {
+        return false;
+      }
+
+      if (content[valueStart] === "{") {
+        return extractBalancedObjectBody(content, valueStart);
+      }
+    }
+
+    i += 1;
+  }
+
+  return undefined;
+}
+
+function extractBalancedObjectBody(
+  content: string,
+  openBraceIndex: number,
+): string | undefined {
+  let depth = 0;
+  for (let i = openBraceIndex; i < content.length; ) {
+    const skipped = skipNonCode(content, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+
+    const ch = content[i];
+    if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return content.slice(openBraceIndex + 1, i);
+    }
+
+    i += 1;
+  }
+
+  return undefined;
+}
+
+function skipWhitespaceAndComments(content: string, start: number): number {
+  let i = start;
+  while (i < content.length) {
+    if (/\s/.test(content[i])) {
+      i += 1;
+      continue;
+    }
+
+    const skipped = skipComment(content, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+
+    break;
+  }
+  return i;
+}
+
+function skipNonCode(content: string, start: number): number {
+  return skipComment(content, skipString(content, start));
+}
+
+function skipComment(content: string, start: number): number {
+  if (content[start] === "/" && content[start + 1] === "/") {
+    const newline = content.indexOf("\n", start + 2);
+    return newline === -1 ? content.length : newline + 1;
+  }
+
+  if (content[start] === "/" && content[start + 1] === "*") {
+    const close = content.indexOf("*/", start + 2);
+    return close === -1 ? content.length : close + 2;
+  }
+
+  return start;
+}
+
+function skipString(content: string, start: number): number {
+  const quote = content[start];
+  if (quote !== "'" && quote !== '"' && quote !== "`") return start;
+
+  for (let i = start + 1; i < content.length; i += 1) {
+    if (content[i] === "\\") {
+      i += 1;
+      continue;
+    }
+    if (content[i] === quote) return i + 1;
+  }
+
+  return content.length;
+}
+
+function isIdentifierChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
 }
 
 /**

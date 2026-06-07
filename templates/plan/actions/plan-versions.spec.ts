@@ -176,6 +176,7 @@ beforeAll(async () => {
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-versions-"));
   client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
   db = drizzle(client, { schema: planSchema });
+  await client.execute("PRAGMA foreign_keys = ON");
   await client.executeMultiple(`
     CREATE TABLE plans (
       id TEXT PRIMARY KEY,
@@ -213,7 +214,7 @@ beforeAll(async () => {
       id TEXT PRIMARY KEY,
       plan_id TEXT NOT NULL,
       parent_comment_id TEXT,
-      section_id TEXT,
+      section_id TEXT REFERENCES plan_sections(id),
       kind TEXT NOT NULL DEFAULT 'comment',
       status TEXT NOT NULL DEFAULT 'open',
       anchor TEXT,
@@ -356,6 +357,7 @@ describe("plan version actions", () => {
       .from(planSchema.planComments)
       .where(eq(planSchema.planComments.planId, PLAN_ID));
     expect(comments.map((comment) => comment.id)).toEqual(["comment_keep"]);
+    expect(comments[0].sectionId).toBeNull();
 
     const versions = await db
       .select()

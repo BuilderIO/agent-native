@@ -56,6 +56,7 @@ export default defineAction({
     const nextContent = await parsePlanMdxFolder(nextMdx);
     const now = nowIso();
     await createPlanVersionSnapshot(args.planId, {
+      force: true,
       label: args.note ?? "Before source patch",
       createdBy: "agent",
     });

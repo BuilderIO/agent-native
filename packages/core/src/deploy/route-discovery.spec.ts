@@ -146,6 +146,20 @@ describe("parseActionHttpConfig", () => {
     ).toEqual({ method: "get", path: "custom-route" });
   });
 
+  it("reads method and path after a nested object in the http config", () => {
+    expect(
+      parseActionHttpConfig(
+        defineActionSource(
+          `{
+            headers: { "Cache-Control": "no-store" },
+            method: "GET",
+            path: "nested-route"
+          }`,
+        ),
+      ),
+    ).toEqual({ method: "get", path: "nested-route" });
+  });
+
   it("returns false for http: false (agent-only)", () => {
     expect(parseActionHttpConfig(defineActionSource("false"))).toBe(false);
   });
@@ -217,6 +231,16 @@ describe("discoverActionFiles", () => {
         defineActionSource(`{ method: "GET", path: "aliased" }`),
       );
       fs.writeFileSync(
+        path.join(actionsDir, "nested-http.ts"),
+        defineActionSource(
+          `{
+            headers: { "Cache-Control": "no-store" },
+            method: "GET",
+            path: "nested-route"
+          }`,
+        ),
+      );
+      fs.writeFileSync(
         path.join(actionsDir, "agent-only.ts"),
         defineActionSource("false"),
       );
@@ -238,6 +262,10 @@ describe("discoverActionFiles", () => {
       expect(byName["custom-path"]).toMatchObject({
         method: "get",
         path: "aliased",
+      });
+      expect(byName["nested-http"]).toMatchObject({
+        method: "get",
+        path: "nested-route",
       });
       expect(byName["posts-then-gets"]).toMatchObject({ method: "post" });
     } finally {

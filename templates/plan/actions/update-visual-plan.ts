@@ -637,6 +637,7 @@ export default defineAction({
       args.sections.length > 0;
     if (!onlyReviewerCommentWork && hasPlanAuthoringChanges) {
       await createPlanVersionSnapshot(args.planId, {
+        force: true,
         label: args.note ?? "Before plan update",
         createdBy: "agent",
       });

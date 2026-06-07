@@ -91,6 +91,7 @@ export default defineAction({
     };
     if (args.removeCanvas) delete content.canvas;
     await createPlanVersionSnapshot(args.planId, {
+      force: true,
       label: "Before prototype conversion",
       createdBy: "agent",
     });

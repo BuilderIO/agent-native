@@ -82,6 +82,11 @@ export default defineAction({
       .where(eq(schema.plans.id, planId));
 
     await db
+      .update(schema.planComments)
+      .set({ sectionId: null, updatedAt: now })
+      .where(eq(schema.planComments.planId, planId));
+
+    await db
       .delete(schema.planSections)
       .where(eq(schema.planSections.planId, planId));
 
