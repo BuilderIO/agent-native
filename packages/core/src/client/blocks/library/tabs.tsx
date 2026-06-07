@@ -35,9 +35,8 @@ import {
  * `plan-block` section, the `inline-flex` pill tab rail with `role="tablist"`/
  * `role="tab"`, the same active-tab `useState`, and the `compactVisuals`
  * heuristic on the block title) so converting the block to the registry does not
- * change rendered output. The plan CSS classes (`plan-block`, `bg-plan-block`,
- * `text-plan-*`) resolve against the plan app's stylesheet at render time,
- * exactly as before.
+ * change rendered output. The block chrome uses semantic shadcn tokens so the
+ * same renderer stays quiet in both the plan and content apps.
  *
  * Child rendering flows through `ctx.renderBlock` — the app's own block
  * dispatcher — so registered children render via their spec and unconverted
@@ -76,8 +75,8 @@ function tabButtonClass(
       ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left md:w-full md:max-w-none"
       : "shrink-0 whitespace-nowrap px-4 py-2",
     selected
-      ? "bg-primary/10 text-plan-text dark:bg-primary/20"
-      : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
+      ? "bg-muted/50 text-foreground dark:bg-muted/40"
+      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
   );
 }
 

@@ -477,9 +477,9 @@ function ImplementationMapBlock({
               data-plan-interactive
               onClick={() => setActivePath(file.path)}
               className={cn(
-                "grid w-full gap-1 border-b border-l-2 border-plan-line border-l-transparent px-4 py-5 text-left",
+                "grid w-full gap-1 border-b border-plan-line px-4 py-5 text-left",
                 file.path === active?.path
-                  ? "border-l-2 border-l-primary/40 bg-plan-block/70 text-plan-text"
+                  ? "bg-primary/10 text-plan-text dark:bg-primary/20"
                   : "text-plan-muted hover:bg-accent/30",
               )}
             >
@@ -580,8 +580,8 @@ function TabsBlock({
                     ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left md:w-full md:max-w-none"
                     : "shrink-0 whitespace-nowrap px-4 py-2",
                   selected
-                    ? "bg-primary/10 text-plan-text dark:bg-primary/20"
-                    : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
+                    ? "bg-muted/50 text-foreground dark:bg-muted/40"
+                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
                 )}
               >
                 <span className={cn(vertical && "block min-w-0 truncate")}>

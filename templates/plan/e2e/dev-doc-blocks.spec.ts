@@ -4,9 +4,9 @@ import { test, expect, type Page, type APIResponse } from "@playwright/test";
  * DEV-DOC BLOCKS — render + persist E2E for the 6 developer-documentation blocks.
  *
  * Area under test: the six "dev-doc" plan block types — `mermaid`,
- * `api-endpoint`, `data-model`, `diff`, `file-tree`, `json-explorer`, and
- * rendered inside the
- * single-document plan editor (PlanDocumentEditor / SharedRichEditor). Each
+ * `api-endpoint`, `data-model`, `diff`, `file-tree`, and `json-explorer` —
+ * rendered inside the single-document plan editor (PlanDocumentEditor /
+ * SharedRichEditor). Each
  * registered block is an inline `planBlock` NodeView wrapped in
  * `.plan-block-node[data-block-id=<id>]`; the block's own `Read` component then
  * renders a `section.plan-block[data-block-id=<id>]` with the block-specific UI.

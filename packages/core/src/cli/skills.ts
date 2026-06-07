@@ -1805,9 +1805,11 @@ Before/after wireframes must be comparable:
   \`desktop\` frame that leaves a large empty lower half. Keep a fixed aspect
   ratio only when the diff changes viewport-scale layout, scrolling, or
   below-the-fold placement.
-- Give the wireframe composition its own padding inside the rendered
-  \`WireframeBlock\` surface so mockup cards, state labels, and captions do not
-  press against the block edge.
+- Treat the \`WireframeBlock\` / \`<Screen>\` border as part of the visible design.
+  Always wrap HTML wireframe content in a root container with real inner padding
+  before drawing cards, fields, pills, labels, or controls. Use at least 14-16px
+  of padding, \`box-sizing: border-box\`, \`height: 100%\`, and \`gap\` between child
+  rows so the first row never sits flush against the screen border.
 - Inside a wireframe, use the kit's flex primitives (\`Row\`, \`Col\`, \`Main\`,
   \`Box\`) or HTML flex/grid with \`gap\`, \`min-width: 0\`, and sensible overflow.
   Avoid negative margins, absolute positioning, or fixed child widths that can

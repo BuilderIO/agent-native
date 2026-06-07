@@ -30,12 +30,6 @@ interface MermaidRenderState {
   error?: string;
 }
 
-/** Module specifiers kept in variables so bundlers/tsc treat them as runtime
- * imports (core does not depend on these; the host app provides them). */
-const EXCALIDRAW_MODULE = "@excalidraw/excalidraw";
-const MERMAID_TO_EXCALIDRAW_MODULE = "@excalidraw/mermaid-to-excalidraw";
-const MERMAID_MODULE = "mermaid";
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Failed to render diagram";
 }
@@ -67,13 +61,13 @@ async function renderExcalidrawSvg(
   isDark: boolean,
 ): Promise<string> {
   const [{ parseMermaidToExcalidraw }, excalidraw] = await Promise.all([
-    import(MERMAID_TO_EXCALIDRAW_MODULE) as Promise<{
+    import("@excalidraw/mermaid-to-excalidraw") as Promise<{
       parseMermaidToExcalidraw: (source: string) => Promise<{
         elements: unknown[];
         files?: Record<string, unknown>;
       }>;
     }>,
-    import(EXCALIDRAW_MODULE) as Promise<{
+    import("@excalidraw/excalidraw") as Promise<{
       convertToExcalidrawElements: (elements: unknown[]) => unknown[];
       exportToSvg: (options: {
         elements: unknown[];
@@ -106,7 +100,7 @@ async function renderMermaidSvg(
   isDark: boolean,
 ): Promise<string> {
   const mermaid = (
-    (await import(MERMAID_MODULE)) as {
+    (await import("mermaid")) as {
       default: {
         initialize: (config: Record<string, unknown>) => void;
         render: (id: string, source: string) => Promise<{ svg: string }>;

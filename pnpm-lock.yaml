@@ -389,6 +389,12 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.53
         version: 3.0.53(zod@4.4.3)
+      '@excalidraw/excalidraw':
+        specifier: 0.18.1
+        version: 0.18.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@11.1.4)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@excalidraw/mermaid-to-excalidraw':
+        specifier: 2.2.2
+        version: 2.2.2
       '@supabase/supabase-js':
         specifier: ^2.49.0
         version: 2.101.1
@@ -446,6 +452,9 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
+      mermaid:
+        specifier: 11.15.0
+        version: 11.15.0
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
