@@ -9,11 +9,12 @@ import type { NestedBlock } from "../types.js";
  * (`tabs.tsx`). Keeping this React-free means importing it into a server module
  * never pulls React into the Nitro/SSR bundle.
  *
- * `tabs` is a STANDARD library block: a horizontal pill-tab container where each
- * tab holds a list of child blocks. The children are rendered RECURSIVELY
- * through the app's own block dispatcher (`ctx.renderBlock`), so registered
- * children render via their spec and unconverted children still fall through the
- * app's legacy switch — the coexistence seam.
+ * `tabs` is a STANDARD library block: a pill-tab container where each tab holds
+ * a list of child blocks. The rail is horizontal by default, and can opt into a
+ * vertical side rail for dense file/review surfaces. The children are rendered
+ * RECURSIVELY through the app's own block dispatcher (`ctx.renderBlock`), so
+ * registered children render via their spec and unconverted children still fall
+ * through the app's legacy switch — the coexistence seam.
  *
  * Its schema MUST stay data-compatible with the legacy plan `tabs` branch of
  * `planBlockSchema` (`tabs[]` of `{ id, label, blocks: Block[] }`), and the MDX
@@ -36,8 +37,15 @@ export interface TabsTab {
   blocks: NestedBlock[];
 }
 
+export type TabsOrientation = "horizontal" | "vertical";
+
 export interface TabsData {
   tabs: TabsTab[];
+  /**
+   * Visual rail layout. Omitted means the historical horizontal pill rail, so
+   * old stored plans keep byte-identical MDX output.
+   */
+  orientation?: TabsOrientation;
 }
 
 /** Matches the plan `idSchema` (`z.string().trim().min(1).max(120)`). */
@@ -60,6 +68,7 @@ export const tabsSchema = z.object({
     )
     .min(1)
     .max(12),
+  orientation: z.enum(["horizontal", "vertical"]).optional(),
 }) as unknown as z.ZodType<TabsData>;
 
 /**
@@ -67,14 +76,20 @@ export const tabsSchema = z.object({
  * self-closing — exactly the legacy `<TabsBlock id … tabs={[…]} />` form. The
  * entire `tabs` array (labels + nested child blocks) is one JSON prop; child
  * blocks are NOT serialized as nested MDX, which preserves the current byte
- * output. `toAttrs` returns only `tabs`; `fromAttrs` reads the `tabs` array
- * (defaulting to `[]` for backward-compat with malformed/empty stored blocks,
- * mirroring the legacy `arrayAttr(node, "tabs") ?? []`).
+ * output. `toAttrs` returns `tabs` plus non-default `orientation`; `fromAttrs`
+ * reads the `tabs` array (defaulting to `[]` for backward-compat with
+ * malformed/empty stored blocks, mirroring the legacy
+ * `arrayAttr(node, "tabs") ?? []`) and accepts the optional orientation prop.
  */
 export const tabsMdx: BlockMdxConfig<TabsData> = {
   tag: "TabsBlock",
-  toAttrs: (data) => ({ tabs: data.tabs }),
+  toAttrs: (data) => ({
+    tabs: data.tabs,
+    orientation: data.orientation === "vertical" ? data.orientation : undefined,
+  }),
   fromAttrs: (attrs) => ({
     tabs: (attrs.array<TabsTab>("tabs") ?? []) as TabsTab[],
+    orientation:
+      attrs.string("orientation") === "vertical" ? "vertical" : undefined,
   }),
 };

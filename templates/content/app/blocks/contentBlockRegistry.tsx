@@ -1,4 +1,5 @@
 import {
+  BlockView,
   BlockRegistry,
   // The standard library (checklist, table, code-tabs, html, tabs + the eight
   // dev-doc blocks) is registered once via `registerLibraryBlocks` — the SAME
@@ -6,7 +7,10 @@ import {
   // library, so it only re-types the table block (see below).
   registerLibraryBlocks,
   type BlockRenderContext,
+  type NestedBlock,
 } from "@agent-native/core/blocks";
+import { PromptComposer, sendToAgentChat } from "@agent-native/core/client";
+import { useState } from "react";
 import {
   Popover,
   PopoverContent,
@@ -59,8 +63,10 @@ registerLibraryBlocks(contentBlockRegistry, {
  *    non-modal so the rest of the document stays interactive.
  *  - `uploadFile` — routes block uploads through content's existing upload path.
  */
-export function createContentBlockRenderContext(): BlockRenderContext {
-  return {
+export function createContentBlockRenderContext(options?: {
+  documentId?: string | null;
+}): BlockRenderContext {
+  const ctx: BlockRenderContext = {
     dialect: "nfm",
     renderMarkdown: (markdown) => <ContentBlockMarkdown markdown={markdown} />,
     renderMarkdownEditor: ({ value, onChange, editable }) => (
@@ -74,7 +80,16 @@ export function createContentBlockRenderContext(): BlockRenderContext {
       const url = await uploadImageFile(file);
       return { url };
     },
-    renderEditSurface: ({ title, trigger, children }) => (
+    renderEditSurface: ({
+      title,
+      trigger,
+      children,
+      blockId,
+      blockType,
+      blockTitle,
+      blockSummary,
+      blockData,
+    }) => (
       <Popover>
         <PopoverTrigger asChild>{trigger}</PopoverTrigger>
         <PopoverContent
@@ -83,10 +98,173 @@ export function createContentBlockRenderContext(): BlockRenderContext {
           data-plan-interactive
           className="an-block-edit-popover flex max-h-[70vh] w-96 flex-col gap-3 overflow-auto"
         >
-          <div className="text-sm font-semibold text-foreground">{title}</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 truncate text-sm font-semibold text-foreground">
+              {title}
+            </div>
+            {blockId && blockType ? (
+              <ContentAiBlockAction
+                label={title}
+                blockId={blockId}
+                blockType={blockType}
+                blockTitle={blockTitle}
+                blockSummary={blockSummary}
+                blockData={blockData}
+                documentId={options?.documentId}
+              />
+            ) : null}
+          </div>
           {children}
         </PopoverContent>
       </Popover>
     ),
   };
+  ctx.renderBlock = ({ block, editing = false, onChange }) =>
+    renderNestedContentBlock(block, ctx, editing, onChange);
+  return ctx;
+}
+
+function ContentAiBlockAction({
+  label,
+  blockId,
+  blockType,
+  blockTitle,
+  blockSummary,
+  blockData,
+  documentId,
+}: {
+  label: string;
+  blockId: string;
+  blockType: string;
+  blockTitle?: string;
+  blockSummary?: string;
+  blockData: unknown;
+  documentId?: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const submitPrompt = (prompt: string) => {
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+    sendToAgentChat({
+      type: "content",
+      submit: true,
+      openSidebar: true,
+      message: trimmed,
+      context: [
+        "The user is asking the agent to edit a focused structured block from the Content document editor popover.",
+        documentId ? `Document id: ${documentId}` : null,
+        `Document block id: ${blockId}`,
+        `Document block type: ${blockType}`,
+        blockTitle ? `Block title: ${blockTitle}` : null,
+        blockSummary ? `Block summary: ${blockSummary}` : null,
+        "",
+        "Current block data:",
+        fencedBlockData(blockData),
+        "",
+        "Patch the document's inline NFM/MDX block with this exact id. Use the Content app document editing actions, and patch only this block unless the user's instruction explicitly asks for a broader document change. Preserve existing block fields that the user did not ask to change.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-plan-interactive
+          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-blue-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
+        >
+          Edit with AI
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="left"
+        sideOffset={8}
+        collisionPadding={12}
+        className="z-[270] w-[calc(100vw-24px)] max-w-[420px] p-3"
+        data-plan-interactive
+      >
+        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+          Edit {label}
+        </p>
+        <PromptComposer
+          autoFocus
+          placeholder={`Tell the agent how to edit this ${label.toLowerCase()}...`}
+          draftScope={`content:block:${blockId}`}
+          attachmentsEnabled={false}
+          plusMenuMode="hidden"
+          onSubmit={submitPrompt}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function fencedBlockData(value: unknown): string {
+  try {
+    return ["Block data:", "```json", JSON.stringify(value, null, 2), "```"]
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    return ["Block data:", "```text", String(value), "```"].join("\n");
+  }
+}
+
+function renderNestedContentBlock(
+  block: NestedBlock,
+  ctx: BlockRenderContext,
+  editing: boolean,
+  onChange?: (next: NestedBlock) => void,
+) {
+  if (block.type === "rich-text") {
+    const currentData =
+      block.data && typeof block.data === "object"
+        ? (block.data as Record<string, unknown>)
+        : {};
+    const markdown =
+      typeof (block.data as { markdown?: unknown } | null)?.markdown ===
+      "string"
+        ? ((block.data as { markdown: string }).markdown ?? "")
+        : "";
+    return editing ? (
+      <ContentBlockMarkdownEditor
+        value={markdown}
+        editable
+        onChange={(nextMarkdown) =>
+          onChange?.({
+            ...block,
+            data: { ...currentData, markdown: nextMarkdown },
+          })
+        }
+      />
+    ) : (
+      <ContentBlockMarkdown markdown={markdown} />
+    );
+  }
+
+  const spec = contentBlockRegistry.get(block.type);
+  if (!spec) return null;
+  return (
+    <BlockView
+      spec={spec}
+      block={{
+        id: block.id,
+        title: block.title,
+        summary: block.summary,
+        data: block.data,
+      }}
+      editing={editing}
+      editable
+      onChange={
+        onChange
+          ? (nextData) => onChange({ ...block, data: nextData })
+          : undefined
+      }
+      ctx={ctx}
+    />
+  );
 }

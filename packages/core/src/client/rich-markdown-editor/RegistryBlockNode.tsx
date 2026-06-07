@@ -1,4 +1,11 @@
-import { createContext, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { IconPencil } from "@tabler/icons-react";
 import {
   Node,
   NodeViewWrapper,
@@ -6,8 +13,19 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
-import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
-import { BlockView, useOptionalBlockRegistry } from "../blocks/index.js";
+import {
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  type EditorState,
+} from "@tiptap/pm/state";
+import {
+  blockEditSurface,
+  useOptionalBlockRegistry,
+  type BlockDataChangeMeta,
+  type BlockRenderContext,
+} from "../blocks/index.js";
+import { SchemaBlockEditor } from "../blocks/SchemaBlockEditor.js";
 
 /* -------------------------------------------------------------------------- */
 /* The generic registry-block side-map + Tiptap NodeView, lifted into core.    */
@@ -47,7 +65,11 @@ export interface RegistryBlockDataValue<
   /** Resolve a block's full record (incl. `data`) by its stable id. */
   getBlock: (blockId: string) => TBlock | undefined;
   /** Commit a new `data` value for a block (edit-mode only). */
-  onBlockDataChange: (blockId: string, nextData: unknown) => void;
+  onBlockDataChange: (
+    blockId: string,
+    nextData: unknown,
+    meta?: BlockDataChangeMeta,
+  ) => void;
   /** Whether the document (and thus its blocks) is editable. */
   editable: boolean;
   /**
@@ -103,6 +125,16 @@ export function useRegistryBlockData<
   ) as RegistryBlockDataValue<TBlock> | null;
 }
 
+function clickedInteractiveChild(target: HTMLElement) {
+  if (target.closest("button,input,textarea,select,a,[role='textbox']")) {
+    return true;
+  }
+
+  const blockNode = target.closest(".plan-block-node");
+  const editable = target.closest("[contenteditable='true']");
+  return !!blockNode && !!editable && blockNode.contains(editable);
+}
+
 /* -------------------------------------------------------------------------- */
 /* B. RegistryBlockNodeView (React)                                           */
 /* -------------------------------------------------------------------------- */
@@ -118,13 +150,14 @@ export function useRegistryBlockData<
 export function RegistryBlockNodeView(props: NodeViewProps) {
   const blockType = String(props.node.attrs.blockType ?? "");
   const blockId = String(props.node.attrs.blockId ?? "");
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [shellHovered, setShellHovered] = useState(false);
 
   const registryValue = useOptionalBlockRegistry();
   const sideMap = useRegistryBlockData();
 
   const block = sideMap?.getBlock(blockId);
   const editable = sideMap?.editable ?? false;
-  const editing = editable && props.selected;
   // In Notion-sync mode, flag blocks that have no Notion (NFM) analog so the
   // author sees what won't push. Prose blocks aren't registry-block nodes, so
   // this only ever covers structured blocks.
@@ -149,11 +182,38 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   }
 
   const spec = registryValue?.registry.get(blockType);
+  const selectNode = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!editable) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && clickedInteractiveChild(target))
+      return;
+    const pos = typeof props.getPos === "function" ? props.getPos() : null;
+    if (typeof pos !== "number") return;
+    try {
+      event.preventDefault();
+      event.stopPropagation();
+      const { view } = props.editor;
+      view.dispatch(
+        view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)),
+      );
+      view.focus();
+    } catch {
+      // Ignore stale positions during React/ProseMirror reconciliation.
+    }
+  };
+  const updateShellHover = (event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target;
+    setShellHovered(
+      target instanceof HTMLElement &&
+        target.closest(".plan-block-node__shell") === event.currentTarget,
+    );
+  };
 
   // Choose how to render the block body:
-  //  1. Registered spec → the registry `BlockView` (Read, or the spec Edit /
-  //     auto-form when selected). This is the common path (callout, table,
-  //     code-tabs, wireframe, …).
+  //  1. Registered spec → read view by default; direct-manipulation specs
+  //     (`editSurface: "inline" | "container"`) render their editor in place,
+  //     while artifact/config specs (`"panel"`) keep the read view plus a
+  //     corner edit button.
   //  2. No spec, but the side-map provides `renderLegacyBlock` → delegate to the
   //     host's dispatcher (decision, legacy visual-questions, image, and any
   //     other type rendered by a bespoke component rather than the registry), so
@@ -161,24 +221,97 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   //     per-block reader — never a bare title fallback.
   //  3. Neither → a small non-crashing fallback.
   let body: ReactNode;
+  let editSurface: ReactNode = null;
   if (registryValue && spec) {
-    body = (
-      <BlockView
-        spec={spec}
-        block={{
-          id: block.id,
-          title: block.title,
-          summary: block.summary,
-          data: (block as { data: unknown }).data,
-        }}
-        editing={editing}
-        editable={editable}
-        onChange={(nextData) => sideMap?.onBlockDataChange(blockId, nextData)}
+    const blockData = (block as { data: unknown }).data;
+    const Read = spec.Read;
+    const readNode = (
+      <Read
+        data={blockData}
+        blockId={block.id}
+        title={block.title}
+        summary={block.summary}
         ctx={registryValue.ctx}
       />
     );
+    body = readNode;
+    const canEditBlock =
+      editable &&
+      spec.placement.includes("block") &&
+      !!sideMap?.onBlockDataChange;
+    if (canEditBlock) {
+      const Edit = spec.Edit;
+      const editorNode = Edit ? (
+        <Edit
+          data={blockData}
+          onChange={(nextData, meta) =>
+            sideMap?.onBlockDataChange(blockId, nextData, meta)
+          }
+          editable
+          blockId={block.id}
+          title={block.title}
+          summary={block.summary}
+          ctx={registryValue.ctx}
+        />
+      ) : (
+        <SchemaBlockEditor
+          data={blockData}
+          onChange={(nextData) => sideMap?.onBlockDataChange(blockId, nextData)}
+          schema={spec.schema}
+          editable
+          blockId={block.id}
+          ctx={registryValue.ctx}
+        />
+      );
+      const surface = blockEditSurface(spec);
+      if (surface === "panel" && registryValue.ctx.renderEditSurface) {
+        editSurface = registryValue.ctx.renderEditSurface({
+          title: spec.label,
+          open: panelOpen,
+          onOpenChange: setPanelOpen,
+          blockId: block.id,
+          blockType,
+          blockTitle: block.title,
+          blockSummary: block.summary,
+          blockData,
+          trigger: (
+            <button
+              type="button"
+              data-plan-interactive
+              aria-label={`Edit ${spec.label}`}
+              onClick={() => setPanelOpen(true)}
+              className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background/85 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
+              data-visible={panelOpen || shellHovered}
+            >
+              <IconPencil className="size-4" />
+            </button>
+          ),
+          children: editorNode,
+        });
+      } else if (surface === "panel") {
+        editSurface = props.selected ? (
+          <div className="mt-3">{editorNode}</div>
+        ) : null;
+      } else {
+        body = editorNode;
+      }
+    }
   } else if (sideMap?.renderLegacyBlock) {
-    body = sideMap.renderLegacyBlock(block, { editing });
+    body = sideMap.renderLegacyBlock(block, { editing: false });
+    if (editable && sideMap.onBlockDataChange) {
+      editSurface = (
+        <LegacyJsonEditSurface
+          block={block}
+          open={panelOpen}
+          onOpenChange={setPanelOpen}
+          renderEditSurface={registryValue?.ctx.renderEditSurface}
+          onChange={(nextBlock) =>
+            sideMap.onBlockDataChange(blockId, nextBlock)
+          }
+          selected={shellHovered}
+        />
+      );
+    }
   } else {
     body = (
       <div className="plan-block-node__fallback rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">
@@ -191,9 +324,18 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       className="plan-block-node"
       data-block-id={blockId}
+      data-plan-block-selected={props.selected ? "" : undefined}
       data-notion-incompatible={incompatibleWithNotion ? "" : undefined}
+      onMouseDownCapture={selectNode}
     >
-      <div contentEditable={false} data-plan-interactive>
+      <div
+        contentEditable={false}
+        data-plan-interactive
+        className="plan-block-node__shell relative"
+        onMouseEnter={updateShellHover}
+        onMouseMove={updateShellHover}
+        onMouseLeave={() => setShellHovered(false)}
+      >
         {incompatibleWithNotion && (
           <span
             className="plan-block-notion-badge"
@@ -203,9 +345,81 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
           </span>
         )}
         {body}
+        {editSurface && (
+          <div className="plan-block-node__edit absolute right-2 top-2 z-20">
+            {editSurface}
+          </div>
+        )}
       </div>
     </NodeViewWrapper>
   );
+}
+
+function LegacyJsonEditSurface({
+  block,
+  open,
+  onOpenChange,
+  renderEditSurface,
+  onChange,
+  selected,
+}: {
+  block: RegistryBlockSideMapBlock;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  renderEditSurface?: BlockRenderContext["renderEditSurface"];
+  onChange: (nextData: unknown) => void;
+  selected: boolean;
+}) {
+  const [draft, setDraft] = useState(() => JSON.stringify(block.data, null, 2));
+  const trigger = (
+    <button
+      type="button"
+      data-plan-interactive
+      aria-label={`Edit ${block.title ?? "block"}`}
+      onClick={() => onOpenChange(true)}
+      className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background/85 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
+      data-visible={selected || open}
+    >
+      <IconPencil className="size-4" />
+    </button>
+  );
+  const editor = (
+    <div className="grid gap-3">
+      <textarea
+        data-plan-interactive
+        className="min-h-64 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-5 text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <button
+        type="button"
+        data-plan-interactive
+        className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
+        onClick={() => {
+          onChange(JSON.parse(draft));
+          onOpenChange(false);
+        }}
+      >
+        Save
+      </button>
+    </div>
+  );
+  if (!renderEditSurface) return open ? editor : trigger;
+  return renderEditSurface({
+    title: block.title ?? "Block",
+    open,
+    onOpenChange,
+    blockId: block.id,
+    blockType:
+      typeof (block as { type?: unknown }).type === "string"
+        ? ((block as unknown as { type: string }).type ?? "")
+        : "legacy",
+    blockTitle: block.title,
+    blockSummary: block.summary,
+    blockData: block.data,
+    trigger,
+    children: editor,
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -254,6 +468,7 @@ export function createRegistryBlockNode(
 ) {
   const { nodeName, dataTag, mintId, group = "block" } = options;
   const dedupeKey = new PluginKey(`${nodeName}DedupeIds`);
+  const keyboardGuardKey = new PluginKey(`${nodeName}KeyboardGuard`);
 
   /**
    * Collect every `blockId` currently present on this node type in a doc, with
@@ -324,6 +539,16 @@ export function createRegistryBlockNode(
 
     return changed ? tr.setMeta(dedupeKey, true) : null;
   }
+
+  const selectedRegistryBlock = (state: EditorState) =>
+    state.selection instanceof NodeSelection &&
+    state.selection.node.type.name === nodeName;
+
+  const isMutatingKey = (event: KeyboardEvent) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return false;
+    if (event.key === "Enter") return true;
+    return event.key.length === 1;
+  };
 
   return Node.create({
     name: nodeName,
@@ -398,6 +623,57 @@ export function createRegistryBlockNode(
               return null;
             }
             return buildDedupeTransaction(newState);
+          },
+        }),
+        new Plugin({
+          key: keyboardGuardKey,
+          props: {
+            handleClickOn(view, _pos, node, nodePos, event, direct) {
+              if (node.type.name !== nodeName || !direct) return false;
+              if (
+                event.target instanceof HTMLElement &&
+                clickedInteractiveChild(event.target)
+              ) {
+                return false;
+              }
+              event.preventDefault();
+              view.dispatch(
+                view.state.tr.setSelection(
+                  NodeSelection.create(view.state.doc, nodePos),
+                ),
+              );
+              view.focus();
+              return true;
+            },
+            handleKeyDown(view, event) {
+              if (!selectedRegistryBlock(view.state) || !isMutatingKey(event))
+                return false;
+              event.preventDefault();
+              return true;
+            },
+            handleTextInput(view) {
+              return selectedRegistryBlock(view.state);
+            },
+            handlePaste(view, event) {
+              if (!selectedRegistryBlock(view.state)) return false;
+              event.preventDefault();
+              return true;
+            },
+            handleDOMEvents: {
+              beforeinput(view, event) {
+                if (!selectedRegistryBlock(view.state)) return false;
+                const inputEvent = event as InputEvent;
+                if (
+                  !inputEvent.inputType ||
+                  (!inputEvent.inputType.startsWith("insert") &&
+                    inputEvent.inputType !== "formatSetBlockTextDirection")
+                ) {
+                  return false;
+                }
+                event.preventDefault();
+                return true;
+              },
+            },
           },
         }),
       ];

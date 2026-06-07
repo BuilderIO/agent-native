@@ -7,6 +7,22 @@ import {
   seedRegistryBlockRaw,
 } from "./registrySlashItems";
 
+const STANDARD_LIBRARY_BLOCK_TYPES = [
+  "checklist",
+  "table-block",
+  "code-tabs",
+  "custom-html",
+  "tabs",
+  "mermaid",
+  "api-endpoint",
+  "openapi-spec",
+  "data-model",
+  "diff",
+  "file-tree",
+  "json-explorer",
+  "annotated-code",
+] as const;
+
 /**
  * T7 — registry-derived slash items + Notion gating for content's slash menu.
  *
@@ -37,13 +53,35 @@ function fakeEditor() {
 describe("buildRegistrySlashItems", () => {
   it("derives one item per block-placed registry spec", () => {
     const items = buildRegistrySlashItems(contentBlockRegistry);
-    const blockSpecs = contentBlockRegistry.list("block");
-    expect(items.length).toBe(blockSpecs.length);
+    const authorableBlockSpecs = contentBlockRegistry
+      .list("block")
+      .filter((spec) => spec.type !== "columns");
+    expect(items.length).toBe(authorableBlockSpecs.length);
     // Includes the shared dev-doc / structured library labels.
     const titles = items.map((i) => i.title);
     expect(titles).toContain("Checklist");
     expect(titles).toContain("API endpoint");
     expect(titles).toContain("Data model");
+    const offeredTypes = items.map((i) => i.searchText?.split(" ").pop());
+    expect(offeredTypes).toEqual([...STANDARD_LIBRARY_BLOCK_TYPES]);
+    expect(contentBlockRegistry.get("columns")).toBeDefined();
+    expect(offeredTypes).not.toContain("columns");
+  });
+
+  it("keeps API and schema aliases searchable in normal mode", () => {
+    const items = buildRegistrySlashItems(contentBlockRegistry);
+    const searchTexts = items.map((item) => item.searchText?.toLowerCase());
+    expect(
+      searchTexts.some((searchText) => searchText?.includes("swagger")),
+    ).toBe(true);
+    expect(
+      searchTexts.some((searchText) =>
+        searchText?.includes("api specification"),
+      ),
+    ).toBe(true);
+    expect(
+      searchTexts.some((searchText) => searchText?.includes("schema modeling")),
+    ).toBe(true);
   });
 
   it("filters to Notion-compatible specs when notionCompatibleOnly is set", () => {
@@ -90,21 +128,21 @@ describe("buildRegistrySlashItems", () => {
     }
 
     // None of the 8 surface in the gated slash menu. The menu rides the raw
-    // `type` keyword in each item's description, so match on that.
+    // `type` keyword in each item's hidden search text, so match on that.
     const gated = buildRegistrySlashItems(contentBlockRegistry, {
       notionCompatibleOnly: true,
     });
-    const gatedTypeKeywords = gated.map((i) => i.description);
+    const gatedTypeKeywords = gated.map((i) => i.searchText ?? "");
     for (const type of NON_NFM_BLOCK_TYPES) {
       expect(
-        gatedTypeKeywords.some((desc) => desc.endsWith(` ${type}`)),
+        gatedTypeKeywords.some((searchText) => searchText.endsWith(` ${type}`)),
         `expected "${type}" to be hidden from the Notion-gated slash menu`,
       ).toBe(false);
     }
 
     // The ONLY blocks the gated menu keeps are exactly the registry allowlist.
     const gatedTypes = new Set(
-      gated.map((i) => i.description.split(" ").pop()),
+      gated.map((i) => i.searchText?.split(" ").pop()),
     );
     expect(gatedTypes).toEqual(compatible);
     // Spelled out: just the two NFM-analog atoms today.
@@ -119,11 +157,12 @@ describe("buildRegistrySlashItems", () => {
     expect(all.length).toBeGreaterThan(gated.length);
   });
 
-  it("rides the block type in the description for keyword matching", () => {
+  it("rides the block type in search text for keyword matching", () => {
     const items = buildRegistrySlashItems(contentBlockRegistry);
     const fileTree = items.find((i) => i.title === "File tree");
     expect(fileTree).toBeDefined();
-    expect(fileTree?.description).toContain("file-tree");
+    expect(fileTree?.description).toBe("File/change tree");
+    expect(fileTree?.searchText).toContain("file-tree");
   });
 
   it("inserts a registryBlock node with a fresh id and seeded __raw", () => {

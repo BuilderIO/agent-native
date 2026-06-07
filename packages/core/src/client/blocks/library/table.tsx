@@ -1,4 +1,11 @@
 import {
+  useLayoutEffect,
+  useRef,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import {
   IconColumnInsertRight,
   IconPlus,
   IconRowInsertBottom,
@@ -7,8 +14,17 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { defineBlock } from "../types.js";
-import type { BlockEditProps, BlockReadProps } from "../types.js";
-import { tableMdx, tableSchema, type TableData } from "./table.config.js";
+import type {
+  BlockEditProps,
+  BlockReadProps,
+  BlockRenderContext,
+} from "../types.js";
+import {
+  tableMdx,
+  tableSchema,
+  type TableData,
+  type TableDensity,
+} from "./table.config.js";
 
 /**
  * Standard `table` block — a simple grid of header columns and string rows.
@@ -29,7 +45,34 @@ import { tableMdx, tableSchema, type TableData } from "./table.config.js";
  * consuming app's CSS — core only emits the markup, exactly like the existing
  * `CalloutBlock` read renderer.
  */
-function TableBlockRead({ data, blockId, title }: BlockReadProps<TableData>) {
+const densityClasses: Record<TableDensity, { header: string; cell: string }> = {
+  compact: {
+    header: "py-1.5",
+    cell: "py-2",
+  },
+  normal: {
+    header: "py-3",
+    cell: "py-4",
+  },
+  relaxed: {
+    header: "py-5",
+    cell: "py-6",
+  },
+};
+
+function resolveDensity(data: TableData): TableDensity {
+  return data.density ?? "normal";
+}
+
+function TableBlockRead({
+  data,
+  blockId,
+  title,
+  ctx,
+}: BlockReadProps<TableData>) {
+  const density = resolveDensity(data);
+  const spacing = densityClasses[density];
+
   return (
     <section className="plan-block overflow-x-auto" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
@@ -37,8 +80,11 @@ function TableBlockRead({ data, blockId, title }: BlockReadProps<TableData>) {
         <thead>
           <tr className="border-b border-plan-line text-sm text-plan-muted">
             {data.columns.map((column) => (
-              <th key={column} className="py-3 pr-4 font-semibold">
-                {column}
+              <th
+                key={column}
+                className={`${spacing.header} pr-4 font-semibold`}
+              >
+                {renderTableMarkdown(ctx, column, tableHeaderMarkdownClass)}
               </th>
             ))}
           </tr>
@@ -47,8 +93,11 @@ function TableBlockRead({ data, blockId, title }: BlockReadProps<TableData>) {
           {data.rows.map((row, index) => (
             <tr key={index} className="border-b border-plan-line">
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex} className="py-4 pr-4 text-plan-muted">
-                  {cell}
+                <td
+                  key={cellIndex}
+                  className={`${spacing.cell} pr-4 text-plan-muted`}
+                >
+                  {renderTableMarkdown(ctx, cell, tableCellMarkdownClass)}
                 </td>
               ))}
             </tr>
@@ -59,14 +108,132 @@ function TableBlockRead({ data, blockId, title }: BlockReadProps<TableData>) {
   );
 }
 
-const editInputClass =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+const tableCellMarkdownClass =
+  "an-table-cell-markdown mt-0 max-w-none text-plan-muted";
 
-const iconButtonClass =
-  "inline-flex size-7 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50";
+const tableHeaderMarkdownClass = `${tableCellMarkdownClass} an-table-cell-markdown--header font-semibold`;
+
+const plainTextFieldBaseClass =
+  "min-h-6 w-full whitespace-pre-wrap break-words rounded-sm border border-transparent bg-transparent px-0 leading-6 text-plan-muted outline-none focus:border-transparent focus:bg-transparent focus:px-0 focus:outline-none focus:ring-0 focus-visible:border-transparent focus-visible:bg-transparent focus-visible:px-0 focus-visible:outline-none focus-visible:ring-0 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-50";
+
+const iconButtonBaseClass =
+  "inline-flex size-7 items-center justify-center rounded-md border border-input bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-50";
+
+const tableHoverIconButtonClass = `${iconButtonBaseClass} group-hover/table:opacity-100`;
+
+const columnHoverIconButtonClass = `${iconButtonBaseClass} group-hover/column:opacity-100`;
+
+const rowHoverIconButtonClass = `${iconButtonBaseClass} group-hover/row:opacity-100`;
 
 const addButtonClass =
-  "inline-flex items-center gap-1.5 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center gap-1.5 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-muted-foreground opacity-0 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 group-hover/table:opacity-100 disabled:cursor-not-allowed disabled:opacity-50";
+
+function renderTableMarkdown(
+  ctx: BlockRenderContext,
+  value: string,
+  className: string,
+) {
+  return ctx.renderMarkdown?.(value, { className }) ?? value;
+}
+
+function TableMarkdownField({
+  ctx,
+  value,
+  onChange,
+  editable,
+  ariaLabel,
+  className,
+}: {
+  ctx: BlockRenderContext;
+  value: string;
+  onChange: (value: string) => void;
+  editable: boolean;
+  ariaLabel: string;
+  className: string;
+}) {
+  const editor = ctx.renderMarkdownEditor?.({
+    value,
+    onChange,
+    editable,
+    className,
+    ariaLabel,
+  });
+
+  if (editor) return editor;
+
+  return (
+    <PlainTextTableField
+      value={value}
+      onChange={onChange}
+      editable={editable}
+      ariaLabel={ariaLabel}
+      className={`${plainTextFieldBaseClass} ${className}`}
+    />
+  );
+}
+
+function PlainTextTableField({
+  value,
+  onChange,
+  editable,
+  ariaLabel,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  editable: boolean;
+  ariaLabel: string;
+  className: string;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || document.activeElement === node) return;
+    if (node.textContent !== value) node.textContent = value;
+  }, [value]);
+
+  const handleInput = (event: FormEvent<HTMLDivElement>) => {
+    onChange(event.currentTarget.textContent ?? "");
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    event.currentTarget.blur();
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const text = event.clipboardData.getData("text/plain");
+    if (!text) return;
+    event.preventDefault();
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(document.createTextNode(text));
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    onChange(event.currentTarget.textContent ?? "");
+  };
+
+  return (
+    <div
+      ref={ref}
+      data-plan-interactive
+      data-disabled={!editable ? "true" : undefined}
+      role="textbox"
+      aria-label={ariaLabel}
+      contentEditable={editable}
+      suppressContentEditableWarning
+      className={className}
+      onInput={handleInput}
+      onKeyDown={handleKeyDown}
+      onPaste={handlePaste}
+    />
+  );
+}
 
 /**
  * Editable grid. The schema's `columns: string[]` / `rows: string[][]` are
@@ -80,12 +247,15 @@ function TableBlockEdit({
   data,
   onChange,
   editable,
+  ctx,
 }: BlockEditProps<TableData>) {
   const columns = data.columns ?? [];
   const rows = data.rows ?? [];
   const columnCount = columns.length;
+  const density = resolveDensity(data);
+  const spacing = densityClasses[density];
 
-  const commit = (next: TableData) => onChange(next);
+  const commit = (next: TableData) => onChange({ ...data, ...next });
 
   const setColumn = (index: number, value: string) => {
     commit({
@@ -114,6 +284,7 @@ function TableBlockEdit({
   };
 
   const removeColumn = (index: number) => {
+    if (columns.length <= 1) return;
     commit({
       columns: columns.filter((_, i) => i !== index),
       rows: rows.map((row) => row.filter((_, i) => i !== index)),
@@ -136,29 +307,31 @@ function TableBlockEdit({
   };
 
   return (
-    <div className="an-table-block-editor flex flex-col gap-3">
+    <div className="an-table-block-editor group/table flex flex-col gap-2">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[480px] border-collapse text-left">
           <thead>
-            <tr>
+            <tr className="border-b border-plan-line">
               {columns.map((column, index) => (
-                <th key={index} className="p-1 align-top">
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="text"
-                      data-plan-interactive
-                      aria-label={`Column ${index + 1} header`}
-                      className={editInputClass}
+                <th
+                  key={index}
+                  className={`group/column ${spacing.header} pr-4 align-top`}
+                >
+                  <div className="flex items-center gap-2">
+                    <TableMarkdownField
+                      ctx={ctx}
                       value={column}
-                      disabled={!editable}
-                      onChange={(event) => setColumn(index, event.target.value)}
+                      onChange={(value) => setColumn(index, value)}
+                      editable={editable}
+                      ariaLabel={`Column ${index + 1} header`}
+                      className={tableHeaderMarkdownClass}
                     />
                     <button
                       type="button"
                       data-plan-interactive
                       aria-label={`Remove column ${index + 1}`}
-                      className={iconButtonClass}
-                      disabled={!editable}
+                      className={columnHoverIconButtonClass}
+                      disabled={!editable || columns.length <= 1}
                       onClick={() => removeColumn(index)}
                     >
                       <IconX size={14} />
@@ -166,12 +339,12 @@ function TableBlockEdit({
                   </div>
                 </th>
               ))}
-              <th className="p-1 align-top">
+              <th className="py-1 align-top">
                 <button
                   type="button"
                   data-plan-interactive
-                  aria-label="Add column"
-                  className={iconButtonClass}
+                  aria-label="Add column in grid"
+                  className={tableHoverIconButtonClass}
                   disabled={!editable}
                   onClick={addColumn}
                 >
@@ -182,28 +355,31 @@ function TableBlockEdit({
           </thead>
           <tbody>
             {rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
+              <tr
+                key={rowIndex}
+                className="group/row border-b border-plan-line"
+              >
                 {Array.from({ length: columnCount }).map((_, cellIndex) => (
-                  <td key={cellIndex} className="p-1 align-top">
-                    <input
-                      type="text"
-                      data-plan-interactive
-                      aria-label={`Row ${rowIndex + 1}, column ${cellIndex + 1}`}
-                      className={editInputClass}
+                  <td
+                    key={cellIndex}
+                    className={`${spacing.cell} pr-4 align-top`}
+                  >
+                    <TableMarkdownField
+                      ctx={ctx}
                       value={row[cellIndex] ?? ""}
-                      disabled={!editable}
-                      onChange={(event) =>
-                        setCell(rowIndex, cellIndex, event.target.value)
-                      }
+                      onChange={(value) => setCell(rowIndex, cellIndex, value)}
+                      editable={editable}
+                      ariaLabel={`Row ${rowIndex + 1}, column ${cellIndex + 1}`}
+                      className={tableCellMarkdownClass}
                     />
                   </td>
                 ))}
-                <td className="p-1 align-top">
+                <td className="py-2 align-top">
                   <button
                     type="button"
                     data-plan-interactive
                     aria-label={`Remove row ${rowIndex + 1}`}
-                    className={iconButtonClass}
+                    className={rowHoverIconButtonClass}
                     disabled={!editable}
                     onClick={() => removeRow(rowIndex)}
                   >
@@ -253,6 +429,7 @@ export const tableBlock = defineBlock<TableData>({
   Read: TableBlockRead,
   Edit: TableBlockEdit,
   placement: ["block"],
+  editSurface: "inline",
   // A simple grid maps to an NFM table, so it round-trips to Notion.
   notionCompatible: true,
   label: "Table",

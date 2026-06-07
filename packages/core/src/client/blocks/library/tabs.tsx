@@ -1,12 +1,28 @@
 import { useState } from "react";
-import { IconLayoutNavbar, IconPlus, IconX } from "@tabler/icons-react";
+import {
+  IconLayoutNavbar,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui/popover.js";
 import { defineBlock } from "../types.js";
-import type { BlockReadProps, BlockEditProps, NestedBlock } from "../types.js";
+import type {
+  BlockContainerRegion,
+  BlockReadProps,
+  BlockEditProps,
+  NestedBlock,
+} from "../types.js";
 import {
   tabsSchema,
   tabsMdx,
   type TabsData,
+  type TabsOrientation,
   type TabsTab,
 } from "./tabs.config.js";
 
@@ -39,20 +55,58 @@ function isCompact(title: string | undefined): boolean {
   return /interaction|component|note/i.test(title ?? "");
 }
 
+const tabSettingsInputClass =
+  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+function tabOrientation(data: Pick<TabsData, "orientation">): TabsOrientation {
+  return data.orientation === "vertical" ? "vertical" : "horizontal";
+}
+
+function tabsWith(data: TabsData, tabs: TabsTab[]): TabsData {
+  return { ...data, tabs };
+}
+
+function tabButtonClass(
+  selected: boolean,
+  orientation: TabsOrientation,
+): string {
+  return cn(
+    "rounded-lg border border-transparent text-sm font-semibold transition-colors",
+    orientation === "vertical"
+      ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left md:w-full md:max-w-none"
+      : "shrink-0 whitespace-nowrap px-4 py-2",
+    selected
+      ? "border-plan-line bg-plan-block/70 text-plan-text"
+      : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
+  );
+}
+
+function tabLabelClass(orientation: TabsOrientation): string | undefined {
+  return orientation === "vertical" ? "block min-w-0 truncate" : undefined;
+}
+
 /** Shared pill-tab rail. */
 function TabRail({
   tabs,
   activeId,
   onSelect,
+  orientation,
 }: {
   tabs: TabsTab[];
   activeId: string | undefined;
   onSelect: (id: string) => void;
+  orientation: TabsOrientation;
 }) {
+  const vertical = orientation === "vertical";
   return (
     <div
-      className="mb-8 inline-flex max-w-full gap-1 overflow-x-auto"
+      className={cn(
+        vertical
+          ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto md:mb-0 md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+          : "mb-8 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto",
+      )}
       role="tablist"
+      aria-orientation={orientation}
       data-plan-interactive
     >
       {tabs.map((tab) => {
@@ -64,14 +118,9 @@ function TabRail({
             role="tab"
             aria-selected={selected}
             onClick={() => onSelect(tab.id)}
-            className={cn(
-              "rounded-lg px-4 py-2 text-sm font-semibold transition-colors",
-              selected
-                ? "bg-plan-block text-plan-text shadow-sm"
-                : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
-            )}
+            className={tabButtonClass(selected, orientation)}
           >
-            {tab.label}
+            <span className={tabLabelClass(orientation)}>{tab.label}</span>
           </button>
         );
       })}
@@ -89,23 +138,37 @@ export function TabsBlockReader({
   const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
   const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
   const compact = isCompact(title);
+  const orientation = tabOrientation(data);
+  const vertical = orientation === "vertical";
   return (
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
-      <TabRail tabs={data.tabs} activeId={active?.id} onSelect={setActiveId} />
-      {active && (
-        <div>
-          {active.blocks.map((child) => (
-            <div key={child.id}>
-              {ctx.renderBlock?.({
-                block: child,
-                editing: false,
-                compactVisuals: compact,
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+      <div
+        className={cn(
+          vertical &&
+            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
+        )}
+      >
+        <TabRail
+          tabs={data.tabs}
+          activeId={active?.id}
+          onSelect={setActiveId}
+          orientation={orientation}
+        />
+        {active && (
+          <div className={cn(vertical && "min-w-0")}>
+            {active.blocks.map((child) => (
+              <div key={child.id}>
+                {ctx.renderBlock?.({
+                  block: child,
+                  editing: false,
+                  compactVisuals: compact,
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -128,8 +191,16 @@ export function TabsBlockEditor({
   const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
   const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
   const compact = isCompact(title);
+  const orientation = tabOrientation(data);
+  const vertical = orientation === "vertical";
 
-  const commit = (tabs: TabsTab[]) => onChange({ tabs });
+  const commit = (tabs: TabsTab[]) => onChange(tabsWith(data, tabs));
+
+  const setOrientation = (next: TabsOrientation) =>
+    onChange({
+      ...data,
+      orientation: next === "vertical" ? "vertical" : undefined,
+    });
 
   const renameTab = (id: string, label: string) =>
     commit(data.tabs.map((tab) => (tab.id === id ? { ...tab, label } : tab)));
@@ -171,93 +242,321 @@ export function TabsBlockEditor({
   // (`TabsBlockReader`) owns its own section because read mode renders the spec
   // directly.
   return (
-    <div data-tabs-edit-block={blockId}>
+    <div className="min-w-0" data-tabs-edit-block={blockId}>
       <div
-        className="mb-8 flex max-w-full flex-wrap items-center gap-1 overflow-x-auto"
-        role="tablist"
-        data-plan-interactive
+        className={cn(
+          vertical &&
+            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
+        )}
       >
-        {data.tabs.map((tab) => {
-          const selected = tab.id === active?.id;
-          return (
-            <div
-              key={tab.id}
-              className={cn(
-                "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
-                selected ? "bg-plan-block shadow-sm" : "hover:bg-plan-block/60",
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => setActiveId(tab.id)}
-                className={cn(
-                  "rounded-lg px-4 py-2 text-sm font-semibold transition-colors",
-                  selected ? "text-plan-text" : "text-plan-muted",
-                )}
-              >
-                {tab.label}
-              </button>
-              {editable && data.tabs.length > 1 && (
+        <div
+          className={cn(
+            "flex min-w-0 items-start gap-2",
+            vertical ? "mb-5 md:mb-0" : "mb-8 w-full",
+          )}
+        >
+          <div
+            className={cn(
+              "flex min-w-0 flex-1 gap-1",
+              vertical
+                ? "flex-nowrap overflow-x-auto md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+                : "w-full flex-nowrap items-center overflow-x-auto",
+            )}
+            role="tablist"
+            aria-orientation={orientation}
+            data-plan-interactive
+          >
+            {data.tabs.map((tab) => {
+              const selected = tab.id === active?.id;
+              const tabLabel = (
+                <span className={tabLabelClass(orientation)}>{tab.label}</span>
+              );
+              if (!vertical) {
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => setActiveId(tab.id)}
+                    className={tabButtonClass(selected, orientation)}
+                  >
+                    {tabLabel}
+                  </button>
+                );
+              }
+              const tabButton = (
                 <button
                   type="button"
-                  data-plan-interactive
-                  aria-label={`Remove ${tab.label}`}
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setActiveId(tab.id)}
                   className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded text-plan-muted transition-opacity",
-                    "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-                    "hover:bg-muted hover:text-foreground",
+                    tabButtonClass(selected, orientation),
+                    vertical && editable && selected && "pr-9",
                   )}
-                  onClick={() => removeTab(tab.id)}
                 >
-                  <IconX className="size-3.5 shrink-0" />
+                  {tabLabel}
                 </button>
-              )}
-            </div>
-          );
-        })}
-        {editable && data.tabs.length < 12 && (
-          <button
-            type="button"
-            data-plan-interactive
-            aria-label="Add tab"
-            className="flex items-center gap-1.5 rounded-md px-2 py-2 text-sm text-plan-muted hover:bg-plan-block/60 hover:text-plan-text"
-            onClick={addTab}
-          >
-            <IconPlus className="size-4" />
-            Add tab
-          </button>
+              );
+              return (
+                <div
+                  key={tab.id}
+                  className="group/tab relative flex min-w-0 max-w-72 shrink-0 md:w-full md:max-w-none"
+                >
+                  {tabButton}
+                  {editable && selected && (
+                    <TabsSettingsPopover
+                      active={active}
+                      orientation={orientation}
+                      tabs={data.tabs}
+                      triggerClassName="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover/tab:pointer-events-auto group-hover/tab:opacity-100 group-focus-within/tab:pointer-events-auto group-focus-within/tab:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+                      onRename={renameTab}
+                      onOrientationChange={setOrientation}
+                      onAdd={addTab}
+                      onRemove={removeTab}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {editable && !vertical && (
+            <TabsSettingsPopover
+              active={active}
+              orientation={orientation}
+              tabs={data.tabs}
+              onRename={renameTab}
+              onOrientationChange={setOrientation}
+              onAdd={addTab}
+              onRemove={removeTab}
+            />
+          )}
+        </div>
+        {active && (
+          <div className={cn(vertical && "min-w-0")}>
+            {ctx.renderBlocksEditor
+              ? ctx.renderBlocksEditor({
+                  blocks: active.blocks,
+                  onChange: (nextBlocks) =>
+                    onChange(
+                      {
+                        ...data,
+                        tabs: data.tabs.map((tab) =>
+                          tab.id === active.id
+                            ? { ...tab, blocks: nextBlocks }
+                            : tab,
+                        ),
+                      },
+                      {
+                        containerRegion: {
+                          regionId: active.id,
+                          blocks: nextBlocks,
+                        },
+                      },
+                    ),
+                  editable,
+                  containerBlockId: blockId,
+                  regionId: active.id,
+                  regionLabel: active.label,
+                  compactVisuals: compact,
+                })
+              : active.blocks.map((child) => (
+                  <div key={child.id}>
+                    {ctx.renderBlock?.({
+                      block: child,
+                      editing: true,
+                      compactVisuals: compact,
+                      onChange: (next) => updateChild(active.id, next),
+                    })}
+                  </div>
+                ))}
+          </div>
         )}
       </div>
-      {active && (
-        <div className="grid gap-3">
-          {editable && (
+    </div>
+  );
+}
+
+function TabsSettingsPopover({
+  active,
+  orientation,
+  tabs,
+  onRename,
+  onOrientationChange,
+  onAdd,
+  onRemove,
+  triggerClassName,
+}: {
+  active: TabsTab | undefined;
+  orientation: TabsOrientation;
+  tabs: TabsTab[];
+  onRename: (id: string, label: string) => void;
+  onOrientationChange: (orientation: TabsOrientation) => void;
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+  triggerClassName?: string;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-plan-interactive
+          aria-label="Edit tabs"
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-md text-plan-muted transition-colors hover:text-plan-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            triggerClassName,
+          )}
+        >
+          <IconPencil className="size-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        className="w-80 p-0"
+        data-plan-interactive
+      >
+        <div className="border-b border-border px-3 py-2">
+          <div className="text-sm font-semibold text-foreground">
+            Tab settings
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Rename the active tab, change layout, or manage the tab set.
+          </div>
+        </div>
+        <div className="grid gap-3 p-3">
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Active tab label
+            </span>
             <input
               type="text"
               data-plan-interactive
-              className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              placeholder="Tab label"
-              value={active.label}
-              onChange={(event) => renameTab(active.id, event.target.value)}
+              className={tabSettingsInputClass}
+              value={active?.label ?? ""}
+              disabled={!active}
+              onChange={(event) => {
+                if (!active) return;
+                onRename(active.id, event.target.value);
+              }}
             />
-          )}
-          <div>
-            {active.blocks.map((child) => (
-              <div key={child.id}>
-                {ctx.renderBlock?.({
-                  block: child,
-                  editing: true,
-                  compactVisuals: compact,
-                  onChange: (next) => updateChild(active.id, next),
-                })}
-              </div>
-            ))}
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Layout
+            </span>
+            <div
+              className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/30 p-1"
+              role="radiogroup"
+              aria-label="Tabs layout"
+            >
+              {(
+                [
+                  ["horizontal", "Top"],
+                  ["vertical", "Side"],
+                ] satisfies Array<[TabsOrientation, string]>
+              ).map(([value, label]) => {
+                const selected = orientation === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    data-plan-interactive
+                    onClick={() => onOrientationChange(value)}
+                    className={cn(
+                      "h-8 rounded px-2 text-xs font-medium transition-colors",
+                      selected
+                        ? "bg-background text-foreground"
+                        : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-plan-interactive
+              disabled={tabs.length >= 12}
+              onClick={onAdd}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconPlus className="size-3.5" />
+              Add tab
+            </button>
+            <button
+              type="button"
+              data-plan-interactive
+              disabled={!active || tabs.length <= 1}
+              onClick={() => {
+                if (!active) return;
+                onRemove(active.id);
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconTrash className="size-3.5" />
+              Remove current
+            </button>
           </div>
         </div>
-      )}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
+}
+
+function tabRegions(data: TabsData): BlockContainerRegion[] {
+  return data.tabs.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    blocks: tab.blocks,
+  }));
+}
+
+function addTabRegion(data: TabsData, afterRegionId?: string): TabsData {
+  if (data.tabs.length >= 12) return data;
+  const nextTab: TabsTab = {
+    id: newTabId(),
+    label: `Tab ${data.tabs.length + 1}`,
+    blocks: [],
+  };
+  if (!afterRegionId) return tabsWith(data, [...data.tabs, nextTab]);
+  const afterIndex = data.tabs.findIndex((tab) => tab.id === afterRegionId);
+  if (afterIndex < 0) return tabsWith(data, [...data.tabs, nextTab]);
+  return tabsWith(data, [
+    ...data.tabs.slice(0, afterIndex + 1),
+    nextTab,
+    ...data.tabs.slice(afterIndex + 1),
+  ]);
+}
+
+function removeTabRegion(data: TabsData, regionId: string): TabsData {
+  if (data.tabs.length <= 1) return data;
+  return tabsWith(
+    data,
+    data.tabs.filter((tab) => tab.id !== regionId),
+  );
+}
+
+function reorderTabRegion(
+  data: TabsData,
+  fromRegionId: string,
+  toRegionId: string,
+): TabsData {
+  const fromIndex = data.tabs.findIndex((tab) => tab.id === fromRegionId);
+  const toIndex = data.tabs.findIndex((tab) => tab.id === toRegionId);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return data;
+  const next = [...data.tabs];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) return data;
+  next.splice(toIndex, 0, moved);
+  return tabsWith(data, next);
 }
 
 /**
@@ -273,9 +572,23 @@ export const tabsBlock = defineBlock<TabsData>({
   Read: TabsBlockReader,
   Edit: TabsBlockEditor,
   placement: ["block", "inline"],
+  editSurface: "container",
+  container: {
+    regions: tabRegions,
+    updateRegion: (data, regionId, blocks) =>
+      tabsWith(
+        data,
+        data.tabs.map((tab) =>
+          tab.id === regionId ? { ...tab, blocks } : tab,
+        ),
+      ),
+    addRegion: addTabRegion,
+    removeRegion: removeTabRegion,
+    reorderRegion: reorderTabRegion,
+  },
   label: "Tabs",
   icon: IconLayoutNavbar,
   description:
-    "A horizontal pill-tab container; each tab holds its own list of blocks.",
+    "A top or side tab container; each tab holds its own list of blocks.",
   empty: () => ({ tabs: [{ id: newTabId(), label: "Tab 1", blocks: [] }] }),
 });

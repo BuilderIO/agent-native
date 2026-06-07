@@ -89,8 +89,15 @@ export {
   tabsSchema,
   tabsMdx,
   type TabsData,
+  type TabsOrientation,
   type TabsTab,
 } from "./library/tabs.config.js";
+export {
+  columnsSchema,
+  columnsMdx,
+  type ColumnsData,
+  type ColumnsColumn,
+} from "./library/columns.config.js";
 
 // Dev-doc block library — React-free schema + MDX config only. The React
 // `Read`/`Edit` live in the matching `./library/<Name>Block.tsx` (imported from

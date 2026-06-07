@@ -4,6 +4,7 @@ import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type { OpenApiSpecData } from "./openapi-spec.config.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
+import { CodeSurface } from "./HighlightedCode.js";
 
 /**
  * Read + Edit renderers for an `openapi-spec` block — a Redoc / Swagger-UI-style
@@ -697,9 +698,11 @@ function OperationRow({
                 )}
               </div>
               {operation.requestExample && (
-                <pre className="mt-2 overflow-auto rounded-lg border border-plan-line bg-plan-code px-3 py-2 font-mono text-xs text-plan-code-text">
-                  {operation.requestExample}
-                </pre>
+                <CodeSurface
+                  code={operation.requestExample}
+                  language="json"
+                  className="mt-2"
+                />
               )}
             </div>
           )}
@@ -731,9 +734,13 @@ function OperationRow({
                       )}
                     </div>
                     {response.example && (
-                      <pre className="overflow-auto border-t border-plan-line bg-plan-code px-3 py-2 font-mono text-xs text-plan-code-text">
-                        {response.example}
-                      </pre>
+                      <div className="border-t border-plan-line px-3 pb-3 pt-3">
+                        <CodeSurface
+                          code={response.example}
+                          language="json"
+                          className="mt-0"
+                        />
+                      </div>
                     )}
                   </div>
                 ))}
@@ -873,7 +880,7 @@ export function OpenApiSpecRead({
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-code">
+        <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-block">
           <div className="border-b border-plan-line px-3 py-1.5">
             <span className="font-mono text-xs uppercase tracking-wide text-plan-muted">
               OpenAPI
@@ -883,9 +890,11 @@ export function OpenApiSpecRead({
             <p className="text-xs text-red-600 dark:text-red-300">
               Could not parse spec: {parsed.error}
             </p>
-            <pre className="overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-plan-code-text">
-              {data.spec || "—"}
-            </pre>
+            <CodeSurface
+              code={data.spec || "—"}
+              language="json"
+              className="mt-0"
+            />
           </div>
         </div>
       )}

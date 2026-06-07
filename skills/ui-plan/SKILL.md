@@ -133,12 +133,24 @@ Pick the `surface` that matches what the user will actually see:
 - `popover`: a small floating menu, dropdown, or inline popover.
 - `panel`: a side panel, inspector, or sidebar widget.
 
-The surface locks the footprint and aspect; never set width/height/coordinates.
-A sidebar popover renders as a small surface, not a desktop page and a phone
-frame. Do not emit `desktop` + `mobile` variants unless responsive behavior
-actually changes the layout. For a component or widget, show one broader
-app-context frame only when placement affects understanding, then the focused
-component states.
+The surface locks the footprint and aspect; never set artboard width/height and
+never use coordinates inside the wireframe HTML. Let canvas auto-placement
+handle simple one-row boards. For mixed-footprint canvases, board-level artboard
+`x`/`y` is allowed and expected when it creates clear lanes. A sidebar popover
+renders as a small surface, not a desktop page and a phone frame. Do not emit
+`desktop` + `mobile` variants unless responsive behavior actually changes the
+layout. For a component or widget, show one broader app-context frame only when
+placement affects understanding, then the focused component states.
+
+**Lay out mixed canvases in lanes.** When a canvas contains broad browser /
+desktop frames plus compact `mobile`, `popover`, or `panel` surfaces, do not put
+everything in one horizontal strip. Use board-level artboard `x`/`y` to reserve
+lanes with generous empty space: main flow on one row, compact surfaces in their
+own column or row, and loading/error states in a lower row. Keep at least 96px
+between rendered artboard rectangles plus room for annotation gutters. Connect
+only neighboring steps; never draw a long connector that skips across unrelated
+frames. Before handoff, inspect the top canvas at default zoom and move any
+frame whose label, connector, or annotation crosses another frame.
 
 **Modify, don't redesign.** When the task changes an existing screen, reproduce
 the current screen's real layout and footprint FIRST, then change only the delta
@@ -185,16 +197,18 @@ point at one specific control or transition; for a broad frame-level note, write
 text beside the frame with no connector. Connectors are for real sequences only —
 never fake "Step 1 → Step 2" lines between independent states.
 
-**Do not create overlapping annotations.** Anchor each note to the frame it
-explains with `targetId` + `placement` (top/right/bottom/left). The renderer
-parks notes in a gutter beside the frame and lays them out automatically — never
-supply x/y or points for anchored notes; hand-placed coordinates fight the
-auto-layout and cause the overlap you're trying to avoid. Reserve arrows for a
-note that must point at a specific control inside a frame; a note that simply
-sits beside its frame needs no arrow.
+**Do not create overlapping annotations.** Anchor each ordinary note to the
+frame it explains with `targetId` + `placement` (top/right/bottom/left), and
+omit `type` or use `type: "note"`. The renderer parks notes in a gutter beside
+the frame and lays them out automatically. Do not use `type: "callout"`,
+`type: "text"`, `type: "arrow"`, x/y, or points for ordinary notes; those are
+freeform review-markup layers and must be reserved for intentional markup in
+open canvas space. Reserve arrows for a note that must point at one specific
+control inside a frame; a note that simply sits beside its frame needs no arrow.
 
-**Patching.** Edit one wireframe, canvas annotation, or block with targeted `contentPatches`
-(for example `update-block`, `replace-blocks`, `update-canvas-annotation`) rather
+**Patching.** Edit one wireframe, canvas annotation, diagram, or block with targeted `contentPatches`
+(for example `patch-wireframe-html`, `patch-diagram-html`, `update-block`,
+`replace-blocks`, `update-canvas-annotation`) rather
 than regenerating the whole plan. `contentPatches` are part of the public MCP
 action schema, so Claude Code, Codex, Cursor, and other hosts can make surgical
 edits. If an agent is working from exported source files, use
@@ -281,13 +295,14 @@ call out or extend the needed renderer capability.
 
 **Legacy kit tree.** Older plans set a `screen` array of `{ el, ...props }` kit
 nodes instead of `html`; the renderer still accepts and displays it, but new
-plans emit `html`. Do not author fresh kit-tree screens — write the HTML mockup
+plans emit `html`. Do not author fresh kit-tree screens - write the HTML mockup
 instead. Likewise, old or imported plans may carry coordinate-based regions or
-free-float x/y on notes or artboards; those are legacy escape hatches the
-renderer still shows but you must never produce. The `surface` drives the aspect
-and footprint, the canvas auto-places artboards, and the gutter parks notes by
-`targetId` + `placement`; never supply width, height, or coordinates for a new
-plan.
+free-float x/y on notes; those are legacy escape hatches the renderer still
+shows but you must never produce. The `surface` drives each artboard's aspect
+and footprint, and the gutter parks notes by `targetId` + `placement`. The only
+new-plan coordinate exception is deliberate board-level artboard `x`/`y` for
+multi-lane mixed-surface canvases; never supply artboard width/height, note
+coordinates, or wireframe-internal coordinates.
 
 <!-- SHARED-CORE:wireframe-canvas END -->
 
@@ -323,13 +338,17 @@ swimlanes, dependency maps, matrices, or grouped regions. Do not default to
 left-to-right chains; use a line only when the relationship is truly a sequence.
 Use native `diagram` blocks with `data.html` / `data.css` for these richer
 layouts; the fragment may use semantic HTML and inline SVG, and the renderer
-applies the viewer's sketch/clean style. Legacy `nodes` / `edges` are only for
-tiny previews or genuinely linear step flows. Repeat a wireframe in the document
-only for a genuinely new detail view or comparison. Skip the visual surface
-entirely for non-visual work and write a clean rich document. For a simple
-binary UI visual choice, show the two directions in the canvas only; do not
-repeat the same options as body wireframes, a `decision` block, or prose. Put
-the actual choice in the bottom "Open Questions" form.
+applies the viewer's sketch/clean style. Leave room for the sketch font: keep
+labels short, give nodes generous width, and place boundary/annotation labels in
+unused space instead of over nodes. For small text/SVG changes to an existing
+HTML diagram, use `patch-diagram-html` with a unique `find`/`replace` snippet
+instead of resending the whole `data.html` string. Legacy `nodes` / `edges` are
+only for tiny previews or genuinely linear step flows. Repeat a wireframe in the document only
+for a genuinely new detail view or comparison. Skip the visual surface entirely
+for non-visual work and write a clean rich document. For a simple binary UI
+visual choice, show the two directions in the canvas only; do not repeat the
+same options as body wireframes, a `decision` block, or prose. Put the actual
+choice in the bottom "Open Questions" form.
 
 **Use the right block, and make it carry substance.** For the authoritative,
 machine-checked list of block types and their data schemas, call `get-plan-blocks`
@@ -346,16 +365,26 @@ so you never emit a block the editor cannot render or round-trip:
 - `decision` for two or three option cards with consequences. These are static
   records; do not style them like clickable tabs or chips unless the renderer
   truly supports changing the selection.
+- `columns` for side-by-side before/after or current/target comparisons where
+  each side needs real nested blocks; label the columns clearly and avoid
+  stacking comparison blocks vertically when parallel reading is the point.
 - `diagram` for two-dimensional architecture, dependency, data-flow, or state
   relationships, only when it clarifies something real. For architecture/code
   diagrams, prefer `data.html` / `data.css` with semantic HTML and inline SVG so
   the diagram can use panels, layers, matrices, arrows, annotations, and
-  responsive layout directly. Use legacy `nodes` / `edges` only for small
-  previews or truly sequential flows. In architecture/code plans, prefer a
-  repeated section rhythm: recommendation title, confidence and category badges,
-  code-path evidence, a local before/after or current/target spatial diagram,
-  then concise Problem/Solution/Why text. Labels must not overlap nodes,
-  connectors, or each other.
+  responsive layout directly. Author diagram HTML with renderer-owned primitives
+  like `.diagram-panel`, `.diagram-card`, `.diagram-node`, `.diagram-box`,
+  `.diagram-pill`, `.diagram-muted`, and `[data-rough]`; they map to the plan's
+  Tailwind theme variables through `--wf-ink`, `--wf-muted`, `--wf-line`,
+  `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
+  `--wf-ok`, and switch to Virgil plus rough.js outlines in sketchy mode. Do not
+  set `font-family` and do not hard-code hex, rgb, or hsl colors in diagram HTML
+  or CSS. Use legacy `nodes` / `edges` only for small previews or truly
+  sequential flows. In architecture/code plans, prefer a repeated section rhythm:
+  recommendation title, confidence and category badges, code-path evidence, a
+  local before/after or current/target spatial diagram, then concise
+  Problem/Solution/Why text. Labels must not overlap nodes, connectors, or each
+  other.
 - `tabs` for multiple states, directions, or comparisons. A tab that reveals
   only prose usually means the plan is under-specified — include a relevant
   visual unless the tab is intentionally document-only.
@@ -473,8 +502,9 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`, `/plan-design`,
-`/visual-questions`) generate a plan and open the editor. Pass `--no-connect` to
+After that, `/visual-plan` (and `/visual-recap`, `/ui-plan`,
+`/prototype-plan`, `/plan-design`, `/visual-questions`) generate a plan and open
+the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 

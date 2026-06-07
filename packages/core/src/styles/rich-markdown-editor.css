@@ -346,6 +346,7 @@
 
 .an-rich-md-slash-menu {
   z-index: 9999;
+  width: min(420px, calc(100vw - 24px));
   min-width: 230px;
   max-height: 320px;
   overflow-y: auto;
@@ -370,6 +371,8 @@
 
 .an-rich-md-slash-item {
   width: 100%;
+  min-width: 0;
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -402,14 +405,26 @@
   flex-shrink: 0;
 }
 
+.an-rich-md-slash-copy {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+
 .an-rich-md-slash-title {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 500;
   font-size: 13px;
 }
 
 .an-rich-md-slash-description {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: hsl(var(--muted-foreground));
 }

@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
 import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
@@ -20,7 +28,10 @@ import {
 } from "./PlanVisualSurface";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
-import { PlanDocumentEditor } from "../editor/PlanDocumentEditor";
+import {
+  NestedPlanBlocksEditor,
+  PlanDocumentEditor,
+} from "../editor/PlanDocumentEditor";
 
 type PlanContentRendererProps = {
   content: PlanContent;
@@ -28,6 +39,10 @@ type PlanContentRendererProps = {
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
   onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
+  onMetadataChange?: (patch: {
+    title?: string;
+    brief?: string;
+  }) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
   contentUpdatedAt?: string | null;
   editingDisabled?: boolean;
@@ -58,6 +73,7 @@ export function PlanContentRenderer({
   fallbackBrief,
   onContentChange,
   onContentPatch,
+  onMetadataChange,
   onVisualQuestionsSubmit,
   contentUpdatedAt,
   editingDisabled = false,
@@ -157,6 +173,10 @@ export function PlanContentRenderer({
     mounted &&
     !editingDisabled &&
     !!(onContentPatch || onContentChange);
+  const metadataEditable = documentEditable && !!onMetadataChange;
+  const notionCompatibleOnly = Boolean(
+    (content as { notionSync?: boolean }).notionSync,
+  );
 
   // Persist a whole-document edit (prose, reorder, insert/delete, block data),
   // DEBOUNCED + SERIALIZED. The single-doc editor fires `onBlocksChange` on every
@@ -260,9 +280,41 @@ export function PlanContentRenderer({
           handlersRef.current.updateRichTextBlock(blockId, markdown),
         onVisualQuestionsSubmit: (summary) =>
           handlersRef.current.onVisualQuestionsSubmit?.(summary),
+        renderBlocksEditor: ({
+          blocks,
+          onChange,
+          editable,
+          containerBlockId,
+          regionId,
+          regionLabel,
+          compactVisuals,
+        }) => (
+          <NestedPlanBlocksEditor
+            blocks={blocks as PlanBlock[]}
+            contentUpdatedAt={contentUpdatedAt}
+            planId={planId}
+            collabUser={collabUser}
+            editable={editable && !handlersRef.current.editingDisabled}
+            onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
+            onVisualQuestionsSubmit={(summary) =>
+              handlersRef.current.onVisualQuestionsSubmit?.(summary)
+            }
+            notionCompatibleOnly={notionCompatibleOnly}
+            containerBlockId={containerBlockId}
+            regionId={regionId}
+            regionLabel={regionLabel}
+            compactVisuals={compactVisuals}
+          />
+        ),
         editingDisabled,
       }),
-    [contentUpdatedAt, planId, collabUser, editingDisabled],
+    [
+      contentUpdatedAt,
+      planId,
+      collabUser,
+      editingDisabled,
+      notionCompatibleOnly,
+    ],
   );
 
   return (
@@ -297,12 +349,22 @@ export function PlanContentRenderer({
               <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
                 {planLabel}
               </p>
-              <h1 className="max-w-3xl text-[2rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.5rem]">
-                {content.title || fallbackTitle}
-              </h1>
-              <p className="mt-4 max-w-2xl text-lg leading-8 text-plan-muted">
-                {content.brief || fallbackBrief}
-              </p>
+              <EditableHeaderText
+                as="h1"
+                value={content.title || fallbackTitle}
+                editable={metadataEditable}
+                className="max-w-3xl text-[2rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.5rem]"
+                placeholder="Untitled plan"
+                onCommit={(title) => onMetadataChange?.({ title })}
+              />
+              <EditableHeaderText
+                as="p"
+                value={content.brief || fallbackBrief}
+                editable={metadataEditable}
+                className="mt-4 max-w-2xl text-lg leading-8 text-plan-muted"
+                placeholder="Add a short plan summary"
+                onCommit={(brief) => onMetadataChange?.({ brief })}
+              />
             </header>
 
             <div className="plan-document-flow">
@@ -342,6 +404,85 @@ export function PlanContentRenderer({
   );
 }
 
+function EditableHeaderText({
+  as,
+  value,
+  editable,
+  className,
+  placeholder,
+  onCommit,
+}: {
+  as: "h1" | "p";
+  value: string;
+  editable: boolean;
+  className: string;
+  placeholder: string;
+  onCommit: (next: string) => void | Promise<void>;
+}) {
+  const ref = useRef<HTMLElement | null>(null);
+  const draftRef = useRef(value);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || document.activeElement === node) return;
+    node.textContent = value;
+    draftRef.current = value;
+  }, [value]);
+
+  const commonProps = {
+    ref: (node: HTMLElement | null) => {
+      ref.current = node;
+    },
+    contentEditable: editable,
+    suppressContentEditableWarning: true,
+    role: editable ? "textbox" : undefined,
+    "aria-label": as === "h1" ? "Plan title" : "Plan summary",
+    "aria-multiline": false,
+    spellCheck: true,
+    "data-plan-interactive": editable ? true : undefined,
+    "data-placeholder": placeholder,
+    className: cn(className, editable && "plan-header-editable"),
+    onInput: (event: FormEvent<HTMLElement>) => {
+      draftRef.current = event.currentTarget.textContent ?? "";
+    },
+    onPaste: (event: ClipboardEvent<HTMLElement>) => {
+      if (!editable) return;
+      event.preventDefault();
+      document.execCommand(
+        "insertText",
+        false,
+        event.clipboardData.getData("text/plain"),
+      );
+    },
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (!editable) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.currentTarget.blur();
+      }
+    },
+    onBlur: () => {
+      if (!editable) return;
+      const node = ref.current;
+      const next = (draftRef.current || "").trim().replace(/\s+/g, " ");
+      if (!next && as === "h1") {
+        if (node) node.textContent = value;
+        draftRef.current = value;
+        return;
+      }
+      if (node) node.textContent = next;
+      draftRef.current = next;
+      if (next !== value) void onCommit(next);
+    },
+  };
+
+  return as === "h1" ? (
+    <h1 {...commonProps}>{value}</h1>
+  ) : (
+    <p {...commonProps}>{value}</p>
+  );
+}
+
 function updateBlocks(
   blocks: PlanBlock[],
   id: string,
@@ -349,26 +490,46 @@ function updateBlocks(
 ): PlanBlock[] {
   return blocks.map((block) => {
     if (block.id === id) return updater(block);
-    if (block.type !== "tabs") return block;
-    return {
-      ...block,
-      data: {
-        tabs: block.data.tabs.map((tab) => ({
-          ...tab,
-          blocks: updateBlocks(tab.blocks, id, updater),
-        })),
-      },
-    };
+    if (block.type === "tabs") {
+      return {
+        ...block,
+        data: {
+          tabs: block.data.tabs.map((tab) => ({
+            ...tab,
+            blocks: updateBlocks(tab.blocks, id, updater),
+          })),
+        },
+      };
+    }
+    if (block.type === "columns") {
+      return {
+        ...block,
+        data: {
+          columns: block.data.columns.map((column) => ({
+            ...column,
+            blocks: updateBlocks(column.blocks, id, updater),
+          })),
+        },
+      };
+    }
+    return block;
   });
 }
 
 function findBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
   for (const block of blocks) {
     if (block.id === id) return block;
-    if (block.type !== "tabs") continue;
-    for (const tab of block.data.tabs) {
-      const match = findBlock(tab.blocks, id);
-      if (match) return match;
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        const match = findBlock(tab.blocks, id);
+        if (match) return match;
+      }
+    }
+    if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        const match = findBlock(column.blocks, id);
+        if (match) return match;
+      }
     }
   }
   return null;

@@ -13,6 +13,7 @@ import {
 } from "../server/plan-content.js";
 import {
   isLocalPlanRuntime,
+  resolvePlanOrgIdForWrite,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
@@ -78,7 +79,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable plan content. Prefer this for rich text, inline diagrams, implementation maps, question-form open questions, and any optional top UI/product visual surface. For architecture-only, backend-only, refactor, API, data model, migration, and code plans, omit canvas/prototype; use inline diagram, data-model, file-tree, implementation-map, code-tabs, annotated-code, or compact custom-html blocks near the relevant prose. For architecture/code diagrams, use diagram blocks with data.html/data.css so the diagram can be real semantic HTML and inline SVG: grouped regions, layers, swimlanes, dependency clusters, matrices, and side-by-side before/after or current/target panels. Use legacy diagram nodes/edges only for tiny previews or true step-by-step flows. Use mermaid only when textual sequence/flowchart grammar is materially clearer. Use canvas only for static UI/product visuals; include both canvas and prototype for multi-step UI/product flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
+          "Structured editable plan content. Prefer this for rich text, inline diagrams, implementation maps, question-form open questions, and any optional top UI/product visual surface. For architecture-only, backend-only, refactor, API, data model, migration, and code plans, omit canvas/prototype; use inline diagram, mermaid, api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer, implementation-map, code-tabs, annotated-code, or compact custom-html blocks near the relevant prose. Keep API endpoint and OpenAPI reference blocks in the normal single-column document flow; use columns for API material only when the work is explicitly a before/after contract comparison. For architecture/code diagrams, use diagram blocks with data.html/data.css so the diagram can be real semantic HTML and inline SVG: grouped regions, layers, swimlanes, dependency clusters, matrices, and side-by-side before/after or current/target panels. Use renderer-owned diagram classes such as .diagram-panel, .diagram-card, .diagram-node, .diagram-box, .diagram-pill, .diagram-muted, and data-rough plus --wf-* CSS tokens; the renderer maps them to Tailwind theme variables, Virgil, and rough.js sketch outlines. Do not set fonts or hard-code hex/rgb/hsl colors in diagram HTML/CSS. Use legacy diagram nodes/edges only for tiny previews or true step-by-step flows. Use mermaid only when textual sequence/flowchart grammar is materially clearer. Use canvas only for static UI/product visuals; include both canvas and prototype for multi-step UI/product flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()
@@ -124,6 +125,10 @@ export default defineAction({
     const ownerEmail = requirePlanOwnerEmailForWrite(
       requesterEmail,
       "Creating a visual plan",
+    );
+    const ownerOrgId = resolvePlanOrgIdForWrite(
+      requesterEmail,
+      getRequestOrgId(),
     );
     await assertGuestCreateWithinLimits(ownerEmail);
 
@@ -202,7 +207,7 @@ export default defineAction({
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,
         ownerEmail,
-        orgId: getRequestOrgId(),
+        orgId: ownerOrgId,
         visibility: "private",
       });
 

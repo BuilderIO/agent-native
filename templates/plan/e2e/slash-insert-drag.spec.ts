@@ -286,11 +286,20 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
     await openSlashMenu(page, prose, "/");
 
     // Notion-compatible registry blocks stay offered…
-    for (const label of ["Callout", "Checklist", "Table"]) {
+    for (const label of ["Callout", "Checklist"]) {
       await expect(
         slashTitles(page).filter({ hasText: new RegExp(`^${label}$`) }),
-      ).toHaveCount(label === "Table" ? 2 : 1); // "Table" appears as both a prose and a registry command
+      ).toHaveCount(1);
     }
+    // The structured `table` registry block stays offered too, but is now
+    // labeled "Structured table" to disambiguate it from the prose markdown
+    // table command (which remains "Table"). So each appears exactly once.
+    await expect(
+      slashTitles(page).filter({ hasText: /^Structured table$/ }),
+    ).toHaveCount(1);
+    await expect(
+      slashTitles(page).filter({ hasText: /^Table$/ }),
+    ).toHaveCount(1);
     // …and the NFM-incompatible ones are filtered out.
     for (const label of ["Wireframe", "Diagram", "Code tabs", "Tabs"]) {
       await expect(

@@ -50,6 +50,11 @@ const TABS_DATA = {
   ],
 };
 
+const VERTICAL_TABS_DATA = {
+  ...TABS_DATA,
+  orientation: "vertical" as const,
+};
+
 function tabsContent(): PlanContent {
   return planContentSchema.parse({
     version: 2,
@@ -137,6 +142,37 @@ describe("plan block registry — tabs", () => {
         expect(nestedCallout.data.tone).toBe("info");
         expect(nestedCallout.data.body).toContain("nested callout");
       }
+    }
+  });
+
+  it("round-trips optional vertical orientation through MDX", async () => {
+    const source = planContentSchema.parse({
+      version: 2,
+      title: "Registry vertical tabs",
+      brief: "Proving the side-rail tab option round-trips.",
+      blocks: [
+        {
+          id: "tabs-vertical",
+          type: "tabs",
+          data: VERTICAL_TABS_DATA,
+        },
+      ],
+    });
+
+    const folder = await exportPlanContentToMdxFolder({
+      content: source,
+      title: source.title,
+      brief: source.brief,
+    });
+
+    expect(folder["plan.mdx"]).toContain('orientation="vertical"');
+
+    const parsed = await parsePlanMdxFolder(folder);
+    const tabs = parsed.blocks.find((block) => block.type === "tabs");
+    expect(tabs).toBeDefined();
+    if (tabs?.type === "tabs") {
+      expect(tabs.data.orientation).toBe("vertical");
+      expect(tabs.data.tabs[1]?.blocks[0]?.type).toBe("callout");
     }
   });
 

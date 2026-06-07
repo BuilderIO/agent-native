@@ -450,6 +450,7 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
     return {
       ...block,
       data: {
+        ...block.data,
         tabs: block.data.tabs.map((tab) => ({
           ...tab,
           blocks: tab.blocks.map(sanitizeBlock),

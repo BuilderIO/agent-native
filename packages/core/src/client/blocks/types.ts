@@ -108,7 +108,10 @@ export interface BlockRenderContext {
    * core block (whose `Read` lives in core) defer prose rendering to the app's
    * markdown reader (e.g. the plan `PlanMarkdownReader`) without importing it.
    */
-  renderMarkdown?: (markdown: string) => React.ReactNode;
+  renderMarkdown?: (
+    markdown: string,
+    options?: { className?: string },
+  ) => React.ReactNode;
   /**
    * Render an inline, editable rich-markdown field. The auto-editor calls this
    * for a `markdown()`-tagged field so the app owns the editor wiring (collab,
@@ -119,7 +122,17 @@ export interface BlockRenderContext {
     onChange: (next: string) => void;
     editable: boolean;
     blockId?: string;
+    className?: string;
+    ariaLabel?: string;
   }) => React.ReactNode;
+  /**
+   * Render an app-owned "Edit with AI" affordance for a focused/editable block
+   * field. Core block editors pass the current field value and nearby companion
+   * fields; the host app decides how to collect the prompt and route it to the
+   * agent sidebar. This keeps reusable core blocks from importing app-specific
+   * popover/composer code while still exposing a generic AI edit hook.
+   */
+  renderAiFieldAction?: (props: BlockAiFieldActionProps) => React.ReactNode;
   /**
    * Render a nested child block through the app's own block dispatcher. Container
    * blocks whose `Read`/`Edit` live in core (e.g. tabs) call this to render each
@@ -140,6 +153,25 @@ export interface BlockRenderContext {
     compactVisuals?: boolean;
   }) => React.ReactNode;
   /**
+   * Render a nested editable block list through the host app's document editor.
+   * Container blocks such as columns call this for each editable region so slash
+   * commands, nested structured blocks, and ordinary prose behave like the
+   * top-level document while the container still persists its normalized runtime
+   * data. Source adapters may still expose a human-friendly nested MDX form
+   * (for example `<Columns><Column>markdown</Column></Columns>`) and normalize it
+   * into these block arrays at runtime.
+   */
+  renderBlocksEditor?: (props: {
+    blocks: NestedBlock[];
+    onChange: (blocks: NestedBlock[]) => void;
+    editable: boolean;
+    containerBlockId: string;
+    regionId: string;
+    regionLabel?: string;
+    /** Tighten embedded visuals in dense regions such as tab panes. */
+    compactVisuals?: boolean;
+  }) => React.ReactNode;
+  /**
    * Wrap a block's edit form in an app-provided "panel" surface (e.g. a shadcn
    * Popover anchored to the corner edit button) for `editSurface: "panel"`
    * blocks. Core renders the rendered `Read` view plus a corner trigger button
@@ -149,9 +181,38 @@ export interface BlockRenderContext {
    */
   renderEditSurface?: (props: {
     title: string;
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
     trigger: React.ReactNode;
     children: React.ReactNode;
+    /** Metadata for host-provided contextual controls such as "Edit with AI". */
+    blockId?: string;
+    blockType?: string;
+    blockTitle?: string;
+    blockSummary?: string;
+    blockData?: unknown;
   }) => React.ReactNode;
+}
+
+export interface BlockAiFieldActionProps {
+  blockId: string;
+  blockType: string;
+  blockTitle?: string;
+  blockSummary?: string;
+  fieldLabel: string;
+  fieldValue: string;
+  draftScope: string;
+  disabled?: boolean;
+  /**
+   * Human-readable instructions for the host agent prompt. Mention how to patch
+   * the block and which sibling fields should be preserved.
+   */
+  instructions: string;
+  companionFields?: Array<{
+    label: string;
+    value: string;
+    language?: string;
+  }>;
 }
 
 /**
@@ -169,6 +230,31 @@ export interface NestedBlock {
   [key: string]: unknown;
 }
 
+export interface BlockContainerRegion {
+  id: string;
+  label?: string;
+  blocks: NestedBlock[];
+}
+
+export interface BlockContainerSpec<TData> {
+  regions: (data: TData) => BlockContainerRegion[];
+  updateRegion: (data: TData, regionId: string, blocks: NestedBlock[]) => TData;
+  addRegion?: (data: TData, afterRegionId?: string) => TData;
+  removeRegion?: (data: TData, regionId: string) => TData;
+  reorderRegion?: (
+    data: TData,
+    fromRegionId: string,
+    toRegionId: string,
+  ) => TData;
+}
+
+export type BlockDataChangeMeta = {
+  containerRegion?: {
+    regionId: string;
+    blocks: NestedBlock[];
+  };
+};
+
 /** Props passed to a block's read-only renderer. */
 export interface BlockReadProps<TData> {
   data: TData;
@@ -185,7 +271,7 @@ export interface BlockReadProps<TData> {
 /** Props passed to a block's editor (custom or schema-generated). */
 export interface BlockEditProps<TData> {
   data: TData;
-  onChange: (next: TData) => void;
+  onChange: (next: TData, meta?: BlockDataChangeMeta) => void;
   editable: boolean;
   blockId: string;
   title?: string;
@@ -218,26 +304,39 @@ export interface BlockSpec<TData = unknown> {
    * {@link BlockRegistry.notionCompatibleTypes} instead of hand-maintaining
    * per-app sets. Set it on registry-atom blocks with an NFM counterpart
    * (checklist, table); leave it `false`/undefined on dev-doc blocks
-   * (api-endpoint, data-model, diff, file-tree, json-explorer, annotated-code,
-   * mermaid, html, tabs, code-tabs) and visual/plan-only blocks (wireframe,
-   * diagram). Prose blocks that aren't registry atoms (rich-text, callout) carry
-   * their NFM analog through the prose path, not this flag.
+   * (api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer,
+   * annotated-code, mermaid, custom-html, tabs, code-tabs) and visual/plan-only
+   * blocks (wireframe, diagram). Prose blocks that aren't registry atoms
+   * (rich-text, callout) carry their NFM analog through the prose path, not this
+   * flag.
    */
   notionCompatible?: boolean;
   /**
    * How the block is edited in a `block`-placed document:
-   * - `"inline"` — the `Edit`/auto-form renders in place (direct manipulation:
-   *   prose, checklists, tables).
+   * - `"inline"` — the `Edit`/auto-form renders in place for direct
+   *   manipulation of authored content (prose, checklist text, table cells,
+   *   code bodies). Schema-ish metadata such as tone/type, tab labels,
+   *   language, density, or structural settings should still be tucked behind a
+   *   contextual edit/settings affordance inside the custom `Edit`.
    * - `"panel"` — the block shows its rendered `Read` view with a corner edit
    *   button that opens the `Edit`/auto-form in an app-provided panel (popover).
    *   Best for config-driven blocks whose render differs from their props
    *   (custom HTML, charts, any user-registered block).
+   * - `"container"` — the block renders its `Edit` in place, and that editor
+   *   may call `ctx.renderBlocksEditor` for nested block regions with normal
+   *   slash commands and nested structured blocks.
    * Defaults to `"inline"` when a custom `Edit` is supplied, else `"panel"`
    * (auto-form blocks are property forms, ideal for a panel). The app must wire
    * `ctx.renderEditSurface` for `"panel"` to take effect; otherwise it falls
    * back to inline.
    */
-  editSurface?: "inline" | "panel";
+  editSurface?: "inline" | "panel" | "container";
+  /**
+   * Optional generic contract for content-bearing container blocks. Keep this
+   * runtime-oriented: it describes editable regions over normalized block arrays;
+   * source formats can provide readable nested MDX adapters independently.
+   */
+  container?: BlockContainerSpec<TData>;
   /** Human label for menus + agent schema export. */
   label: string;
   /** Tabler icon component for UI menus (never emoji/robot/sparkle). */

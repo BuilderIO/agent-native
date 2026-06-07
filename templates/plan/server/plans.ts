@@ -610,6 +610,12 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,
     },
+    access: {
+      role: access.role,
+      ownerEmail: plan.ownerEmail ?? null,
+      orgId: plan.orgId ?? null,
+      visibility: plan.visibility ?? "private",
+    },
     sections,
     comments,
     events,

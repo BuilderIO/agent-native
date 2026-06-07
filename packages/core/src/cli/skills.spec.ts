@@ -9,6 +9,7 @@ import { addAgentNativeSkill, parseSkillsArgs, runSkills } from "./skills.js";
 const tmpRoots: string[] = [];
 const PLANS_SKILL_NAMES = [
   "visual-plan",
+  "visual-recap",
   "visual-questions",
   "ui-plan",
   "prototype-plan",
@@ -235,6 +236,8 @@ describe("agent-native skills", () => {
           "--skill",
           "visual-plan",
           "--skill",
+          "visual-recap",
+          "--skill",
           "visual-questions",
           "--skill",
           "ui-plan",
@@ -291,6 +294,8 @@ describe("agent-native skills", () => {
         "--skill",
         "visual-plan",
         "--skill",
+        "visual-recap",
+        "--skill",
         "visual-questions",
         "--skill",
         "ui-plan",
@@ -333,6 +338,8 @@ describe("agent-native skills", () => {
       expect.arrayContaining([
         "--skill",
         "visual-plan",
+        "--skill",
+        "visual-recap",
         "--skill",
         "visual-questions",
         "--skill",
@@ -377,6 +384,8 @@ describe("agent-native skills", () => {
         "--skill",
         "visual-plan",
         "--skill",
+        "visual-recap",
+        "--skill",
         "visual-questions",
         "--skill",
         "ui-plan",
@@ -395,6 +404,7 @@ describe("agent-native skills", () => {
     const root = workspaceRoot();
     const pairs = [
       ["visual-plan", "visual-plans"],
+      ["visual-recap", "visual-recap"],
       ["visual-questions", "visual-questions"],
       ["ui-plan", "ui-plan"],
       ["prototype-plan", "prototype-plan"],

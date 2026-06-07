@@ -67,6 +67,12 @@ style edits, and transitions only when a matching Prototype tab should be
 clickable. Treat the Design tab as the visual source of truth and the Prototype
 tab as the same direction made interactive.
 
+Use `/visual-recap` when the user wants a high-level review surface for a PR,
+commit, branch, or git diff that already changed. Recaps are reverse plans:
+derive blocks from the real diff, call `create-visual-recap` with the recap
+MDX source, publish it as a review aid, and state that reviewers still need to
+inspect the actual changed lines.
+
 The markdown/document portion should stay close to the plan the agent would
 normally produce. Diagrams, wireframes, mockups, annotations, and an optional
 bottom `question-form` Open Questions block are additive review aids, not a
@@ -88,6 +94,8 @@ Document Quality cores, so do not restate those rules here.
 
 - `.agents/skills/visual-plan/SKILL.md` — `/visual-plan`, the canonical command
   for any rich plan.
+- `.agents/skills/visual-recap/SKILL.md` — `/visual-recap`, high-level visual
+  code-review recaps for PRs, commits, branches, and git diffs.
 - `.agents/skills/ui-plan/SKILL.md` — `/ui-plan`, UI-first work that starts with
   the screens.
 - `.agents/skills/prototype-plan/SKILL.md` — `/prototype-plan`, clickable
@@ -99,6 +107,14 @@ Document Quality cores, so do not restate those rules here.
 
 When the user critiques a plan's look or structure, fix the renderer or the
 sync-guarded skills (not just one stored plan) so the improvement sticks.
+
+## Review Recaps
+
+- `columns` is the generic before/after layout primitive for structured
+  comparisons. Use it for side-by-side schema, API, prose, and model blocks.
+- PR automation can publish org-gated recap plans when `PLAN_RECAP_APP_URL` and
+  `PLAN_RECAP_TOKEN` are configured; the recap link is informational and must
+  not imply the diff has been reviewed.
 
 ## Source Sync
 

@@ -7,6 +7,7 @@ import {
   isLocalPlanRuntime,
   requirePlanOwnerEmailForWrite,
   resolvePlanAccessContext,
+  resolvePlanOrgIdForWrite,
   resolvePlanOwnerEmail,
   resolvePlanOwnerEmailForWrite,
 } from "./local-identity.js";
@@ -127,6 +128,22 @@ describe("local-identity", () => {
       expect(
         resolvePlanAccessContext({ userEmail: PUBLIC_VIEWER_EMAIL }),
       ).toEqual({ userEmail: PUBLIC_VIEWER_EMAIL });
+    });
+  });
+
+  describe("resolvePlanOrgIdForWrite", () => {
+    it("drops the request org when local mode maps the owner to local", () => {
+      setEnv({ NODE_ENV: "development" });
+      expect(resolvePlanOrgIdForWrite("user@example.com", "org_1")).toBe(
+        undefined,
+      );
+    });
+
+    it("keeps the request org in hosted mode", () => {
+      setEnv({ NODE_ENV: "production" });
+      expect(resolvePlanOrgIdForWrite("user@example.com", "org_1")).toBe(
+        "org_1",
+      );
     });
   });
 

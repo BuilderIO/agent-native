@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
+  IconChevronRight,
   IconColumns,
   IconDotsVertical,
   IconFileDiff,
   IconList,
 } from "@tabler/icons-react";
+import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type { DiffData, DiffMode } from "./diff.config.js";
@@ -14,15 +16,14 @@ import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
  * GitHub-style before/after diff block. The read renderer computes a line-level
  * diff, then renders it either unified (one column, `+`/`−` gutters) or split
  * (side-by-side). Long unchanged runs collapse into an expandable "N unchanged
- * lines" row (progressive disclosure). All colors are theme-aware: greens/reds
- * use Tailwind `light`/`dark:` pairs and the chrome uses the plan `--plan-*`
- * tokens, so the block reads correctly in BOTH modes.
+ * lines" row (progressive disclosure). The read surface keeps the GitHub diff
+ * shape while using the framework Tailwind theme tokens, so it follows each
+ * host app's light/dark appearance instead of bringing its own palette.
  *
  * Lives in core so any app can register the dev-doc block. The line differ is
  * inlined (a small LCS-based `diffLines`) rather than pulling the `diff` package
- * into core, so core stays dependency-free; the output shape (`{ value, added,
- * removed }` change records) is identical to what the read renderer consumed
- * before.
+ * into core; the output shape (`{ value, added, removed }` change records) is
+ * identical to what the read renderer consumed before.
  *
  * Editing is panel-driven (config-style, like the HTML block): two monospace
  * textareas (Before / After) plus filename, language, and mode controls.
@@ -126,6 +127,162 @@ function diffLines(before: string, after: string): Change[] {
   return changes;
 }
 
+/* ── Syntax highlighting ───────────────────────────────────────────────────── */
+
+const lowlight = createLowlight(common);
+
+type LowlightNode = {
+  type: string;
+  value?: string;
+  properties?: {
+    className?: string[] | string;
+  };
+  children?: LowlightNode[];
+};
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  cjs: "javascript",
+  cts: "typescript",
+  htm: "html",
+  js: "javascript",
+  jsonc: "json",
+  jsx: "jsx",
+  md: "markdown",
+  mdx: "markdown",
+  mjs: "javascript",
+  mts: "typescript",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  sh: "bash",
+  shell: "bash",
+  ts: "typescript",
+  tsx: "tsx",
+  yml: "yaml",
+  zsh: "bash",
+};
+
+const TOKEN_CLASS_NAMES: Record<string, string> = {
+  "hljs-addition": "text-emerald-700 dark:text-emerald-300",
+  "hljs-attr": "text-primary",
+  "hljs-attribute": "text-primary",
+  "hljs-built_in": "text-amber-700 dark:text-amber-300",
+  "hljs-bullet": "text-primary",
+  "hljs-comment": "text-muted-foreground italic",
+  "hljs-deletion": "text-destructive",
+  "hljs-doctag": "text-destructive",
+  "hljs-emphasis": "italic",
+  "hljs-formula": "text-destructive",
+  "hljs-keyword": "text-destructive",
+  "hljs-link": "text-primary underline-offset-2",
+  "hljs-literal": "text-primary",
+  "hljs-meta": "text-primary",
+  "hljs-meta-string": "text-emerald-700 dark:text-emerald-300",
+  "hljs-name": "text-emerald-700 dark:text-emerald-300",
+  "hljs-number": "text-primary",
+  "hljs-params": "text-primary",
+  "hljs-property": "text-primary",
+  "hljs-quote": "text-muted-foreground italic",
+  "hljs-regexp": "text-emerald-700 dark:text-emerald-300",
+  "hljs-section": "text-violet-700 dark:text-violet-300",
+  "hljs-selector-attr": "text-primary",
+  "hljs-selector-class": "text-emerald-700 dark:text-emerald-300",
+  "hljs-selector-id": "text-emerald-700 dark:text-emerald-300",
+  "hljs-selector-pseudo": "text-primary",
+  "hljs-selector-tag": "text-emerald-700 dark:text-emerald-300",
+  "hljs-string": "text-emerald-700 dark:text-emerald-300",
+  "hljs-strong": "font-semibold",
+  "hljs-subst": "text-destructive",
+  "hljs-symbol": "text-primary",
+  "hljs-tag": "text-emerald-700 dark:text-emerald-300",
+  "hljs-template-variable": "text-amber-700 dark:text-amber-300",
+  "hljs-title": "text-violet-700 dark:text-violet-300",
+  "hljs-type": "text-amber-700 dark:text-amber-300",
+  "hljs-variable": "text-amber-700 dark:text-amber-300",
+  language_: "text-amber-700 dark:text-amber-300",
+};
+
+function normalizeLanguage(value?: string | null): string | null {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return null;
+  const normalized = LANGUAGE_ALIASES[raw] ?? raw;
+  return lowlight.registered(normalized) ? normalized : null;
+}
+
+function getLanguageFromFilename(filename?: string): string | null {
+  const basename = filename?.split("/").pop()?.toLowerCase();
+  if (!basename) return null;
+  if (basename === "dockerfile") return normalizeLanguage("bash");
+  if (basename === "makefile") return normalizeLanguage("makefile");
+  const ext = basename.includes(".") ? basename.split(".").pop() : basename;
+  return normalizeLanguage(ext);
+}
+
+function resolveDiffLanguage(data: DiffData): string {
+  return (
+    normalizeLanguage(data.language) ??
+    getLanguageFromFilename(data.filename) ??
+    "plaintext"
+  );
+}
+
+function tokenClassName(className?: string[] | string): string | undefined {
+  const classes = Array.isArray(className)
+    ? className
+    : className
+      ? className.split(/\s+/)
+      : [];
+  const mapped = classes
+    .map((name) => TOKEN_CLASS_NAMES[name])
+    .filter(Boolean)
+    .join(" ");
+  return mapped || undefined;
+}
+
+function hastToReact(children: LowlightNode[], keyPrefix: string): ReactNode[] {
+  return children.map((node, index) => {
+    if (node.type === "text") return node.value ?? "";
+    if (node.type === "element") {
+      const key = `${keyPrefix}${index}`;
+      const renderedChildren = node.children?.length
+        ? hastToReact(node.children, `${key}-`)
+        : null;
+      const className = tokenClassName(node.properties?.className);
+      if (className) {
+        return (
+          <span key={key} className={className}>
+            {renderedChildren}
+          </span>
+        );
+      }
+      return <span key={key}>{renderedChildren}</span>;
+    }
+    return null;
+  });
+}
+
+function SyntaxHighlightedLine({
+  code,
+  language,
+}: {
+  code: string;
+  language: string;
+}) {
+  const highlighted = useMemo(() => {
+    if (!code.trim() || language === "plaintext" || language === "text") {
+      return null;
+    }
+    try {
+      const tree = lowlight.highlight(language, code) as LowlightNode;
+      return hastToReact(tree.children ?? [], `${language}-`);
+    } catch {
+      return null;
+    }
+  }, [code, language]);
+
+  return <>{highlighted ?? code}</>;
+}
+
 /* ── Diff model ────────────────────────────────────────────────────────────── */
 
 type DiffRowKind = "context" | "added" | "removed";
@@ -225,21 +382,21 @@ function segmentRows(rows: DiffRow[]): DiffSegment[] {
 /* ── Theme-aware row styling (light + dark) ────────────────────────────────── */
 
 const ROW_BG: Record<DiffRowKind, string> = {
-  added: "bg-emerald-500/10 dark:bg-emerald-400/15",
-  removed: "bg-rose-500/10 dark:bg-rose-400/15",
-  context: "",
+  added: "bg-emerald-500/10 dark:bg-emerald-500/15",
+  removed: "bg-destructive/10",
+  context: "bg-background",
 };
 
 const GUTTER_BG: Record<DiffRowKind, string> = {
-  added: "bg-emerald-500/15 dark:bg-emerald-400/20",
-  removed: "bg-rose-500/15 dark:bg-rose-400/20",
-  context: "bg-transparent",
+  added: "bg-emerald-500/15 dark:bg-emerald-500/20",
+  removed: "bg-destructive/15",
+  context: "bg-muted/60",
 };
 
 const SIGN_COLOR: Record<DiffRowKind, string> = {
   added: "text-emerald-700 dark:text-emerald-300",
-  removed: "text-rose-700 dark:text-rose-300",
-  context: "text-plan-muted",
+  removed: "text-destructive",
+  context: "text-muted-foreground",
 };
 
 const SIGN: Record<DiffRowKind, string> = {
@@ -249,22 +406,64 @@ const SIGN: Record<DiffRowKind, string> = {
 };
 
 const LINE_NO_CLASS =
-  "select-none px-2 text-right font-mono text-[11px] leading-5 text-plan-muted/70 tabular-nums";
+  "select-none px-2 py-0 text-right font-mono text-[12px] leading-5 text-muted-foreground tabular-nums";
+
+const DIFF_LINE_CLASS =
+  "block min-w-max flex-1 whitespace-pre px-2 py-0 font-mono text-[12px] leading-5 text-foreground";
+
+const DEFAULT_VISIBLE_DIFF_LINES = 15;
+
+function splitDiffFilename(filename?: string): {
+  basename: string;
+  directory: string | null;
+} {
+  const value = filename?.trim() || "diff";
+  const segments = value.split("/").filter(Boolean);
+  const basename = segments[segments.length - 1] ?? value;
+  const directory =
+    segments.length > 1 ? segments.slice(0, -1).join("/") : null;
+  return { basename, directory };
+}
+
+function DiffLineText({ language, text }: { language: string; text: string }) {
+  const code = text || " ";
+  return (
+    <span className={DIFF_LINE_CLASS}>
+      <SyntaxHighlightedLine code={code} language={language} />
+    </span>
+  );
+}
 
 /* ── Read ──────────────────────────────────────────────────────────────────── */
 
 function DiffRead({ data, blockId, title, summary }: BlockReadProps<DiffData>) {
   const [mode, setMode] = useState<DiffMode>(data.mode ?? "unified");
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [showAllRows, setShowAllRows] = useState(false);
 
   const rows = useMemo(
     () => buildRows(diffLines(data.before, data.after)),
     [data.before, data.after],
   );
+  const language = useMemo(
+    () => resolveDiffLanguage(data),
+    [data.filename, data.language],
+  );
+  const fileParts = useMemo(
+    () => splitDiffFilename(data.filename),
+    [data.filename],
+  );
+  const splitLineCount = useMemo(() => pairSplitRows(rows).length, [rows]);
 
   const added = rows.filter((r) => r.kind === "added").length;
   const removed = rows.filter((r) => r.kind === "removed").length;
   const unchanged = data.before === data.after;
+  const totalVisibleLineCount = mode === "split" ? splitLineCount : rows.length;
+  const shouldLimitRows = totalVisibleLineCount > DEFAULT_VISIBLE_DIFF_LINES;
+  const rowLimit =
+    !showAllRows && shouldLimitRows ? DEFAULT_VISIBLE_DIFF_LINES : undefined;
+  const displayedRows =
+    mode === "unified" && rowLimit ? rows.slice(0, rowLimit) : rows;
 
   const toggleRun = (index: number) =>
     setExpanded((prev) => {
@@ -275,27 +474,32 @@ function DiffRead({ data, blockId, title, summary }: BlockReadProps<DiffData>) {
     });
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section className="plan-block group/diff-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
-      <div className="overflow-hidden rounded-lg border border-plan-line bg-plan-code">
-        {/* Header: filename, language chip, +/− counts, mode toggle. */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-plan-line bg-plan-block px-3 py-2">
-          <IconFileDiff className="size-4 shrink-0 text-plan-muted" />
-          <span className="min-w-0 truncate font-mono text-sm font-medium text-plan-text">
-            {data.filename || "diff"}
-          </span>
-          {data.language && (
-            <span className="shrink-0 rounded border border-plan-line px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-plan-muted">
-              {data.language}
+      <div className="overflow-hidden rounded-md border border-border bg-background">
+        {/* Header: filename, path, +/− counts, mode toggle. */}
+        <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
+          <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
+          <span
+            className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono"
+            title={data.filename || undefined}
+          >
+            <span className="min-w-0 max-w-[16rem] truncate text-[13px] font-semibold leading-5 text-foreground">
+              {fileParts.basename}
             </span>
-          )}
+            {fileParts.directory && (
+              <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/70">
+                {fileParts.directory}
+              </span>
+            )}
+          </span>
           <span className="ml-1 flex shrink-0 items-center gap-2 font-mono text-xs">
             <span className="text-emerald-700 dark:text-emerald-300">
               +{added}
             </span>
-            <span className="text-rose-700 dark:text-rose-300">−{removed}</span>
+            <span className="text-destructive">−{removed}</span>
           </span>
-          <div className="ml-auto flex shrink-0 items-center overflow-hidden rounded-md border border-plan-line">
+          <div className="pointer-events-none ml-auto flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background opacity-0 transition-opacity group-hover/diff-block:pointer-events-auto group-hover/diff-block:opacity-100 group-focus-within/diff-block:pointer-events-auto group-focus-within/diff-block:opacity-100">
             <ModeButton
               active={mode === "unified"}
               onClick={() => setMode("unified")}
@@ -313,17 +517,37 @@ function DiffRead({ data, blockId, title, summary }: BlockReadProps<DiffData>) {
 
         {/* Body. */}
         {unchanged ? (
-          <div className="px-4 py-6 text-center font-mono text-sm text-plan-muted">
+          <div className="px-4 py-6 text-center font-mono text-sm text-muted-foreground">
             No changes
           </div>
         ) : mode === "split" ? (
-          <SplitView rows={rows} />
+          <SplitView rows={rows} language={language} rowLimit={rowLimit} />
         ) : (
           <UnifiedView
-            rows={rows}
+            rows={displayedRows}
+            language={language}
             expanded={expanded}
             onToggleRun={toggleRun}
           />
+        )}
+        {!unchanged && shouldLimitRows && (
+          <button
+            type="button"
+            data-plan-interactive
+            aria-expanded={showAllRows}
+            onClick={() => setShowAllRows((current) => !current)}
+            className="flex h-7 w-full items-center justify-center gap-1.5 border-t border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+          >
+            <IconChevronRight
+              className={cn(
+                "size-3 shrink-0 transition-transform",
+                showAllRows ? "-rotate-90" : "rotate-90",
+              )}
+            />
+            {showAllRows
+              ? "Show fewer"
+              : `Show all ${totalVisibleLineCount} lines`}
+          </button>
         )}
       </div>
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
@@ -339,7 +563,7 @@ function ModeButton({
 }: {
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
 }) {
   return (
@@ -351,8 +575,8 @@ function ModeButton({
       className={cn(
         "flex cursor-pointer items-center gap-1 px-2 py-1 text-xs font-medium transition-colors",
         active
-          ? "bg-plan-code text-plan-text"
-          : "text-plan-muted hover:bg-plan-code/60 hover:text-plan-text",
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
       )}
     >
       {icon}
@@ -365,10 +589,12 @@ function ModeButton({
 
 function UnifiedView({
   rows,
+  language,
   expanded,
   onToggleRun,
 }: {
   rows: DiffRow[];
+  language: string;
   expanded: Set<number>;
   onToggleRun: (index: number) => void;
 }) {
@@ -376,7 +602,7 @@ function UnifiedView({
   let runIndex = 0;
   return (
     <div className="overflow-x-auto">
-      <div className="min-w-full font-mono text-[13px] leading-5">
+      <div className="w-max min-w-full font-mono text-[13px] leading-5">
         {segments.map((segment, idx) => {
           if ("collapsed" in segment) {
             const key = runIndex++;
@@ -390,35 +616,37 @@ function UnifiedView({
                 />
                 {open &&
                   segment.rows.map((row, ri) => (
-                    <UnifiedRow key={`run-${key}-${ri}`} row={row} />
+                    <UnifiedRow
+                      key={`run-${key}-${ri}`}
+                      row={row}
+                      language={language}
+                    />
                   ))}
               </div>
             );
           }
-          return <UnifiedRow key={idx} row={segment} />;
+          return <UnifiedRow key={idx} row={segment} language={language} />;
         })}
       </div>
     </div>
   );
 }
 
-function UnifiedRow({ row }: { row: DiffRow }) {
+function UnifiedRow({ language, row }: { language: string; row: DiffRow }) {
   return (
-    <div className={cn("flex w-full", ROW_BG[row.kind])}>
-      <span className={cn(LINE_NO_CLASS, "w-10")}>{row.oldNo ?? ""}</span>
-      <span className={cn(LINE_NO_CLASS, "w-10")}>{row.newNo ?? ""}</span>
+    <div className={cn("flex min-h-5 min-w-full", ROW_BG[row.kind])}>
+      <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.oldNo ?? ""}</span>
+      <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.newNo ?? ""}</span>
       <span
         className={cn(
-          "w-6 shrink-0 select-none text-center font-semibold",
+          "w-6 shrink-0 select-none py-0 text-center font-semibold leading-5",
           GUTTER_BG[row.kind],
           SIGN_COLOR[row.kind],
         )}
       >
         {SIGN[row.kind]}
       </span>
-      <pre className="m-0 flex-1 overflow-visible whitespace-pre px-2 text-plan-text">
-        {row.text || " "}
-      </pre>
+      <DiffLineText text={row.text} language={language} />
     </div>
   );
 }
@@ -437,7 +665,7 @@ function CollapsedRow({
       type="button"
       data-plan-interactive
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-2 border-y border-plan-line/60 bg-plan-block/50 px-3 py-1 text-left text-xs text-plan-muted transition-colors hover:bg-plan-block"
+      className="flex w-full cursor-pointer items-center gap-2 border-y border-border bg-muted/70 px-3 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
       <IconDotsVertical className="size-3.5 shrink-0" />
       <span>
@@ -484,64 +712,82 @@ function pairSplitRows(rows: DiffRow[]): SplitRow[] {
   return out;
 }
 
-function SplitView({ rows }: { rows: DiffRow[] }) {
+function SplitView({
+  language,
+  rowLimit,
+  rows,
+}: {
+  language: string;
+  rowLimit?: number;
+  rows: DiffRow[];
+}) {
   const pairs = useMemo(() => pairSplitRows(rows), [rows]);
+  const displayedPairs = rowLimit ? pairs.slice(0, rowLimit) : pairs;
   return (
-    <div className="overflow-x-auto">
-      <div className="grid min-w-full grid-cols-2 font-mono text-[13px] leading-5">
-        {pairs.map((pair, idx) => (
-          <SplitRowView key={idx} pair={pair} />
-        ))}
+    <div className="flex w-full bg-background font-mono text-[12px] leading-5">
+      <div className="min-w-0 flex-1 overflow-x-auto border-r border-border">
+        <div className="inline-block min-w-full">
+          {displayedPairs.map((pair, idx) => (
+            <SplitCell
+              key={`old-${idx}`}
+              row={pair.left}
+              side="old"
+              language={language}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="inline-block min-w-full">
+          {displayedPairs.map((pair, idx) => (
+            <SplitCell
+              key={`new-${idx}`}
+              row={pair.right}
+              side="new"
+              language={language}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function SplitRowView({ pair }: { pair: SplitRow }) {
-  return (
-    <>
-      <SplitCell row={pair.left} side="old" />
-      <SplitCell row={pair.right} side="new" />
-    </>
-  );
-}
-
-function SplitCell({ row, side }: { row?: DiffRow; side: "old" | "new" }) {
+function SplitCell({
+  language,
+  row,
+  side,
+}: {
+  language: string;
+  row?: DiffRow;
+  side: "old" | "new";
+}) {
   if (!row) {
     return (
-      <div
-        className={cn(
-          "min-h-5 bg-plan-block/40",
-          side === "old" && "border-r border-plan-line",
-        )}
-      />
+      <div className="flex min-h-5 min-w-full bg-muted/40 opacity-70">
+        <span className={cn(LINE_NO_CLASS, "w-[52px]")} />
+        <span className="w-6 shrink-0 bg-muted/60" />
+        <span className={DIFF_LINE_CLASS}> </span>
+      </div>
     );
   }
   const sign = side === "old" ? "−" : "+";
   const showSign = row.kind !== "context";
   return (
-    <div
-      className={cn(
-        "flex",
-        ROW_BG[row.kind],
-        side === "old" && "border-r border-plan-line",
-      )}
-    >
-      <span className={cn(LINE_NO_CLASS, "w-10")}>
+    <div className={cn("flex min-h-5 min-w-full", ROW_BG[row.kind])}>
+      <span className={cn(LINE_NO_CLASS, "w-[52px]")}>
         {side === "old" ? (row.oldNo ?? "") : (row.newNo ?? "")}
       </span>
       <span
         className={cn(
-          "w-5 shrink-0 select-none text-center font-semibold",
+          "w-6 shrink-0 select-none py-0 text-center font-semibold leading-5",
           GUTTER_BG[row.kind],
           SIGN_COLOR[row.kind],
         )}
       >
         {showSign ? sign : " "}
       </span>
-      <pre className="m-0 flex-1 overflow-visible whitespace-pre px-2 text-plan-text">
-        {row.text || " "}
-      </pre>
+      <DiffLineText text={row.text} language={language} />
     </div>
   );
 }

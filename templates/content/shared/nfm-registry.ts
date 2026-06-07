@@ -204,6 +204,125 @@ async function stringifyChildren(
   ).trim();
 }
 
+async function parseReadableColumnChildren(
+  mdx: MdxModule,
+  children: MdxNode[] | undefined,
+  idContext: string,
+  firstMarkdownBlockId?: string,
+): Promise<Array<{ id: string; type: string; data: unknown }>> {
+  const blocks: Array<{ id: string; type: string; data: unknown }> = [];
+  const looseNodes: MdxNode[] = [];
+  let markdownIndex = 0;
+
+  const flushLoose = async () => {
+    const markdown = (await stringifyChildren(mdx, looseNodes)).trim();
+    looseNodes.length = 0;
+    if (!markdown) return;
+    blocks.push({
+      id:
+        markdownIndex === 0 && firstMarkdownBlockId
+          ? firstMarkdownBlockId
+          : `${idContext}-markdown-${markdownIndex + 1}`,
+      type: "rich-text",
+      data: { markdown },
+    });
+    markdownIndex += 1;
+  };
+
+  for (const [index, child] of (children ?? []).entries()) {
+    const name = elementName(child);
+    if (name && isRegistryBlockTag(name)) {
+      const parsed = await parseRegistryBlockNode(
+        mdx,
+        child,
+        `${idContext}-${index}`,
+      );
+      if (parsed) {
+        await flushLoose();
+        blocks.push({
+          id: parsed.base.id,
+          type: parsed.type,
+          data: parsed.data,
+        });
+        continue;
+      }
+    }
+    looseNodes.push(child);
+  }
+
+  await flushLoose();
+  return blocks;
+}
+
+async function parseReadableColumnsData(
+  mdx: MdxModule,
+  node: MdxNode,
+  base: ParsedBlockBase,
+  idContext: string,
+): Promise<{ columns: unknown[] } | null> {
+  const columnNodes = (node.children ?? []).filter(
+    (child) => elementName(child) === "Column",
+  );
+  if (columnNodes.length === 0) return null;
+
+  const columns = await Promise.all(
+    columnNodes.map(async (column, index) => {
+      const reader = createAttrReader(column as unknown as MdxJsxNode);
+      const id =
+        reader.string("id") || `${base.id || idContext}-column-${index + 1}`;
+      const label = reader.string("label")?.trim() || undefined;
+      return {
+        id,
+        ...(label ? { label } : {}),
+        blocks: await parseReadableColumnChildren(
+          mdx,
+          column.children,
+          `${idContext}-${base.id || "columns"}-${id}`,
+          reader.string("contentId"),
+        ),
+      };
+    }),
+  );
+
+  return { columns };
+}
+
+async function parseRegistryBlockNode(
+  mdx: MdxModule,
+  node: MdxNode,
+  idContext: string,
+): Promise<ParsedRegistryBlock | null> {
+  const name = elementName(node);
+  if (!name) return null;
+  const registry = contentBlockRegistry();
+  const spec = registry.getByTag(name);
+  if (!spec) return null;
+  const base = readBase(node as unknown as MdxJsxNode);
+  const children = await stringifyChildren(mdx, node.children);
+
+  if (name === "Columns") {
+    const readableColumns = await parseReadableColumnsData(
+      mdx,
+      node,
+      base,
+      idContext,
+    );
+    if (readableColumns) {
+      return { type: spec.type, base, data: readableColumns };
+    }
+  }
+
+  const parsed = parseSpecBlock(
+    registry,
+    node as unknown as MdxJsxNode,
+    base,
+    children,
+    idContext,
+  );
+  if (!parsed) return null;
+  return { type: parsed.type, base, data: parsed.data };
+}
+
 /**
  * Micro-parse one registry block's verbatim MDX source (its `__raw`) into typed
  * `{ type, base, data }` via the shared core `parseSpecBlock`. Returns `null`
@@ -227,22 +346,7 @@ export async function parseRegistryBlockData(
     return name ? isRegistryBlockTag(name) : false;
   });
   if (!node) return null;
-  const name = elementName(node);
-  if (!name) return null;
-  const registry = contentBlockRegistry();
-  const spec = registry.getByTag(name);
-  if (!spec) return null;
-  const base = readBase(node as unknown as MdxJsxNode);
-  const children = await stringifyChildren(mdx, node.children);
-  const parsed = parseSpecBlock(
-    registry,
-    node as unknown as MdxJsxNode,
-    base,
-    children,
-    `content-${base.id || "block"}`,
-  );
-  if (!parsed) return null;
-  return { type: parsed.type, base, data: parsed.data };
+  return parseRegistryBlockNode(mdx, node, "content-block");
 }
 
 // Re-export so consumers that already import this module can use the shared

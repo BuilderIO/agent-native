@@ -96,15 +96,14 @@ export function PlanBlockView({
         ctx={blockRegistry.ctx}
       />
     );
-    // In INLINE edit mode the auto-editor / custom Edit renders bare fields — wrap
-    // them in the standard titled block section. In read mode (and in PANEL edit
-    // mode, where `BlockView` renders the spec's own `Read` plus a corner edit
-    // button) the spec already provides its own section, so render it directly to
-    // avoid double-nesting.
+    // In INLINE / CONTAINER edit mode the auto-editor / custom Edit often renders
+    // bare fields — wrap them in the standard titled block section. In read mode
+    // (and in PANEL edit mode, where `BlockView` renders the spec's own `Read`
+    // plus a corner edit button) the spec already provides its own section, so
+    // render it directly to avoid double-nesting.
+    const surface = blockEditSurface(spec);
     const wrapInline =
-      editing &&
-      spec.placement.includes("block") &&
-      blockEditSurface(spec) === "inline";
+      editing && spec.placement.includes("block") && surface !== "panel";
     return wrapInline ? (
       <section className="plan-block" data-block-id={block.id}>
         {block.title && <div className="plan-block-label">{block.title}</div>}
@@ -270,7 +269,7 @@ export function PlanBlockView({
               className={cn(
                 "rounded-xl border border-plan-line bg-plan-block p-4",
                 option.recommended
-                  ? "shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  ? "border-primary/30 bg-primary/5"
                   : "opacity-85",
               )}
             >
@@ -402,9 +401,9 @@ function CodeTabsBlock({
               type="button"
               data-plan-interactive
               className={cn(
-                "flex w-full items-start gap-3 border-b border-plan-line px-4 py-4 text-left",
+                "flex w-full items-start gap-3 border-b border-l-2 border-plan-line border-l-transparent px-4 py-4 text-left",
                 tab.id === active?.id
-                  ? "bg-plan-block text-plan-text shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  ? "border-l-primary/40 bg-plan-block/70 text-plan-text"
                   : "text-plan-muted hover:bg-accent/30",
               )}
               onClick={() => setActiveId(tab.id)}
@@ -469,7 +468,7 @@ function ImplementationMapBlock({
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
-      <div className="grid overflow-hidden border-y border-plan-line lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className="border-plan-line lg:border-r">
           {block.data.files.map((file) => (
             <button
@@ -478,9 +477,9 @@ function ImplementationMapBlock({
               data-plan-interactive
               onClick={() => setActivePath(file.path)}
               className={cn(
-                "grid w-full gap-1 border-b border-plan-line px-4 py-5 text-left",
+                "grid w-full gap-1 border-b border-l-2 border-plan-line border-l-transparent px-4 py-5 text-left",
                 file.path === active?.path
-                  ? "bg-plan-block text-plan-text shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  ? "border-l-2 border-l-primary/40 bg-plan-block/70 text-plan-text"
                   : "text-plan-muted hover:bg-accent/30",
               )}
             >
@@ -544,71 +543,92 @@ function TabsBlock({
   const compactTabVisuals = /interaction|component|note/i.test(
     block.title ?? "",
   );
+  const orientation =
+    block.data.orientation === "vertical" ? "vertical" : "horizontal";
+  const vertical = orientation === "vertical";
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
       <div
-        className="mb-8 inline-flex max-w-full gap-1 overflow-x-auto"
-        role="tablist"
-        data-plan-interactive
+        className={cn(
+          vertical &&
+            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
+        )}
       >
-        {block.data.tabs.map((tab) => {
-          const selected = tab.id === active?.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => setActiveId(tab.id)}
-              className={cn(
-                "rounded-lg px-4 py-2 text-sm font-semibold transition-colors",
-                selected
-                  ? "bg-plan-block text-plan-text shadow-sm"
-                  : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
-              )}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-      {active && (
-        <div>
-          {active.blocks.map((child) => (
-            <PlanBlockView
-              key={child.id}
-              block={child}
-              onRichTextChange={onRichTextChange}
-              onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-              compactVisuals={compactTabVisuals}
-              contentUpdatedAt={contentUpdatedAt}
-              editingDisabled={editingDisabled}
-              planId={planId}
-              collabUser={collabUser}
-              onChange={(nextChild) => {
-                onChange?.({
-                  ...block,
-                  data: {
-                    tabs: block.data.tabs.map((tab) =>
-                      tab.id === active.id
-                        ? {
-                            ...tab,
-                            blocks: updateBlocks(
-                              tab.blocks,
-                              child.id,
-                              () => nextChild,
-                            ),
-                          }
-                        : tab,
-                    ),
-                  },
-                });
-              }}
-            />
-          ))}
+        <div
+          className={cn(
+            vertical
+              ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto md:mb-0 md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+              : "mb-8 inline-flex max-w-full gap-1 overflow-x-auto",
+          )}
+          role="tablist"
+          aria-orientation={orientation}
+          data-plan-interactive
+        >
+          {block.data.tabs.map((tab) => {
+            const selected = tab.id === active?.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActiveId(tab.id)}
+                className={cn(
+                  "rounded-lg border border-transparent text-sm font-semibold transition-colors",
+                  vertical
+                    ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left md:w-full md:max-w-none"
+                    : "shrink-0 whitespace-nowrap px-4 py-2",
+                  selected
+                    ? "border-plan-line bg-plan-block/70 text-plan-text"
+                    : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
+                )}
+              >
+                <span className={cn(vertical && "block min-w-0 truncate")}>
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      )}
+        {active && (
+          <div className={cn(vertical && "min-w-0")}>
+            {active.blocks.map((child) => (
+              <PlanBlockView
+                key={child.id}
+                block={child}
+                onRichTextChange={onRichTextChange}
+                onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                compactVisuals={compactTabVisuals}
+                contentUpdatedAt={contentUpdatedAt}
+                editingDisabled={editingDisabled}
+                planId={planId}
+                collabUser={collabUser}
+                onChange={(nextChild) => {
+                  onChange?.({
+                    ...block,
+                    data: {
+                      ...block.data,
+                      tabs: block.data.tabs.map((tab) =>
+                        tab.id === active.id
+                          ? {
+                              ...tab,
+                              blocks: updateBlocks(
+                                tab.blocks,
+                                child.id,
+                                () => nextChild,
+                              ),
+                            }
+                          : tab,
+                      ),
+                    },
+                  });
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -636,8 +656,10 @@ function CustomHtmlBlock({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="icon"
             data-plan-interactive
+            aria-label={editing ? "Cancel editing source" : "Edit source"}
+            className="size-8 text-plan-muted hover:bg-transparent hover:text-plan-text"
             onClick={() => setEditing((value) => !value)}
           >
             {editing ? (
@@ -645,7 +667,6 @@ function CustomHtmlBlock({
             ) : (
               <IconEdit className="size-4" />
             )}
-            {editing ? "Cancel" : "Edit source"}
           </Button>
         )}
       </div>
@@ -900,9 +921,8 @@ function VisualQuestionView({
                   className={cn(
                     hasVisualOptions
                       ? "grid gap-4 rounded-xl border border-plan-line bg-plan-block p-4 text-left transition-colors hover:bg-accent/30"
-                      : "grid w-full gap-2 rounded-xl border border-plan-line bg-plan-block px-4 py-3 text-left text-plan-text shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/30",
-                    isSelected &&
-                      "border-primary bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary))]",
+                      : "grid w-full gap-2 rounded-xl border border-plan-line bg-plan-block px-4 py-3 text-left text-plan-text transition-colors hover:border-primary/40 hover:bg-accent/30",
+                    isSelected && "border-primary/40 bg-primary/10",
                   )}
                   onClick={() => {
                     if (question.mode === "single") {
@@ -979,11 +999,15 @@ function VisualQuestionView({
   );
 }
 
-/* ── Shiki syntax highlighting (lazy-loaded, single dark theme) ─────────── */
+/* ── Shiki syntax highlighting (lazy-loaded, light/dark themes) ─────────── */
 type ShikiHighlighter = {
   codeToHtml: (
     code: string,
-    options: { lang: string; theme: string },
+    options: {
+      lang: string;
+      themes: { light: string; dark: string };
+      defaultColor?: false | "light" | "dark";
+    },
   ) => string | Promise<string>;
   getLoadedLanguages: () => string[];
 };
@@ -998,7 +1022,10 @@ function loadHighlighter(): Promise<ShikiHighlighter> {
           import("shiki/engine/oniguruma"),
         ]);
       return createHighlighterCore({
-        themes: [import("shiki/themes/github-dark-default.mjs")],
+        themes: [
+          import("shiki/themes/github-light-default.mjs"),
+          import("shiki/themes/github-dark-default.mjs"),
+        ],
         langs: [
           import("shiki/langs/javascript.mjs"),
           import("shiki/langs/typescript.mjs"),
@@ -1054,7 +1081,11 @@ function HighlightedCode({
         const lang = loaded.includes(resolved) ? resolved : "text";
         return highlighter.codeToHtml(code, {
           lang,
-          theme: "github-dark-default",
+          themes: {
+            light: "github-light-default",
+            dark: "github-dark-default",
+          },
+          defaultColor: false,
         });
       })
       .then((out) => {
@@ -1135,6 +1166,7 @@ function updateBlocks(
     return {
       ...block,
       data: {
+        ...block.data,
         tabs: block.data.tabs.map((tab) => ({
           ...tab,
           blocks: updateBlocks(tab.blocks, id, updater),

@@ -1,5 +1,10 @@
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { IconPencil } from "@tabler/icons-react";
-import type { BlockSpec, BlockRenderContext } from "./types.js";
+import type {
+  BlockDataChangeMeta,
+  BlockSpec,
+  BlockRenderContext,
+} from "./types.js";
 import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 /**
@@ -8,7 +13,9 @@ import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
  * `"panel"` — an auto-form block is a property form, which reads best behind a
  * corner edit button. An explicit `spec.editSurface` always wins.
  */
-export function blockEditSurface(spec: BlockSpec<any>): "inline" | "panel" {
+export function blockEditSurface(
+  spec: BlockSpec<any>,
+): "inline" | "panel" | "container" {
   return spec.editSurface ?? (spec.Edit ? "inline" : "panel");
 }
 
@@ -37,9 +44,10 @@ export function BlockView({
   /** Whether this specific block allows editing (block.editable !== false). */
   editable?: boolean;
   /** Commit a new `data` value for the block. */
-  onChange?: (nextData: unknown) => void;
+  onChange?: (nextData: unknown, meta?: BlockDataChangeMeta) => void;
   ctx: BlockRenderContext;
 }) {
+  const [panelHovered, setPanelHovered] = useState(false);
   const Read = spec.Read;
   const readNode = (
     <Read
@@ -56,7 +64,15 @@ export function BlockView({
 
   if (!canEdit) return readNode;
 
-  const commit = (nextData: unknown) => onChange?.(nextData);
+  const commit = (nextData: unknown, meta?: BlockDataChangeMeta) =>
+    onChange?.(nextData, meta);
+  const updatePanelHover = (event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target;
+    setPanelHovered(
+      target instanceof HTMLElement &&
+        target.closest(".an-block-panel") === event.currentTarget,
+    );
+  };
 
   const Edit = spec.Edit;
   const formNode = Edit ? (
@@ -85,17 +101,28 @@ export function BlockView({
   // the app hasn't wired `renderEditSurface`.
   if (blockEditSurface(spec) === "panel" && ctx.renderEditSurface) {
     return (
-      <div className="an-block-panel group relative">
+      <div
+        className="an-block-panel relative"
+        onMouseEnter={updatePanelHover}
+        onMouseMove={updatePanelHover}
+        onMouseLeave={() => setPanelHovered(false)}
+      >
         {readNode}
         <div className="an-block-panel__edit absolute right-2 top-2 z-10">
           {ctx.renderEditSurface({
             title: spec.label,
+            blockId: block.id,
+            blockType: spec.type,
+            blockTitle: block.title,
+            blockSummary: block.summary,
+            blockData: block.data,
             trigger: (
               <button
                 type="button"
                 data-plan-interactive
                 aria-label={`Edit ${spec.label}`}
-                className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[visible=true]:opacity-100"
+                data-visible={panelHovered}
               >
                 <IconPencil className="size-4" />
               </button>

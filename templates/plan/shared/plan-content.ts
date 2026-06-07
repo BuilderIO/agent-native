@@ -36,6 +36,7 @@ export type PlanBlockType =
   | "image"
   | "decision"
   | "tabs"
+  | "columns"
   | "custom-html"
   | "question-form"
   | "visual-questions"
@@ -90,6 +91,7 @@ export type PlanTableBlock = PlanBlockBase & {
   data: {
     columns: string[];
     rows: string[][];
+    density?: "compact" | "normal" | "relaxed";
   };
 };
 
@@ -408,6 +410,18 @@ export type PlanTabsBlock = PlanBlockBase & {
       label: string;
       blocks: PlanBlock[];
     }>;
+    orientation?: "horizontal" | "vertical";
+  };
+};
+
+export type PlanColumnsBlock = PlanBlockBase & {
+  type: "columns";
+  data: {
+    columns: Array<{
+      id: string;
+      label?: string;
+      blocks: PlanBlock[];
+    }>;
   };
 };
 
@@ -584,6 +598,7 @@ export type PlanBlock =
   | PlanImageBlock
   | PlanDecisionBlock
   | PlanTabsBlock
+  | PlanColumnsBlock
   | PlanCustomHtmlBlock
   | PlanQuestionFormBlock
   | PlanVisualQuestionsBlock
@@ -803,6 +818,11 @@ export type PlanContent = {
 
 export type PlanContentPatch =
   | {
+      op: "set-metadata";
+      title?: string;
+      brief?: string;
+    }
+  | {
       op: "set-prototype";
       prototype: PlanPrototype;
     }
@@ -871,6 +891,16 @@ export type PlanContentPatch =
       caption?: string | null;
     }
   | {
+      /**
+       * Surgically edit a diagram block's `html` via find/replace snippets.
+       * Use this for one label, SVG path, or small layout change without
+       * regenerating the entire diagram payload.
+       */
+      op: "patch-diagram-html";
+      blockId: string;
+      edits: Array<{ find: string; replace: string; all?: boolean }>;
+    }
+  | {
       /** Patch a single wireframe kit-tree node by its stable node id. */
       op: "update-wireframe-node";
       blockId: string;
@@ -912,10 +942,21 @@ export type PlanContentPatch =
       op: "append-block";
       block: PlanBlock;
       afterBlockId?: string;
-      parent?: {
-        tabBlockId: string;
-        tabId: string;
-      };
+      /**
+       * Append into a container child instead of the top-level body. A `tabs`
+       * parent addresses a tab by `tabBlockId`/`tabId`; a `columns` parent
+       * addresses a column by `columnBlockId`/`columnId`. Omit for a top-level
+       * append.
+       */
+      parent?:
+        | {
+            tabBlockId: string;
+            tabId: string;
+          }
+        | {
+            columnBlockId: string;
+            columnId: string;
+          };
     }
   | {
       op: "remove-block";
@@ -1319,6 +1360,22 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
   required: z.boolean().optional(),
 });
 
+export const decisionDataSchema: z.ZodType<PlanDecisionBlock["data"]> =
+  z.object({
+    question: z.string().trim().min(1).max(500),
+    options: z
+      .array(
+        z.object({
+          id: idSchema,
+          label: z.string().trim().min(1).max(200),
+          detail: z.string().trim().max(800).optional(),
+          recommended: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(20),
+  });
+
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
     questions: z.array(planQuestionSchema).min(1).max(40),
@@ -1362,6 +1419,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       data: z.object({
         columns: z.array(z.string().trim().min(1).max(120)).min(1).max(12),
         rows: z.array(z.array(z.string().max(2_000)).max(12)).max(100),
+        density: z.enum(["compact", "normal", "relaxed"]).optional(),
       }),
     }),
     baseBlockSchema.extend({
@@ -1416,20 +1474,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
     }),
     baseBlockSchema.extend({
       type: z.literal("decision"),
-      data: z.object({
-        question: z.string().trim().min(1).max(500),
-        options: z
-          .array(
-            z.object({
-              id: idSchema,
-              label: z.string().trim().min(1).max(200),
-              detail: z.string().trim().max(800).optional(),
-              recommended: z.boolean().optional(),
-            }),
-          )
-          .min(1)
-          .max(20),
-      }),
+      data: decisionDataSchema,
     }),
     baseBlockSchema.extend({
       type: z.literal("tabs"),
@@ -1444,6 +1489,22 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
           )
           .min(1)
           .max(12),
+        orientation: z.enum(["horizontal", "vertical"]).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("columns"),
+      data: z.object({
+        columns: z
+          .array(
+            z.object({
+              id: idSchema,
+              label: z.string().trim().min(1).max(120).optional(),
+              blocks: z.array(planBlockSchema).max(40),
+            }),
+          )
+          .min(1)
+          .max(4),
       }),
     }),
     baseBlockSchema.extend({
@@ -1871,19 +1932,24 @@ function exceedsPlanBlockDepth(input: unknown): boolean {
       visits += 1;
       if (visits > PLAN_BLOCK_MAX_VISITS) return true;
       if (!block || typeof block !== "object") continue;
-      if ((block as { type?: unknown }).type !== "tabs") continue;
+      const type = (block as { type?: unknown }).type;
+      // Both container blocks nest their children one level deeper: `tabs` under
+      // `data.tabs[].blocks`, `columns` under `data.columns[].blocks`.
+      if (type !== "tabs" && type !== "columns") continue;
 
       const data = (block as { data?: unknown }).data;
-      const tabs =
+      const groups =
         data && typeof data === "object"
-          ? (data as { tabs?: unknown }).tabs
+          ? (data as { tabs?: unknown; columns?: unknown })[
+              type === "tabs" ? "tabs" : "columns"
+            ]
           : undefined;
-      if (!Array.isArray(tabs)) continue;
+      if (!Array.isArray(groups)) continue;
 
-      for (const tab of tabs) {
+      for (const group of groups) {
         const blocks =
-          tab && typeof tab === "object"
-            ? (tab as { blocks?: unknown }).blocks
+          group && typeof group === "object"
+            ? (group as { blocks?: unknown }).blocks
             : undefined;
         stack.push({ blocks, depth: current.depth + 1 });
       }
@@ -1894,6 +1960,16 @@ function exceedsPlanBlockDepth(input: unknown): boolean {
 }
 
 function preflightPlanContentInput(input: unknown): unknown {
+  // MCP clients whose tool schema incorrectly types `content` as a string will
+  // JSON-encode the object before sending. Parse it back here so callers don't
+  // have to double-encode.
+  if (typeof input === "string") {
+    try {
+      input = JSON.parse(input);
+    } catch {
+      // Not valid JSON — let the object schema validation produce the error.
+    }
+  }
   if (!exceedsPlanBlockDepth(input)) return input;
 
   return {
@@ -1981,6 +2057,13 @@ export const planContentSchema: z.ZodType<PlanContent> = z
           }
         }
       }
+      if (block.type === "columns") {
+        for (const column of block.data.columns) {
+          for (const child of column.blocks) {
+            visit(child);
+          }
+        }
+      }
     };
 
     for (const block of content.blocks) {
@@ -2045,6 +2128,24 @@ function migrateBlock(raw: unknown): unknown {
           const tabObj = tab as Record<string, unknown>;
           if (Array.isArray(tabObj.blocks)) {
             tabObj.blocks = tabObj.blocks.map(migrateBlock);
+          }
+        }
+      }
+    }
+  }
+  // Recurse into columns children.
+  if (
+    block.type === "columns" &&
+    block.data &&
+    typeof block.data === "object"
+  ) {
+    const data = block.data as Record<string, unknown>;
+    if (Array.isArray(data.columns)) {
+      for (const column of data.columns) {
+        if (column && typeof column === "object") {
+          const columnObj = column as Record<string, unknown>;
+          if (Array.isArray(columnObj.blocks)) {
+            columnObj.blocks = columnObj.blocks.map(migrateBlock);
           }
         }
       }
@@ -2209,6 +2310,18 @@ const prototypeScreenPatchSchema = z
 
 export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
   z.discriminatedUnion("op", [
+    z
+      .object({
+        op: z.literal("set-metadata"),
+        title: z.string().trim().min(1).max(240).optional(),
+        brief: z.string().trim().max(4_000).optional(),
+      })
+      .refine(
+        (patch) => patch.title !== undefined || patch.brief !== undefined,
+        {
+          message: "Metadata patch must include title or brief.",
+        },
+      ),
     z.object({
       op: z.literal("set-prototype"),
       prototype: prototypeSchema,
@@ -2300,6 +2413,23 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       caption: z.string().trim().max(400).nullable().optional(),
     }),
     z.object({
+      op: z.literal("patch-diagram-html"),
+      blockId: idSchema,
+      edits: z
+        .array(
+          z.object({
+            find: z.string().min(1).max(20_000),
+            replace: z.string().max(40_000).refine(noActiveDiagramHtml, {
+              message:
+                "Diagram html replacement must be an inert fragment; SVG is allowed, scripts/events are not.",
+            }),
+            all: z.boolean().optional(),
+          }),
+        )
+        .min(1)
+        .max(40),
+    }),
+    z.object({
       op: z.literal("update-wireframe-node"),
       blockId: idSchema,
       nodeId: idSchema,
@@ -2346,10 +2476,16 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       block: planBlockSchema,
       afterBlockId: idSchema.optional(),
       parent: z
-        .object({
-          tabBlockId: idSchema,
-          tabId: idSchema,
-        })
+        .union([
+          z.object({
+            tabBlockId: idSchema,
+            tabId: idSchema,
+          }),
+          z.object({
+            columnBlockId: idSchema,
+            columnId: idSchema,
+          }),
+        ])
         .optional(),
     }),
     z.object({
@@ -2371,6 +2507,11 @@ export function applyPlanContentPatches(
   const next = cloneJson(planContentSchema.parse(content));
 
   for (const patch of planContentPatchesSchema.parse(patches)) {
+    if (patch.op === "set-metadata") {
+      if (patch.title !== undefined) next.title = patch.title;
+      if (patch.brief !== undefined) next.brief = patch.brief;
+      continue;
+    }
     if (patch.op === "set-prototype") {
       next.prototype = prototypeSchema.parse(patch.prototype);
       continue;
@@ -2404,24 +2545,11 @@ export function applyPlanContentPatches(
       if (!screen) {
         throw new Error(`Prototype screen ${patch.screenId} was not found.`);
       }
-      let html = screen.html;
-      for (const edit of patch.edits) {
-        const count = html.split(edit.find).length - 1;
-        if (count === 0) {
-          throw new Error(
-            `patch-prototype-html: find snippet not present: ${truncateSnippet(edit.find)}`,
-          );
-        }
-        if (count > 1 && !edit.all) {
-          throw new Error(
-            `patch-prototype-html: find snippet matched ${count} times; make it unique or set all:true - ${truncateSnippet(edit.find)}`,
-          );
-        }
-        html = edit.all
-          ? html.split(edit.find).join(edit.replace)
-          : html.replace(edit.find, edit.replace);
-      }
-      screen.html = html;
+      screen.html = applyTextEdits(
+        "patch-prototype-html",
+        screen.html,
+        patch.edits,
+      );
       continue;
     }
     if (patch.op === "update-design-element-style") {
@@ -2514,6 +2642,32 @@ export function applyPlanContentPatches(
       }).blocks;
       continue;
     }
+    if (patch.op === "patch-diagram-html") {
+      next.blocks = updateBlock(next.blocks, patch.blockId, (block) => {
+        if (block.type !== "diagram") {
+          throw new Error(
+            `Block ${patch.blockId} is ${block.type}, not diagram.`,
+          );
+        }
+        if (typeof block.data.html !== "string") {
+          throw new Error(
+            `Block ${patch.blockId} has no html diagram to patch (it may use legacy nodes/edges).`,
+          );
+        }
+        return planBlockSchema.parse({
+          ...block,
+          data: {
+            ...block.data,
+            html: applyTextEdits(
+              "patch-diagram-html",
+              block.data.html,
+              patch.edits,
+            ),
+          },
+        });
+      }).blocks;
+      continue;
+    }
     if (patch.op === "update-wireframe-node") {
       next.blocks = updateBlock(next.blocks, patch.blockId, (block) => {
         if (block.type !== "wireframe") {
@@ -2561,28 +2715,18 @@ export function applyPlanContentPatches(
             `Block ${patch.blockId} has no html mockup to patch (it is a kit-tree wireframe).`,
           );
         }
-        let html = block.data.html;
-        for (const edit of patch.edits) {
-          const count = html.split(edit.find).length - 1;
-          if (count === 0) {
-            throw new Error(
-              `patch-wireframe-html: find snippet not present: ${truncateSnippet(edit.find)}`,
-            );
-          }
-          if (count > 1 && !edit.all) {
-            throw new Error(
-              `patch-wireframe-html: find snippet matched ${count} times; make it unique or set all:true — ${truncateSnippet(edit.find)}`,
-            );
-          }
-          html = edit.all
-            ? html.split(edit.find).join(edit.replace)
-            : html.replace(edit.find, edit.replace);
-        }
         // Re-parse so the html refine (no script/style/etc.) re-sanitizes the
         // result — a patch can never smuggle active content in.
         return planBlockSchema.parse({
           ...block,
-          data: { ...block.data, html },
+          data: {
+            ...block.data,
+            html: applyTextEdits(
+              "patch-wireframe-html",
+              block.data.html,
+              patch.edits,
+            ),
+          },
         });
       }).blocks;
       continue;
@@ -2629,33 +2773,55 @@ export function applyPlanContentPatches(
       continue;
     }
     if (patch.op === "append-block") {
-      if (patch.parent) {
+      const parent = patch.parent;
+      if (parent && "tabBlockId" in parent) {
+        next.blocks = updateBlock(next.blocks, parent.tabBlockId, (block) => {
+          if (block.type !== "tabs") {
+            throw new Error(
+              `Block ${parent.tabBlockId} is ${block.type}, not tabs.`,
+            );
+          }
+          let changed = false;
+          const tabs = block.data.tabs.map((tab) => {
+            if (tab.id !== parent.tabId) return tab;
+            changed = true;
+            return {
+              ...tab,
+              blocks: insertBlock(tab.blocks, patch.block, patch.afterBlockId),
+            };
+          });
+          if (!changed) {
+            throw new Error(`Tab ${parent.tabId} was not found.`);
+          }
+          return { ...block, data: { ...block.data, tabs } };
+        }).blocks;
+      } else if (parent && "columnBlockId" in parent) {
         next.blocks = updateBlock(
           next.blocks,
-          patch.parent.tabBlockId,
+          parent.columnBlockId,
           (block) => {
-            if (block.type !== "tabs") {
+            if (block.type !== "columns") {
               throw new Error(
-                `Block ${patch.parent?.tabBlockId} is ${block.type}, not tabs.`,
+                `Block ${parent.columnBlockId} is ${block.type}, not columns.`,
               );
             }
             let changed = false;
-            const tabs = block.data.tabs.map((tab) => {
-              if (tab.id !== patch.parent?.tabId) return tab;
+            const columns = block.data.columns.map((column) => {
+              if (column.id !== parent.columnId) return column;
               changed = true;
               return {
-                ...tab,
+                ...column,
                 blocks: insertBlock(
-                  tab.blocks,
+                  column.blocks,
                   patch.block,
                   patch.afterBlockId,
                 ),
               };
             });
             if (!changed) {
-              throw new Error(`Tab ${patch.parent.tabId} was not found.`);
+              throw new Error(`Column ${parent.columnId} was not found.`);
             }
-            return { ...block, data: { tabs } };
+            return { ...block, data: { columns } };
           },
         ).blocks;
       } else {
@@ -2696,10 +2862,17 @@ function isWireframeBlock(
 function findBlock(blocks: PlanBlock[], blockId: string): PlanBlock | null {
   for (const block of blocks) {
     if (block.id === blockId) return block;
-    if (block.type !== "tabs") continue;
-    for (const tab of block.data.tabs) {
-      const child = findBlock(tab.blocks, blockId);
-      if (child) return child;
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        const child = findBlock(tab.blocks, blockId);
+        if (child) return child;
+      }
+    }
+    if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        const child = findBlock(column.blocks, blockId);
+        if (child) return child;
+      }
     }
   }
   return null;
@@ -2709,9 +2882,15 @@ function collectBlocksById(blocks: PlanBlock[]) {
   const byId = new Map<string, PlanBlock>();
   const visit = (block: PlanBlock) => {
     byId.set(block.id, block);
-    if (block.type !== "tabs") return;
-    for (const tab of block.data.tabs) {
-      for (const child of tab.blocks) visit(child);
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        for (const child of tab.blocks) visit(child);
+      }
+    }
+    if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        for (const child of column.blocks) visit(child);
+      }
     }
   };
   for (const block of blocks) visit(block);
@@ -2996,6 +3175,31 @@ function truncateSnippet(value: string): string {
   return trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed;
 }
 
+function applyTextEdits(
+  op: string,
+  value: string,
+  edits: Array<{ find: string; replace: string; all?: boolean }>,
+) {
+  let next = value;
+  for (const edit of edits) {
+    const count = next.split(edit.find).length - 1;
+    if (count === 0) {
+      throw new Error(
+        `${op}: find snippet not present: ${truncateSnippet(edit.find)}`,
+      );
+    }
+    if (count > 1 && !edit.all) {
+      throw new Error(
+        `${op}: find snippet matched ${count} times; make it unique or set all:true - ${truncateSnippet(edit.find)}`,
+      );
+    }
+    next = edit.all
+      ? next.split(edit.find).join(edit.replace)
+      : next.replace(edit.find, edit.replace);
+  }
+  return next;
+}
+
 function updateBlock(
   blocks: PlanBlock[],
   blockId: string,
@@ -3017,22 +3221,41 @@ function updateBlockRecursive(
       changed = true;
       return updater(block);
     }
-    if (block.type !== "tabs") return block;
-    const childResult = block.data.tabs.reduce<{
-      tabs: PlanTabsBlock["data"]["tabs"];
-      changed: boolean;
-    }>(
-      (acc, tab) => {
-        const updated = updateBlockRecursive(tab.blocks, blockId, updater);
-        acc.tabs.push({ ...tab, blocks: updated.blocks });
-        acc.changed = acc.changed || updated.changed;
-        return acc;
-      },
-      { tabs: [], changed: false },
-    );
-    if (!childResult.changed) return block;
-    changed = true;
-    return { ...block, data: { tabs: childResult.tabs } };
+    if (block.type === "tabs") {
+      const childResult = block.data.tabs.reduce<{
+        tabs: PlanTabsBlock["data"]["tabs"];
+        changed: boolean;
+      }>(
+        (acc, tab) => {
+          const updated = updateBlockRecursive(tab.blocks, blockId, updater);
+          acc.tabs.push({ ...tab, blocks: updated.blocks });
+          acc.changed = acc.changed || updated.changed;
+          return acc;
+        },
+        { tabs: [], changed: false },
+      );
+      if (!childResult.changed) return block;
+      changed = true;
+      return { ...block, data: { ...block.data, tabs: childResult.tabs } };
+    }
+    if (block.type === "columns") {
+      const childResult = block.data.columns.reduce<{
+        columns: PlanColumnsBlock["data"]["columns"];
+        changed: boolean;
+      }>(
+        (acc, column) => {
+          const updated = updateBlockRecursive(column.blocks, blockId, updater);
+          acc.columns.push({ ...column, blocks: updated.blocks });
+          acc.changed = acc.changed || updated.changed;
+          return acc;
+        },
+        { columns: [], changed: false },
+      );
+      if (!childResult.changed) return block;
+      changed = true;
+      return { ...block, data: { columns: childResult.columns } };
+    }
+    return block;
   });
   return { blocks: nextBlocks, changed };
 }
@@ -3090,13 +3313,23 @@ function removeBlock(
       return true;
     })
     .map((block) => {
-      if (block.type !== "tabs") return block;
-      const tabs = block.data.tabs.map((tab) => {
-        const result = removeBlock(tab.blocks, blockId);
-        changed = changed || result.changed;
-        return { ...tab, blocks: result.blocks };
-      });
-      return { ...block, data: { tabs } };
+      if (block.type === "tabs") {
+        const tabs = block.data.tabs.map((tab) => {
+          const result = removeBlock(tab.blocks, blockId);
+          changed = changed || result.changed;
+          return { ...tab, blocks: result.blocks };
+        });
+        return { ...block, data: { ...block.data, tabs } };
+      }
+      if (block.type === "columns") {
+        const columns = block.data.columns.map((column) => {
+          const result = removeBlock(column.blocks, blockId);
+          changed = changed || result.changed;
+          return { ...column, blocks: result.blocks };
+        });
+        return { ...block, data: { columns } };
+      }
+      return block;
     });
   return { blocks: filtered, changed };
 }
@@ -3109,6 +3342,11 @@ function syncCanvasWireframes(content: PlanContent) {
     if (block.type === "tabs") {
       for (const tab of block.data.tabs) {
         for (const child of tab.blocks) visit(child);
+      }
+    }
+    if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        for (const child of column.blocks) visit(child);
       }
     }
   };

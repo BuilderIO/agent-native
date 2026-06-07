@@ -333,7 +333,7 @@ test.describe("dev-doc blocks render + persist", () => {
     });
   });
 
-  // json-explorer → devtools tree: a JSON key renders (collapsed-depth default).
+  // json-explorer → devtools tree: JSON keys render (collapsed-depth default).
   test("json-explorer renders a JSON key and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "json-explorer",
@@ -354,8 +354,9 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // The root object renders expanded (depth 0 < collapsedDepth default 1),
-        // so the top-level keys are visible.
+        // The root object and one nested container level render expanded by
+        // default, so the top-level keys are visible while deeper payloads stay
+        // scannable.
         await expect(node).toContainText("id", { timeout: 15_000 });
         await expect(node).toContainText("active");
         await expect(node).toContainText("abc123");

@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import { cn } from "../utils.js";
 
 /** A bubble-toolbar button or a divider. */
@@ -109,12 +110,22 @@ export function BubbleToolbar({
 
   useEffect(() => {
     const update = () => {
-      const { from, to } = editor.state.selection;
-      if (from === to || !editor.isFocused) {
+      const selectionState = editor.state.selection;
+      const { from, to } = selectionState;
+      const selection = window.getSelection();
+      const selectionInsideEditor =
+        !!selection?.anchorNode &&
+        !!selection.focusNode &&
+        editor.view.dom.contains(selection.anchorNode) &&
+        editor.view.dom.contains(selection.focusNode);
+      if (
+        !(selectionState instanceof TextSelection) ||
+        from === to ||
+        !selectionInsideEditor
+      ) {
         setVisible(false);
         return;
       }
-      const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) {
         setVisible(false);
         return;
@@ -132,6 +143,7 @@ export function BubbleToolbar({
     };
     editor.on("selectionUpdate", update);
     editor.on("transaction", update);
+    document.addEventListener("selectionchange", update);
     const onBlur = () => {
       setTimeout(() => {
         if (!editor.isFocused) setVisible(false);
@@ -141,6 +153,7 @@ export function BubbleToolbar({
     return () => {
       editor.off("selectionUpdate", update);
       editor.off("transaction", update);
+      document.removeEventListener("selectionchange", update);
       editor.off("blur", onBlur);
     };
   }, [editor]);

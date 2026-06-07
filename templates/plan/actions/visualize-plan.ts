@@ -11,6 +11,7 @@ import {
 } from "../server/plan-content.js";
 import {
   isLocalPlanRuntime,
+  resolvePlanOrgIdForWrite,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
@@ -60,9 +61,14 @@ export default defineAction({
     currentFocus: z.string().optional().default("visual review"),
   }),
   run: async (args) => {
+    const requesterEmail = getRequestUserEmail();
     const ownerEmail = requirePlanOwnerEmailForWrite(
-      getRequestUserEmail(),
+      requesterEmail,
       "Visualizing a plan",
+    );
+    const ownerOrgId = resolvePlanOrgIdForWrite(
+      requesterEmail,
+      getRequestOrgId(),
     );
     await assertGuestCreateWithinLimits(ownerEmail);
     const id = newId("plan");
@@ -102,7 +108,7 @@ export default defineAction({
         updatedAt: now,
         approvedAt: null,
         ownerEmail,
-        orgId: getRequestOrgId(),
+        orgId: ownerOrgId,
         visibility: "private",
       });
 

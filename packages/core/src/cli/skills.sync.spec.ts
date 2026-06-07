@@ -7,6 +7,7 @@ import {
   PROTOTYPE_PLAN_SKILL_MD,
   UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
+  VISUAL_RECAP_SKILL_MD,
   VISUAL_QUESTIONS_SKILL_MD,
 } from "./skills.js";
 
@@ -50,6 +51,13 @@ const PLAN_SKILLS = [
     templateDir: "visual-plan",
     exportedDir: "visual-plans",
     hasCores: true,
+  },
+  {
+    label: "visual-recap",
+    constant: VISUAL_RECAP_SKILL_MD,
+    templateDir: "visual-recap",
+    exportedDir: "visual-recap",
+    hasCores: false,
   },
   {
     label: "ui-plan",
