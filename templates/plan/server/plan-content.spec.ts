@@ -7,11 +7,13 @@ import {
 } from "../shared/plan-content.js";
 import {
   buildPlanContentHtml,
+  createPlanDesignContent,
   createPlanContentFromSections,
   createPrototypeFromPlanContent,
   createPrototypePlanContent,
   createUiPlanContent,
   createVisualQuestionsContent,
+  normalizePlanDesignContent,
   parsePlanContent,
   sanitizeCustomHtml,
   serializePlanContent,
@@ -716,6 +718,75 @@ describe("back-compat parsing and migration", () => {
 });
 
 describe("prototype plan content", () => {
+  it("creates design-mode fallback content when no /plan-design screens are provided", () => {
+    const content = createPlanDesignContent({
+      title: "Billing redesign",
+      brief: "Create a polished billing settings direction.",
+      screens: [],
+    });
+
+    expect(content.canvas?.mode).toBe("design");
+    expect(content.canvas?.frames[0]?.wireframe?.renderMode).toBe("design");
+    expect(content.canvas?.frames[0]?.wireframe?.html).toContain(
+      'data-design-id="primary-action"',
+    );
+    expect(content.prototype?.screens[0]?.renderMode).toBe("design");
+    expect(content.prototype?.screens[0]?.css).toContain(".pd-shell");
+  });
+
+  it("normalizes supplied /plan-design content into design canvas and prototype surfaces", () => {
+    const content = normalizePlanDesignContent(
+      {
+        version: 2,
+        prototype: {
+          initialScreenId: "settings",
+          screens: [
+            {
+              id: "settings",
+              html: '<main><button data-design-id="save">Save</button></main>',
+            },
+          ],
+        },
+        blocks: [
+          { id: "notes", type: "rich-text", data: { markdown: "Keep" } },
+        ],
+      },
+      {
+        title: "Settings redesign",
+        brief: "Make settings feel finished.",
+        screens: [],
+        designMd: "Use the product brand.",
+        brandKit: { colors: { primary: "#0f766e" } },
+        codebaseStyles: { vars: ["--radius"] },
+      },
+    );
+
+    expect(content?.canvas?.mode).toBe("design");
+    expect(content?.canvas?.design?.designMd).toContain("product brand");
+    expect(content?.canvas?.design?.brandKit).toEqual({
+      colors: { primary: "#0f766e" },
+    });
+    expect(content?.canvas?.frames[0]?.wireframe?.renderMode).toBe("design");
+    expect(content?.prototype?.screens[0]?.renderMode).toBe("design");
+    expect(content?.blocks[0]?.id).toBe("notes");
+  });
+
+  it("bounds /plan-design metadata records", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      canvas: {
+        mode: "design",
+        design: {
+          brandKit: { huge: "x".repeat(25_000) },
+        },
+        frames: [],
+      },
+      blocks: [],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("accepts safe Alpine-like prototype directives but still rejects event handlers", () => {
     const result = planContentSchema.safeParse({
       version: 2,

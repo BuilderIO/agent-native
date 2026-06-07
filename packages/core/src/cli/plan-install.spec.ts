@@ -34,6 +34,7 @@ import {
 import {
   addAgentNativeSkill,
   parseSkillsArgs,
+  PLAN_DESIGN_SKILL_MD,
   PROTOTYPE_PLAN_SKILL_MD,
   UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
@@ -166,6 +167,7 @@ describe(
         "visual-plan",
         "ui-plan",
         "prototype-plan",
+        "plan-design",
         "visualize-plan",
         "visual-questions",
       ]) {
@@ -306,6 +308,7 @@ describe("Plans skills install — materialized output", () => {
       "visual-questions",
       "ui-plan",
       "prototype-plan",
+      "plan-design",
       "visualize-plan",
     ]);
     expect(result.mcpUrl).toBe(
@@ -318,6 +321,7 @@ describe("Plans skills install — materialized output", () => {
       ["visual-questions", VISUAL_QUESTIONS_SKILL_MD],
       ["ui-plan", UI_PLAN_SKILL_MD],
       ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
+      ["plan-design", PLAN_DESIGN_SKILL_MD],
       ["visualize-plan", VISUALIZE_PLAN_SKILL_MD],
     ];
     for (const [name, constant] of expected) {
@@ -327,6 +331,7 @@ describe("Plans skills install — materialized output", () => {
     }
     // No extra surprise skills materialized.
     expect(Object.keys(captured).sort()).toEqual([
+      "plan-design",
       "prototype-plan",
       "ui-plan",
       "visual-plan",
@@ -340,6 +345,10 @@ describe("Plans skills install — materialized output", () => {
       "visual-plans",
       "ui-plan",
       "prototype-plan",
+      "plan-design",
+      "plan-designs",
+      "design-plan",
+      "design-plans",
       "visualize-plan",
       "visual-questions",
       "plannotate",
@@ -352,6 +361,7 @@ describe("Plans skills install — materialized output", () => {
         "visual-questions",
         "ui-plan",
         "prototype-plan",
+        "plan-design",
         "visualize-plan",
       ]);
     }
@@ -386,6 +396,11 @@ describe("Plans skill three-copy sync (deep)", () => {
       constant: PROTOTYPE_PLAN_SKILL_MD,
       templateDir: "prototype-plan",
       exportedDir: "prototype-plan",
+    },
+    {
+      constant: PLAN_DESIGN_SKILL_MD,
+      templateDir: "plan-design",
+      exportedDir: "plan-design",
     },
     {
       constant: VISUALIZE_PLAN_SKILL_MD,

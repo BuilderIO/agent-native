@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, /prototype-plan, /visual-questions, and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, /prototype-plan, /plan-design, /visual-questions, and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {
@@ -42,6 +42,12 @@
       "action": "create-prototype-plan",
       "path": "/plans",
       "description": "Create a prototype-first Agent-Native plan with a functional live prototype above the document."
+    },
+    {
+      "id": "plan-design",
+      "action": "create-plan-design",
+      "path": "/plans",
+      "description": "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab."
     },
     {
       "id": "visual-questions",
@@ -71,6 +77,11 @@
       "path": ".agents/skills/prototype-plan",
       "visibility": "both",
       "exportAs": "prototype-plan"
+    },
+    {
+      "path": ".agents/skills/plan-design",
+      "visibility": "both",
+      "exportAs": "plan-design"
     },
     {
       "path": ".agents/skills/visual-questions",

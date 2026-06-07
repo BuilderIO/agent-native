@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  PLAN_DESIGN_SKILL_MD,
   PROTOTYPE_PLAN_SKILL_MD,
   UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
@@ -61,6 +62,13 @@ const PLAN_SKILLS = [
     constant: PROTOTYPE_PLAN_SKILL_MD,
     templateDir: "prototype-plan",
     exportedDir: "prototype-plan",
+    hasCores: false,
+  },
+  {
+    label: "plan-design",
+    constant: PLAN_DESIGN_SKILL_MD,
+    templateDir: "plan-design",
+    exportedDir: "plan-design",
     hasCores: false,
   },
   {

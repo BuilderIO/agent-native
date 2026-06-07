@@ -89,6 +89,73 @@ export function normalizePlanContent(
   );
 }
 
+export function normalizePlanDesignContent(
+  content: PlanContentInput | undefined,
+  input: PlanDesignContentInput,
+): PlanContent | null {
+  const normalized = normalizePlanContent(content);
+  if (!normalized) return null;
+  const next = cloneJson(normalized);
+
+  if (next.prototype) {
+    next.prototype = sanitizePrototype({
+      ...next.prototype,
+      screens: next.prototype.screens.map((screen) => ({
+        ...screen,
+        renderMode: "design",
+      })),
+    });
+  }
+
+  if (!next.prototype && next.canvas?.frames.length) {
+    const prototype = createPrototypeFromPlanContent(next, {
+      title: input.title,
+      brief: input.brief,
+    });
+    if (prototype) {
+      next.prototype = sanitizePrototype({
+        ...prototype,
+        screens: prototype.screens.map((screen) => ({
+          ...screen,
+          renderMode: "design",
+        })),
+      });
+    }
+  }
+
+  if (!next.canvas && next.prototype) {
+    next.canvas = prototypeToCanvas(next.prototype);
+  }
+
+  if (!next.canvas) {
+    const fallback = createPlanDesignContent({ ...input, screens: [] });
+    next.canvas = fallback.canvas;
+    next.prototype = fallback.prototype;
+  }
+
+  if (next.canvas) {
+    next.canvas = {
+      ...next.canvas,
+      mode: "design",
+      title: next.canvas.title ?? "Design Direction",
+      design: mergeDesignMetadata(next.canvas.design, input),
+      frames: next.canvas.frames.map((frame) => ({
+        ...frame,
+        wireframe: frame.wireframe?.html
+          ? { ...frame.wireframe, renderMode: "design" }
+          : frame.wireframe,
+      })),
+    };
+  }
+
+  return sanitizePlanContent(
+    planContentSchema.parse({
+      ...next,
+      blocks: next.blocks.map(forceDesignWireframeBlocks),
+    }),
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* custom-html sanitization (defense in depth at the action boundary)         */
 /* -------------------------------------------------------------------------- */
@@ -134,10 +201,27 @@ function decodeSafetyEntities(value: string): string {
     });
 }
 
+function decodeCssSafetyEscapes(value: string): string {
+  return value.replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g, (_match, escaped) => {
+    const hex = String(escaped).match(/^[0-9a-fA-F]{1,6}/)?.[0];
+    if (hex) {
+      const point = Number.parseInt(hex, 16);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    }
+    return String(escaped)[0] ?? "";
+  });
+}
+
+const decodedSafetyText = (value: string) =>
+  decodeCssSafetyEscapes(decodeSafetyEntities(value));
+
 const compactSafetyText = (value: string) =>
-  decodeSafetyEntities(value)
+  decodedSafetyText(value)
     .toLowerCase()
     .replace(/[\u0000-\u0020]+/g, "");
+
+const unsafeViewportCssPattern =
+  /(?:^|[;{\s])position\s*:\s*(?:fixed|sticky)\b|(?:^|[;{\s])z-index\s*:\s*[1-9]\d{4,}\b/i;
 
 function hasUnsafeUrl(value: string): boolean {
   const compact = compactSafetyText(value);
@@ -150,8 +234,10 @@ function hasUnsafeUrl(value: string): boolean {
 }
 
 function hasUnsafeStyle(value: string): boolean {
+  const decoded = decodedSafetyText(value);
   const compact = compactSafetyText(value);
   return (
+    unsafeViewportCssPattern.test(decoded) ||
     compact.includes("expression(") ||
     compact.includes("javascript:") ||
     compact.includes("vbscript:") ||
@@ -221,6 +307,9 @@ function preSanitizePlanContentInput(input: unknown): unknown {
       const record = screen as Record<string, unknown>;
       if (typeof record.html === "string") {
         record.html = sanitizeCustomHtml(record.html);
+      }
+      if (typeof record.css === "string") {
+        record.css = sanitizeCustomHtml(record.css);
       }
     }
   }
@@ -325,6 +414,8 @@ function sanitizePrototype(prototype: PlanPrototype | undefined) {
     screens: prototype.screens.map((screen) => ({
       ...screen,
       html: sanitizeCustomHtml(screen.html),
+      css:
+        screen.css === undefined ? undefined : sanitizeCustomHtml(screen.css),
     })),
   };
 }
@@ -467,12 +558,84 @@ type PrototypePlanContentInput = {
     title: string;
     summary?: string;
     surface?: PlanWireframeSurface;
+    renderMode?: "wireframe" | "design";
     html?: string;
+    css?: string;
     state?: PlanPrototypeScreen["state"];
   }>;
   transitions?: PlanPrototype["transitions"];
   implementationNotes?: string | null;
 };
+
+type PlanDesignContentInput = Omit<PrototypePlanContentInput, "prototype"> & {
+  designMd?: string | null;
+  brandKit?: Record<string, unknown> | null;
+  codebaseStyles?: Record<string, unknown> | null;
+  designNotes?: string | null;
+};
+
+function forceDesignWireframeBlocks(block: PlanBlock): PlanBlock {
+  if (block.type === "wireframe" && block.data.html) {
+    return {
+      ...block,
+      data: { ...block.data, renderMode: "design" },
+    };
+  }
+  if (block.type === "tabs") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        tabs: block.data.tabs.map((tab) => ({
+          ...tab,
+          blocks: tab.blocks.map(forceDesignWireframeBlocks),
+        })),
+      },
+    };
+  }
+  return block;
+}
+
+function mergeDesignMetadata(
+  existing: NonNullable<PlanContent["canvas"]>["design"],
+  input: PlanDesignContentInput,
+): NonNullable<PlanContent["canvas"]>["design"] {
+  const incoming = createDesignMetadata(input);
+  const styleSources = [
+    ...(existing?.styleSources ?? []),
+    ...(incoming.styleSources ?? []),
+  ];
+  return {
+    ...(existing ?? {}),
+    ...incoming,
+    ...(styleSources.length > 0 ? { styleSources } : {}),
+  };
+}
+
+function createDesignMetadata(
+  input: Pick<
+    PlanDesignContentInput,
+    "designMd" | "brandKit" | "codebaseStyles" | "designNotes"
+  >,
+): NonNullable<PlanContent["canvas"]>["design"] {
+  return {
+    ...(input.designMd ? { designMd: input.designMd } : {}),
+    ...(input.brandKit ? { brandKit: input.brandKit } : {}),
+    ...(input.codebaseStyles ? { codebaseStyles: input.codebaseStyles } : {}),
+    ...(input.designNotes ? { notes: input.designNotes } : {}),
+    styleSources: [
+      ...(input.designMd
+        ? [{ kind: "design-md" as const, title: "design.md" }]
+        : []),
+      ...(input.brandKit
+        ? [{ kind: "fig-file" as const, title: "Brand kit" }]
+        : []),
+      ...(input.codebaseStyles
+        ? [{ kind: "codebase" as const, title: "Codebase styles" }]
+        : []),
+    ],
+  };
+}
 
 export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
   const states = input.states;
@@ -793,7 +956,9 @@ export function createPrototypePlanContent(
         "Static reference for the live prototype screen above.",
       data: {
         surface: screen.surface ?? prototype.surface ?? "browser",
+        renderMode: screen.renderMode,
         html: screen.html,
+        css: screen.css,
         caption:
           screen.summary ?? "Static screen reference from the prototype.",
       },
@@ -902,6 +1067,137 @@ export function createPrototypePlanContent(
   );
 }
 
+export function createPlanDesignContent(
+  input: PlanDesignContentInput,
+): PlanContent {
+  const designScreens =
+    input.screens.length > 0
+      ? input.screens
+      : [
+          {
+            title: "Design draft",
+            summary: input.brief,
+            surface: "browser" as const,
+            html: `<main class="pd-shell" data-design-id="design-shell"><section class="pd-hero" data-design-id="hero-panel"><p class="pd-kicker">Design direction</p><h1>${escapeHtml(input.title)}</h1><p>${escapeHtml(input.brief)}</p><button class="pd-primary" data-design-id="primary-action">Review direction</button></section><aside class="pd-card" data-design-id="detail-card"><span>Brand signals</span><strong>Use design.md, .fig tokens, and codebase styles when available.</strong></aside></main>`,
+            css: [
+              ".pd-shell { min-height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; padding: 32px; background: #f8fafc; color: #111827; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }",
+              ".pd-hero { display: grid; align-content: center; gap: 14px; border: 1px solid rgba(17, 24, 39, 0.1); border-radius: 18px; padding: 36px; background: linear-gradient(135deg, #ffffff 0%, #ecfeff 100%); box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08); }",
+              ".pd-kicker { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #0f766e; }",
+              ".pd-hero h1 { margin: 0; font-size: 34px; line-height: 1.08; max-width: 720px; }",
+              ".pd-hero p { margin: 0; max-width: 680px; color: #475569; line-height: 1.6; }",
+              ".pd-primary { justify-self: start; border: 0; border-radius: 12px; padding: 12px 16px; background: #0f766e; color: #ffffff; font-weight: 700; }",
+              ".pd-card { display: grid; align-content: end; gap: 10px; border-radius: 16px; padding: 24px; background: #111827; color: #f8fafc; }",
+              ".pd-card span { color: #99f6e4; font-size: 12px; font-weight: 700; text-transform: uppercase; }",
+            ].join("\n"),
+          },
+        ];
+  const prototype = createPrototypeFromScreens({
+    title: input.title,
+    brief: input.brief,
+    screens: designScreens.map((screen) => ({
+      ...screen,
+      renderMode: "design",
+    })),
+    transitions: input.transitions,
+  });
+  const canvas = prototypeToCanvas(prototype);
+  const sourceLines = [
+    input.designMd
+      ? "- `design.md` was provided and should drive tone, layout, and component details."
+      : "",
+    input.brandKit
+      ? "- Brand kit / `.fig` style data was provided and should drive color, typography, spacing, radii, and imagery."
+      : "",
+    input.codebaseStyles
+      ? "- Codebase style tokens were provided and should drive CSS variables, Tailwind classes, and existing visual conventions."
+      : "",
+    input.designNotes ? `- ${input.designNotes}` : "",
+  ].filter(Boolean);
+  const blocks: PlanBlock[] = [
+    {
+      id: createPlanBlockId("plan-design-overview"),
+      type: "rich-text",
+      title: "Design Plan",
+      editable: true,
+      data: {
+        markdown: [
+          `## Objective\n${input.brief}`,
+          "## Design Review\nUse the Design tab as the full-fidelity source of truth. It should contain detailed, on-brand HTML/CSS screens on the Figma-style canvas, with editable `data-design-id` targets for focused style changes. Use the Prototype tab only when interaction, flow, or state needs to be felt before implementation.",
+          sourceLines.length
+            ? `## Style Sources\n${sourceLines.join("\n")}`
+            : "## Style Sources\nNo external brand kit was provided; infer the smallest useful design system from the inspected codebase and document the assumptions here.",
+        ].join("\n\n"),
+      },
+    },
+    {
+      id: createPlanBlockId("design-implementation-map"),
+      type: "implementation-map",
+      title: "Implementation Map",
+      data: {
+        files: [
+          {
+            path: input.repoPath ? `${input.repoPath}/...` : "repo/path.tsx",
+            title: "Production files to update",
+            note:
+              input.implementationNotes ||
+              "Replace with concrete components, routes, style files, token sources, actions, and tests after the design direction is approved.",
+            language: "tsx",
+            snippet:
+              'const designDecision = {\n  designTab: "full-fidelity HTML/CSS review",\n  prototypeTab: "interactive behavior to rebuild in production components",\n};',
+          },
+        ],
+      },
+    },
+    {
+      id: createPlanBlockId("design-verification"),
+      type: "checklist",
+      title: "Verification",
+      data: {
+        items: [
+          {
+            id: "design-canvas",
+            label:
+              "Review the Design tab at desktop and narrow widths for real content, brand fidelity, readable type, and no clipped controls.",
+          },
+          {
+            id: "prototype-behavior",
+            label:
+              "Click through the Prototype tab when present and verify the design styling matches the canvas.",
+          },
+          {
+            id: "targeted-edits",
+            label:
+              "Select at least one `data-design-id` element in design mode and confirm targeted style patches preserve the rest of the screen.",
+          },
+          {
+            id: "implementation",
+            label:
+              "After approval, rebuild the chosen direction in production components rather than copying temporary prototype markup.",
+          },
+        ],
+      },
+    },
+  ];
+
+  return sanitizePlanContent(
+    planContentSchema.parse({
+      version: PLAN_CONTENT_VERSION,
+      title: input.title,
+      brief: input.brief,
+      prototype,
+      canvas: canvas
+        ? {
+            ...canvas,
+            mode: "design",
+            title: "Design Direction",
+            design: createDesignMetadata(input),
+          }
+        : undefined,
+      blocks,
+    }),
+  );
+}
+
 export function createPrototypeFromPlanContent(
   content: PlanContent,
   input?: { title?: string; brief?: string },
@@ -990,6 +1286,7 @@ function createPrototypeFromScreens(input: {
       title: screen.title,
       summary: screen.summary,
       surface: screen.surface ?? "browser",
+      renderMode: screen.renderMode,
       html:
         screen.html ??
         createPrototypeScreenHtml({
@@ -997,6 +1294,7 @@ function createPrototypeFromScreens(input: {
           summary: screen.summary ?? input.brief,
           nextId,
         }),
+      css: screen.css,
       state: screen.state,
     } satisfies PlanPrototypeScreen;
   });
@@ -1067,7 +1365,9 @@ function prototypeScreenFromArtboard(
       block?.summary ??
       (canvasTitle ? `From ${canvasTitle}` : undefined),
     surface: frame.surface ?? wireframe.surface,
+    renderMode: wireframe.renderMode,
     html: wireframe.html,
+    css: wireframe.css,
   };
 }
 
@@ -1119,7 +1419,9 @@ function prototypeToCanvas(prototype: PlanPrototype): PlanContent["canvas"] {
     surface: screen.surface ?? prototype.surface ?? "browser",
     wireframe: {
       surface: screen.surface ?? prototype.surface ?? "browser",
+      renderMode: screen.renderMode,
       html: screen.html,
+      css: screen.css,
       caption: screen.summary,
     },
   }));

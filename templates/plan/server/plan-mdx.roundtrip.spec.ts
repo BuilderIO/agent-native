@@ -45,7 +45,9 @@ describe("plan MDX round-trip fidelity per block type", () => {
             title: "Start",
             summary: "Reviewer sees the request.",
             surface: "browser",
+            renderMode: "design",
             html: '<div><h1>Request</h1><button data-goto="approved">Approve</button></div>',
+            css: ".request-shell { color: #111827; }",
             state: [{ label: "Mode", value: "Review" }],
           },
           {
@@ -86,6 +88,10 @@ describe("plan MDX round-trip fidelity per block type", () => {
       'data-goto="approved"',
     );
     expect(result.prototype?.screens[0]?.state?.[0]?.value).toBe("Review");
+    expect(result.prototype?.screens[0]?.renderMode).toBe("design");
+    expect(result.prototype?.screens[0]?.css).toBe(
+      ".request-shell { color: #111827; }",
+    );
     expect(result.prototype?.transitions?.[0]).toMatchObject({
       from: "start",
       to: "approved",
@@ -106,6 +112,7 @@ describe("plan MDX round-trip fidelity per block type", () => {
             surface: "desktop",
             caption: "An HTML mockup screen",
             skeleton: false,
+            renderMode: "design",
             html: '<div class="grid"><h1>Dashboard</h1><p>Welcome back</p></div>',
             css: ".grid { display: grid; gap: 8px; }",
           },
@@ -123,6 +130,7 @@ describe("plan MDX round-trip fidelity per block type", () => {
     );
     expect(block.data.css).toBe(".grid { display: grid; gap: 8px; }");
     expect(block.data.caption).toBe("An HTML mockup screen");
+    expect(block.data.renderMode).toBe("design");
   });
 
   it("skeleton wireframe: round-trips skeleton:true flag", async () => {

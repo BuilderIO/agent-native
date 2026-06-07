@@ -33,7 +33,7 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|prototype-plan|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|prototype-plan|plan-design|visualize-plan|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
@@ -217,7 +217,7 @@ iteration, or a human-in-the-loop choice among design directions.
 
 /**
  * Shared setup/auth block for every Plans skill (`/visual-plan`, `/ui-plan`,
- * `/prototype-plan`, `/visual-questions`, `/visualize-plan`). Interpolated into each skill markdown
+ * `/prototype-plan`, `/plan-design`, `/visual-questions`, `/visualize-plan`). Interpolated into each skill markdown
  * so the install + one-step authenticate instructions never drift between them.
  * Keep this in sync with the copies under `templates/plan/.agents/skills/*` and
  * top-level `skills/*` (this skill's SKILL.md is triplicated with no sync test).
@@ -235,7 +235,7 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`,
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`, \`/plan-design\`,
 \`/visual-questions\`, \`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
 register the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
@@ -281,6 +281,7 @@ user reacts to visuals first and reads prose only where it helps.
 \`/visual-plan\` is the canonical command and the main entry point. Use \`/ui-plan\`
 when the work is primarily product UI and review should start with the screens.
 Use \`/prototype-plan\` when review should start with a functional live prototype.
+Use \`/plan-design\` when review should start with full-fidelity branded design.
 Use \`/visual-questions\` only when the user explicitly wants a visual intake form
 before planning. Use \`/visualize-plan\` to turn an existing Codex, Claude Code,
 Markdown, or pasted plan into a visual companion.
@@ -669,6 +670,8 @@ already shows. Never produce this.
 - \`create-ui-plan\`: start a UI-first plan when the work is primarily product UI.
 - \`create-prototype-plan\`: start a prototype-first plan with a functional top
   review surface.
+- \`create-plan-design\`: start a full-fidelity branded Design-tab plan with an
+  optional matching Prototype tab.
 - \`convert-visual-plan-to-prototype\`: convert an existing HTML wireframe canvas
   into a prototype plan.
 - \`create-visual-questions\`: use only for the explicit \`/visual-questions\`
@@ -705,7 +708,7 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`,
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`, \`/plan-design\`,
 \`/visual-questions\`, \`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
 register the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
@@ -750,9 +753,10 @@ react to.
 
 \`/visual-plan\` remains the general command for architecture, backend, refactors,
 and mixed work. Use \`/prototype-plan\` when the UI review needs a functional live
-prototype instead of static screens. Use \`/visual-questions\` only when the user
-explicitly wants visual intake before planning, and \`/visualize-plan\` when a text
-plan already exists.
+prototype instead of static screens. Use \`/plan-design\` when polish, brand, or
+visual fidelity are material to the decision. Use \`/visual-questions\` only when
+the user explicitly wants visual intake before planning, and \`/visualize-plan\`
+when a text plan already exists.
 
 ## Plan Discipline
 
@@ -1097,6 +1101,8 @@ already shows. Never produce this.
 - \`create-ui-plan\`: create the UI-first structured visual plan.
 - \`create-prototype-plan\`: create a prototype-first plan when UI review needs a
   functional live prototype.
+- \`create-plan-design\`: create a full-fidelity branded design plan when polish,
+  brand, and detailed visual direction are primary review inputs.
 - \`convert-visual-plan-to-prototype\`: convert an existing HTML wireframe canvas
   into a prototype plan.
 - \`create-visual-questions\`: use only for the explicit \`/visual-questions\`
@@ -1132,7 +1138,7 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`,
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`, \`/plan-design\`,
 \`/visual-questions\`, \`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
 register the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
@@ -1318,6 +1324,118 @@ reviewing and iterating.
 - \`visual-questions\`
 `;
 
+export const PLAN_DESIGN_SKILL_MD =
+  [
+    "---",
+    "name: plan-design",
+    "description: >-",
+    "  Use Agent-Native Plans for full-fidelity UI design planning with a Design",
+    "  canvas tab and optional interactive Prototype tab before implementation.",
+    "metadata:",
+    "  visibility: exported",
+    "---",
+    "",
+    "# Plan Design",
+    "",
+    "Use `/plan-design` when the user needs a high-fidelity product design before",
+    "implementation: polished branded screens, realistic content, visual direction,",
+    "and interaction review. It is the full-fidelity companion to `/visual-plan` and",
+    "`/prototype-plan`: the top review surface should show `Design` and, when the",
+    "flow needs interaction, `Prototype`.",
+    "",
+    "## When To Use",
+    "",
+    "Use this for UI-heavy work where brand, visual hierarchy, polished layout, or",
+    "interaction feel are material to the decision. Skip it for small copy, spacing,",
+    "or obvious component changes.",
+    "",
+    "## Research First",
+    "",
+    "Before creating the plan:",
+    "",
+    "1. Inspect the real app shell, routes, components, CSS variables, Tailwind",
+    "   tokens, theme files, and any relevant screenshots.",
+    "2. If `design.md` exists, treat it as the primary design brief and pass its",
+    "   important content into `create-plan-design.designMd`.",
+    "3. If a `.fig` local-copy file or parsed brand kit is available, use the",
+    "   Design/brand-kit parsing actions from the app or shared tooling first, then",
+    "   pass the extracted token summary into `brandKit`.",
+    "4. Parse existing codebase style info when possible: CSS custom properties,",
+    "   Tailwind config, global CSS, font declarations, spacing/radius tokens, and",
+    "   component conventions. Pass the compact evidence into `codebaseStyles`.",
+    "5. Ground every screen in actual product content. Avoid lorem ipsum, generic",
+    "   marketing filler, and placeholder gray boxes unless designing an explicit",
+    "   loading state.",
+    "",
+    "## Create The Plan",
+    "",
+    "Call `create-plan-design` with:",
+    "",
+    "- `title`, `brief`, `repoPath`, and any `implementationNotes`.",
+    "- `designMd`, `brandKit`, `codebaseStyles`, or `designNotes` when available.",
+    "- `screens`: one to six full-fidelity HTML/CSS screen fragments. Each screen",
+    "  must include a bounded `html` fragment, optional scoped `css`, a `surface`,",
+    "  and stable `data-design-id` attributes on elements a reviewer might edit.",
+    "- `transitions` only when the Prototype tab should support true screen/step",
+    '  navigation. Use `data-goto="screen-id"` in the screen HTML for those controls.',
+    "",
+    "The Design tab is the visual source of truth. The Prototype tab is for behavior",
+    "and should reuse the same visual styling where practical. Do not create a",
+    "separate design direction in the prototype.",
+    "",
+    "## Full-Fidelity HTML Rules",
+    "",
+    "- Write bounded fragments only: no `<html>`, `<head>`, `<body>`, `<script>`,",
+    "  `<style>`, external imports, iframes, SVG, or executable URLs.",
+    "- Put CSS in the screen `css` field. The renderer scopes it to the artboard.",
+    "- Use real CSS and CSS variables. Tailwind-like class names are fine only when",
+    "  the provided `css` defines them or the classes are harmless semantic hooks.",
+    '- Use `renderMode: "design"` on design screen data when authoring full',
+    "  structured content directly.",
+    '- Add `data-design-id="meaningful-name"` to editable elements such as hero',
+    "  panels, key buttons, cards, nav items, pricing rows, chart panels, and state",
+    "  chips. Keep ids stable and descriptive.",
+    "- Keep the design responsive within the selected surface. Text must not clip,",
+    "  overlap, or rely on viewport-sized type.",
+    "",
+    "## Targeted Style Edits",
+    "",
+    "When a reviewer selects an element in the Design tab or asks for a specific",
+    "style change, avoid regenerating the whole plan. Use:",
+    "",
+    "```json",
+    "{",
+    '  "op": "update-design-element-style",',
+    '  "frameId": "frame-overview",',
+    '  "elementId": "primary-cta",',
+    '  "styles": {',
+    '    "background-color": "#0f766e",',
+    '    "border-radius": "10px"',
+    "  }",
+    "}",
+    "```",
+    "",
+    "Use `frameId` for inline canvas designs or `blockId` for a referenced wireframe",
+    "block. Set a style value to `null` to remove it. Use `patch-wireframe-html` or",
+    "`patch-prototype-html` for text/content changes inside a fragment.",
+    "",
+    "## Document Handoff",
+    "",
+    "Below the visual surface, keep the document concise and implementation-oriented:",
+    "actual files and symbols, state/actions/contracts, open questions, risks, and",
+    "verification. The document should not repeat the same screens in prose.",
+    "",
+    "Before implementation, call `get-plan-feedback` and treat comments, selected",
+    "element details, and recent review events as the source of truth.",
+    "",
+    "## Related Skills",
+    "",
+    "- `visual-plan`",
+    "- `ui-plan`",
+    "- `prototype-plan`",
+    "- `frontend-design`",
+  ].join("\n") + "\n";
+
 export const VISUAL_QUESTIONS_SKILL_MD = `---
 name: visual-questions
 description: >-
@@ -1334,7 +1452,7 @@ Use \`/visual-questions\` when the next best step is not a plan yet, but a
 reviewable visual intake: single-choice chips, multi-select chips, freeform
 notes, mockup choices, sketch diagrams, and a generated answer summary that feeds
 the next planning prompt. It composes with \`/visual-plan\`, \`/ui-plan\`,
-\`/prototype-plan\`, and \`/visualize-plan\`.
+\`/prototype-plan\`, \`/plan-design\`, and \`/visualize-plan\`.
 
 ## When To Use
 
@@ -1345,11 +1463,11 @@ the next planning prompt. It composes with \`/visual-plan\`, \`/ui-plan\`,
   than answering text-only prompts.
 
 Gate hard: skip this for tiny, unambiguous changes. If the agent can reasonably
-infer the answer, prefer \`/ui-plan\`, \`/prototype-plan\`, or \`/visual-plan\` directly and put
-assumptions in the plan.
+infer the answer, prefer \`/ui-plan\`, \`/prototype-plan\`, \`/plan-design\`, or
+\`/visual-plan\` directly and put assumptions in the plan.
 
 Visual questions are an explicit intake command, not an automatic preflight for
-\`/visual-plan\`, \`/ui-plan\`, or \`/prototype-plan\`.
+\`/visual-plan\`, \`/ui-plan\`, \`/prototype-plan\`, or \`/plan-design\`.
 
 ## Workflow
 
@@ -1360,6 +1478,7 @@ Visual questions are an explicit intake command, not an automatic preflight for
 3. Surface the returned Plans link and ask the user to answer visually.
 4. The generated summary drives the next step: \`create-ui-plan\` for static UI
    review, \`create-prototype-plan\` for click-through UI flows,
+   \`create-plan-design\` for high-fidelity branded UI review,
    \`create-visual-plan\` for general plans, \`visualize-plan\` when a text plan
    already exists, or \`update-visual-plan\` with targeted \`contentPatches\` to
    fold answers into an active plan.
@@ -1399,6 +1518,8 @@ desktop/mobile pair for a popover, panel, or component.
 - \`create-ui-plan\`: create a UI-first plan from the answers.
 - \`create-prototype-plan\`: create a prototype-first plan from the answers when
   interaction feel matters.
+- \`create-plan-design\`: create a high-fidelity branded design plan from the
+  answers when visual polish is the primary review input.
 - \`create-visual-plan\`: create a general visual plan from the answers.
 - \`visualize-plan\`: enrich an existing text plan after answers are gathered.
 - \`export-visual-plan\`: export answer plans as HTML, Markdown fallback,
@@ -1419,7 +1540,7 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`,
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`, \`/plan-design\`,
 \`/visual-questions\`, \`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
 register the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
@@ -1868,7 +1989,7 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`,
+After that, \`/visual-plan\` (and \`/ui-plan\`, \`/prototype-plan\`, \`/plan-design\`,
 \`/visual-questions\`, \`/visualize-plan\`) generate a plan and open the editor. Pass \`--no-connect\` to
 register the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
@@ -1991,6 +2112,7 @@ const BUILT_IN_APP_SKILLS = {
       "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
       "ui-plan": UI_PLAN_SKILL_MD,
       "prototype-plan": PROTOTYPE_PLAN_SKILL_MD,
+      "plan-design": PLAN_DESIGN_SKILL_MD,
       "visualize-plan": VISUALIZE_PLAN_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
@@ -2007,7 +2129,7 @@ const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add /visual-plan, /visual-questions, /ui-plan, /prototype-plan, and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, /prototype-plan, /plan-design, /visual-questions, and /visualize-plan skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -2037,6 +2159,13 @@ const BUILT_IN_APP_SKILLS = {
             "Create a prototype-first Agent-Native plan with a functional live prototype above the document.",
         },
         {
+          id: "plan-design",
+          action: "create-plan-design",
+          path: "/plans",
+          description:
+            "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab.",
+        },
+        {
           id: "visualize-plan",
           action: "visualize-plan",
           path: "/plans",
@@ -2062,6 +2191,11 @@ const BUILT_IN_APP_SKILLS = {
           path: "skills/prototype-plan",
           visibility: "exported",
           exportAs: "prototype-plan",
+        },
+        {
+          path: "skills/plan-design",
+          visibility: "exported",
+          exportAs: "plan-design",
         },
         {
           path: "skills/visualize-plan",
@@ -2150,6 +2284,10 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "ui-plans": "visual-plans",
   "prototype-plan": "visual-plans",
   "prototype-plans": "visual-plans",
+  "plan-design": "visual-plans",
+  "plan-designs": "visual-plans",
+  "design-plan": "visual-plans",
+  "design-plans": "visual-plans",
   prototype: "visual-plans",
   "visualize-plan": "visual-plans",
   "visualize-plans": "visual-plans",
@@ -2178,6 +2316,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "visual-questions",
     "ui-plan",
     "prototype-plan",
+    "plan-design",
     "visualize-plan",
     "html-plan",
     "plannotate",

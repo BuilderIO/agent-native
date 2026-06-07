@@ -12,6 +12,7 @@ const PLANS_SKILL_NAMES = [
   "visual-questions",
   "ui-plan",
   "prototype-plan",
+  "plan-design",
   "visualize-plan",
 ];
 
@@ -241,6 +242,8 @@ describe("agent-native skills", () => {
           "--skill",
           "prototype-plan",
           "--skill",
+          "plan-design",
+          "--skill",
           "visualize-plan",
           "-a",
           "codex",
@@ -297,6 +300,8 @@ describe("agent-native skills", () => {
         "--skill",
         "prototype-plan",
         "--skill",
+        "plan-design",
+        "--skill",
         "visualize-plan",
       ]),
     );
@@ -339,6 +344,53 @@ describe("agent-native skills", () => {
         "ui-plan",
         "--skill",
         "prototype-plan",
+        "--skill",
+        "plan-design",
+        "--skill",
+        "visualize-plan",
+      ]),
+    );
+    expect(result.mcpUrl).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
+  });
+
+  it("accepts plan-design as a Plans full-fidelity design alias", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "plan-design",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("visual-plans");
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "--skill",
+        "visual-plan",
+        "--skill",
+        "visual-questions",
+        "--skill",
+        "ui-plan",
+        "--skill",
+        "prototype-plan",
+        "--skill",
+        "plan-design",
         "--skill",
         "visualize-plan",
       ]),
@@ -383,6 +435,8 @@ describe("agent-native skills", () => {
         "--skill",
         "prototype-plan",
         "--skill",
+        "plan-design",
+        "--skill",
         "visualize-plan",
       ]),
     );
@@ -398,6 +452,7 @@ describe("agent-native skills", () => {
       ["visual-questions", "visual-questions"],
       ["ui-plan", "ui-plan"],
       ["prototype-plan", "prototype-plan"],
+      ["plan-design", "plan-design"],
       ["visualize-plan", "visualize-plan"],
     ];
 

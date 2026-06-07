@@ -51,10 +51,15 @@
   line-height: 1.45;
 }
 
+.plan-html-frame-content {
+  width: 100%;
+  height: 100%;
+}
+
 .plan-html-frame[data-prototype-live="true"] {
   overflow: auto;
 }
-.plan-html-frame[data-prototype-live="true"] > :first-child {
+.plan-html-frame[data-prototype-live="true"] > .plan-html-frame-content {
   height: 100%;
   min-height: 0;
   overflow: auto !important;
@@ -81,49 +86,75 @@
   --wf-font: var(--wf-font-clean);
 }
 
+.plan-html-frame[data-render-mode="design"] {
+  --wf-font: var(--wf-font-clean);
+  background: transparent;
+  color: inherit;
+  font-family: var(--wf-font-clean);
+  font-size: 16px;
+  line-height: normal;
+}
+
+:where(.plan-html-frame[data-render-mode="design"] .plan-html-frame-content)
+  :where(h1, h2, h3, p, small, a, button, input, textarea, select, hr) {
+  all: revert;
+  box-sizing: border-box;
+}
+
+.plan-html-frame[data-render-mode="design"] button,
+.plan-html-frame[data-render-mode="design"] [role="button"],
+.plan-html-frame[data-render-mode="design"] [data-goto] {
+  cursor: pointer;
+}
+
+.plan-html-frame[data-render-mode="design"] [data-plan-design-selected] {
+  outline: 2px solid #60a5fa !important;
+  outline-offset: 2px;
+}
+
 .plan-html-frame * {
   box-sizing: border-box;
   min-width: 0;
 }
 
 /* Bare semantic elements get the wireframe look from tokens. */
-.plan-html-frame h1 {
+.plan-html-frame:not([data-render-mode="design"]) h1 {
   font-size: 22px;
   font-weight: 700;
   line-height: 1.15;
   margin: 0 0 8px;
 }
-.plan-html-frame h2 {
+.plan-html-frame:not([data-render-mode="design"]) h2 {
   font-size: 17px;
   font-weight: 700;
   line-height: 1.2;
   margin: 0 0 6px;
 }
-.plan-html-frame h3 {
+.plan-html-frame:not([data-render-mode="design"]) h3 {
   font-size: 14px;
   font-weight: 700;
   margin: 0 0 4px;
 }
-.plan-html-frame p {
+.plan-html-frame:not([data-render-mode="design"]) p {
   margin: 0 0 8px;
 }
-.plan-html-frame small,
-.plan-html-frame .wf-muted {
+.plan-html-frame:not([data-render-mode="design"]) small,
+.plan-html-frame:not([data-render-mode="design"]) .wf-muted {
   color: var(--wf-muted);
   font-size: 12.5px;
 }
-.plan-html-frame a {
+.plan-html-frame:not([data-render-mode="design"]) a {
   color: var(--wf-accent);
   text-decoration: none;
 }
-.plan-html-frame hr {
+.plan-html-frame:not([data-render-mode="design"]) hr {
   border: 0;
   border-top: 1.4px solid var(--wf-line);
   margin: 10px 0;
 }
 
-.plan-html-frame button,
-.plan-html-frame .wf-btn {
+.plan-html-frame:not([data-render-mode="design"]) button,
+.plan-html-frame:not([data-render-mode="design"]) .wf-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -156,17 +187,17 @@
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;
 }
-.plan-html-frame button.primary,
-.plan-html-frame .wf-btn.primary,
-.plan-html-frame [data-primary] {
+.plan-html-frame:not([data-render-mode="design"]) button.primary,
+.plan-html-frame:not([data-render-mode="design"]) .wf-btn.primary,
+.plan-html-frame:not([data-render-mode="design"]) [data-primary] {
   background: var(--wf-accent);
   border-color: var(--wf-accent);
   color: var(--wf-accent-fg);
 }
 
-.plan-html-frame input,
-.plan-html-frame textarea,
-.plan-html-frame select {
+.plan-html-frame:not([data-render-mode="design"]) input,
+.plan-html-frame:not([data-render-mode="design"]) textarea,
+.plan-html-frame:not([data-render-mode="design"]) select {
   font: inherit;
   color: var(--wf-ink);
   background: var(--wf-card);
@@ -175,8 +206,8 @@
   padding: 8px 10px;
   width: 100%;
 }
-.plan-html-frame input[type="checkbox"],
-.plan-html-frame input[type="radio"] {
+.plan-html-frame:not([data-render-mode="design"]) input[type="checkbox"],
+.plan-html-frame:not([data-render-mode="design"]) input[type="radio"] {
   width: 16px;
   height: 16px;
   padding: 0;
@@ -184,15 +215,15 @@
   flex: 0 0 auto;
 }
 
-.plan-html-frame .wf-card,
-.plan-html-frame .wf-box {
+.plan-html-frame:not([data-render-mode="design"]) .wf-card,
+.plan-html-frame:not([data-render-mode="design"]) .wf-box {
   background: var(--wf-card);
   border: 1.4px solid var(--wf-line);
   border-radius: var(--wf-radius);
   padding: 12px;
 }
-.plan-html-frame .wf-pill,
-.plan-html-frame .wf-chip {
+.plan-html-frame:not([data-render-mode="design"]) .wf-pill,
+.plan-html-frame:not([data-render-mode="design"]) .wf-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -201,7 +232,7 @@
   padding: 2px 10px;
   font-size: 12.5px;
 }
-.plan-html-frame .wf-pill.accent {
+.plan-html-frame:not([data-render-mode="design"]) .wf-pill.accent {
   border-color: var(--wf-accent);
   color: var(--wf-accent);
   background: var(--wf-accent-soft);

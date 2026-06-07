@@ -45,7 +45,9 @@ export function PrototypeViewer({
 
   const wireframeData = {
     surface: activeScreen.surface ?? prototype.surface ?? "browser",
+    renderMode: activeScreen.renderMode,
     html: activeScreen.html,
+    css: activeScreen.css,
   };
 
   return (

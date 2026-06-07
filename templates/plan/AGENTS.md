@@ -55,6 +55,15 @@ prototype. Prototype plans keep static mocks in the document and use the top
 viewer for clickable review, comments, rough/clean mode, dark/light mode, and
 prototype popout.
 
+Use `/plan-design` when the user needs full-fidelity, branded UI design before
+implementation. Research the real app shell, `design.md` if present, `.fig`
+brand-kit/design-system data when available, and codebase CSS/Tailwind/token
+signals. Call `create-plan-design` with high-fidelity bounded HTML/CSS screens
+for the Design tab, stable `data-design-id` attributes for targeted element
+style edits, and transitions only when a matching Prototype tab should be
+clickable. Treat the Design tab as the visual source of truth and the Prototype
+tab as the same direction made interactive.
+
 The markdown/document portion should stay close to the plan the agent would
 normally produce. Diagrams, wireframes, mockups, annotations, and an optional
 bottom `question-form` Open Questions block are additive review aids, not a
@@ -80,6 +89,8 @@ Document Quality cores, so do not restate those rules here.
   the screens.
 - `.agents/skills/prototype-plan/SKILL.md` — `/prototype-plan`, clickable
   prototype-first planning and visual-plan conversion.
+- `.agents/skills/plan-design/SKILL.md` — `/plan-design`, full-fidelity branded
+  Design tab plus optional matching Prototype tab.
 - `.agents/skills/visual-questions/SKILL.md` — `/visual-questions`, visual intake
   before a plan.
 - `.agents/skills/visualize-plan/SKILL.md` — `/visualize-plan`, a companion for
@@ -112,6 +123,11 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by
   comments, source patches, or structured content patches rather than direct
   rich-text editing.
+- Design-mode artboards can be element-edited with `update-visual-plan`
+  `contentPatches: [{ op: "update-design-element-style", frameId, blockId,
+elementId, styles }]`. Elements must have `data-design-id` or
+  `data-plan-design-id`; use `patch-wireframe-html` / `patch-prototype-html` for
+  structural or text changes.
 - Plan comments include reviewer identity, @mentions, resolver intent
   (`agent` or `human`), exact anchors, and Figma-style threads. When adding
   human feedback through `update-visual-plan`, preserve `authorEmail` and
