@@ -152,8 +152,7 @@ export function scopeDesignCss(css: string, scopeSelector: string): string {
   return css.replace(
     /(^|[{}])\s*([^@{}][^{}]*)\{/g,
     (_match, boundary: string, selectors: string) => {
-      const scoped = selectors
-        .split(",")
+      const scoped = splitSelectorList(selectors)
         .map((selector) => selector.trim())
         .filter(Boolean)
         .map((selector) => {
@@ -170,6 +169,58 @@ export function scopeDesignCss(css: string, scopeSelector: string): string {
       return `${boundary} ${scoped} {`;
     },
   );
+}
+
+function splitSelectorList(selectors: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (const char of selectors) {
+    current += char;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (char === "]") {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+      continue;
+    }
+    if (char === "(") {
+      parenDepth += 1;
+      continue;
+    }
+    if (char === ")") {
+      parenDepth = Math.max(0, parenDepth - 1);
+      continue;
+    }
+    if (char === "," && parenDepth === 0 && bracketDepth === 0) {
+      parts.push(current.slice(0, -1));
+      current = "";
+    }
+  }
+
+  parts.push(current);
+  return parts;
 }
 
 function sanitizeElementAttributes(root: ParentNode) {

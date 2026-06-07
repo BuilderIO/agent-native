@@ -404,6 +404,54 @@ describe("update-design-element-style", () => {
     expect(block.data.html).not.toContain("padding");
   });
 
+  it("does not auto-sync block-only patches across prototype screens with matching element ids", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      prototype: {
+        initialScreenId: "one",
+        screens: [
+          {
+            id: "one",
+            renderMode: "design",
+            html: '<button data-design-id="shared">One</button>',
+          },
+          {
+            id: "two",
+            renderMode: "design",
+            html: '<button data-design-id="shared">Two</button>',
+          },
+        ],
+      },
+      blocks: [
+        {
+          id: "block-source",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            renderMode: "design",
+            html: '<button data-design-id="shared">Block</button>',
+          },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      {
+        op: "update-design-element-style",
+        blockId: "block-source",
+        elementId: "shared",
+        styles: { color: "#0f766e" },
+      },
+    ]);
+    const block = next.blocks.find(
+      (candidate) => candidate.id === "block-source",
+    );
+    if (block?.type !== "wireframe") throw new Error("expected wireframe");
+    expect(block.data.html).toContain('style="color: #0f766e"');
+    expect(next.prototype?.screens[0]?.html).not.toContain("#0f766e");
+    expect(next.prototype?.screens[1]?.html).not.toContain("#0f766e");
+  });
+
   it("rejects unsafe property names, style values, and viewport traps", () => {
     expect(() =>
       applyPlanContentPatches(designPlan(), [

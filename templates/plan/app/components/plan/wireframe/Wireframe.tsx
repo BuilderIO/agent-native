@@ -353,8 +353,14 @@ function HtmlArtboard({
     ) {
       return;
     }
-    const target = root.querySelector<HTMLElement>(
-      `[data-design-id="${cssAttr(selectedElementId)}"], [data-plan-design-id="${cssAttr(selectedElementId)}"]`,
+    const target = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        "[data-design-id], [data-plan-design-id]",
+      ),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-design-id") === selectedElementId ||
+        candidate.getAttribute("data-plan-design-id") === selectedElementId,
     );
     target?.setAttribute("data-plan-design-selected", "true");
   }, [blockId, designMode, frameId, selectedDesignElementKey, safeHtml]);
@@ -601,8 +607,4 @@ function orderDiagramNodes(
     if (!seen.has(node.id)) ordered.push(node);
   }
   return ordered;
-}
-
-function cssAttr(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

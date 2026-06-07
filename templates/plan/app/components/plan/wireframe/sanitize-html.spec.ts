@@ -159,4 +159,17 @@ describe("scopeDesignCss", () => {
     expect(out).toContain(`${scope} { padding: 12px; }`);
     expect(out).not.toContain("{ .hero");
   });
+
+  it("keeps commas inside pseudo-class arguments and attribute selectors", () => {
+    const scope = '[data-plan-design-scope="selectors"]';
+    const out = scopeDesignCss(
+      ':is(.primary, .secondary), [data-label="A,B"] { color: #111; }',
+      scope,
+    );
+
+    expect(out).toContain(`${scope} :is(.primary, .secondary)`);
+    expect(out).toContain(`${scope} [data-label="A,B"]`);
+    expect(out).not.toContain(`, ${scope} .secondary)`);
+    expect(out).not.toContain(`A, ${scope} B`);
+  });
 });

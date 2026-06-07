@@ -2683,7 +2683,6 @@ function updateDesignElementStyle(
 
   if (patch.blockId) {
     updateBlockWireframe(patch.blockId);
-    updatePrototypeDesignElementStyle(content, patch);
     return;
   }
 
@@ -2706,13 +2705,7 @@ function updatePrototypeDesignElementStyle(
   };
 
   addFrameScreenIds(frame?.id ?? patch.frameId);
-  if (candidateIds.size === 0 && patch.blockId) {
-    for (const screen of content.prototype.screens) {
-      if (countDesignElementMatches(screen.html, patch.elementId) > 0) {
-        candidateIds.add(screen.id);
-      }
-    }
-  }
+  if (candidateIds.size === 0) return;
 
   for (const screen of content.prototype.screens) {
     if (!candidateIds.has(screen.id)) continue;
