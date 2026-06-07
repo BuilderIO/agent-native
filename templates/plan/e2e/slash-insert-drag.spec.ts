@@ -297,9 +297,9 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
     await expect(
       slashTitles(page).filter({ hasText: /^Structured table$/ }),
     ).toHaveCount(1);
-    await expect(
-      slashTitles(page).filter({ hasText: /^Table$/ }),
-    ).toHaveCount(1);
+    await expect(slashTitles(page).filter({ hasText: /^Table$/ })).toHaveCount(
+      1,
+    );
     // …and the NFM-incompatible ones are filtered out.
     for (const label of ["Wireframe", "Diagram", "Code tabs", "Tabs"]) {
       await expect(
