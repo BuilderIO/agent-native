@@ -135,8 +135,8 @@ describe("plan block registry — diagram", () => {
     const spec = registry.get("diagram");
     const fields = introspect(spec!.schema);
     const byKey = Object.fromEntries(fields.map((field) => [field.key, field]));
-    expect(byKey.html?.kind).toBe("string");
-    expect(byKey.css?.kind).toBe("string");
+    expect(byKey.html?.kind).toBe("longtext");
+    expect(byKey.css?.kind).toBe("longtext");
     expect(byKey.nodes?.kind).toBe("array");
     expect(byKey.edges?.kind).toBe("array");
   });
