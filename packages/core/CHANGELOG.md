@@ -1,5 +1,52 @@
 # @agent-native/core
 
+## 0.40.0
+
+### Minor Changes
+
+- 2ce5471: Add a reusable `columns` container block for side-by-side (before/after) layouts in visual plans.
+- 2ce5471: Promote `/visual-recap` into the Agent-Native Plans skill bundle with CLI
+  installer aliases and synced skill copies.
+
+### Patch Changes
+
+- 2ce5471: Scope block edit hover to the directly hovered block and keep generated API reference blocks in a single-column document flow.
+- 2ce5471: Expose block metadata to host edit popover renderers so apps can provide
+  contextual block-level AI edit actions.
+- 2ce5471: Harden shared block renderers against malformed legacy JSON edits, oversized diff inputs, and JsonExplorer expand-state updates.
+- 2ce5471: Bound the Neon pooled-connection acquire with a timeout, not just the query. A cold or exhausted Neon pooler can stall on `pool.connect()`, which happens before the query-level `withDbTimeout` can fire — so authenticated requests (which run a session/org lookup on every navigation via `getSession` → `backfillSessionOrg`) hung until the platform killed the function, surfacing as "the app won't load" with lists, org switcher, and team pages stuck loading. The acquire now races the same `DB_OP_TIMEOUT_MS` budget and degrades into a retryable `CONNECT_TIMEOUT`, releasing the connection if it resolves after the timeout so the pool slot isn't leaked.
+- 2ce5471: Improve visual plan canvas source formatting guidance and document targeted diagram HTML patching.
+- 2ce5471: Highlight code-tab block editors while preserving textarea editing, and infer
+  syntax languages from file-like tab labels such as `content.ts`.
+- 2ce5471: Limit diff blocks to 15 visible lines by default with a slimmer inline expand
+  control, quieter file metadata, and hover-revealed layout controls.
+- 2ce5471: Compact single-child folder chains in FileTree blocks, cap the default visible tree rows, and use muted folder icons.
+- 2ce5471: Use standard UI label typography for FileTree block paths instead of monospace file text.
+- 2ce5471: Fix `zodDefToJsonSchema` to handle Zod v4 `"pipe"` type produced by `z.preprocess()`, `.superRefine()`, and `.transform()`. Previously these fell through to the `{ type: "string" }` fallback, causing action parameters whose schemas use `z.preprocess` (such as `content` in `create-visual-plan`) to be registered as strings in the MCP tool schema. Claude Code and other MCP clients would then JSON-encode object values as strings before sending, breaking validation.
+- 2ce5471: Keep shared block tab rails on one horizontally scrollable row when many tabs are present.
+- 2ce5471: Improve registry block editing with panel artifacts, inline table editing,
+  container edit surfaces, and a drag-handle block action menu.
+- 2ce5471: Default JSON explorer blocks to two auto-expanded container levels and add auto-expand presets to the edit popover.
+- 2ce5471: Fix Mermaid block runtime loading so Vite rewrites the browser-only Mermaid and
+  Excalidraw imports instead of leaving unresolved bare module specifiers in the
+  browser.
+- 2ce5471: Single-source the shared plan-skill cores (wireframe/canvas/document/exemplar) and share one wireframe-quality core across /visual-plan, /ui-plan, and /visual-recap. The wireframe-quality bar is now identical for forward plans and recaps, and the before/after layout rule is stated once (pick columns vs. vertical stack by geometry), removing the prior /visual-recap contradiction.
+- 2ce5471: Keep the full structured block library discoverable in Plans and Content slash
+  menus outside Notion-sync mode, including Mermaid, Swagger-style endpoints,
+  OpenAPI specs, schema/data models, diffs, file trees, JSON explorers, and
+  annotated code. Also let shareable resources normalize access context so local
+  Plan ownership stays consistent across generic sharing actions.
+- 2ce5471: Polish structured block slash menus with compact descriptions, hidden search
+  keywords, one-line ellipsized rows, and keyboard navigation that keeps the active
+  item visible while scrolling.
+- 2ce5471: Soften the active tab background for shared tabs blocks.
+- 2ce5471: Reduce table editing chrome by scoping row and column remove controls to the
+  hovered row or header, remove the footer padding control, and edit table text
+  through inline rich-markdown cells.
+- 2ce5471: Add an optional vertical orientation for the reusable tabs block.
+- 2ce5471: Stop generated visual recap plans from adding boilerplate disclaimer and provenance prose blocks.
+- 2ce5471: Clarify that visual recaps for UI changes should include wireframes, with before/after used when it helps review the change.
+
 ## 0.39.2
 
 ### Patch Changes
