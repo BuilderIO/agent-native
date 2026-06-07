@@ -1,6 +1,8 @@
 import type { BlockRegistry } from "@agent-native/core/blocks";
 import {
   buildRegistryBlockSlashItems,
+  getRegistryBlockSlashDescription,
+  getRegistryBlockSlashSearchText,
   type SlashCommandItem,
 } from "@agent-native/core/client";
 import { createPlanBlockId } from "@shared/plan-content";
@@ -32,10 +34,9 @@ type TableChain = {
 
 /**
  * Build the plan document editor's slash command list, returned in the exact
- * shape the shared core {@link SlashCommandItem} contract expects
- * (`{ title, description, icon, action }` — `icon` is a short text glyph, and the
- * core `SlashCommandMenu` filters by `title`/`description`, so there is no
- * separate `keywords` field). `SharedRichEditor`/`RichMarkdownEditor` forward
+ * shape the shared core {@link SlashCommandItem} contract expects. `icon` is a
+ * short text glyph; `description` is compact visible copy; `searchText` carries
+ * raw block types and aliases. `SharedRichEditor`/`RichMarkdownEditor` forward
  * this array to `SlashCommandMenu` via its `items` prop.
  *
  * Two tiers of commands:
@@ -147,8 +148,9 @@ export function buildPlanSlashCommands(
 
   // Registry block commands come from the shared core builder so adding a library
   // block only touches the registry. Plan's per-app parts: a text-glyph `icon`,
-  // the `spec.type` description keyword, the union Notion-compat predicate (which
-  // also covers prose-only NFM analogs), and inserting a `planBlock` node.
+  // compact visible descriptions, hidden search text for type/alias matching,
+  // the union Notion-compat predicate (which also covers prose-only NFM analogs),
+  // and inserting a `planBlock` node.
   const blockCommands = buildRegistryBlockSlashItems<
     SlashCommandItem,
     SlashEditor
@@ -156,10 +158,9 @@ export function buildPlanSlashCommands(
     notionCompatibleOnly: options.notionCompatibleOnly,
     isNotionCompatible: (spec) => isNotionCompatibleBlockType(spec.type),
     toItem: (spec, insert) => ({
-      title: spec.label,
-      // The block `type` rides in the description so the core menu's
-      // title/description substring filter matches typing the type keyword.
-      description: spec.type,
+      title: spec.type === "table" ? "Structured table" : spec.label,
+      description: getRegistryBlockSlashDescription(spec),
+      searchText: getRegistryBlockSlashSearchText(spec),
       icon: spec.label.slice(0, 3),
       action: insert,
     }),

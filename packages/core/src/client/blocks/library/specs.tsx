@@ -7,6 +7,7 @@ import { tableBlock } from "./table.js";
 import { codeTabsBlock } from "./code-tabs.js";
 import { htmlBlock } from "./html.js";
 import { tabsBlock } from "./tabs.js";
+import { columnsBlock } from "./columns.js";
 
 // Dev-doc blocks: React-free schema + MDX config paired with the shared React
 // Read/Edit renderers. Composed into full specs below with canonical metadata.
@@ -45,6 +46,7 @@ import { FileTreeRead, FileTreeEdit } from "./FileTreeBlock.js";
 import {
   jsonExplorerSchema,
   jsonExplorerMdx,
+  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
   type JsonExplorerData,
 } from "./json-explorer.config.js";
 import { JsonExplorerRead, JsonExplorerEdit } from "./JsonExplorerBlock.js";
@@ -57,15 +59,16 @@ import { AnnotatedCodeRead, AnnotatedCodeEdit } from "./AnnotatedCodeBlock.js";
 
 /**
  * Canonical specs for the standard library's dev-doc blocks (Mermaid, API
- * endpoint, OpenAPI spec, data model, diff, file tree, JSON explorer, annotated
- * code). Each pairs the shared React-free schema/MDX config with the shared
- * React `Read`/`Edit` renderers and the canonical label/description/editSurface/
- * empty metadata. Apps that need a slightly different label/description/empty for
- * a block pass an override to {@link registerLibraryBlocks} rather than
- * re-authoring the whole spec.
+ * endpoint, OpenAPI spec, data model, diff, file tree, JSON explorer,
+ * annotated code).
+ * Each pairs the shared React-free schema/MDX config
+ * with the shared React `Read`/`Edit` renderers and the canonical
+ * label/description/editSurface/empty metadata. Apps that need a slightly
+ * different label/description/empty for a block pass an override to
+ * {@link registerLibraryBlocks} rather than re-authoring the whole spec.
  *
- * The five fully pre-built standard specs (checklist, table, code-tabs, html,
- * tabs) already bundle their metadata in their own modules, so they are appended
+ * The six fully pre-built standard specs (checklist, table, code-tabs, html,
+ * tabs, columns) already bundle their metadata in their own modules, so they are appended
  * by {@link libraryBlockSpecs} rather than re-declared here.
  */
 // Typed `BlockSpec<any>[]` (not `BlockSpec<unknown>[]`) so the per-block generic
@@ -111,7 +114,7 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
     editSurface: "panel",
     label: "OpenAPI spec",
     description:
-      "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON): operations grouped by tag, each a collapsible row expanding to params, request body, and per-status responses, with $ref models resolved.",
+      "A whole-document API specification / Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON): operations grouped by tag, each a collapsible row expanding to params, request body, and per-status responses, with $ref models resolved.",
     empty: () => ({
       spec: JSON.stringify(
         {
@@ -143,7 +146,7 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
     editSurface: "panel",
     label: "Data model",
     description:
-      "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
+      "A schema modeling / ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
     empty: () => ({
       entities: [
         {
@@ -218,6 +221,7 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
         null,
         2,
       ),
+      collapsedDepth: JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
     }),
   }),
   defineBlock<AnnotatedCodeData>({
@@ -230,8 +234,9 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
     editSurface: "panel",
     label: "Annotated code",
     description:
-      "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes (Stripe-docs / Sourcegraph 'explain this code' style).",
+      "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes (Stripe-docs / Sourcegraph explain-this-code style).",
     empty: () => ({
+      filename: "src/server/auth.ts",
       language: "ts",
       code: "export function resolveAuth(provider: string) {\n  const cfg = providers[provider];\n  return cfg.token;\n}",
       annotations: [
@@ -246,10 +251,10 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
 ];
 
 /**
- * The full standard library spec set, in registration order: the five fully
- * pre-built specs (checklist, table, code-tabs, html, tabs) followed by the
- * eight dev-doc specs. This is the single list both the plan and content browser
- * registries register — adding a 14th library block here lands in both apps.
+ * The full standard library spec set, in registration order: the fully pre-built
+ * specs (checklist, table, code-tabs, html, tabs, columns) followed by the eight
+ * dev-doc specs. This is the single list both the plan and content browser
+ * registries register — adding a library block here lands in both apps.
  */
 export const libraryBlockSpecs: BlockSpec<any>[] = [
   checklistBlock,
@@ -257,6 +262,7 @@ export const libraryBlockSpecs: BlockSpec<any>[] = [
   codeTabsBlock,
   htmlBlock,
   tabsBlock,
+  columnsBlock,
   ...devDocBlockSpecs,
 ];
 

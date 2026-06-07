@@ -1,15 +1,35 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Editor } from "@tiptap/react";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { EditorView } from "@tiptap/pm/view";
 import {
   DragHandle,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   RunId,
   SharedRichEditor,
   generateTabId,
   useCollaborativeDoc,
+  type DragHandleDropContext,
+  type DragHandleOptions,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
-import { useOptionalBlockRegistry } from "@agent-native/core/blocks";
-import type { PlanBlock, PlanContent } from "@shared/plan-content";
+import {
+  useOptionalBlockRegistry,
+  type BlockRegistry,
+  type BlockDataChangeMeta,
+} from "@agent-native/core/blocks";
+import {
+  createPlanBlockId,
+  type PlanBlock,
+  type PlanContent,
+} from "@shared/plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
@@ -21,6 +41,11 @@ const TAB_ID = generateTabId();
 
 /** The wrapper class the DragHandle anchors its grip + drop indicator to. */
 const WRAPPER_CLASS = "plan-document-editor";
+const NESTED_WRAPPER_CLASS = "plan-nested-document-editor";
+const MAX_COLUMNS = 4;
+const PlanSideDropContext = createContext<
+  DragHandleOptions["handleDrop"] | null
+>(null);
 
 /**
  * True when the user's focus is inside the plan editor's prose surface. Used as
@@ -35,6 +60,365 @@ function isEditorFocused(): boolean {
   const active = document.activeElement;
   if (!active) return false;
   return !!active.closest(".plan-document-editor-surface");
+}
+
+function isElementFocused(element: HTMLElement | null): boolean {
+  if (typeof document === "undefined" || !element) return false;
+  const active = document.activeElement;
+  return !!active && element.contains(active);
+}
+
+function isTransferredPlanBlock(value: unknown): value is PlanBlock {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "id" in value &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    "type" in value &&
+    typeof (value as { type?: unknown }).type === "string" &&
+    "data" in value
+  );
+}
+
+type SideDropSide = Extract<
+  DragHandleDropContext["placement"],
+  "left" | "right"
+>;
+
+type NestedRegionInfo = {
+  containerBlockId: string;
+  regionId: string;
+};
+
+type ColumnSideDropRequest = {
+  sourceBlock: PlanBlock;
+  targetBlockId: string;
+  side: SideDropSide;
+  containerBlockId?: string;
+  regionId?: string;
+};
+
+function clonePlanBlock(block: PlanBlock): PlanBlock {
+  if (typeof structuredClone === "function") {
+    return structuredClone(block) as PlanBlock;
+  }
+  return JSON.parse(JSON.stringify(block)) as PlanBlock;
+}
+
+function planBlockFromPmNode(
+  node: ProseMirrorNode,
+  previousBlocks: PlanBlock[],
+): PlanBlock | null {
+  const attrs = node.attrs as { blockId?: unknown } | undefined;
+  const blockId = attrs?.blockId;
+  if (typeof blockId === "string") {
+    const existing = findBlockInTree(previousBlocks, blockId);
+    if (existing) return existing;
+  }
+
+  const parsed = proseJSONToBlocks(
+    { type: "doc", content: [node.toJSON()] },
+    previousBlocks,
+  );
+  return parsed[0] ?? null;
+}
+
+function nestedRegionInfoForView(view: EditorView): NestedRegionInfo | null {
+  const region = view.dom.closest<HTMLElement>(
+    ".plan-nested-document-editor-region",
+  );
+  const containerBlockId = region?.dataset.containerBlockId;
+  const regionId = region?.dataset.regionId;
+  if (!containerBlockId || !regionId) return null;
+  return { containerBlockId, regionId };
+}
+
+function findBlockInTree(
+  blocks: PlanBlock[],
+  blockId: string,
+): PlanBlock | undefined {
+  for (const block of blocks) {
+    if (block.id === blockId) return block;
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        const found = findBlockInTree(tab.blocks, blockId);
+        if (found) return found;
+      }
+    } else if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        const found = findBlockInTree(column.blocks, blockId);
+        if (found) return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+function regionBlocksForInfo(
+  blocks: PlanBlock[],
+  info: NestedRegionInfo,
+): PlanBlock[] | null {
+  const container = findBlockInTree(blocks, info.containerBlockId);
+  if (container?.type === "columns") {
+    return (
+      container.data.columns.find((column) => column.id === info.regionId)
+        ?.blocks ?? null
+    );
+  }
+  if (container?.type === "tabs") {
+    return (
+      container.data.tabs.find((tab) => tab.id === info.regionId)?.blocks ??
+      null
+    );
+  }
+  return null;
+}
+
+function blocksForEditorView(
+  blocks: PlanBlock[],
+  view: EditorView,
+): PlanBlock[] {
+  const regionInfo = nestedRegionInfoForView(view);
+  return regionInfo ? (regionBlocksForInfo(blocks, regionInfo) ?? []) : blocks;
+}
+
+function replaceEditorViewBlocks(view: EditorView, blocks: PlanBlock[]): void {
+  try {
+    const doc = view.state.schema.nodeFromJSON(blocksToProseJSON(blocks));
+    const tr = view.state.tr.replaceWith(
+      0,
+      view.state.doc.content.size,
+      doc.content,
+    );
+    tr.setMeta("addToHistory", false);
+    tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
+    view.dispatch(tr.scrollIntoView());
+  } catch {
+    // A stale editor view can disappear while React remounts nested regions.
+  }
+}
+
+function removeBlockFromTree(
+  blocks: PlanBlock[],
+  blockId: string,
+): { blocks: PlanBlock[]; removed: boolean } {
+  let removed = false;
+  const nextBlocks: PlanBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.id === blockId) {
+      removed = true;
+      continue;
+    }
+
+    if (block.type === "tabs") {
+      let tabChanged = false;
+      const tabs = block.data.tabs.map((tab) => {
+        const result = removeBlockFromTree(tab.blocks, blockId);
+        if (result.removed) {
+          removed = true;
+          tabChanged = true;
+          return { ...tab, blocks: result.blocks };
+        }
+        return tab;
+      });
+      nextBlocks.push(tabChanged ? { ...block, data: { tabs } } : block);
+      continue;
+    }
+
+    if (block.type === "columns") {
+      let columnChanged = false;
+      const columns = block.data.columns.flatMap((column) => {
+        const result = removeBlockFromTree(column.blocks, blockId);
+        if (!result.removed) return [column];
+        removed = true;
+        columnChanged = true;
+        return result.blocks.length > 0
+          ? [{ ...column, blocks: result.blocks }]
+          : [];
+      });
+
+      if (!columnChanged) {
+        nextBlocks.push(block);
+      } else if (columns.length > 0) {
+        nextBlocks.push({ ...block, data: { columns } });
+      }
+      continue;
+    }
+
+    nextBlocks.push(block);
+  }
+
+  return { blocks: nextBlocks, removed };
+}
+
+function insertColumnInContainer(
+  blocks: PlanBlock[],
+  request: Required<
+    Pick<ColumnSideDropRequest, "containerBlockId" | "regionId">
+  > &
+    ColumnSideDropRequest,
+): { blocks: PlanBlock[]; changed: boolean } {
+  let changed = false;
+
+  const nextBlocks = blocks.map((block) => {
+    if (block.type === "columns" && block.id === request.containerBlockId) {
+      if (block.data.columns.length >= MAX_COLUMNS) return block;
+      const regionIndex = block.data.columns.findIndex(
+        (column) => column.id === request.regionId,
+      );
+      if (regionIndex < 0) return block;
+      const targetColumn = block.data.columns[regionIndex];
+      if (
+        !targetColumn?.blocks.some(
+          (child) => child.id === request.targetBlockId,
+        )
+      ) {
+        return block;
+      }
+      const insertIndex =
+        request.side === "left" ? regionIndex : regionIndex + 1;
+      const nextColumn = {
+        id: createPlanBlockId("column"),
+        blocks: [clonePlanBlock(request.sourceBlock)],
+      };
+      changed = true;
+      return {
+        ...block,
+        data: {
+          columns: [
+            ...block.data.columns.slice(0, insertIndex),
+            nextColumn,
+            ...block.data.columns.slice(insertIndex),
+          ],
+        },
+      } as PlanBlock;
+    }
+
+    if (block.type === "tabs") {
+      let childChanged = false;
+      const tabs = block.data.tabs.map((tab) => {
+        const result = insertColumnInContainer(tab.blocks, request);
+        if (result.changed) {
+          changed = true;
+          childChanged = true;
+          return { ...tab, blocks: result.blocks };
+        }
+        return tab;
+      });
+      return childChanged ? ({ ...block, data: { tabs } } as PlanBlock) : block;
+    }
+
+    if (block.type === "columns") {
+      let childChanged = false;
+      const columns = block.data.columns.map((column) => {
+        const result = insertColumnInContainer(column.blocks, request);
+        if (result.changed) {
+          changed = true;
+          childChanged = true;
+          return { ...column, blocks: result.blocks };
+        }
+        return column;
+      });
+      return childChanged
+        ? ({ ...block, data: { columns } } as PlanBlock)
+        : block;
+    }
+
+    return block;
+  });
+
+  return { blocks: nextBlocks, changed };
+}
+
+function wrapTopLevelTargetInColumns(
+  blocks: PlanBlock[],
+  request: ColumnSideDropRequest,
+): PlanBlock[] | null {
+  if (request.sourceBlock.type === "columns") return null;
+  const targetIndex = blocks.findIndex(
+    (block) => block.id === request.targetBlockId,
+  );
+  const targetBlock = blocks[targetIndex];
+  if (!targetBlock || targetBlock.type === "columns") return null;
+
+  const sourceColumn = {
+    id: createPlanBlockId("column"),
+    blocks: [clonePlanBlock(request.sourceBlock)],
+  };
+  const targetColumn = {
+    id: createPlanBlockId("column"),
+    blocks: [targetBlock],
+  };
+  const columns =
+    request.side === "left"
+      ? [sourceColumn, targetColumn]
+      : [targetColumn, sourceColumn];
+  const columnsBlock = {
+    id: createPlanBlockId("columns"),
+    type: "columns",
+    data: { columns },
+  } as PlanBlock;
+
+  return [
+    ...blocks.slice(0, targetIndex),
+    columnsBlock,
+    ...blocks.slice(targetIndex + 1),
+  ];
+}
+
+function applyColumnSideDrop(
+  blocks: PlanBlock[],
+  request: ColumnSideDropRequest,
+): PlanBlock[] | null {
+  if (request.sourceBlock.id === request.targetBlockId) return null;
+
+  const removal = removeBlockFromTree(blocks, request.sourceBlock.id);
+  if (!removal.removed) return null;
+
+  if (request.containerBlockId && request.regionId) {
+    const insertion = insertColumnInContainer(removal.blocks, {
+      ...request,
+      containerBlockId: request.containerBlockId,
+      regionId: request.regionId,
+    });
+    return insertion.changed ? insertion.blocks : null;
+  }
+
+  return wrapTopLevelTargetInColumns(removal.blocks, request);
+}
+
+function repaintDropViews(
+  context: DragHandleDropContext,
+  nextBlocks: PlanBlock[],
+): void {
+  const views = new Set([context.sourceView, context.view]);
+  for (const view of views) {
+    const regionInfo = nestedRegionInfoForView(view);
+    if (regionInfo) {
+      const regionBlocks = regionBlocksForInfo(nextBlocks, regionInfo);
+      if (regionBlocks) replaceEditorViewBlocks(view, regionBlocks);
+      continue;
+    }
+    replaceEditorViewBlocks(view, nextBlocks);
+  }
+}
+
+function resolveBlockDataChange(
+  registry: BlockRegistry | null,
+  block: PlanBlock | undefined,
+  nextData: unknown,
+  meta?: BlockDataChangeMeta,
+): unknown {
+  if (!block || !meta?.containerRegion) return nextData;
+  const spec = registry?.get(block.type);
+  if (!spec?.container) return nextData;
+
+  return spec.container.updateRegion(
+    (block as { data: unknown }).data,
+    meta.containerRegion.regionId,
+    meta.containerRegion.blocks,
+  );
 }
 
 /**
@@ -79,6 +463,7 @@ export function PlanDocumentEditor({
   const [blocks, setBlocks] = useState<PlanBlock[]>(content.blocks);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+  const pendingTransferredBlocksRef = useRef(new Map<string, PlanBlock>());
 
   // Adopt external `content` changes (agent patches, source edits) unless the
   // incoming value is the echo of our own last save.
@@ -96,6 +481,12 @@ export function PlanDocumentEditor({
   // guard existed: the shared editor's empty check only knows empty markdown
   // strings, not this editor's empty-array `"[]"` value space).
   const hasSeededRef = useRef(false);
+
+  const commit = (next: PlanBlock[]) => {
+    lastEmittedRef.current = JSON.stringify(next);
+    setBlocks(next);
+    void onBlocksChange(next);
+  };
 
   const docUser =
     collabUser && collabUser.email
@@ -128,6 +519,67 @@ export function PlanDocumentEditor({
     user: docUser,
   });
 
+  const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
+    () =>
+      ({ node }) => {
+        return planBlockFromPmNode(node, blocksRef.current) ?? undefined;
+      },
+    [],
+  );
+
+  const receiveDragTransferData = useMemo<
+    DragHandleOptions["receiveDragTransferData"]
+  >(
+    () => (data: unknown) => {
+      if (!isTransferredPlanBlock(data)) return;
+      pendingTransferredBlocksRef.current.set(data.id, data);
+    },
+    [],
+  );
+
+  const handleDrop = useMemo<DragHandleOptions["handleDrop"]>(
+    () => (data: unknown, context: DragHandleDropContext) => {
+      if (context.placement !== "left" && context.placement !== "right") {
+        return false;
+      }
+
+      const currentBlocks = blocksRef.current;
+      const sourceBlocks = blocksForEditorView(
+        currentBlocks,
+        context.sourceView,
+      );
+      const targetBlocks = blocksForEditorView(currentBlocks, context.view);
+      const sourceBlock =
+        (isTransferredPlanBlock(data) ? data : null) ??
+        planBlockFromPmNode(context.sourceNode, sourceBlocks);
+      const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
+      if (!sourceBlock || !targetBlock) return false;
+
+      const targetRegion = nestedRegionInfoForView(context.view);
+      if (targetRegion) {
+        const container = findBlockInTree(
+          currentBlocks,
+          targetRegion.containerBlockId,
+        );
+        if (container?.type !== "columns") return false;
+      }
+
+      const nextBlocks = applyColumnSideDrop(currentBlocks, {
+        sourceBlock,
+        targetBlockId: targetBlock.id,
+        side: context.placement,
+        containerBlockId: targetRegion?.containerBlockId,
+        regionId: targetRegion?.regionId,
+      });
+      if (!nextBlocks) return false;
+
+      commit(nextBlocks);
+      repaintDropViews(context, nextBlocks);
+      return true;
+    },
+    [],
+  );
+
   const extraExtensions = useMemo(
     () => [
       // RunId stamps a stable `runId` on prose nodes so `proseJSONToBlocks`
@@ -136,9 +588,13 @@ export function PlanDocumentEditor({
       // "in sync", and it loops `setContent` (wiping edits + flushSync storm).
       RunId,
       PlanBlockNode,
-      DragHandle.configure({ wrapperSelector: `.${WRAPPER_CLASS}` }),
+      DragHandle.configure({
+        wrapperSelector: `.${WRAPPER_CLASS}`,
+        getDragTransferData,
+        receiveDragTransferData,
+      }),
     ],
-    [],
+    [getDragTransferData, receiveDragTransferData],
   );
 
   // When the plan opts into Notion sync, the slash menu only offers blocks that
@@ -222,12 +678,6 @@ export function PlanDocumentEditor({
     [],
   );
 
-  const commit = (next: PlanBlock[]) => {
-    lastEmittedRef.current = JSON.stringify(next);
-    setBlocks(next);
-    void onBlocksChange(next);
-  };
-
   // Prose / structure edits → blocks. Seed `data` for freshly slash-inserted
   // blocks (their `planBlock` node carried only an id; `proseJSONToBlocks` gave
   // `{}` because the block wasn't in `prevBlocks` yet).
@@ -270,6 +720,11 @@ export function PlanDocumentEditor({
       ) {
         return block;
       }
+      const transferred = pendingTransferredBlocksRef.current.get(block.id);
+      if (transferred && transferred.type === block.type) {
+        pendingTransferredBlocksRef.current.delete(block.id);
+        return transferred;
+      }
       const spec = registry?.get(block.type);
       const seeded = spec?.empty?.();
       return seeded ? ({ ...block, data: seeded } as PlanBlock) : block;
@@ -296,10 +751,21 @@ export function PlanDocumentEditor({
         !isNotionCompatibleBlockType(blockType),
       getBlock: (blockId: string) =>
         blocksRef.current.find((block) => block.id === blockId),
-      onBlockDataChange: (blockId: string, nextData: unknown) => {
+      onBlockDataChange: (
+        blockId: string,
+        nextData: unknown,
+        meta?: BlockDataChangeMeta,
+      ) => {
+        const current = blocksRef.current.find((block) => block.id === blockId);
+        const resolvedData = resolveBlockDataChange(
+          registry,
+          current,
+          nextData,
+          meta,
+        );
         const next = blocksRef.current.map((block) =>
           block.id === blockId
-            ? ({ ...block, data: nextData } as PlanBlock)
+            ? ({ ...block, data: resolvedData } as PlanBlock)
             : block,
         );
         commit(next);
@@ -353,25 +819,333 @@ export function PlanDocumentEditor({
   );
 
   return (
-    <PlanBlockDataProvider value={dataValue}>
-      <SharedRichEditor
-        value={value}
-        onChange={handleChange}
-        contentUpdatedAt={contentUpdatedAt}
-        editable={editable}
-        dialect="gfm"
-        features={{ image: true }}
-        extraExtensions={extraExtensions}
-        slashItems={slashItems}
-        ydoc={ydoc}
-        awareness={awareness}
-        user={collabUser}
-        getMarkdown={getMarkdown}
-        setContent={setContent}
-        normalizeValue={normalizeValue}
-        wrapperClassName={WRAPPER_CLASS}
-        className="plan-document-editor-surface"
-      />
-    </PlanBlockDataProvider>
+    <PlanSideDropContext.Provider value={handleDrop}>
+      <PlanBlockDataProvider value={dataValue}>
+        <SharedRichEditor
+          value={value}
+          onChange={handleChange}
+          contentUpdatedAt={contentUpdatedAt}
+          editable={editable}
+          dialect="gfm"
+          features={{ image: true }}
+          extraExtensions={extraExtensions}
+          slashItems={slashItems}
+          ydoc={ydoc}
+          awareness={awareness}
+          user={collabUser}
+          getMarkdown={getMarkdown}
+          setContent={setContent}
+          normalizeValue={normalizeValue}
+          wrapperClassName={WRAPPER_CLASS}
+          className="plan-document-editor-surface"
+        />
+      </PlanBlockDataProvider>
+    </PlanSideDropContext.Provider>
+  );
+}
+
+/**
+ * Editable nested block region for content-bearing containers (columns today,
+ * any future `editSurface: "container"` block later). It intentionally speaks
+ * the same normalized `PlanBlock[]` runtime shape as the top-level editor while
+ * leaving source-friendly MDX adapters to the parser/export layer.
+ */
+export function NestedPlanBlocksEditor({
+  blocks: sourceBlocks,
+  contentUpdatedAt,
+  planId,
+  collabUser,
+  editable,
+  onBlocksChange,
+  onVisualQuestionsSubmit,
+  notionCompatibleOnly = false,
+  containerBlockId,
+  regionId,
+  regionLabel,
+  compactVisuals,
+}: {
+  blocks: PlanBlock[];
+  contentUpdatedAt?: string | null;
+  planId?: string | null;
+  collabUser?: RichMarkdownCollabUser | null;
+  editable: boolean;
+  onBlocksChange: (blocks: PlanBlock[]) => void | Promise<void>;
+  onVisualQuestionsSubmit?: (summary: string) => void;
+  notionCompatibleOnly?: boolean;
+  containerBlockId: string;
+  regionId: string;
+  regionLabel?: string;
+  compactVisuals?: boolean;
+}) {
+  const registryValue = useOptionalBlockRegistry();
+  const registry = registryValue?.registry ?? null;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const parentHandleDrop = useContext(PlanSideDropContext);
+
+  const [blocks, setBlocks] = useState<PlanBlock[]>(sourceBlocks);
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+  const pendingTransferredBlocksRef = useRef(new Map<string, PlanBlock>());
+
+  const lastEmittedRef = useRef<string>(JSON.stringify(sourceBlocks));
+  useEffect(() => {
+    const incoming = JSON.stringify(sourceBlocks);
+    if (incoming === lastEmittedRef.current) return;
+    lastEmittedRef.current = incoming;
+    setBlocks(sourceBlocks);
+  }, [sourceBlocks]);
+
+  const hasSeededRef = useRef(sourceBlocks.length > 0);
+
+  const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
+    () =>
+      ({ node }) => {
+        return planBlockFromPmNode(node, blocksRef.current) ?? undefined;
+      },
+    [],
+  );
+
+  const receiveDragTransferData = useMemo<
+    DragHandleOptions["receiveDragTransferData"]
+  >(
+    () => (data: unknown) => {
+      if (!isTransferredPlanBlock(data)) return;
+      pendingTransferredBlocksRef.current.set(data.id, data);
+    },
+    [],
+  );
+
+  const extraExtensions = useMemo(
+    () => [
+      RunId,
+      PlanBlockNode,
+      DragHandle.configure({
+        wrapperSelector: `.${NESTED_WRAPPER_CLASS}`,
+        getDragTransferData,
+        receiveDragTransferData,
+        handleDrop: parentHandleDrop ?? undefined,
+      }),
+    ],
+    [getDragTransferData, receiveDragTransferData, parentHandleDrop],
+  );
+
+  const slashItems = useMemo(
+    () =>
+      registry
+        ? buildPlanSlashCommands(registry, { notionCompatibleOnly })
+        : undefined,
+    [registry, notionCompatibleOnly],
+  );
+
+  const value = useMemo(() => JSON.stringify(sourceBlocks), [sourceBlocks]);
+
+  const getMarkdown = useMemo(
+    () => (editor: Editor) =>
+      JSON.stringify(proseJSONToBlocks(editor.getJSON(), blocksRef.current)),
+    [],
+  );
+
+  const setContent = useMemo(
+    () =>
+      (
+        editor: Editor,
+        nextValue: string,
+        options: { emitUpdate?: boolean; addToHistory?: boolean },
+      ) => {
+        let parsed: PlanBlock[];
+        try {
+          parsed = JSON.parse(nextValue) as PlanBlock[];
+        } catch {
+          return;
+        }
+        const nextDoc = blocksToProseJSON(parsed);
+        if (options.addToHistory === false) {
+          editor
+            .chain()
+            .command(({ tr }) => {
+              tr.setMeta("addToHistory", false);
+              return true;
+            })
+            .setContent(nextDoc, { emitUpdate: options.emitUpdate ?? false })
+            .run();
+        } else {
+          editor.commands.setContent(nextDoc, {
+            emitUpdate: options.emitUpdate ?? false,
+          });
+        }
+        if (parsed.length > 0) hasSeededRef.current = true;
+      },
+    [],
+  );
+
+  const normalizeValue = useMemo(
+    () => (input: string) => {
+      try {
+        const parsed = JSON.parse(input) as PlanBlock[];
+        return JSON.stringify(
+          proseJSONToBlocks(blocksToProseJSON(parsed), parsed),
+        );
+      } catch {
+        return input;
+      }
+    },
+    [],
+  );
+
+  const commit = (next: PlanBlock[]) => {
+    lastEmittedRef.current = JSON.stringify(next);
+    setBlocks(next);
+    void onBlocksChange(next);
+  };
+
+  const handleChange = (serialized: string) => {
+    let next: PlanBlock[];
+    try {
+      next = JSON.parse(serialized) as PlanBlock[];
+    } catch {
+      return;
+    }
+    const prevCount = blocksRef.current.length;
+    if (
+      next.length === 0 &&
+      prevCount > 0 &&
+      !isElementFocused(rootRef.current)
+    )
+      return;
+    if (
+      !hasSeededRef.current &&
+      prevCount >= 3 &&
+      next.length < prevCount * 0.2
+    ) {
+      return;
+    }
+    if (next.length > 0) hasSeededRef.current = true;
+
+    const prevIds = new Set(blocksRef.current.map((block) => block.id));
+    next = next.map((block) => {
+      if (block.type === "rich-text" || prevIds.has(block.id)) return block;
+      const data = (block as { data?: unknown }).data;
+      if (
+        data &&
+        typeof data === "object" &&
+        !Array.isArray(data) &&
+        Object.keys(data).length > 0
+      ) {
+        return block;
+      }
+      const transferred = pendingTransferredBlocksRef.current.get(block.id);
+      if (transferred && transferred.type === block.type) {
+        pendingTransferredBlocksRef.current.delete(block.id);
+        return transferred;
+      }
+      const spec = registry?.get(block.type);
+      const seeded = spec?.empty?.();
+      return seeded ? ({ ...block, data: seeded } as PlanBlock) : block;
+    });
+    commit(next);
+  };
+
+  const legacyCtxRef = useRef({ contentUpdatedAt, planId, collabUser });
+  legacyCtxRef.current = { contentUpdatedAt, planId, collabUser };
+  const onVisualQuestionsSubmitRef = useRef(onVisualQuestionsSubmit);
+  onVisualQuestionsSubmitRef.current = onVisualQuestionsSubmit;
+
+  const dataValue = useMemo(
+    () => ({
+      editable,
+      notionSync: notionCompatibleOnly,
+      isNotionIncompatibleType: (blockType: string) =>
+        !isNotionCompatibleBlockType(blockType),
+      getBlock: (blockId: string) =>
+        blocksRef.current.find((block) => block.id === blockId),
+      onBlockDataChange: (
+        blockId: string,
+        nextData: unknown,
+        meta?: BlockDataChangeMeta,
+      ) => {
+        const current = blocksRef.current.find((block) => block.id === blockId);
+        const resolvedData = resolveBlockDataChange(
+          registry,
+          current,
+          nextData,
+          meta,
+        );
+        const next = blocksRef.current.map((block) =>
+          block.id === blockId
+            ? ({ ...block, data: resolvedData } as PlanBlock)
+            : block,
+        );
+        commit(next);
+      },
+      renderLegacyBlock: (
+        block: PlanBlock,
+        { editing }: { editing: boolean },
+      ) => (
+        <PlanBlockView
+          block={block}
+          onChange={
+            editing
+              ? (nextBlock) => {
+                  const next = blocksRef.current.map((current) =>
+                    current.id === block.id
+                      ? (nextBlock as PlanBlock)
+                      : current,
+                  );
+                  commit(next);
+                }
+              : undefined
+          }
+          onRichTextChange={(blockId, markdown) => {
+            const next = blocksRef.current.map((current) =>
+              current.id === blockId && current.type === "rich-text"
+                ? ({
+                    ...current,
+                    data: { ...current.data, markdown },
+                  } as PlanBlock)
+                : current,
+            );
+            commit(next);
+          }}
+          onVisualQuestionsSubmit={(summary) =>
+            onVisualQuestionsSubmitRef.current?.(summary)
+          }
+          compactVisuals={compactVisuals}
+          editingDisabled={!editing}
+          contentUpdatedAt={legacyCtxRef.current.contentUpdatedAt}
+          planId={legacyCtxRef.current.planId}
+          collabUser={legacyCtxRef.current.collabUser}
+        />
+      ),
+    }),
+    [editable, notionCompatibleOnly], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  return (
+    <div
+      ref={rootRef}
+      className="plan-nested-document-editor-region"
+      data-container-block-id={containerBlockId}
+      data-region-id={regionId}
+      data-region-label={regionLabel}
+    >
+      <PlanBlockDataProvider value={dataValue}>
+        <SharedRichEditor
+          value={value}
+          onChange={handleChange}
+          contentUpdatedAt={contentUpdatedAt}
+          editable={editable}
+          dialect="gfm"
+          features={{ image: true }}
+          extraExtensions={extraExtensions}
+          slashItems={slashItems}
+          getMarkdown={getMarkdown}
+          setContent={setContent}
+          normalizeValue={normalizeValue}
+          wrapperClassName={NESTED_WRAPPER_CLASS}
+          className="plan-nested-document-editor-surface"
+          editorClassName="plan-nested-document-editor-prose"
+        />
+      </PlanBlockDataProvider>
+    </div>
   );
 }

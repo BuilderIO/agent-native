@@ -34,6 +34,7 @@ type PlanMarkdownEditorProps = {
   onSave: (markdown: string) => Promise<void> | void;
   editable?: boolean;
   className?: string;
+  ariaLabel?: string;
   contentUpdatedAt?: string | null;
   /**
    * When both `planId` and `blockId` are present, prose for this block is edited
@@ -53,6 +54,7 @@ export function PlanMarkdownEditor({
   onSave,
   editable = true,
   className,
+  ariaLabel,
   contentUpdatedAt,
   planId,
   blockId,
@@ -159,6 +161,7 @@ export function PlanMarkdownEditor({
       onImageUpload={uploadEditorImage}
       slashItems={PLAN_SLASH_COMMANDS}
       className={cn("plan-rich-markdown-editor mt-4", className)}
+      ariaLabel={ariaLabel}
       interactive={editable}
       ydoc={collabEnabled ? ydoc : null}
       awareness={collabEnabled ? awareness : null}

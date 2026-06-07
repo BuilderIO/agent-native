@@ -26,6 +26,10 @@ export {
   type BlockEditProps,
   type MdxAttrValue,
   type NestedBlock,
+  type BlockAiFieldActionProps,
+  type BlockContainerRegion,
+  type BlockContainerSpec,
+  type BlockDataChangeMeta,
 } from "./types.js";
 
 // Registry + provisioning
@@ -38,6 +42,7 @@ export {
 
 // Rendering
 export { BlockView, blockEditSurface } from "./BlockView.js";
+export { AiEditableFieldLabel } from "./AiEditableField.js";
 export { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 // Schema-form helpers
@@ -72,9 +77,9 @@ export {
 } from "./agent.js";
 
 // Standard library registration. Apps call `registerLibraryBlocks(registry)` to
-// register the whole standard library (the five pre-built specs + the eight
-// dev-doc specs) in one place, then register only their app-specific blocks on
-// top. `libraryBlockSpecs` is the underlying ordered array.
+// register the whole standard library (the pre-built specs + dev-doc specs) in
+// one place, then register only their app-specific blocks on top.
+// `libraryBlockSpecs` is the underlying ordered array.
 export {
   libraryBlockSpecs,
   registerLibraryBlocks,
@@ -118,8 +123,20 @@ export {
   tabsSchema,
   tabsMdx,
   type TabsData,
+  type TabsOrientation,
   type TabsTab,
 } from "./library/tabs.config.js";
+export {
+  columnsBlock,
+  ColumnsBlockReader,
+  ColumnsBlockEditor,
+} from "./library/columns.js";
+export {
+  columnsSchema,
+  columnsMdx,
+  type ColumnsData,
+  type ColumnsColumn,
+} from "./library/columns.config.js";
 
 // Dev-doc block library (React `Read`/`Edit` renderers + their React-free
 // schema/MDX config). Apps register these alongside their own blocks, supplying

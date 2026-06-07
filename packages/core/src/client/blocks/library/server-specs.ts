@@ -18,6 +18,11 @@ import {
 import { htmlSchema, htmlMdx, type HtmlBlockData } from "./html.config.js";
 import { tabsSchema, tabsMdx, type TabsData } from "./tabs.config.js";
 import {
+  columnsSchema,
+  columnsMdx,
+  type ColumnsData,
+} from "./columns.config.js";
+import {
   mermaidSchema,
   mermaidMdx,
   type MermaidData,
@@ -122,7 +127,17 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     placement: ["block", "inline"],
     label: "Tabs",
     description:
-      "A horizontal pill-tab container; each tab holds its own list of blocks.",
+      "A top or side tab container; each tab holds its own list of blocks.",
+  }),
+  defineBlock<ColumnsData>({
+    type: "columns",
+    schema: columnsSchema,
+    mdx: columnsMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    label: "Columns",
+    description:
+      "A multi-column side-by-side layout container; each column holds its own list of blocks. Ideal for before/after or current/target comparisons.",
   }),
   defineBlock<MermaidData>({
     type: "mermaid",
@@ -152,7 +167,7 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     placement: ["block"],
     label: "OpenAPI spec",
     description:
-      "A whole-document Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON).",
+      "A whole-document API specification / Redoc / Swagger-UI-style API reference rendered from a complete OpenAPI 3 / Swagger 2 spec (JSON).",
   }),
   defineBlock<DataModelData>({
     type: "data-model",
@@ -162,7 +177,7 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     placement: ["block"],
     label: "Data model",
     description:
-      "An ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
+      "A schema modeling / ERD / dbdiagram-style data model: entity cards with typed fields (PK/FK/nullable flags) and interactive foreign-key relations.",
   }),
   defineBlock<DiffData>({
     type: "diff",

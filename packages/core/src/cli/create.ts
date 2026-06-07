@@ -1655,11 +1655,15 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
     name === ".output" ||
     name === "build" ||
     name === "dist" ||
+    name === "test-results" ||
+    name === "playwright-report" ||
     name === ".DS_Store"
   ) {
     return true;
   }
   return (
-    /^qa-.*\.db(?:-shm|-wal)?$/.test(name) || /\.db-(?:shm|wal)$/.test(name)
+    name.endsWith(".tmp.json") ||
+    /^qa-.*\.db(?:-shm|-wal)?$/.test(name) ||
+    /\.db-(?:shm|wal)$/.test(name)
   );
 }

@@ -6,9 +6,11 @@ import { planNotionCompatibleBlockTypes } from "./plan-block-registry.js";
  * must map to the content app's Notion-Flavored-Markdown (NFM) vocabulary
  * (`templates/content/shared/nfm.ts`) to round-trip into a Notion page. Plan
  * blocks that have NO NFM analog (wireframes, diagrams, tabs, code-tabs,
- * decisions, question forms, visual questions, custom HTML, implementation maps) can't sync —
- * they're flagged on enable and excluded from the slash menu in compatible-only
- * mode, and degrade to a callout placeholder on push.
+ * Mermaid, API endpoint/spec blocks, data models, diffs, file trees, JSON
+ * explorers, annotated code, decisions, question forms, visual questions, custom HTML,
+ * implementation maps) can't sync — they're flagged on enable and
+ * excluded from the slash menu in compatible-only mode, and degrade to a
+ * callout placeholder on push.
  */
 
 /**

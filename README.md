@@ -55,7 +55,7 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 
 **Visual plan mode for coding agents**
 
-Install `/visual-plan`, `/ui-plan`, and companion skills so your coding agent can create visual plans with diagrams, wireframes, annotations, and review links.
+Install `/visual-plan`, `/visual-recap`, `/ui-plan`, and companion skills so your coding agent can create forward plans and high-level code-review recaps with diagrams, wireframes, annotations, and review links.
 
 </td>
 </tr>

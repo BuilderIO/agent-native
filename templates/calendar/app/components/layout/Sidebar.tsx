@@ -601,9 +601,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       )}
 
       <aside
+        data-open={open ? "true" : "false"}
         className={cn(
-          "fixed left-0 top-0 z-50 flex h-full w-56 min-w-0 flex-col overflow-hidden border-r border-border bg-card transition-transform duration-200 lg:static lg:translate-x-0",
-          open ? "translate-x-0" : "-translate-x-full",
+          "calendar-app-sidebar fixed left-0 top-0 z-50 flex h-full w-56 min-w-0 flex-col overflow-hidden border-r border-border bg-card transition-transform duration-200 lg:static",
         )}
       >
         {/* Logo */}

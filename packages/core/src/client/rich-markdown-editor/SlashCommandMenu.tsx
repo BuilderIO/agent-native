@@ -14,6 +14,11 @@ import { pickAndInsertImage, type ImageUploadFn } from "./ImageExtension.js";
 export interface SlashCommandItem {
   title: string;
   description: string;
+  /**
+   * Optional hidden search text. Use this for raw block types and aliases that
+   * should match slash queries without making the visible description verbose.
+   */
+  searchText?: string;
   /** Short text glyph shown in the menu (T, H1, tbl, …). */
   icon: string;
   action: (editor: Editor) => void;
@@ -142,17 +147,19 @@ export function SlashCommandMenu({
     left: number;
     flipUp: boolean;
   } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const selectedItemRef = useRef<HTMLButtonElement>(null);
   const slashPosRef = useRef<number | null>(null);
 
-  const filteredCommands = useMemo(
-    () =>
-      items.filter(
-        (cmd) =>
-          cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-          cmd.description.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [items, query],
-  );
+  const filteredCommands = useMemo(() => {
+    const normalizedQuery = query.toLowerCase();
+    return items.filter(
+      (cmd) =>
+        cmd.title.toLowerCase().includes(normalizedQuery) ||
+        cmd.description.toLowerCase().includes(normalizedQuery) ||
+        cmd.searchText?.toLowerCase().includes(normalizedQuery),
+    );
+  }, [items, query]);
 
   const close = useCallback(() => {
     setIsOpen(false);
@@ -181,9 +188,11 @@ export function SlashCommandMenu({
       if (!isOpen) return;
       if (event.key === "ArrowDown") {
         event.preventDefault();
+        if (filteredCommands.length === 0) return;
         setSelectedIndex((index) => (index + 1) % filteredCommands.length);
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
+        if (filteredCommands.length === 0) return;
         setSelectedIndex(
           (index) =>
             (index - 1 + filteredCommands.length) % filteredCommands.length,
@@ -201,6 +210,24 @@ export function SlashCommandMenu({
   }, [close, executeCommand, filteredCommands, isOpen, selectedIndex]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const menu = menuRef.current;
+    const item = selectedItemRef.current;
+    if (!menu || !item) return;
+
+    const itemTop = item.offsetTop;
+    const itemBottom = itemTop + item.offsetHeight;
+    const visibleTop = menu.scrollTop;
+    const visibleBottom = visibleTop + menu.clientHeight;
+
+    if (itemTop < visibleTop) {
+      menu.scrollTop = itemTop;
+    } else if (itemBottom > visibleBottom) {
+      menu.scrollTop = itemBottom - menu.clientHeight;
+    }
+  }, [filteredCommands.length, isOpen, selectedIndex]);
+
+  useEffect(() => {
     const handleTransaction = () => {
       const { state } = editor;
       const { from } = state.selection;
@@ -209,7 +236,7 @@ export function SlashCommandMenu({
         from,
         "\n",
       );
-      const slashMatch = textBefore.match(/\/([a-zA-Z0-9]*)$/);
+      const slashMatch = textBefore.match(/\/([a-zA-Z0-9 ]*)$/);
       if (!slashMatch) {
         if (isOpen) close();
         return;
@@ -241,6 +268,7 @@ export function SlashCommandMenu({
 
   return (
     <div
+      ref={menuRef}
       className="an-rich-md-slash-menu"
       style={
         {
@@ -257,6 +285,7 @@ export function SlashCommandMenu({
       {filteredCommands.map((command, index) => (
         <button
           key={command.title}
+          ref={index === selectedIndex ? selectedItemRef : undefined}
           type="button"
           className={cn(
             "an-rich-md-slash-item",
@@ -267,7 +296,7 @@ export function SlashCommandMenu({
           onClick={() => executeCommand(command)}
         >
           <span className="an-rich-md-slash-icon">{command.icon}</span>
-          <span>
+          <span className="an-rich-md-slash-copy">
             <span className="an-rich-md-slash-title">{command.title}</span>
             <span className="an-rich-md-slash-description">
               {command.description}

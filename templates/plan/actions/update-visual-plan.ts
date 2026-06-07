@@ -101,6 +101,7 @@ function findContentBlock(
 function contentPatchTargetId(patch: PlanContentPatch) {
   if ("blockId" in patch) return patch.blockId;
   if ("screenId" in patch) return patch.screenId;
+  if (patch.op === "set-metadata") return "plan-metadata";
   if (patch.op === "set-prototype" || patch.op === "remove-prototype") {
     return "prototype";
   }
@@ -371,7 +372,7 @@ function contentPatchDetails(input: {
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits such as copy changes, one element/text/color inside an html mockup via patch-wireframe-html or patch-prototype-html, one legacy wireframe kit-tree node, a whole wireframe, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
+    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits such as title/brief metadata, copy changes, one element/text/color inside an html mockup via patch-wireframe-html or patch-prototype-html, one diagram html/css edit via patch-diagram-html or update-block, one legacy wireframe kit-tree node, a whole wireframe, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional(),
@@ -384,7 +385,7 @@ export default defineAction({
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits addressed by stable id. Prefer these for small changes: set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype plans; update-block / replace-block, update-rich-text, patch-wireframe-html (change one element/text/color inside an html mockup via find/replace edits - read the current html first with get-visual-plan), update-wireframe-node (one legacy kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single mockup, prototype state, or node without regenerating the plan. The renderer owns all visual styling; emit lean content, not pixels - never supply geometry or coordinates.",
+        "Targeted structured content edits addressed by stable id. Prefer these for small changes: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype plans; update-block / replace-block, update-rich-text, patch-wireframe-html (change one element/text/color inside an html mockup via find/replace edits - read the current html first with get-visual-plan), patch-diagram-html (change one element/text/class inside a diagram while preserving .diagram-* primitives and --wf-* token CSS), update-wireframe-node (one legacy kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single mockup, prototype state, diagram, or node without regenerating the plan. The renderer owns all visual styling; emit lean content, not pixels - never supply geometry or coordinates.",
       ),
     markdown: z.string().optional(),
     sections: z.array(sectionInputSchema).optional().default([]),
@@ -509,9 +510,14 @@ export default defineAction({
             })
           )["plan.mdx"]
         : null;
+    const metadataPatch = args.contentPatches.find(
+      (patch) => patch.op === "set-metadata",
+    );
+    const nextTitle = args.title ?? metadataPatch?.title;
+    const nextBrief = args.brief ?? metadataPatch?.brief;
     const planPatch = {
-      ...(args.title ? { title: args.title } : {}),
-      ...(args.brief ? { brief: args.brief } : {}),
+      ...(nextTitle !== undefined ? { title: nextTitle } : {}),
+      ...(nextBrief !== undefined ? { brief: nextBrief } : {}),
       ...(args.status ? { status: args.status } : {}),
       ...(args.currentFocus ? { currentFocus: args.currentFocus } : {}),
       ...(args.html !== undefined ? { html: args.html } : {}),

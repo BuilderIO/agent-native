@@ -81,6 +81,14 @@ describe("local-plan-files", () => {
       "utf-8",
     );
     expect(planMdx).toContain("Local sync flow");
+    expect(planMdx).toContain(
+      "# Visual plan: open https://plan.agent-native.com/plans/plan_local1 in a browser for the canvas and review UI.",
+    );
+    expect(planMdx).toContain(
+      'visualUrl: "https://plan.agent-native.com/plans/plan_local1"',
+    );
+    expect(planMdx).not.toMatch(/^planId:/m);
+    expect(planMdx).not.toMatch(/^source:/m);
 
     // The on-disk MDX must round-trip back to a parseable plan content model,
     // so import/patch actions can consume it.

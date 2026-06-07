@@ -1,0 +1,277 @@
+name: PR Visual Recap
+
+# Turns every PR into a "visual code review" — a reverse plan. On each push we
+# generate a structured Agent-Native Plan from the diff, publish it to the hosted
+# plan app at ORG visibility (login-gated; this is a private repo), and upsert ONE
+# sticky PR comment linking to the interactive plan.
+#
+# Design notes:
+#  - Plain `pull_request` (NOT `pull_request_target`) so fork code can never see
+#    the publish secrets.
+#  - The `gate` job is a cheap no-op switch: drafts, forks, bot authors, and the
+#    missing-secret case all short-circuit with NO comment and NO compute. This
+#    means merging this workflow before the secrets exist is a safe no-op.
+#  - The recap is INFORMATIONAL ONLY. `recap` never blocks the PR (it is not a
+#    required check) and failures surface as an explanatory sticky comment rather
+#    than a red X on unrelated code.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-visual-recap-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Cheap gate: decide whether to do any work at all. Sets run=false (silent
+  # no-op) for drafts, forks, bot authors, or when the publish secret is absent.
+  # --------------------------------------------------------------------------
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          # Presence-only signal — we never expose the secret VALUE to the gate.
+          HAS_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN != '' && secrets.PLAN_RECAP_APP_URL != '' }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const reasons = [];
+
+            if (!pr) reasons.push('no pull_request payload');
+            if (pr && pr.draft) reasons.push('draft PR');
+
+            // Fork PRs: head repo differs from this repo. Plain pull_request runs
+            // fork code with NO secrets, so publishing would fail anyway — skip.
+            const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
+            if (pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY) {
+              reasons.push(`fork PR (${headRepo})`);
+            }
+
+            // Skip noisy automated authors.
+            const login = (pr && pr.user && pr.user.login || '').toLowerCase();
+            const botAuthors = ['dependabot[bot]', 'dependabot', 'renovate[bot]', 'renovate'];
+            if (botAuthors.includes(login)) reasons.push(`bot author (${login})`);
+            if (pr && pr.user && pr.user.type === 'Bot') reasons.push('bot author (type=Bot)');
+
+            // Publish secret must be configured — otherwise this is a no-op so the
+            // workflow can be merged before secrets exist.
+            if (process.env.HAS_TOKEN !== 'true') reasons.push('publish secret not configured');
+
+            const run = reasons.length === 0;
+            core.setOutput('run', run ? 'true' : 'false');
+            core.info(run ? 'Visual recap will run.' : `Visual recap skipped: ${reasons.join('; ')}`);
+
+  # --------------------------------------------------------------------------
+  # Recap: build the reverse plan, publish it, screenshot it (artifact only),
+  # and upsert the sticky comment.
+  # --------------------------------------------------------------------------
+  recap:
+    name: Generate visual recap
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Collect a BOUNDED diff between the PR base and head. We exclude lockfiles,
+      # build output, and snapshots (noise), and cap the byte size — over the cap
+      # we set `huge=true` so the generator emits a summarized variant.
+      - name: Collect bounded diff
+        id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git diff --no-color "$BASE_SHA"..."$HEAD_SHA" -- \
+            . \
+            ':(exclude)pnpm-lock.yaml' \
+            ':(exclude)**/dist/**' \
+            ':(exclude)**/*.snap' \
+            ':(exclude)**/*.lock' \
+            > recap.diff || true
+          git diff --stat --no-color "$BASE_SHA"..."$HEAD_SHA" -- \
+            . \
+            ':(exclude)pnpm-lock.yaml' \
+            ':(exclude)**/dist/**' \
+            ':(exclude)**/*.snap' \
+            ':(exclude)**/*.lock' \
+            > recap.stat || true
+
+          BYTES=$(wc -c < recap.diff | tr -d ' ')
+          CHANGED=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA" -- \
+            . \
+            ':(exclude)pnpm-lock.yaml' \
+            ':(exclude)**/dist/**' \
+            ':(exclude)**/*.snap' \
+            ':(exclude)**/*.lock' \
+            | wc -l | tr -d ' ')
+          echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
+          # ~600KB cap.
+          if [ "$BYTES" -gt 614400 ]; then
+            echo "huge=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "huge=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Tiny diffs (≤ 1 changed file AND ≤ 8 changed lines) aren't worth a
+          # recap — skip generation cleanly.
+          LINES=$(grep -cE '^[+-]' recap.diff || true)
+          if [ "$CHANGED" -le 1 ] && [ "${LINES:-0}" -le 8 ]; then
+            echo "tiny=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tiny=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Find the planId from the previous sticky comment so a re-push REPLACES the
+      # same hosted plan (synchronize updates in place, no orphaned plans).
+      - name: Read previous plan id
+        id: prev
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          PLAN_ID="$(
+            pnpm exec tsx scripts/visual-recap-comment.ts find-plan-id \
+              --repo "$GITHUB_REPOSITORY" \
+              --issue "$PR_NUMBER" \
+              --token "$GH_TOKEN"
+          )"
+          echo "plan_id=$PLAN_ID" >> "$GITHUB_OUTPUT"
+
+      # Generate + publish. continue-on-error so a generation/publish failure is
+      # surfaced via the sticky comment instead of red-X'ing the PR.
+      - name: Generate and publish recap
+        id: generate
+        if: steps.diff.outputs.tiny != 'true'
+        continue-on-error: true
+        env:
+          PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HUGE: ${{ steps.diff.outputs.huge }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          PREV_ARGS=()
+          if [ -n "${PREV_PLAN_ID:-}" ]; then
+            PREV_ARGS=(--prev-plan-id "$PREV_PLAN_ID")
+          fi
+          HUGE_ARGS=()
+          if [ "${HUGE:-false}" = "true" ]; then
+            HUGE_ARGS=(--huge)
+          fi
+
+          set +e
+          pnpm exec tsx scripts/visual-recap.ts \
+            --diff recap.diff \
+            --stat recap.stat \
+            --pr "$PR_NUMBER" \
+            --head "$HEAD_SHA" \
+            --app-url "$PLAN_RECAP_APP_URL" \
+            --token "$PLAN_RECAP_TOKEN" \
+            "${HUGE_ARGS[@]}" \
+            "${PREV_ARGS[@]}" \
+            > recap.json
+          EXIT_CODE=$?
+          set -e
+          echo "exit=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          # Surface the JSON result to later steps (stripped of any token echo).
+          {
+            echo 'result<<RECAP_EOF'
+            cat recap.json
+            echo 'RECAP_EOF'
+          } >> "$GITHUB_OUTPUT"
+          exit "$EXIT_CODE"
+
+      # TODO(phase-2): inline screenshot embedding pending image-host decision.
+      # Inline-embedding an image in a PRIVATE-repo comment is unsolved — the
+      # image host must serve the PNG to a logged-in GitHub viewer. For v1 we
+      # only capture the PNG and upload it as a workflow ARTIFACT; we do NOT embed
+      # it in the comment. The comment's durable value is the interactive link.
+      - name: Screenshot the rendered plan (artifact only)
+        id: shot
+        if: steps.generate.outcome == 'success' && steps.diff.outputs.tiny != 'true'
+        continue-on-error: true
+        env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
+          RECAP_JSON: ${{ steps.generate.outputs.result }}
+        run: |
+          set -uo pipefail
+          PLAN_URL=$(node -e 'try{const o=JSON.parse(process.env.RECAP_JSON||"{}");process.stdout.write(o.url||"")}catch{process.stdout.write("")}')
+          if [ -z "$PLAN_URL" ]; then
+            echo "No plan URL; skipping screenshot."
+            exit 0
+          fi
+          # Ensure the chromium browser binary is present, then capture
+          # (best-effort; never fails the job).
+          pnpm exec playwright install --with-deps chromium || true
+          pnpm exec tsx "$GITHUB_WORKSPACE/scripts/visual-recap-shot.ts" \
+            --url "$PLAN_URL" \
+            --out "$GITHUB_WORKSPACE/recap.png" \
+            --token "$PLAN_RECAP_TOKEN" || true
+          if [ -f "$GITHUB_WORKSPACE/recap.png" ]; then
+            echo "captured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "captured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload recap screenshot artifact
+        if: steps.shot.outputs.captured == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pr-visual-recap-${{ github.event.pull_request.number }}
+          path: recap.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Upsert the single sticky comment. Branches on the generator result:
+      #   - tiny diff        → quiet sticky (no plan)
+      #   - suppressed       → secret-leak explanation
+      #   - generation ok    → link + summary
+      #   - generation failed → failure explanation (still one sticky comment)
+      - name: Upsert sticky comment
+        if: always() && steps.diff.outputs.tiny != 'true'
+        env:
+          RECAP_JSON: ${{ steps.generate.outputs.result }}
+          GENERATE_OUTCOME: ${{ steps.generate.outcome }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SHOT_CAPTURED: ${{ steps.shot.outputs.captured }}
+          DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          pnpm exec tsx scripts/visual-recap-comment.ts upsert-workflow-comment \
+            --repo "$GITHUB_REPOSITORY" \
+            --issue "$PR_NUMBER" \
+            --token "$GH_TOKEN"

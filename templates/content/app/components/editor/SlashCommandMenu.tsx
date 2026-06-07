@@ -58,6 +58,7 @@ interface EditorMenuPosition {
 interface CommandItem {
   title: string;
   description: string;
+  searchText?: string;
   shortcut?: string;
   icon: React.ElementType;
   action: (editor: Editor) => void | boolean | Promise<void>;
@@ -363,6 +364,7 @@ export function SlashCommandMenu({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [position, setPosition] = useState<EditorMenuPosition | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const selectedItemRef = useRef<HTMLButtonElement>(null);
   const slashPosRef = useRef<number | null>(null);
 
   // Generate prompt popover state
@@ -541,9 +543,11 @@ export function SlashCommandMenu({
   const mediaCommands = isTurnInto
     ? []
     : [imageCommand, videoCommand, audioCommand];
+  const normalizedQuery = query.toLowerCase();
   const commandMatchesQuery = (cmd: CommandItem) =>
-    cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-    cmd.description.toLowerCase().includes(query.toLowerCase());
+    cmd.title.toLowerCase().includes(normalizedQuery) ||
+    cmd.description.toLowerCase().includes(normalizedQuery) ||
+    cmd.searchText?.toLowerCase().includes(normalizedQuery);
   const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
   const filteredRegistryCommands = registryCommands.filter(commandMatchesQuery);
@@ -567,6 +571,7 @@ export function SlashCommandMenu({
         key={globalIndex}
         cmd={cmd}
         isSelected={globalIndex === selectedIndex}
+        buttonRef={globalIndex === selectedIndex ? selectedItemRef : undefined}
         onExecute={() => executeCommand(cmd)}
         onHover={() => setSelectedIndex(globalIndex)}
       />
@@ -646,9 +651,11 @@ export function SlashCommandMenu({
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        if (filteredCommands.length === 0) return;
         setSelectedIndex((i) => (i + 1) % filteredCommands.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+        if (filteredCommands.length === 0) return;
         setSelectedIndex(
           (i) => (i - 1 + filteredCommands.length) % filteredCommands.length,
         );
@@ -677,6 +684,24 @@ export function SlashCommandMenu({
     readInlineGenerateCommand,
     submitGeneratePrompt,
   ]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const menu = menuRef.current;
+    const item = selectedItemRef.current;
+    if (!menu || !item) return;
+
+    const itemTop = item.offsetTop;
+    const itemBottom = itemTop + item.offsetHeight;
+    const visibleTop = menu.scrollTop;
+    const visibleBottom = visibleTop + menu.clientHeight;
+
+    if (itemTop < visibleTop) {
+      menu.scrollTop = itemTop;
+    } else if (itemBottom > visibleBottom) {
+      menu.scrollTop = itemBottom - menu.clientHeight;
+    }
+  }, [filteredCommands.length, isOpen, selectedIndex]);
 
   useEffect(() => {
     if (!editor) return;
@@ -871,16 +896,19 @@ export function SlashCommandMenu({
 function CommandButton({
   cmd,
   isSelected,
+  buttonRef,
   onExecute,
   onHover,
 }: {
   cmd: CommandItem;
   isSelected: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
   onExecute: () => void;
   onHover: () => void;
 }) {
   return (
     <button
+      ref={buttonRef}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onExecute}
       onMouseEnter={onHover}

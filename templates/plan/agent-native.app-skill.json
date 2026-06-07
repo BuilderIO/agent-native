@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {
@@ -30,6 +30,12 @@
       "action": "create-visual-plan",
       "path": "/plans",
       "description": "Create or open an Agent-Native visual plan for a coding-agent task."
+    },
+    {
+      "id": "visual-recap",
+      "action": "create-visual-recap",
+      "path": "/plans",
+      "description": "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review."
     },
     {
       "id": "ui-plan",
@@ -61,6 +67,11 @@
       "path": ".agents/skills/visual-plan",
       "visibility": "both",
       "exportAs": "visual-plan"
+    },
+    {
+      "path": ".agents/skills/visual-recap",
+      "visibility": "both",
+      "exportAs": "visual-recap"
     },
     {
       "path": ".agents/skills/ui-plan",

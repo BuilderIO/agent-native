@@ -76,6 +76,22 @@
   }
 }
 
+@layer components {
+  .calendar-app-sidebar {
+    translate: -100% 0;
+  }
+
+  .calendar-app-sidebar[data-open="true"] {
+    translate: 0 0;
+  }
+
+  @media (min-width: 1024px) {
+    .calendar-app-sidebar {
+      translate: 0 0;
+    }
+  }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

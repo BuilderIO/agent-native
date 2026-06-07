@@ -661,6 +661,19 @@ function zodDefToJsonSchema(def: any): any {
     }
   }
 
+  // z.preprocess / z.pipe / .superRefine / .transform all produce a "pipe"
+  // def with `in` (pre-transform) and `out` (post-transform). For JSON Schema
+  // purposes, use `out` — it reflects the validated output shape the model
+  // should populate.
+  if (type === "pipe") {
+    if (def.out?._zod?.def) {
+      return zodDefToJsonSchema(def.out._zod.def);
+    }
+    if (def.in?._zod?.def) {
+      return zodDefToJsonSchema(def.in._zod.def);
+    }
+  }
+
   // Fallback
   return { type: "string" };
 }

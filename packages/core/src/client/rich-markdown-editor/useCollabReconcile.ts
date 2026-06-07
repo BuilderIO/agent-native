@@ -7,6 +7,9 @@ import type { Awareness } from "y-protocols/awareness";
 import { isReconcileLeadClient } from "../../collab/client.js";
 import { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 
+export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
+  "an-rich-md-programmatic-transaction";
+
 /** Reads the current markdown out of the tiptap-markdown storage. */
 export function getEditorMarkdown(editor: Editor): string {
   const markdownStorage = editor.storage as unknown as {
@@ -473,6 +476,9 @@ export function useCollabReconcile({
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
     if (!editable || isSettingContentRef.current) return true;
+    if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) {
+      return true;
+    }
     // In collab mode, never persist remote-originated changes (the initial Yjs
     // state load or a peer's edit arriving via sync). Each client saves only its
     // OWN local edits; a peer's edit is saved by that peer. Without this, a

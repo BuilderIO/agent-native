@@ -636,8 +636,12 @@ test.describe("plan generation + rendering", () => {
     }
 
     // Callout: title + body rendered.
+    const callout = page.locator('[data-block-id="co-1"]').first();
     await expect(
-      page.getByText("Heads up", { exact: false }).first(),
+      callout.getByText("Heads up", { exact: false }).first(),
+    ).toBeVisible();
+    await expect(
+      callout.getByText("This is a callout body", { exact: false }).first(),
     ).toBeVisible();
     // Table: renders as a static table inside the document (NOT an editable input
     // grid). Assert every header + cell value is visible text.

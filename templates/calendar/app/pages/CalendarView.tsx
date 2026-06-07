@@ -22,6 +22,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconChevronDown,
+  IconMenu2,
   IconSearch,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -289,6 +290,7 @@ export default function CalendarView() {
     hiddenCalendars,
     eventDraft,
     setEventDraft,
+    openSidebar,
   } = useCalendarContext();
   const { prefs: viewPrefs, update: setViewPrefs } = useViewPreferences();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -1203,7 +1205,23 @@ export default function CalendarView() {
           {/* Top bar */}
           <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2 sm:gap-3 sm:px-3">
             {/* Left: view mode dropdown */}
-            <div className="flex shrink-0 items-center">
+            <div className="flex shrink-0 items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 lg:hidden"
+                    onClick={openSidebar}
+                    aria-label="Open navigation"
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>Open navigation</p>
+                </TooltipContent>
+              </Tooltip>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -1322,10 +1340,12 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
-              <NotificationsBell
-                browserNotifications
-                emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes."
-              />
+              {!isMobile && (
+                <NotificationsBell
+                  browserNotifications
+                  emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes."
+                />
+              )}
               <CreateEventPopover
                 open={createDialogOpen}
                 onOpenChange={(open) => {

@@ -30,8 +30,16 @@ import {
 import {
   questionFormSchema,
   questionFormMdx,
+  visualQuestionsSchema,
+  visualQuestionsMdx,
   type QuestionFormData,
+  type VisualQuestionsData,
 } from "./blocks/question-form.config.js";
+import {
+  decisionSchema,
+  decisionMdx,
+  type DecisionData,
+} from "./blocks/decision.config.js";
 
 /**
  * Server / shared plan block registry. Registers the React-free parts of each
@@ -89,7 +97,7 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       placement: ["block"],
       label: "Diagram",
       description:
-        "A flexible inline document diagram for architecture, dependency, data-flow, or state relationships. Prefer html/css with SVG or semantic HTML for polished two-dimensional diagrams; legacy nodes/edges remain for simple previews.",
+        "A flexible inline document diagram for architecture, dependency, data-flow, or state relationships. Prefer html/css with SVG or semantic HTML for polished two-dimensional diagrams; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges remain for simple previews.",
     }),
     defineBlock<WireframeData>({
       type: "wireframe",
@@ -100,7 +108,7 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       placement: ["block"],
       label: "Wireframe",
       description:
-        "A UI/product screen mockup built from an HTML fragment, rendered in a chosen surface frame (desktop/mobile/popover/panel/browser). Use the top canvas for primary UI visuals; do not use wireframes for architecture/code-only plans.",
+        "A UI/product mockup built from a standard WireframeBlock/Screen HTML fragment or kit tree, rendered in a chosen surface frame (desktop/mobile/popover/panel/browser) with Plan-owned theme and sketchy/clean styling. Use this for rendered UI changes, including small realistic surfaces such as popovers, menus, dialogs, and panels with their actual chrome, padding, fields, and control placement. Use the top canvas for primary UI visuals; do not use wireframes for architecture/code-only plans.",
     }),
     defineBlock<QuestionFormData>({
       type: "question-form",
@@ -112,6 +120,28 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       label: "Question form",
       description:
         "An interactive form block for open questions, single-choice or multi-choice option rows, freeform answers, recommended options, and optional wireframe/diagram previews. Previews should clarify choices without duplicating the top canvas; for code plans, use diagram previews sparingly.",
+    }),
+    defineBlock<VisualQuestionsData>({
+      type: "visual-questions",
+      schema: visualQuestionsSchema,
+      mdx: visualQuestionsMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "Visual questions",
+      description:
+        "A compatibility visual-intake question block with the same editable question/option shape as question-form.",
+    }),
+    defineBlock<DecisionData>({
+      type: "decision",
+      schema: decisionSchema,
+      mdx: decisionMdx,
+      // Server stub — the browser registry supplies the real renderer.
+      Read: () => null,
+      placement: ["block"],
+      label: "Decision",
+      description:
+        "A decision prompt with editable option cards and an authored recommended choice.",
     }),
   ]);
 

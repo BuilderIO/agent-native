@@ -1,8 +1,22 @@
-import { useEffect, useState } from "react";
-import { IconCode, IconPlus, IconX } from "@tabler/icons-react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+  type UIEvent,
+} from "react";
+import { IconCode, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
+import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui/popover.js";
+import { CodeSurface } from "./HighlightedCode.js";
 import {
   codeTabsSchema,
   codeTabsMdx,
@@ -17,11 +31,157 @@ import {
  * generalized to the registry `Read`/`Edit` contract. Shareable by any app that
  * registers the core block library.
  *
- * `Edit` is schema-driven in spirit: each tab's `code` field renders as a
- * code-style monospace text area (the plain auto-editor can't descend into the
- * `tabs` array), plus label/language/caption inputs. The component owns no app
- * services, so it stays portable across apps.
+ * `Edit` is hybrid: each tab's `code` field renders as a code-style monospace
+ * text area, while tab metadata (label/language/caption/add/remove) stays in a
+ * settings popover so the document surface only exposes authored content.
  */
+
+/* ── Syntax highlighting helpers ──────────────────────────────────────────── */
+
+const lowlight = createLowlight(common);
+
+type LowlightNode = {
+  type: string;
+  value?: string;
+  properties?: {
+    className?: string[] | string;
+  };
+  children?: LowlightNode[];
+};
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  cjs: "javascript",
+  cts: "typescript",
+  htm: "html",
+  js: "javascript",
+  jsonc: "json",
+  jsx: "jsx",
+  md: "markdown",
+  mdx: "markdown",
+  mjs: "javascript",
+  mts: "typescript",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  sh: "bash",
+  shell: "bash",
+  ts: "typescript",
+  tsx: "tsx",
+  yml: "yaml",
+  zsh: "bash",
+};
+
+const TOKEN_CLASS_NAMES: Record<string, string> = {
+  "hljs-addition": "text-emerald-700 dark:text-emerald-300",
+  "hljs-attr": "text-sky-700 dark:text-sky-300",
+  "hljs-attribute": "text-sky-700 dark:text-sky-300",
+  "hljs-built_in": "text-amber-700 dark:text-amber-300",
+  "hljs-bullet": "text-primary",
+  "hljs-comment": "text-muted-foreground italic",
+  "hljs-deletion": "text-destructive",
+  "hljs-doctag": "text-destructive",
+  "hljs-emphasis": "italic",
+  "hljs-formula": "text-destructive",
+  "hljs-keyword": "text-rose-700 dark:text-rose-300",
+  "hljs-link": "text-primary underline-offset-2",
+  "hljs-literal": "text-violet-700 dark:text-violet-300",
+  "hljs-meta": "text-primary",
+  "hljs-meta-string": "text-emerald-700 dark:text-emerald-300",
+  "hljs-name": "text-emerald-700 dark:text-emerald-300",
+  "hljs-number": "text-sky-700 dark:text-sky-300",
+  "hljs-params": "text-sky-700 dark:text-sky-300",
+  "hljs-property": "text-sky-700 dark:text-sky-300",
+  "hljs-quote": "text-muted-foreground italic",
+  "hljs-regexp": "text-emerald-700 dark:text-emerald-300",
+  "hljs-section": "text-violet-700 dark:text-violet-300",
+  "hljs-selector-attr": "text-primary",
+  "hljs-selector-class": "text-emerald-700 dark:text-emerald-300",
+  "hljs-selector-id": "text-emerald-700 dark:text-emerald-300",
+  "hljs-selector-pseudo": "text-primary",
+  "hljs-selector-tag": "text-emerald-700 dark:text-emerald-300",
+  "hljs-string": "text-emerald-700 dark:text-emerald-300",
+  "hljs-strong": "font-semibold",
+  "hljs-subst": "text-destructive",
+  "hljs-symbol": "text-primary",
+  "hljs-tag": "text-emerald-700 dark:text-emerald-300",
+  "hljs-template-variable": "text-amber-700 dark:text-amber-300",
+  "hljs-title": "text-violet-700 dark:text-violet-300",
+  "hljs-type": "text-amber-700 dark:text-amber-300",
+  "hljs-variable": "text-amber-700 dark:text-amber-300",
+  language_: "text-amber-700 dark:text-amber-300",
+};
+
+function normalizeCodeLanguage(value?: string | null): string | null {
+  const raw = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/^language-/, "");
+  if (!raw) return null;
+  const normalized = LANGUAGE_ALIASES[raw] ?? raw;
+  return lowlight.registered(normalized) ? normalized : null;
+}
+
+function inferLanguageFromFilename(filename?: string | null): string | null {
+  const basename = filename?.split("/").pop()?.toLowerCase();
+  if (!basename) return null;
+  if (basename === "dockerfile") return normalizeCodeLanguage("bash");
+  const extension = basename.includes(".")
+    ? basename.split(".").pop()
+    : undefined;
+  return normalizeCodeLanguage(extension);
+}
+
+function codeTabLanguage(tab?: CodeTabsTab): string | undefined {
+  return (
+    normalizeCodeLanguage(tab?.language) ??
+    inferLanguageFromFilename(tab?.label) ??
+    undefined
+  );
+}
+
+function tokenClassName(value: string[] | string | undefined): string {
+  const classes = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/\s+/)
+      : [];
+  return classes
+    .map((className) => TOKEN_CLASS_NAMES[className] ?? "")
+    .filter(Boolean)
+    .join(" ");
+}
+
+function hastToReact(children: LowlightNode[], keyPrefix: string): ReactNode[] {
+  return children.map((node, index) => {
+    if (node.type === "text") return node.value ?? "";
+    if (node.type === "element") {
+      const key = `${keyPrefix}${index}`;
+      const renderedChildren = node.children?.length
+        ? hastToReact(node.children, `${key}-`)
+        : null;
+      const className = tokenClassName(node.properties?.className);
+      return (
+        <span key={key} className={className || undefined}>
+          {renderedChildren}
+        </span>
+      );
+    }
+    return null;
+  });
+}
+
+function highlightCode(code: string, language?: string): ReactNode {
+  const normalized = normalizeCodeLanguage(language);
+  if (!normalized || normalized === "plaintext" || normalized === "text") {
+    return code;
+  }
+  try {
+    const tree = lowlight.highlight(normalized, code) as LowlightNode;
+    return hastToReact(tree.children ?? [], `${normalized}-`);
+  } catch {
+    return code;
+  }
+}
 
 /* ── Read (vertical tab rail + Shiki) ──────────────────────────────────────── */
 
@@ -41,7 +201,7 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
               className={cn(
                 "flex w-full items-start gap-3 border-b border-plan-line px-4 py-4 text-left",
                 tab.id === active?.id
-                  ? "bg-plan-block text-plan-text shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  ? "bg-primary/10 text-plan-text dark:bg-primary/20"
                   : "text-plan-muted hover:bg-accent/30",
               )}
               onClick={() => setActiveId(tab.id)}
@@ -69,7 +229,10 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
               {active.caption && (
                 <p className="mt-2 text-plan-muted">{active.caption}</p>
               )}
-              <CodeSurface code={active.code} language={active.language} />
+              <CodeSurface
+                code={active.code}
+                language={codeTabLanguage(active)}
+              />
             </>
           )}
         </div>
@@ -78,40 +241,84 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
   );
 }
 
-function CodeSurface({
-  code,
-  language,
-  className,
-}: {
-  code: string;
-  language?: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("plan-code-surface", className ?? "mt-5")}>
-      <HighlightedCode code={code} language={language} />
-    </div>
-  );
-}
-
 /* ── Edit (code text areas per tab) ────────────────────────────────────────── */
 
 const inputClass =
-  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
-
-const codeAreaClass =
-  "flex min-h-[140px] w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs leading-5 shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Mint a reasonably-unique code-tab id without pulling a dep into core. */
 function newCodeTabId(): string {
   return `code-tab-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function HighlightedCodeTextarea({
+  value,
+  language,
+  label,
+  editable,
+  onChange,
+}: {
+  value: string;
+  language?: string;
+  label?: string;
+  editable: boolean;
+  onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
+}) {
+  const highlightLayerRef = useRef<HTMLPreElement>(null);
+  const resolvedLanguage =
+    normalizeCodeLanguage(language) ?? inferLanguageFromFilename(label);
+  const highlighted = useMemo(
+    () => highlightCode(value, resolvedLanguage ?? undefined),
+    [resolvedLanguage, value],
+  );
+
+  const syncScroll = (event: UIEvent<HTMLTextAreaElement>) => {
+    const layer = highlightLayerRef.current;
+    if (!layer) return;
+    layer.scrollTop = event.currentTarget.scrollTop;
+    layer.scrollLeft = event.currentTarget.scrollLeft;
+  };
+
+  return (
+    <div
+      className={cn(
+        "relative min-h-[140px] overflow-hidden rounded-md border border-input bg-background text-foreground focus-within:ring-1 focus-within:ring-ring",
+        !editable && "cursor-not-allowed opacity-50",
+      )}
+      data-code-tabs-highlighted-editor
+    >
+      <pre
+        ref={highlightLayerRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre px-3 py-2 font-mono text-xs leading-5"
+        data-code-tabs-highlight-layer
+      >
+        <code>
+          {highlighted}
+          {value.endsWith("\n") ? " " : null}
+        </code>
+      </pre>
+      <textarea
+        data-plan-interactive
+        spellCheck={false}
+        wrap="off"
+        className={cn(
+          "relative z-10 block min-h-[140px] w-full resize-y overflow-auto rounded-md border-0 bg-transparent px-3 py-2 font-mono text-xs leading-5 caret-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed",
+          value ? "text-transparent" : "text-muted-foreground",
+        )}
+        value={value}
+        disabled={!editable}
+        onChange={onChange}
+        onScroll={syncScroll}
+      />
+    </div>
+  );
+}
+
 /**
- * Editor: a file-tab strip (one tab active at a time) whose active tab exposes
- * label/language/caption/code fields — mirroring the read renderer's tabbed
- * layout and the standard `tabs` block editor instead of stacking every tab's
- * full form vertically. Add/remove/rename keep the schema's 1..12 bounds.
+ * Editor: a file-tab strip (one tab active at a time) with the active tab's code
+ * editable inline. Tab metadata is edited from the settings popover, mirroring
+ * the standard `tabs` block and keeping schema-ish controls out of the document.
  */
 function CodeTabsEdit({
   data,
@@ -146,103 +353,140 @@ function CodeTabsEdit({
   };
 
   return (
-    <div className="an-code-tabs-editor flex flex-col gap-4">
-      <div
-        className="flex max-w-full flex-wrap items-center gap-1 overflow-x-auto"
-        role="tablist"
-        data-plan-interactive
-      >
-        {data.tabs.map((tab) => {
-          const selected = tab.id === active?.id;
-          return (
-            <div
-              key={tab.id}
-              className={cn(
-                "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
-                selected ? "bg-plan-block shadow-sm" : "hover:bg-plan-block/60",
-              )}
-            >
+    <div className="an-code-tabs-editor flex min-w-0 flex-col gap-4">
+      <div className="flex w-full min-w-0 items-start gap-2">
+        <div
+          className="flex w-full min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto"
+          role="tablist"
+          data-plan-interactive
+        >
+          {data.tabs.map((tab) => {
+            const selected = tab.id === active?.id;
+            return (
               <button
+                key={tab.id}
                 type="button"
                 role="tab"
                 aria-selected={selected}
                 onClick={() => setActiveId(tab.id)}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2 font-mono text-sm font-semibold transition-colors",
-                  selected ? "text-plan-text" : "text-plan-muted",
+                  "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-transparent px-3 py-2 font-mono text-sm font-semibold transition-colors",
+                  selected
+                    ? "bg-primary/10 text-plan-text dark:bg-primary/20"
+                    : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
                 )}
               >
                 <IconCode className="size-4 shrink-0" />
                 {tab.label}
               </button>
-              {editable && data.tabs.length > 1 && (
-                <button
-                  type="button"
-                  data-plan-interactive
-                  aria-label={`Remove ${tab.label}`}
-                  className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded text-plan-muted transition-opacity",
-                    "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-                    "hover:bg-muted hover:text-foreground",
-                  )}
-                  onClick={() => removeTab(tab.id)}
-                >
-                  <IconX className="size-3.5 shrink-0" />
-                </button>
-              )}
-            </div>
-          );
-        })}
-        {editable && data.tabs.length < 12 && (
-          <button
-            type="button"
-            data-plan-interactive
-            aria-label="Add tab"
-            className="flex items-center gap-1.5 rounded-md px-2 py-2 text-sm text-plan-muted hover:bg-plan-block/60 hover:text-plan-text"
-            onClick={addTab}
-          >
-            <IconPlus className="size-4" />
-            Add tab
-          </button>
+            );
+          })}
+        </div>
+        {editable && (
+          <CodeTabsSettingsPopover
+            active={active}
+            tabs={data.tabs}
+            onUpdate={updateTab}
+            onAdd={addTab}
+            onRemove={removeTab}
+          />
         )}
       </div>
       {active && (
-        <div className="flex flex-col gap-2">
-          <div className="grid gap-2 md:grid-cols-2">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
-                Label
-              </span>
-              <input
-                type="text"
-                data-plan-interactive
-                className={inputClass}
-                value={active.label}
-                disabled={!editable}
-                onChange={(event) =>
-                  updateTab(active.id, { label: event.target.value })
-                }
-              />
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
-                Language
-              </span>
-              <input
-                type="text"
-                data-plan-interactive
-                className={inputClass}
-                value={active.language ?? ""}
-                disabled={!editable}
-                onChange={(event) =>
-                  updateTab(active.id, {
-                    language: event.target.value || undefined,
-                  })
-                }
-              />
-            </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted-foreground">
+            Code
+          </span>
+          <HighlightedCodeTextarea
+            value={active.code}
+            editable={editable}
+            label={active.label}
+            language={active.language}
+            onChange={(event) =>
+              updateTab(active.id, { code: event.target.value })
+            }
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
+function CodeTabsSettingsPopover({
+  active,
+  tabs,
+  onUpdate,
+  onAdd,
+  onRemove,
+}: {
+  active: CodeTabsTab | undefined;
+  tabs: CodeTabsTab[];
+  onUpdate: (id: string, patch: Partial<CodeTabsTab>) => void;
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-plan-interactive
+          aria-label="Edit code tabs"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-plan-muted transition-colors hover:text-plan-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <IconPencil className="size-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        className="w-80 p-0"
+        data-plan-interactive
+      >
+        <div className="border-b border-border px-3 py-2">
+          <div className="text-sm font-semibold text-foreground">
+            Code tab settings
           </div>
-          <label className="flex flex-col gap-1.5">
+          <div className="text-xs text-muted-foreground">
+            Rename the active tab or manage its metadata.
+          </div>
+        </div>
+        <div className="grid gap-3 p-3">
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Active tab label
+            </span>
+            <input
+              type="text"
+              data-plan-interactive
+              className={inputClass}
+              value={active?.label ?? ""}
+              disabled={!active}
+              onChange={(event) => {
+                if (!active) return;
+                onUpdate(active.id, { label: event.target.value });
+              }}
+            />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Language
+            </span>
+            <input
+              type="text"
+              data-plan-interactive
+              className={inputClass}
+              value={active?.language ?? ""}
+              disabled={!active}
+              onChange={(event) => {
+                if (!active) return;
+                onUpdate(active.id, {
+                  language: event.target.value || undefined,
+                });
+              }}
+            />
+          </label>
+          <label className="grid gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">
               Caption
             </span>
@@ -250,138 +494,44 @@ function CodeTabsEdit({
               type="text"
               data-plan-interactive
               className={inputClass}
-              value={active.caption ?? ""}
-              disabled={!editable}
-              onChange={(event) =>
-                updateTab(active.id, {
+              value={active?.caption ?? ""}
+              disabled={!active}
+              onChange={(event) => {
+                if (!active) return;
+                onUpdate(active.id, {
                   caption: event.target.value || undefined,
-                })
-              }
+                });
+              }}
             />
           </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">
-              Code
-            </span>
-            <textarea
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
               data-plan-interactive
-              spellCheck={false}
-              className={codeAreaClass}
-              value={active.code}
-              disabled={!editable}
-              onChange={(event) =>
-                updateTab(active.id, { code: event.target.value })
-              }
-            />
-          </label>
+              disabled={tabs.length >= 12}
+              onClick={onAdd}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconPlus className="size-3.5" />
+              Add tab
+            </button>
+            <button
+              type="button"
+              data-plan-interactive
+              disabled={!active || tabs.length <= 1}
+              onClick={() => {
+                if (!active) return;
+                onRemove(active.id);
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconTrash className="size-3.5" />
+              Remove current
+            </button>
+          </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Shiki syntax highlighting (lazy-loaded, single dark theme) ────────────── */
-type ShikiHighlighter = {
-  codeToHtml: (
-    code: string,
-    options: { lang: string; theme: string },
-  ) => string | Promise<string>;
-  getLoadedLanguages: () => string[];
-};
-
-let highlighterLoader: Promise<ShikiHighlighter> | null = null;
-function loadHighlighter(): Promise<ShikiHighlighter> {
-  if (!highlighterLoader) {
-    highlighterLoader = (async () => {
-      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
-        await Promise.all([
-          import("shiki/core"),
-          import("shiki/engine/oniguruma"),
-        ]);
-      return createHighlighterCore({
-        themes: [import("shiki/themes/github-dark-default.mjs")],
-        langs: [
-          import("shiki/langs/javascript.mjs"),
-          import("shiki/langs/typescript.mjs"),
-          import("shiki/langs/jsx.mjs"),
-          import("shiki/langs/tsx.mjs"),
-          import("shiki/langs/json.mjs"),
-          import("shiki/langs/css.mjs"),
-          import("shiki/langs/html.mjs"),
-          import("shiki/langs/markdown.mjs"),
-          import("shiki/langs/bash.mjs"),
-          import("shiki/langs/shellscript.mjs"),
-          import("shiki/langs/python.mjs"),
-          import("shiki/langs/yaml.mjs"),
-          import("shiki/langs/sql.mjs"),
-        ],
-        engine: createOnigurumaEngine(import("shiki/wasm")),
-      }) as unknown as Promise<ShikiHighlighter>;
-    })().catch((error) => {
-      highlighterLoader = null;
-      throw error;
-    });
-  }
-  return highlighterLoader;
-}
-
-const LANG_ALIASES: Record<string, string> = {
-  js: "javascript",
-  ts: "typescript",
-  sh: "bash",
-  shell: "bash",
-  zsh: "bash",
-  py: "python",
-  yml: "yaml",
-  md: "markdown",
-};
-
-function HighlightedCode({
-  code,
-  language,
-}: {
-  code: string;
-  language?: string;
-}) {
-  const [html, setHtml] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadHighlighter()
-      .then((highlighter) => {
-        const requested = (language || "text").toLowerCase();
-        const resolved = LANG_ALIASES[requested] ?? requested;
-        const loaded = highlighter.getLoadedLanguages();
-        const lang = loaded.includes(resolved) ? resolved : "text";
-        return highlighter.codeToHtml(code, {
-          lang,
-          theme: "github-dark-default",
-        });
-      })
-      .then((out) => {
-        if (!cancelled) setHtml(out as string);
-      })
-      .catch(() => {
-        if (!cancelled) setHtml(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [code, language]);
-
-  if (html) {
-    // Shiki output is generated from plain text by the highlighter itself —
-    // it is NOT agent-authored HTML, so this is safe (mirrors core chat).
-    return (
-      <div className="plan-shiki" dangerouslySetInnerHTML={{ __html: html }} />
-    );
-  }
-  return (
-    <pre>
-      <code className={language ? `language-${language}` : undefined}>
-        {code}
-      </code>
-    </pre>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -394,6 +544,7 @@ export const codeTabsBlock = defineBlock<CodeTabsData>({
   Read: CodeTabsRead,
   Edit: CodeTabsEdit,
   placement: ["block"],
+  editSurface: "inline",
   label: "Code tabs",
   icon: IconCode,
   description:

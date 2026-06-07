@@ -129,6 +129,22 @@ export function resolvePlanAccessContext(
 }
 
 /**
+ * Resolve the org scope that should be persisted beside a newly written plan.
+ * This mirrors `resolvePlanAccessContext()` so local single-user plans do not
+ * get tagged with an authenticated dev-session org that the synthetic local
+ * owner cannot later access.
+ */
+export function resolvePlanOrgIdForWrite(
+  authenticatedEmail: string | undefined,
+  requestOrgId: string | undefined,
+): string | undefined {
+  return resolvePlanAccessContext({
+    userEmail: authenticatedEmail,
+    orgId: requestOrgId,
+  }).orgId;
+}
+
+/**
  * Resolve the owner email for a plan write/read.
  *
  * Priority:

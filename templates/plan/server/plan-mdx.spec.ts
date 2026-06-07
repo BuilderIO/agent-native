@@ -210,9 +210,23 @@ describe("plan MDX source adapter", () => {
     });
 
     expect(folder["plan.mdx"]).toContain('title: "Checkout review flow"');
+    expect(folder["plan.mdx"]).toContain(
+      "# Visual plan: open https://plan.agent-native.com/plans/plan_test in a browser for the canvas and review UI.",
+    );
+    expect(folder["plan.mdx"]).toContain(
+      'visualUrl: "https://plan.agent-native.com/plans/plan_test"',
+    );
+    expect(folder["plan.mdx"]).not.toMatch(/^planId:/m);
+    expect(folder["plan.mdx"]).not.toMatch(/^source:/m);
     expect(folder["plan.mdx"]).toContain("<RichText");
     expect(folder["plan.mdx"]).toContain("<ImplementationMap");
     expect(folder["canvas.mdx"]).toContain("<DesignBoard");
+    expect(folder["canvas.mdx"]).toContain(
+      "{/* Canvas source. Open https://plan.agent-native.com/plans/plan_test */}",
+    );
+    expect(folder["canvas.mdx"]).toContain("\n  <Section");
+    expect(folder["canvas.mdx"]).toContain("\n    <Artboard");
+    expect(folder["canvas.mdx"]).toContain("\n      <Screen");
     expect(folder["canvas.mdx"]).toContain('mode="design"');
     expect(folder["canvas.mdx"]).toContain("styleSources");
     expect(folder["canvas.mdx"]).toContain("<Artboard");

@@ -146,6 +146,12 @@ export interface PlanEvent {
 
 export interface PlanBundle {
   plan: Plan;
+  access?: {
+    role: "owner" | "viewer" | "editor" | "admin";
+    ownerEmail?: string | null;
+    orgId?: string | null;
+    visibility?: "private" | "org" | "public" | null;
+  };
   sections: PlanSection[];
   comments: PlanComment[];
   events: PlanEvent[];

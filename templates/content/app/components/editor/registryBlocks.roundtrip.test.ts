@@ -35,7 +35,7 @@ import { seedRegistryBlockRaw } from "./registrySlashItems";
  * nfm.ts), which a lone top-level block would not.
  */
 
-/** The 8 dev-doc / OpenAPI blocks the unification added, by registry `type`. */
+/** The dev-doc / OpenAPI blocks the unification added, by registry `type`. */
 const DEV_DOC_BLOCK_TYPES = [
   "mermaid",
   "api-endpoint",
@@ -57,8 +57,8 @@ function seedNfm(type: string, blockId: string): string {
   return raw;
 }
 
-describe("registry blocks — NFM inline round-trip (the 8 new dev-doc blocks)", () => {
-  it("registers all 8 dev-doc block types with an empty() seed", () => {
+describe("registry blocks — NFM inline round-trip (the dev-doc blocks)", () => {
+  it("registers all dev-doc block types with an empty() seed", () => {
     for (const type of DEV_DOC_BLOCK_TYPES) {
       const spec = contentBlockRegistry.get(type);
       expect(spec, `${type} must be registered`).toBeDefined();
@@ -123,6 +123,43 @@ describe("registry blocks — NFM inline round-trip (the 8 new dev-doc blocks)",
   }
 });
 
+describe("registry blocks — readable Columns source", () => {
+  it("micro-parses human-editable Columns children into typed nested blocks", async () => {
+    const raw = [
+      '<Columns id="cols-readable" title="Before and after">',
+      '<Column id="before" label="Before" contentId="before-text">',
+      "",
+      "### Before",
+      "- Old behavior",
+      "",
+      "</Column>",
+      '<Column id="after" label="After">',
+      "",
+      '<DataModel id="after-model" entities={[{"id":"plans","name":"plans","fields":[{"name":"id","type":"text","pk":true}]}]} />',
+      "",
+      "</Column>",
+      "</Columns>",
+    ].join("\n");
+
+    const parsed = await parseRegistryBlockData(raw);
+    expect(parsed?.type).toBe("columns");
+    const data = parsed?.data as {
+      columns?: Array<{
+        id: string;
+        label?: string;
+        blocks: Array<{ id: string; type: string; data: unknown }>;
+      }>;
+    };
+    expect(data.columns?.[0]?.label).toBe("Before");
+    expect(data.columns?.[0]?.blocks[0]?.id).toBe("before-text");
+    expect(data.columns?.[0]?.blocks[0]?.type).toBe("rich-text");
+    expect(
+      (data.columns?.[0]?.blocks[0]?.data as { markdown?: string }).markdown,
+    ).toContain("Old behavior");
+    expect(data.columns?.[1]?.blocks[0]?.type).toBe("data-model");
+  });
+});
+
 /**
  * Block-type-specific data-fidelity assertions: confirm the *meaningful* fields
  * of each block's seed actually survive the parse (a generic re-serialize check
@@ -174,6 +211,15 @@ describe("registry blocks — typed-field fidelity per block type", () => {
     const data = await dataOf("json-explorer");
     expect(typeof data.json).toBe("string");
     expect(JSON.parse(data.json).tags).toEqual(["alpha", "beta"]);
+
+    const raw = serializeRegistryBlockToMdx("json-explorer", {
+      id: "json-depth",
+      data: { json: data.json, collapsedDepth: 3 },
+    });
+    const parsed = await parseRegistryBlockData(raw);
+    expect((parsed?.data as { collapsedDepth?: number }).collapsedDepth).toBe(
+      3,
+    );
   });
 
   it("annotated-code preserves code + anchored annotations", async () => {

@@ -103,8 +103,9 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`, `/plan-design`,
-`/visual-questions`) generate a plan and open the editor. Pass `--no-connect` to
+After that, `/visual-plan` (and `/visual-recap`, `/ui-plan`,
+`/prototype-plan`, `/plan-design`, `/visual-questions`) generate a plan and open
+the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 

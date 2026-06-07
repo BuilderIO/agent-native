@@ -1,6 +1,10 @@
 import { IconComponents } from "@tabler/icons-react";
 import type { BlockRegistry, BlockSpec } from "@agent-native/core/blocks";
-import { buildRegistryBlockSlashItems } from "@agent-native/core/client";
+import {
+  buildRegistryBlockSlashItems,
+  getRegistryBlockSlashDescription,
+  getRegistryBlockSlashSearchText,
+} from "@agent-native/core/client";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import { createContentBlockId } from "./extensions/registryBlocks";
 
@@ -33,6 +37,7 @@ import { createContentBlockId } from "./extensions/registryBlocks";
 export interface RegistrySlashItem {
   title: string;
   description: string;
+  searchText?: string;
   icon: React.ElementType;
   action: (editor: RegistrySlashEditor) => void;
 }
@@ -80,19 +85,21 @@ export function buildRegistrySlashItems(
 ): RegistrySlashItem[] {
   // Registry block commands come from the shared core builder so adding a library
   // block only touches the registry. Content's per-app parts: a React-component
-  // `icon`, the `description + type` keyword string, the default
-  // `spec.notionCompatible` gating predicate, and inserting a `registryBlock`
-  // node seeded with inline `__raw`.
+  // `icon`, compact visible descriptions, hidden search text for type/alias
+  // matching, the default `spec.notionCompatible` gating predicate, and inserting
+  // a `registryBlock` node seeded with inline `__raw`.
   return buildRegistryBlockSlashItems<RegistrySlashItem, RegistrySlashEditor>(
     registry,
     {
       notionCompatibleOnly: options.notionCompatibleOnly,
+      // Columns need recursive nested block editing before they are usable in
+      // Content's inline NFM editor. Keep the parser/registry aware of the block
+      // shape, but do not offer authoring until the generic nested editor lands.
+      includeSpec: (spec) => spec.type !== "columns",
       toItem: (spec, insert) => ({
         title: spec.label,
-        // The block `type` rides in the description (alongside the human
-        // description) so the menu's title/description substring filter also
-        // matches typing the raw type keyword (e.g. "/file-tree").
-        description: `${spec.description} ${spec.type}`,
+        description: getRegistryBlockSlashDescription(spec),
+        searchText: getRegistryBlockSlashSearchText(spec),
         icon: (spec.icon ?? IconComponents) as React.ElementType,
         action: insert,
       }),

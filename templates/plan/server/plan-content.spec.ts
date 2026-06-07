@@ -1047,3 +1047,60 @@ describe("patch-wireframe-html (granular html mockup edits)", () => {
     ).toThrow();
   });
 });
+
+describe("patch-diagram-html (granular diagram edits)", () => {
+  const diagramContent = (html: string): PlanContent =>
+    planContentSchema.parse({
+      version: 2,
+      brief: "diagram",
+      blocks: [{ id: "diagram1", type: "diagram", data: { html } }],
+    });
+  const htmlOf = (content: PlanContent): string => {
+    const block = content.blocks[0];
+    if (block?.type !== "diagram" || typeof block.data.html !== "string") {
+      throw new Error("expected an html diagram block");
+    }
+    return block.data.html;
+  };
+
+  it("applies a unique find/replace without regenerating the diagram", () => {
+    const next = applyPlanContentPatches(
+      diagramContent(
+        '<div class="diagram-panel"><span>Current label</span><svg></svg></div>',
+      ),
+      [
+        {
+          op: "patch-diagram-html",
+          blockId: "diagram1",
+          edits: [{ find: "Current label", replace: "Target label" }],
+        },
+      ],
+    );
+    expect(htmlOf(next)).toContain("Target label");
+    expect(htmlOf(next)).toContain("<svg>");
+  });
+
+  it("throws when the find snippet is missing", () => {
+    expect(() =>
+      applyPlanContentPatches(diagramContent("<div>Label</div>"), [
+        {
+          op: "patch-diagram-html",
+          blockId: "diagram1",
+          edits: [{ find: "Missing", replace: "Updated" }],
+        },
+      ]),
+    ).toThrow(/not present/i);
+  });
+
+  it("rejects a replacement that smuggles active diagram html", () => {
+    expect(() =>
+      applyPlanContentPatches(diagramContent("<div>Label</div>"), [
+        {
+          op: "patch-diagram-html",
+          blockId: "diagram1",
+          edits: [{ find: "Label", replace: '<svg onload="alert(1)" />' }],
+        },
+      ]),
+    ).toThrow();
+  });
+});

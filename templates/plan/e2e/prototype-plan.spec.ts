@@ -399,8 +399,8 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
   // actual rendered frame flips, not just the toolbar label.
   const frame = viewer.locator("[data-prototype-screen] .plan-html-frame");
   await expect(frame.first()).toBeVisible();
-  const styleBefore = await frame.first().getAttribute("data-style");
-  expect(["sketchy", "clean"]).toContain(styleBefore);
+  const originalStyle = await frame.first().getAttribute("data-style");
+  expect(["sketchy", "clean"]).toContain(originalStyle);
 
   // The sketchy/clean + dark/light toggles now live in the ⋮ "Plan actions"
   // menu (DropdownMenu items "Clean/Sketchy wireframes", "Light/Dark mode"),
@@ -408,6 +408,31 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
   const openPlanMenu = async () => {
     await page.getByRole("button", { name: "Plan actions" }).first().click();
   };
+  const ensureStyle = async (target: "sketchy" | "clean") => {
+    await openPlanMenu();
+    const itemName =
+      target === "sketchy" ? /sketchy wireframes/i : /clean wireframes/i;
+    const item = page.getByRole("menuitem", { name: itemName });
+    if ((await item.count()) > 0) {
+      await item.click();
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      return;
+    }
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+  };
+
+  await ensureStyle("sketchy");
+  await expect(frame.first()).toHaveAttribute("data-style", "sketchy");
+  await expect(
+    viewer.locator("[data-prototype-screen] svg.plan-rough-overlay"),
+    "live prototype sketchy mode avoids jello-prone rough overlays",
+  ).toHaveCount(0);
+  await expect(
+    frame.first(),
+    "live prototype sketchy mode must keep real scrolling borders visible",
+  ).not.toHaveAttribute("data-rough-ready", "true");
+  const styleBefore = "sketchy";
 
   await openPlanMenu();
   await page.getByRole("menuitem", { name: /wireframes/i }).click();
@@ -421,7 +446,7 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
     );
   }).toPass({ timeout: 6000 });
 
-  // Flip it back so this spec leaves the shared localStorage preference as found.
+  // Flip it back to the known sketchy baseline used by the overlay regression.
   await openPlanMenu();
   await page.getByRole("menuitem", { name: /wireframes/i }).click();
   await expect(async () => {
@@ -449,6 +474,9 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
 
   // Viewer is still mounted and showing a screen after toggling.
   await expect(viewer.locator("[data-prototype-screen]")).toBeVisible();
+  if (originalStyle === "clean") {
+    await ensureStyle("clean");
+  }
 });
 
 /* ------------------------------------------------------------------ */

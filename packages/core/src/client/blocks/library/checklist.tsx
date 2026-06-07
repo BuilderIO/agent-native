@@ -194,6 +194,7 @@ export const checklistBlock = defineBlock<ChecklistData>({
   Read: ChecklistBlock as never,
   Edit: ChecklistEditor,
   placement: ["block"],
+  editSurface: "inline",
   // A checklist maps to NFM to-do items, so it round-trips to Notion.
   notionCompatible: true,
   label: "Checklist",

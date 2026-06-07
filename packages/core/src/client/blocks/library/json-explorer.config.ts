@@ -24,13 +24,16 @@ import type { BlockMdxConfig } from "../types.js";
  * and keeping it an attribute avoids the payload being reflowed as prose.
  */
 
+export const JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH = 2;
+export const JSON_EXPLORER_MAX_COLLAPSED_DEPTH = 20;
+
 export interface JsonExplorerData {
   /** Optional heading shown above the tree. */
   title?: string;
   /** Raw JSON text — the source of truth, parsed defensively at render time. */
   json: string;
   /**
-   * Depth beyond which nodes start collapsed (default 1). Nodes at a depth `<`
+   * Depth beyond which nodes start collapsed (default 2). Nodes at a depth `<`
    * this value render expanded; deeper nodes render collapsed until clicked.
    */
   collapsedDepth?: number;
@@ -39,7 +42,12 @@ export interface JsonExplorerData {
 export const jsonExplorerSchema = z.object({
   title: z.string().trim().max(200).optional(),
   json: z.string().max(200_000),
-  collapsedDepth: z.number().int().min(0).max(20).optional(),
+  collapsedDepth: z
+    .number()
+    .int()
+    .min(0)
+    .max(JSON_EXPLORER_MAX_COLLAPSED_DEPTH)
+    .optional(),
 }) as unknown as z.ZodType<JsonExplorerData>;
 
 /**

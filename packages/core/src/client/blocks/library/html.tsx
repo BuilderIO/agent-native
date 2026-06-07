@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { IconCode, IconEdit, IconX } from "@tabler/icons-react";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
+import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { htmlSchema, htmlMdx, type HtmlBlockData } from "./html.config.js";
 
 /**
@@ -82,12 +83,44 @@ export function HtmlEditBlock({
   data,
   onChange,
   editable,
+  blockId,
   title,
+  summary,
   ctx,
 }: BlockEditProps<HtmlBlockData>) {
+  const htmlId = useId();
+  const cssId = useId();
+  const captionId = useId();
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState(data.html);
   const [css, setCss] = useState(data.css ?? "");
+  const [caption, setCaption] = useState(data.caption ?? "");
+
+  useEffect(() => {
+    setHtml(data.html);
+    setCss(data.css ?? "");
+    setCaption(data.caption ?? "");
+  }, [data]);
+
+  const fieldAction = (
+    field: "HTML fragment" | "CSS" | "Caption",
+    value: string,
+  ) => ({
+    blockId,
+    blockType: "custom-html",
+    blockTitle: title,
+    blockSummary: summary,
+    fieldValue: value,
+    draftScope: `block:custom-html:${blockId}:${field.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    disabled: !editable,
+    instructions:
+      "Update the plan with update-visual-plan using a targeted update-block content patch for this custom-html block id. Preserve unrelated HTML/CSS/caption fields unless the requested edit requires changing them.",
+    companionFields: [
+      { label: "HTML fragment", value: html || "(empty)", language: "html" },
+      { label: "CSS", value: css || "(empty)", language: "css" },
+      { label: "Caption", value: caption || "(empty)", language: "text" },
+    ],
+  });
 
   return (
     <div className="plan-html-block group" data-an-block-edit>
@@ -96,7 +129,8 @@ export function HtmlEditBlock({
           <button
             type="button"
             data-plan-interactive
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label={editing ? "Cancel editing source" : "Edit source"}
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             onClick={() => setEditing((value) => !value)}
           >
             {editing ? (
@@ -104,24 +138,60 @@ export function HtmlEditBlock({
             ) : (
               <IconEdit className="size-4" />
             )}
-            {editing ? "Cancel" : "Edit source"}
           </button>
         )}
       </div>
       {editing ? (
         <div className="mt-2 grid gap-3" data-plan-interactive>
-          <textarea
-            value={html}
-            onChange={(event) => setHtml(event.target.value)}
-            className="flex min-h-48 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            placeholder="HTML fragment"
-          />
-          <textarea
-            value={css}
-            onChange={(event) => setCss(event.target.value)}
-            className="flex min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            placeholder="Optional CSS"
-          />
+          <div className="group/field grid gap-1.5">
+            <AiEditableFieldLabel
+              htmlFor={htmlId}
+              label="HTML fragment"
+              ctx={ctx}
+              action={fieldAction("HTML fragment", html)}
+            />
+            <textarea
+              id={htmlId}
+              value={html}
+              disabled={!editable}
+              onChange={(event) => setHtml(event.target.value)}
+              className="flex min-h-48 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="HTML fragment"
+            />
+          </div>
+          <div className="group/field grid gap-1.5">
+            <AiEditableFieldLabel
+              htmlFor={cssId}
+              label="CSS"
+              ctx={ctx}
+              action={fieldAction("CSS", css)}
+            />
+            <textarea
+              id={cssId}
+              value={css}
+              disabled={!editable}
+              onChange={(event) => setCss(event.target.value)}
+              className="flex min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="Optional CSS"
+            />
+          </div>
+          <div className="group/field grid gap-1.5">
+            <AiEditableFieldLabel
+              htmlFor={captionId}
+              label="Caption"
+              ctx={ctx}
+              action={fieldAction("Caption", caption)}
+            />
+            <input
+              id={captionId}
+              type="text"
+              value={caption}
+              disabled={!editable}
+              onChange={(event) => setCaption(event.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="Optional caption"
+            />
+          </div>
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -134,9 +204,14 @@ export function HtmlEditBlock({
             <button
               type="button"
               data-plan-interactive
-              className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
+              className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               onClick={() => {
-                onChange({ ...data, html, css: css || undefined });
+                onChange({
+                  ...data,
+                  html,
+                  css: css || undefined,
+                  caption: caption || undefined,
+                });
                 setEditing(false);
               }}
             >

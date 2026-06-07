@@ -36,6 +36,10 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import {
+  LOCAL_PLAN_OWNER_EMAIL,
+  resolvePlanAccessContext,
+} from "./lib/local-identity.js";
 
 // ---------------------------------------------------------------------------
 // Test DB wiring. A single libSQL :memory: db is shared across the file; rows
@@ -70,6 +74,7 @@ let listVisualPlans: AnyAction;
 let getVisualPlan: AnyAction;
 let updateVisualPlan: AnyAction;
 let shareResource: AnyAction;
+let listResourceShares: AnyAction;
 let setResourceVisibility: AnyAction;
 let unshareResource: AnyAction;
 
@@ -247,6 +252,7 @@ beforeAll(async () => {
     titleColumn: "title",
     getResourcePath: (plan: any) => `/plans/${plan.id}`,
     getDb: () => db,
+    resolveAccessContext: resolvePlanAccessContext,
   });
 
   createVisualPlan = (await import("../actions/create-visual-plan.js"))
@@ -259,6 +265,9 @@ beforeAll(async () => {
     .default as AnyAction;
   shareResource = (
     await import("@agent-native/core/sharing/actions/share-resource")
+  ).default as AnyAction;
+  listResourceShares = (
+    await import("@agent-native/core/sharing/actions/list-resource-shares")
   ).default as AnyAction;
   setResourceVisibility = (
     await import("@agent-native/core/sharing/actions/set-resource-visibility")
@@ -311,6 +320,46 @@ describe("owner access", () => {
       listVisualPlans.run({}),
     );
     expect(list.map((p: any) => p.id)).toEqual([mine]);
+  });
+
+  it("generic sharing actions honor the local single-user owner for signed local browsers", async () => {
+    const previous = process.env.PLAN_LOCAL_MODE;
+    process.env.PLAN_LOCAL_MODE = "1";
+    try {
+      const planId = await createPlanAs(OWNER, ORG);
+      let row = await rawPlan(planId);
+      expect(row.ownerEmail).toBe(LOCAL_PLAN_OWNER_EMAIL);
+      expect(row.orgId).toBeNull();
+
+      await asUser({ userEmail: OWNER, orgId: ORG }, async () => {
+        await expect(resolveAccess("plan", planId)).resolves.toMatchObject({
+          role: "owner",
+        });
+        await expect(
+          listResourceShares.run({
+            resourceType: "plan",
+            resourceId: planId,
+          }),
+        ).resolves.toMatchObject({
+          ownerEmail: LOCAL_PLAN_OWNER_EMAIL,
+          visibility: "private",
+          role: "owner",
+        });
+        await expect(
+          setResourceVisibility.run({
+            resourceType: "plan",
+            resourceId: planId,
+            visibility: "org",
+          }),
+        ).resolves.toEqual({ ok: true, visibility: "org" });
+      });
+
+      row = await rawPlan(planId);
+      expect(row.orgId).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.PLAN_LOCAL_MODE;
+      else process.env.PLAN_LOCAL_MODE = previous;
+    }
   });
 });
 

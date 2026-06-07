@@ -44,6 +44,7 @@ export interface SharedRichEditorProps {
   placeholder?: string;
   className?: string;
   editorClassName?: string;
+  ariaLabel?: string;
   interactive?: boolean;
   /**
    * Yjs document for real-time multi-user editing. When provided, prose is
@@ -115,6 +116,7 @@ export function SharedRichEditor({
   placeholder = "Type '/' for commands...",
   className,
   editorClassName,
+  ariaLabel,
   interactive = editable,
   ydoc = null,
   awareness = null,
@@ -190,6 +192,8 @@ export function SharedRichEditor({
     editorProps: {
       attributes: {
         class: cn("an-rich-md-prose", editorClassName),
+        role: ariaLabel ? "textbox" : undefined,
+        "aria-label": ariaLabel,
       },
     },
     onUpdate: ({ editor, transaction }) => {
