@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.39.1
+
+### Patch Changes
+
+- 24a3a14: Add `/plan-design` to the built-in Plans skill bundle and CLI aliases.
+
 ## 0.39.0
 
 ### Minor Changes
