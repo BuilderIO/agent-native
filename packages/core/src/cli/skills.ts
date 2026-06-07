@@ -352,6 +352,7 @@ plan needs a richer review surface.
    migration, or code plans, usually omit \`content.canvas\` and
    \`content.prototype\`; put \`diagram\`, \`mermaid\`, \`api-endpoint\`,
    \`openapi-spec\`, \`data-model\`, \`diff\`, \`file-tree\`, \`json-explorer\`,
+   \`annotated-code\`,
    \`implementation-map\` and \`code-tabs\` blocks directly next
    to the relevant prose. Skip the top visual surface for non-visual work.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.

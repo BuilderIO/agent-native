@@ -50,18 +50,25 @@ import {
   type JsonExplorerData,
 } from "./json-explorer.config.js";
 import { JsonExplorerRead, JsonExplorerEdit } from "./JsonExplorerBlock.js";
+import {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+} from "./annotated-code.config.js";
+import { AnnotatedCodeRead, AnnotatedCodeEdit } from "./AnnotatedCodeBlock.js";
 
 /**
  * Canonical specs for the standard library's dev-doc blocks (Mermaid, API
- * endpoint, OpenAPI spec, data model, diff, file tree, JSON explorer).
+ * endpoint, OpenAPI spec, data model, diff, file tree, JSON explorer,
+ * annotated code).
  * Each pairs the shared React-free schema/MDX config
  * with the shared React `Read`/`Edit` renderers and the canonical
  * label/description/editSurface/empty metadata. Apps that need a slightly
  * different label/description/empty for a block pass an override to
  * {@link registerLibraryBlocks} rather than re-authoring the whole spec.
  *
- * The five fully pre-built standard specs (checklist, table, code-tabs, html,
- * tabs) already bundle their metadata in their own modules, so they are appended
+ * The six fully pre-built standard specs (checklist, table, code-tabs, html,
+ * tabs, columns) already bundle their metadata in their own modules, so they are appended
  * by {@link libraryBlockSpecs} rather than re-declared here.
  */
 // Typed `BlockSpec<any>[]` (not `BlockSpec<unknown>[]`) so the per-block generic
@@ -217,11 +224,35 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
       collapsedDepth: JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
     }),
   }),
+  defineBlock<AnnotatedCodeData>({
+    type: "annotated-code",
+    schema: annotatedCodeSchema,
+    mdx: annotatedCodeMdx,
+    Read: AnnotatedCodeRead,
+    Edit: AnnotatedCodeEdit,
+    placement: ["block"],
+    editSurface: "panel",
+    label: "Annotated code",
+    description:
+      "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes (Stripe-docs / Sourcegraph explain-this-code style).",
+    empty: () => ({
+      filename: "src/server/auth.ts",
+      language: "ts",
+      code: "export function resolveAuth(provider: string) {\n  const cfg = providers[provider];\n  return cfg.token;\n}",
+      annotations: [
+        {
+          lines: "2",
+          label: "Lookup",
+          note: "Resolves the provider config by key.",
+        },
+      ],
+    }),
+  }),
 ];
 
 /**
  * The full standard library spec set, in registration order: the fully pre-built
- * specs (checklist, table, code-tabs, html, tabs, columns) followed by the seven
+ * specs (checklist, table, code-tabs, html, tabs, columns) followed by the eight
  * dev-doc specs. This is the single list both the plan and content browser
  * registries register — adding a library block here lands in both apps.
  */

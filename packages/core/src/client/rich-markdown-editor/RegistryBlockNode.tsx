@@ -1,6 +1,8 @@
 import {
   createContext,
+  useEffect,
   useContext,
+  useMemo,
   useState,
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
@@ -355,7 +357,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   );
 }
 
-function LegacyJsonEditSurface({
+export function LegacyJsonEditSurface({
   block,
   open,
   onOpenChange,
@@ -370,7 +372,31 @@ function LegacyJsonEditSurface({
   onChange: (nextData: unknown) => void;
   selected: boolean;
 }) {
-  const [draft, setDraft] = useState(() => JSON.stringify(block.data, null, 2));
+  const serializedBlockData = useMemo(
+    () => JSON.stringify(block.data, null, 2),
+    [block.data],
+  );
+  const [draft, setDraft] = useState(serializedBlockData);
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(serializedBlockData);
+    setParseError(null);
+  }, [block.id, serializedBlockData]);
+
+  const saveDraft = () => {
+    try {
+      const nextData = JSON.parse(draft) as unknown;
+      setParseError(null);
+      onChange(nextData);
+      onOpenChange(false);
+    } catch (error) {
+      setParseError(
+        error instanceof Error ? error.message : "Invalid JSON data.",
+      );
+    }
+  };
+
   const trigger = (
     <button
       type="button"
@@ -389,16 +415,22 @@ function LegacyJsonEditSurface({
         data-plan-interactive
         className="min-h-64 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-5 text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        aria-invalid={parseError ? true : undefined}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          if (parseError) setParseError(null);
+        }}
       />
+      {parseError ? (
+        <p className="text-xs text-destructive" role="alert">
+          Invalid JSON: {parseError}
+        </p>
+      ) : null}
       <button
         type="button"
         data-plan-interactive
         className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
-        onClick={() => {
-          onChange(JSON.parse(draft));
-          onOpenChange(false);
-        }}
+        onClick={saveDraft}
       >
         Save
       </button>

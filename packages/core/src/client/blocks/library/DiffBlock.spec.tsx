@@ -3,7 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DiffRead } from "./DiffBlock.js";
+import { DiffRead, diffLines } from "./DiffBlock.js";
 
 describe("DiffBlock", () => {
   let container: HTMLDivElement;
@@ -98,5 +98,19 @@ describe("DiffBlock", () => {
       "packages/core/src/client/blocks/library",
     );
     expect(container.textContent).not.toContain("TSX");
+  });
+
+  it("falls back to a coarse replacement diff when LCS would allocate too much", () => {
+    const before = Array.from({ length: 1_200 }, (_, index) => `old-${index}`)
+      .join("\n")
+      .concat("\n");
+    const after = Array.from({ length: 1_200 }, (_, index) => `new-${index}`)
+      .join("\n")
+      .concat("\n");
+
+    expect(diffLines(before, after)).toEqual([
+      { value: before, removed: true },
+      { value: after, added: true },
+    ]);
   });
 });

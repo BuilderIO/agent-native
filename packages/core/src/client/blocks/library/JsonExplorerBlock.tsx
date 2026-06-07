@@ -152,19 +152,22 @@ function JsonNode({
 }: JsonNodeProps) {
   const seededOpen = forceOpen?.open ?? depth < collapsedDepth;
   // `forceOpen` is the global pulse: when the user hits expand/collapse all we
-  // flip every node, but per-node toggles still win afterward (the pulse is part
-  // of the state key via `useMemo` reseed below).
-  const [open, setOpen] = useState(seededOpen);
+  // flip every node, but per-node toggles still win afterward.
+  const [openState, setOpenState] = useState<{
+    forceOpen: JsonTreePulse | null;
+    open: boolean;
+  }>({ forceOpen, open: seededOpen });
   const [subtreePulse, setSubtreePulse] = useState<JsonTreePulse | null>(null);
-  // Re-seed when the global pulse changes. Keyed by `forceOpen` identity.
-  useMemo(() => {
-    if (forceOpen !== null) setOpen(forceOpen.open);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forceOpen]);
+
+  let open = openState.open;
+  if (forceOpen !== openState.forceOpen) {
+    open = forceOpen?.open ?? openState.open;
+    setOpenState({ forceOpen, open });
+  }
 
   const handleToggle = (event: ReactMouseEvent<HTMLButtonElement>) => {
     const nextOpen = !open;
-    setOpen(nextOpen);
+    setOpenState((prev) => ({ ...prev, open: nextOpen }));
     if (event.altKey) {
       setSubtreePulse((prev) => ({
         open: nextOpen,

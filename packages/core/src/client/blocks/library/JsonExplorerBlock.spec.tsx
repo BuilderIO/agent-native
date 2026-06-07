@@ -154,4 +154,55 @@ describe("JsonExplorerBlock", () => {
 
     expect(container.textContent).not.toContain("deep value");
   });
+
+  it("expands and collapses the full tree from the toolbar", () => {
+    act(() => {
+      root.render(
+        <JsonExplorerRead
+          blockId="json-1"
+          ctx={{}}
+          data={{
+            collapsedDepth: 1,
+            json: JSON.stringify({
+              subjects: [
+                {
+                  nested: {
+                    child: "deep value",
+                  },
+                },
+              ],
+            }),
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).not.toContain("deep value");
+
+    const expandAll = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Expand all",
+    );
+    expect(expandAll).toBeTruthy();
+
+    act(() => {
+      expandAll?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("deep value");
+
+    const collapseAll = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Collapse all",
+    );
+    expect(collapseAll).toBeTruthy();
+
+    act(() => {
+      collapseAll?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(container.textContent).not.toContain("deep value");
+  });
 });

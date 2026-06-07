@@ -63,11 +63,19 @@ function toLineTokens(text: string): string[] {
  * snippets so the O(n·m) table is fine. Removed lines are emitted before added
  * lines within a change region, matching jsdiff's ordering.
  */
-function diffLines(before: string, after: string): Change[] {
+export function diffLines(before: string, after: string): Change[] {
   const a = toLineTokens(before);
   const b = toLineTokens(after);
   const n = a.length;
   const m = b.length;
+  const cells = (n + 1) * (m + 1);
+
+  if (cells > MAX_DIFF_LCS_CELLS) {
+    return [
+      ...(before ? [{ value: before, removed: true }] : []),
+      ...(after ? [{ value: after, added: true }] : []),
+    ];
+  }
 
   // LCS length table.
   const lcs: number[][] = Array.from({ length: n + 1 }, () =>
@@ -412,6 +420,7 @@ const DIFF_LINE_CLASS =
   "block min-w-max flex-1 whitespace-pre px-2 py-0 font-mono text-[12px] leading-5 text-foreground";
 
 const DEFAULT_VISIBLE_DIFF_LINES = 15;
+const MAX_DIFF_LCS_CELLS = 1_000_000;
 
 function splitDiffFilename(filename?: string): {
   basename: string;
