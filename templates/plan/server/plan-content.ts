@@ -495,7 +495,9 @@ function sanitizeDiagramData(diagram: PlanDiagramBlock["data"] | undefined) {
   return {
     ...diagram,
     html:
-      diagram.html === undefined ? undefined : sanitizeDiagramHtml(diagram.html),
+      diagram.html === undefined
+        ? undefined
+        : sanitizeDiagramHtml(diagram.html),
     css:
       diagram.css === undefined ? undefined : sanitizeCustomHtml(diagram.css),
   };

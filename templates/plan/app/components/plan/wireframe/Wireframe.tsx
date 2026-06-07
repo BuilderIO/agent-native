@@ -676,9 +676,7 @@ function HtmlDiagram({
         selector={DIAGRAM_ROUGH_SELECTOR}
       />
       {data.caption && !compact && (
-        <p className="mt-3 text-sm leading-6 text-plan-muted">
-          {data.caption}
-        </p>
+        <p className="mt-3 text-sm leading-6 text-plan-muted">{data.caption}</p>
       )}
     </div>
   );

@@ -143,8 +143,9 @@ function build(
   const themed =
     (scope.matches(".plan-wf, .plan-html-frame, .plan-diagram-frame")
       ? scope
-      : scope.querySelector(".plan-wf, .plan-html-frame, .plan-diagram-frame")) ??
-    scope;
+      : scope.querySelector(
+          ".plan-wf, .plan-html-frame, .plan-diagram-frame",
+        )) ?? scope;
   const ink =
     readVar(themed, "--ink") || readVar(themed, "--wf-ink") || "#34322e";
   // Sketch stroke: prefer the dedicated --wf-sketch token (set a step more
@@ -276,9 +277,9 @@ export function RoughOverlay({
     const el = scopeRef.current;
     if (!el || !enabled) {
       el?.removeAttribute("data-rough-ready");
-      el
-        ?.querySelector(".plan-wf, .plan-html-frame, .plan-diagram-frame")
-        ?.removeAttribute("data-rough-ready");
+      el?.querySelector(
+        ".plan-wf, .plan-html-frame, .plan-diagram-frame",
+      )?.removeAttribute("data-rough-ready");
       setState({ paths: [], w: 0, h: 0 });
       return;
     }
@@ -336,9 +337,9 @@ export function RoughOverlay({
       el.removeEventListener("plan-prototype-runtime:rendered", measure);
       clearTimeout(rafRef.current);
       el.removeAttribute("data-rough-ready");
-      el
-        .querySelector(".plan-wf, .plan-html-frame, .plan-diagram-frame")
-        ?.removeAttribute("data-rough-ready");
+      el.querySelector(
+        ".plan-wf, .plan-html-frame, .plan-diagram-frame",
+      )?.removeAttribute("data-rough-ready");
     };
   }, [scopeRef, sketch, enabled, drawFrame, frameRadius, selector]);
 

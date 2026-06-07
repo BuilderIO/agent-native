@@ -339,7 +339,8 @@
   max-width: 100%;
 }
 
-.plan-diagram-frame :is(.diagram-panel, .diagram-card, .diagram-node, .diagram-box) {
+.plan-diagram-frame
+  :is(.diagram-panel, .diagram-card, .diagram-node, .diagram-box) {
   border: 1.25px solid var(--wf-line);
   border-radius: var(--wf-radius);
   background: var(--wf-card);
