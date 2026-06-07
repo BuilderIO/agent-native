@@ -141,10 +141,19 @@ plain-text strip of the markdown.
 
 ### Comments
 
-| Action          | Args                                                           | Purpose                  |
-| --------------- | -------------------------------------------------------------- | ------------------------ |
-| `list-comments` | `--documentId <id>`                                            | List all comment threads |
-| `add-comment`   | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
+| Action           | Args                                                           | Purpose                  |
+| ---------------- | -------------------------------------------------------------- | ------------------------ |
+| `list-comments`  | `--documentId <id>`                                            | List all comment threads |
+| `add-comment`    | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
+| `update-comment` | `--id <id> [--content <text>] [--resolved true\|false]`        | Edit or resolve comments |
+| `delete-comment` | `--id <id>`                                                    | Delete a comment         |
+
+### Versions
+
+| Action                     | Args                                      | Purpose                            |
+| -------------------------- | ----------------------------------------- | ---------------------------------- |
+| `list-document-versions`   | `--documentId <id>`                       | List saved versions for a document |
+| `restore-document-version` | `--documentId <id> --versionId <version>` | Restore a saved document version   |
 
 ### Image Blocks
 

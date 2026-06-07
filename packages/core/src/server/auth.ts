@@ -126,6 +126,7 @@ import {
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
+import { putSetting } from "../settings/store.js";
 // Pure env-read feature switch from a leaf module (no dependency back on
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
@@ -149,6 +150,8 @@ export interface AuthSession {
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
+  /** Profile image from the auth provider, when available. */
+  image?: string;
   /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
@@ -1906,13 +1909,14 @@ async function maybeAutoCreateDevSession(
  * Map a Better Auth session to our AuthSession type.
  */
 function mapBetterAuthSession(baSession: {
-  user: { id: string; email: string; name?: string };
+  user: { id: string; email: string; name?: string; image?: string | null };
   session: { token: string };
 }): AuthSession {
   return {
     email: baSession.user.email,
     userId: baSession.user.id,
     name: baSession.user.name,
+    ...(baSession.user.image ? { image: baSession.user.image } : {}),
     token: baSession.session?.token,
   };
 }
@@ -2537,6 +2541,16 @@ async function mountBetterAuthRoutes(
             throw new Error(
               "Google account email is not verified. Please verify your email with Google and try again.",
             );
+          }
+          if (typeof user.picture === "string" && user.picture.trim()) {
+            await putSetting(`avatar:${email}`, {
+              image: user.picture,
+            }).catch((error) => {
+              console.warn(
+                "[auth] failed to store Google profile image:",
+                error,
+              );
+            });
           }
 
           const { sessionToken } = await createOAuthSession(event, email, {

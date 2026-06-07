@@ -1,12 +1,23 @@
 import { useEffect, useState } from "react";
 import {
   IconCheck,
+  IconChevronDown,
+  IconClipboardText,
   IconCode,
   IconEdit,
   IconPhoto,
+  IconSend,
   IconX,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
@@ -728,11 +739,21 @@ export function QuestionFormBlock({
   const answered = questions.filter((question) =>
     isAnswered(question, answers[question.id]),
   ).length;
+  const buildSummary = () =>
+    summarizeQuestionForm(block.id, block.title, questions, answers);
+  const chooseDirectionLabel =
+    block.data.submitLabel && block.data.submitLabel !== "Send to agent"
+      ? block.data.submitLabel
+      : "Choose direction";
 
   return (
     <section className="plan-questions-block" data-block-id={block.id}>
-      {block.title && <div className="plan-block-label">{block.title}</div>}
-      <div className="mt-8 grid gap-14">
+      {block.title && (
+        <h2 className="text-[1.45rem] font-semibold leading-tight text-plan-text">
+          {block.title}
+        </h2>
+      )}
+      <div className="mt-7 grid gap-8">
         {questions.map((question, index) => (
           <VisualQuestionView
             key={question.id}
@@ -743,42 +764,51 @@ export function QuestionFormBlock({
           />
         ))}
       </div>
-      <div className="sticky bottom-0 mt-14 flex items-center justify-between gap-4 border-t border-plan-line bg-plan-document py-4 backdrop-blur">
+      <div className="sticky bottom-0 mt-10 flex items-center justify-between gap-4 border-t border-plan-line bg-plan-document py-4 backdrop-blur">
         <p className="text-sm font-semibold text-plan-muted">
           {answered}/{questions.length} answered
         </p>
-        <div className="flex gap-2" data-plan-interactive>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              void navigator.clipboard.writeText(
-                summarizeQuestionForm(
-                  block.id,
-                  block.title,
-                  questions,
-                  answers,
-                ),
-              );
-            }}
-          >
-            Copy prompt
-          </Button>
-          <Button
-            type="button"
-            onClick={() =>
-              onSubmit?.(
-                summarizeQuestionForm(
-                  block.id,
-                  block.title,
-                  questions,
-                  answers,
-                ),
-              )
-            }
-          >
-            {block.data.submitLabel || "Send to agent"}
-          </Button>
+        <div data-plan-interactive>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" className="shrink-0 gap-1.5">
+                {chooseDirectionLabel}
+                <IconChevronDown className="size-3.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 rounded-xl">
+              <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => onSubmit?.(buildSummary())}
+                  className="items-start gap-2"
+                  disabled={!onSubmit}
+                >
+                  <IconSend className="mt-0.5 size-4" />
+                  <span className="grid gap-0.5">
+                    <span>Send to inline agent</span>
+                    <span className="text-xs font-normal leading-4 text-muted-foreground">
+                      Posts answered questions into the app side agent.
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    void navigator.clipboard.writeText(buildSummary());
+                  }}
+                  className="items-start gap-2"
+                >
+                  <IconClipboardText className="mt-0.5 size-4" />
+                  <span className="grid gap-0.5">
+                    <span>Copy for your agent</span>
+                    <span className="text-xs font-normal leading-4 text-muted-foreground">
+                      Copies a prompt you can paste into chat.
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </section>
@@ -829,16 +859,16 @@ function VisualQuestionView({
     question.options?.some((option) => option.wireframe || option.diagram),
   );
   return (
-    <article className="grid gap-6 sm:grid-cols-[46px_minmax(0,1fr)]">
-      <div className="flex size-8 items-center justify-center rounded-full border border-plan-line bg-plan-block text-sm font-semibold text-plan-muted">
+    <article className="grid gap-4 sm:grid-cols-[36px_minmax(0,1fr)]">
+      <div className="flex size-7 items-center justify-center rounded-full border border-plan-line bg-plan-block text-xs font-semibold text-plan-muted">
         {index + 1}
       </div>
       <div>
-        <h3 className="text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl">
+        <h3 className="text-lg font-semibold leading-7 text-plan-text">
           {question.title}
         </h3>
         {question.subtitle && (
-          <p className="mt-3 max-w-3xl text-lg leading-8 text-plan-muted">
+          <p className="mt-1.5 max-w-3xl text-sm leading-6 text-plan-muted">
             {question.subtitle}
           </p>
         )}
@@ -846,17 +876,17 @@ function VisualQuestionView({
           <Textarea
             value={answer?.text ?? ""}
             onChange={(event) => onAnswer({ text: event.target.value })}
-            className="mt-6 min-h-28 rounded-xl border-plan-line bg-plan-block text-base"
+            className="mt-4 min-h-28 rounded-xl border-plan-line bg-plan-block text-sm"
             data-plan-interactive
             placeholder={question.placeholder || "Add details..."}
           />
         ) : (
           <div
             className={cn(
-              "mt-6",
+              "mt-4",
               hasVisualOptions
                 ? "grid gap-4 md:grid-cols-2"
-                : "flex flex-wrap gap-3",
+                : "grid max-w-4xl gap-3",
             )}
           >
             {question.options?.map((option) => {
@@ -866,10 +896,11 @@ function VisualQuestionView({
                   key={option.id}
                   type="button"
                   data-plan-interactive
+                  aria-pressed={isSelected}
                   className={cn(
                     hasVisualOptions
                       ? "grid gap-4 rounded-xl border border-plan-line bg-plan-block p-4 text-left transition-colors hover:bg-accent/30"
-                      : "inline-flex min-h-10 max-w-full items-center gap-2 rounded-full border border-plan-line bg-plan-block px-4 py-2 text-left text-sm font-semibold text-plan-text shadow-sm transition-colors hover:bg-accent/40",
+                      : "grid w-full gap-2 rounded-xl border border-plan-line bg-plan-block px-4 py-3 text-left text-plan-text shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/30",
                     isSelected &&
                       "border-primary bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary))]",
                   )}
@@ -889,7 +920,7 @@ function VisualQuestionView({
                   <div className="flex min-w-0 items-start gap-3">
                     <span
                       className={cn(
-                        "mt-1 flex size-5 shrink-0 items-center justify-center border",
+                        "mt-0.5 flex size-5 shrink-0 items-center justify-center border",
                         question.mode === "single" ? "rounded-full" : "rounded",
                         isSelected
                           ? "border-primary bg-primary text-primary-foreground"
@@ -899,16 +930,19 @@ function VisualQuestionView({
                       {isSelected && <IconCheck className="size-3.5" />}
                     </span>
                     <span>
-                      <span className="text-xl font-semibold text-plan-text">
+                      <span className="text-base font-semibold leading-6 text-plan-text">
                         {option.label}
                       </span>
                       {option.recommended && (
-                        <span className="ml-3 rounded-full border border-primary/30 px-2 py-0.5 text-xs font-bold uppercase tracking-[0.12em] text-primary">
-                          Recommended
-                        </span>
+                        <>
+                          {" "}
+                          <span className="ml-3 rounded-md border border-primary/30 px-2 py-0.5 align-middle text-[11px] font-medium uppercase tracking-[0.12em] text-primary">
+                            Recommended
+                          </span>
+                        </>
                       )}
                       {option.detail && (
-                        <span className="mt-2 block max-w-2xl whitespace-pre-line text-base leading-7 text-plan-muted">
+                        <span className="mt-1 block max-w-2xl whitespace-pre-line text-sm font-normal leading-6 text-plan-muted">
                           {option.detail}
                         </span>
                       )}
@@ -933,7 +967,7 @@ function VisualQuestionView({
                 onChange={(event) =>
                   onAnswer({ ...answer, text: event.target.value })
                 }
-                className="h-10 w-full rounded-full border-plan-line bg-plan-block px-4 sm:w-64"
+                className="h-10 w-full rounded-lg border-plan-line bg-plan-block px-4 sm:w-64"
                 data-plan-interactive
                 placeholder={question.placeholder || "Other..."}
               />

@@ -38,6 +38,7 @@ import {
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
+import { callAction } from "./use-action.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
@@ -987,11 +988,9 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     Promise.all([
-      fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "list" }),
-      }).then((r) => (r.ok ? r.json() : null)),
+      callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
+        () => null,
+      ),
       fetch(agentNativePath("/_agent-native/env-status"))
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => []),

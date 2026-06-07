@@ -12,6 +12,8 @@ import type {
   PlanSource,
   PlanStatus,
   PlanSummary,
+  PlanVersionDetail,
+  PlanVersionListResponse,
 } from "@shared/types";
 import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
 
@@ -156,6 +158,8 @@ function usePlanInvalidation() {
     void qc.invalidateQueries({ queryKey: ["action", "list-visual-plans"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-visual-plan"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-feedback"] });
+    void qc.invalidateQueries({ queryKey: ["action", "list-plan-versions"] });
+    void qc.invalidateQueries({ queryKey: ["action", "get-plan-version"] });
   };
 }
 
@@ -251,7 +255,7 @@ export function useVisualizePlan() {
     VisualizePlanInput
   >("visualize-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to visualize plan"),
+    onError: showActionError("Failed to import plan"),
   });
 }
 
@@ -264,6 +268,42 @@ export function useUpdatePlan() {
       onError: showActionError("Failed to update visual plan"),
     },
   );
+}
+
+export function usePlanVersions(planId: string | null, open = true) {
+  return useActionQuery<PlanVersionListResponse>(
+    "list-plan-versions",
+    planId && open ? { planId } : undefined,
+    {
+      enabled: Boolean(planId && open),
+      placeholderData: (prev) => prev,
+    } as any,
+  );
+}
+
+export function usePlanVersion(
+  planId: string | null,
+  versionId: string | null,
+) {
+  return useActionQuery<PlanVersionDetail>(
+    "get-plan-version",
+    planId && versionId ? { planId, versionId } : undefined,
+    {
+      enabled: Boolean(planId && versionId),
+      placeholderData: (prev) => prev,
+    } as any,
+  );
+}
+
+export function useRestorePlanVersion() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { html?: string; restoredVersionId?: string },
+    { planId: string; versionId: string }
+  >("restore-plan-version", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to restore plan version"),
+  });
 }
 
 export function useConvertVisualPlanToPrototype() {

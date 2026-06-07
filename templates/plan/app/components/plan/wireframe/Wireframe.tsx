@@ -6,6 +6,7 @@ import {
   useId,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import {
 } from "./kit";
 import { useWireframeStyle } from "./use-wireframe-style";
 import {
+  sanitizeDiagramHtml,
   sanitizeWireframeCss,
   sanitizeWireframeHtml,
   scopeDesignCss,
@@ -176,13 +178,16 @@ function ArtboardFrame({
   }) => ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const theme: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
   const style = useWireframeStyle();
   const preset = SURFACE_PRESETS[surface] ?? SURFACE_PRESETS.desktop;
   const height = canvasSize ?? preset.height;
   const width = canvasWidth ?? preset.width;
-  const scale = compact ? Math.min(1, 320 / preset.width) : 1;
+  const baseScale = compact ? Math.min(1, 320 / preset.width) : 1;
+  const maxFrameWidth = compact ? preset.width * baseScale : width;
+  const [fitScale, setFitScale] = useState(baseScale);
   const designMode = renderMode === "design";
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const paper = designMode
@@ -203,19 +208,39 @@ function ArtboardFrame({
       ? "#43403a"
       : "#d8d3c9";
 
+  useEffect(() => {
+    const element = fitRef.current;
+    if (!element) return;
+    const measure = () => {
+      const availableWidth = element.clientWidth;
+      const nextScale =
+        availableWidth > 0
+          ? Math.min(baseScale, availableWidth / width)
+          : baseScale;
+      setFitScale((current) =>
+        Math.abs(current - nextScale) < 0.001 ? current : nextScale,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [baseScale, width]);
+
   return (
     <div
+      ref={fitRef}
       className="plan-kit-wireframe"
       style={{
-        width: compact ? preset.width * scale : "100%",
-        maxWidth: compact ? preset.width : width,
+        width: "100%",
+        maxWidth: maxFrameWidth,
       }}
     >
       <div
         style={{
-          width: compact ? preset.width * scale : "100%",
-          maxWidth: compact ? preset.width : width,
-          height: compact ? height * scale : height,
+          width: "100%",
+          maxWidth: maxFrameWidth,
+          height: height * fitScale,
           marginInline: "auto",
         }}
       >
@@ -223,15 +248,17 @@ function ArtboardFrame({
           ref={ref}
           className="plan-kit-artboard relative"
           style={{
-            width: preset.width,
+            width,
             height,
             borderRadius: preset.radius,
             background: paper,
             boxShadow: "0 10px 34px rgba(24, 24, 27, 0.10)",
-            ...(scale !== 1
-              ? { transform: `scale(${scale})`, transformOrigin: "top left" }
+            ...(fitScale !== 1
+              ? {
+                  transform: `scale(${fitScale})`,
+                  transformOrigin: "top left",
+                }
               : {}),
-            ...(compact ? {} : { width }),
           }}
         >
           <div
@@ -295,7 +322,7 @@ function HtmlArtboard({
   // Sanitize model-authored HTML at the render point (defense-in-depth against
   // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
   // html changes, not on every theme/zoom re-render.
-  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
   const renderMode = data.renderMode ?? "wireframe";
   const designMode = renderMode === "design";
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -511,6 +538,9 @@ function renderKitScreen(
 /* SketchDiagram — document + canvas import it from this module               */
 /* -------------------------------------------------------------------------- */
 
+const DIAGRAM_ROUGH_SELECTOR =
+  "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,hr";
+
 export function SketchDiagram({
   data,
   compact,
@@ -518,7 +548,30 @@ export function SketchDiagram({
   data: PlanDiagramBlock["data"];
   compact?: boolean;
 }) {
-  const nodes = orderDiagramNodes(data.nodes, data.edges);
+  if (data.html?.trim()) {
+    return <HtmlDiagram data={data} compact={compact} />;
+  }
+
+  const markerId = useId().replace(/:/g, "");
+  if (hasPositionedDiagramNodes(data)) {
+    return (
+      <PositionedSketchDiagram
+        data={data}
+        compact={compact}
+        markerId={markerId}
+      />
+    );
+  }
+
+  const edges = data.edges ?? [];
+  const nodes = orderDiagramNodes(data.nodes ?? [], edges);
+  if (nodes.length === 0) {
+    return (
+      <div className="rounded-[12px] border border-plan-line bg-plan-block p-4 text-sm text-plan-muted">
+        Diagram content is empty.
+      </div>
+    );
+  }
   return (
     <div className="plan-sketch rounded-[16px] border border-plan-line bg-plan-wireframe p-5">
       <div
@@ -530,7 +583,7 @@ export function SketchDiagram({
         {nodes.map((node, index) => {
           const next = nodes[index + 1];
           const edge = next
-            ? data.edges.find(
+            ? edges.find(
                 (candidate) =>
                   candidate.from === node.id && candidate.to === next.id,
               )
@@ -580,10 +633,199 @@ export function SketchDiagram({
   );
 }
 
+function HtmlDiagram({
+  data,
+  compact,
+}: {
+  data: PlanDiagramBlock["data"];
+  compact?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
+  const theme: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
+  const style = useWireframeStyle();
+  const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const scopeSelector = `[data-plan-diagram-scope="${scopeId}"]`;
+  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const scopedCss = useMemo(() => {
+    const safeCss = sanitizeWireframeCss(data.css);
+    return scopeDesignCss(safeCss, scopeSelector);
+  }, [data.css, scopeSelector]);
+
+  return (
+    <div
+      ref={ref}
+      className={cn("plan-diagram-shell", compact && "plan-diagram-compact")}
+    >
+      <div
+        className="plan-diagram-frame"
+        data-theme={theme}
+        data-style={style}
+        data-plan-diagram-scope={scopeId}
+      >
+        {scopedCss && <style>{scopedCss}</style>}
+        <div
+          className="plan-diagram-frame-content"
+          dangerouslySetInnerHTML={{ __html: safeHtml }}
+        />
+      </div>
+      <RoughOverlay
+        scopeRef={ref}
+        enabled={style === "sketchy"}
+        drawFrame={false}
+        selector={DIAGRAM_ROUGH_SELECTOR}
+      />
+      {data.caption && !compact && (
+        <p className="mt-3 text-sm leading-6 text-plan-muted">{data.caption}</p>
+      )}
+    </div>
+  );
+}
+
+function PositionedSketchDiagram({
+  data,
+  compact,
+  markerId,
+}: {
+  data: PlanDiagramBlock["data"];
+  compact?: boolean;
+  markerId: string;
+}) {
+  const nodes = (data.nodes ?? []).map((node) => ({
+    ...node,
+    x: clampDiagramPercent(node.x ?? 50),
+    y: clampDiagramPercent(node.y ?? 50),
+  }));
+  const edges = data.edges ?? [];
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const arrowId = `${markerId}-diagram-arrow`;
+  const nodeWidth = compact ? 150 : 190;
+  const canvasHeight = compact ? 280 : 430;
+
+  return (
+    <div className="plan-sketch rounded-[16px] border border-plan-line bg-plan-wireframe p-5">
+      <div
+        className="relative overflow-hidden rounded-xl border border-plan-line bg-plan-document"
+        style={{ minHeight: canvasHeight }}
+      >
+        <svg
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <defs>
+            <marker
+              id={arrowId}
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-plan-muted" />
+            </marker>
+          </defs>
+          {edges.map((edge, index) => {
+            const from = nodeById.get(edge.from);
+            const to = nodeById.get(edge.to);
+            if (!from || !to) return null;
+            return (
+              <line
+                key={`${edge.from}-${edge.to}-${index}`}
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                markerEnd={`url(#${arrowId})`}
+                vectorEffect="non-scaling-stroke"
+                className="stroke-plan-muted-line"
+                strokeWidth={2}
+                strokeDasharray={edge.label ? "0" : "6 5"}
+              />
+            );
+          })}
+        </svg>
+
+        {!compact &&
+          edges.map((edge, index) => {
+            const from = nodeById.get(edge.from);
+            const to = nodeById.get(edge.to);
+            if (!edge.label || !from || !to) return null;
+            return (
+              <span
+                key={`${edge.from}-${edge.to}-${index}-label`}
+                className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-plan-line bg-plan-document px-2 py-0.5 text-center text-[11px] font-semibold text-plan-muted shadow-sm"
+                style={{
+                  left: `${(from.x + to.x) / 2}%`,
+                  top: `${(from.y + to.y) / 2}%`,
+                }}
+              >
+                {edge.label}
+              </span>
+            );
+          })}
+
+        {nodes.map((node, index) => (
+          <article
+            key={node.id}
+            className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-plan-sketch-line bg-plan-document p-3 text-plan-text shadow-sm"
+            style={{
+              left: `${node.x}%`,
+              top: `${node.y}%`,
+              width: nodeWidth,
+            }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-plan-muted">
+              {index + 1}
+            </p>
+            <h3 className="mt-2 text-base font-semibold leading-tight">
+              {node.label}
+            </h3>
+            {node.detail && !compact && (
+              <p className="mt-2 text-xs leading-5 text-plan-muted">
+                {node.detail}
+              </p>
+            )}
+          </article>
+        ))}
+      </div>
+      {data.notes && data.notes.length > 0 && !compact && (
+        <div className="mt-4 grid gap-2 border-t border-plan-line pt-4 text-sm text-plan-muted md:grid-cols-2">
+          {data.notes.map((note) => (
+            <p key={note.id}>{note.text}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function hasPositionedDiagramNodes(data: PlanDiagramBlock["data"]) {
+  const nodes = data.nodes ?? [];
+  return (
+    nodes.length > 0 &&
+    nodes.every(
+      (node) =>
+        typeof node.x === "number" &&
+        Number.isFinite(node.x) &&
+        typeof node.y === "number" &&
+        Number.isFinite(node.y),
+    )
+  );
+}
+
+function clampDiagramPercent(value: number) {
+  return Math.min(88, Math.max(12, value));
+}
+
 function orderDiagramNodes(
   nodes: PlanDiagramBlock["data"]["nodes"],
   edges: PlanDiagramBlock["data"]["edges"],
 ) {
+  nodes = nodes ?? [];
+  edges = edges ?? [];
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const targets = new Set(edges.map((edge) => edge.to));
   const first = nodes.find((node) => !targets.has(node.id)) ?? nodes[0];

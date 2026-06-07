@@ -264,3 +264,105 @@
 .plan-html-frame[data-skeleton="true"] * {
   color: transparent !important;
 }
+
+/*
+ * Inline architecture/code diagrams.
+ *
+ * These are document-local HTML/SVG fragments, not top-canvas wireframes. They
+ * share the wireframe sketch preference so the same viewer toggle can switch
+ * authored diagrams between crisp and hand-drawn presentation.
+ */
+
+.plan-diagram-shell {
+  position: relative;
+  width: 100%;
+}
+
+.plan-diagram-frame {
+  --wf-ink: #27272a;
+  --wf-muted: #64748b;
+  --wf-line: #dbe3ee;
+  --wf-sketch: #9aa6b2;
+  --wf-paper: #ffffff;
+  --wf-card: #f8fafc;
+  --wf-accent: #2563eb;
+  --wf-accent-fg: #ffffff;
+  --wf-accent-soft: #eff6ff;
+  --wf-warn: #dc2626;
+  --wf-ok: #16a34a;
+  --wf-radius: 8px;
+  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;
+  --wf-font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --wf-font: var(--wf-font-clean);
+
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid var(--wf-line);
+  border-radius: 10px;
+  background: var(--wf-paper);
+  color: var(--wf-ink);
+  font-family: var(--wf-font);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.plan-diagram-frame[data-theme="dark"] {
+  --wf-ink: #e5e7eb;
+  --wf-muted: #9ca3af;
+  --wf-line: #3f4652;
+  --wf-sketch: #6b7280;
+  --wf-paper: #202020;
+  --wf-card: #292929;
+  --wf-accent: #60a5fa;
+  --wf-accent-soft: #1e3a5f;
+  --wf-warn: #f87171;
+  --wf-ok: #4ade80;
+}
+
+.plan-diagram-frame[data-style="sketchy"] {
+  --wf-font: var(--wf-font-hand);
+}
+
+.plan-diagram-frame * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.plan-diagram-frame-content {
+  width: 100%;
+}
+
+.plan-diagram-frame svg {
+  display: block;
+  max-width: 100%;
+}
+
+.plan-diagram-frame
+  :is(.diagram-panel, .diagram-card, .diagram-node, .diagram-box) {
+  border: 1.25px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  background: var(--wf-card);
+}
+
+.plan-diagram-frame .diagram-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--wf-line);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.plan-diagram-frame[data-rough-ready]
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    .diagram-pill,
+    [data-rough],
+    hr
+  ) {
+  border-color: transparent !important;
+}

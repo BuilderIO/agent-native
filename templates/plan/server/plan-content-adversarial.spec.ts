@@ -9,6 +9,7 @@ import {
   normalizePlanContent,
   parsePlanContent,
   sanitizeCustomHtml,
+  sanitizeDiagramHtml,
   serializePlanContent,
 } from "./plan-content.js";
 
@@ -161,6 +162,19 @@ describe("custom-html sanitizer bypasses", () => {
       "<scr<script></script>ipt>alert(1)</script>",
     );
     expect(out.toLowerCase()).not.toContain("<script");
+  });
+});
+
+describe("diagram html sanitizer", () => {
+  it("preserves inert inline SVG while stripping active content", () => {
+    const out = sanitizeDiagramHtml(
+      '<div class="diagram-panel"><svg viewBox="0 0 100 40" onload="alert(1)"><path d="M5 20 L95 20" xlink:href="javascript:alert(1)" /><foreignObject><button x-on:click="evil()" @click="evil()" :onclick="evil()">x</button></foreignObject><script>alert(1)</script></svg></div>',
+    );
+
+    expect(out).toContain("<svg");
+    expect(out).toContain("<path");
+    expect(out).not.toMatch(/script|onload|foreignObject|x-on:click|@click/i);
+    expect(out.toLowerCase()).not.toContain("javascript:");
   });
 });
 
@@ -367,13 +381,32 @@ describe("structural validation", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a diagram block with zero nodes (min 1)", () => {
+  it("rejects a diagram block without html or nodes", () => {
     const result = planContentSchema.safeParse({
       version: 2,
       brief: "x",
       blocks: [{ id: "d", type: "diagram", data: { nodes: [], edges: [] } }],
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts a diagram block with local html/svg and no legacy nodes", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      brief: "x",
+      blocks: [
+        {
+          id: "d",
+          type: "diagram",
+          data: {
+            html: '<div class="diagram-panel"><svg viewBox="0 0 100 40"><path d="M5 20 L95 20" /></svg></div>',
+            css: ".diagram-panel { padding: 12px; }",
+            caption: "Policy owns the unstable branch.",
+          },
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
   });
 
   it("rejects an image block with neither assetId nor url", () => {
@@ -555,6 +588,25 @@ describe("patch surface stays safe", () => {
         },
       ]),
     ).toThrow();
+  });
+
+  it("rejects canvas frames that reference removed wireframe blocks", () => {
+    expect(() =>
+      planContentSchema.parse({
+        version: 2,
+        brief: "x",
+        canvas: {
+          frames: [
+            {
+              id: "frame-1",
+              label: "Option 1",
+              blockId: "removed-wireframe",
+            },
+          ],
+        },
+        blocks: [],
+      }),
+    ).toThrow(/missing or non-wireframe block/i);
   });
 
   /**

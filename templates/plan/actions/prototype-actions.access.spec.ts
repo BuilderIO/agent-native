@@ -92,6 +92,22 @@ async function rawPlan(planId: string) {
   return row as any;
 }
 
+async function rawSections(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads rows for the row just created.
+  return db
+    .select()
+    .from(planSchema.planSections)
+    .where(eq(planSchema.planSections.planId, planId));
+}
+
+async function rawEvents(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads rows for the row just created.
+  return db
+    .select()
+    .from(planSchema.planEvents)
+    .where(eq(planSchema.planEvents.planId, planId));
+}
+
 async function countPlans() {
   // guard:allow-unscoped -- test-only fixture count verifies rejected creates persist nothing.
   const rows = await db.select().from(planSchema.plans);
@@ -148,6 +164,7 @@ beforeAll(async () => {
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
+    CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
   `);
   registerShareableResource({
@@ -185,7 +202,7 @@ beforeEach(async () => {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
   await client.executeMultiple(`
     DELETE FROM plan_events; DELETE FROM plan_comments; DELETE FROM plan_sections;
-    DELETE FROM plan_shares; DELETE FROM plans;
+    DELETE FROM plan_versions; DELETE FROM plan_shares; DELETE FROM plans;
   `);
 });
 
@@ -193,6 +210,50 @@ beforeEach(async () => {
 // create-prototype-plan: owner scoping
 // ===========================================================================
 describe("create-prototype-plan: owner scoping", () => {
+  it("create-visual-plan can import existing plan text without a separate skill action", async () => {
+    const planText = `# Existing Import Plan
+
+## Implementation
+
+- templates/plan/actions/create-visual-plan.ts - accept planText and preserve source markdown.
+- skills/visual-plans/SKILL.md - route existing plans through /visual-plan.
+
+## Risks
+
+- Keep compatibility callers working while removing the separate skill.`;
+
+    const result = await asUser({ userEmail: OWNER, orgId: ORG }, () =>
+      createVisualPlan.run({
+        planText,
+        repoPath: "/repo",
+        status: "review",
+        sections: [],
+        comments: [],
+      }),
+    );
+    const row = await rawPlan(result.planId as string);
+    expect(row.title).toBe("Existing Import Plan");
+    expect(row.source).toBe("imported");
+    expect(row.markdown).toBe(planText);
+    expect(row.content).toBeTruthy();
+
+    const sections = await rawSections(result.planId as string);
+    expect(sections.some((section) => section.createdBy === "import")).toBe(
+      true,
+    );
+    expect(sections.some((section) => section.type === "diagram")).toBe(true);
+
+    const events = await rawEvents(result.planId as string);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "plan.imported",
+          createdBy: "import",
+        }),
+      ]),
+    );
+  });
+
   it("scopes the new plan to the request user, private + org from context", async () => {
     const planId = await createPrototypeAs(OWNER, ORG);
     const row = await rawPlan(planId);

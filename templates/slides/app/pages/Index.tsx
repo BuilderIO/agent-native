@@ -16,6 +16,7 @@ import {
 import {
   agentNativePath,
   askUserQuestion,
+  callAction,
   useSession,
 } from "@agent-native/core/client";
 import { extractGoogleDocUrls } from "@shared/google-docs";
@@ -439,18 +440,10 @@ export default function Index() {
       duplicatingRef.current = id;
       setDuplicating(id);
       try {
-        const res = await fetch(
-          agentNativePath("/_agent-native/actions/duplicate-deck"),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deckId: id }),
-          },
-        );
-        if (res.ok) {
-          const { id: newId } = await res.json();
-          navigate(`/deck/${newId}`);
-        }
+        const { id: newId } = await callAction("duplicate-deck", {
+          deckId: id,
+        });
+        navigate(`/deck/${newId}`);
       } finally {
         duplicatingRef.current = null;
         setDuplicating(null);

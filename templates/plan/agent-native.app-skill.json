@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, /prototype-plan, /plan-design, /visual-questions, and /visualize-plan skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {
@@ -54,12 +54,6 @@
       "action": "create-visual-questions",
       "path": "/plans",
       "description": "Create a rich visual intake questionnaire for explicit /visual-questions workflows."
-    },
-    {
-      "id": "visualize-plan",
-      "action": "visualize-plan",
-      "path": "/plans",
-      "description": "Create an Agent-Native Plans companion from an existing Codex, Claude Code, Markdown, or pasted text plan."
     }
   ],
   "skills": [
@@ -87,11 +81,6 @@
       "path": ".agents/skills/visual-questions",
       "visibility": "both",
       "exportAs": "visual-questions"
-    },
-    {
-      "path": ".agents/skills/visualize-plan",
-      "visibility": "both",
-      "exportAs": "visualize-plan"
     }
   ],
   "hostAdapters": [

@@ -9,10 +9,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import { loadPlanBundle, summarizePlans } from "../server/plans.js";
 
 export default defineAction({
@@ -63,7 +64,7 @@ export default defineAction({
             (comment) => comment.status === "open",
           ),
           agentWorkflow:
-            "For fast visual/prototype plan iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId, prototype screenId, or canvas id; use full content only for broad restructuring, and html only for legacy imported artifacts.",
+            "For fast visual/prototype plan iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId, prototype screenId, or canvas id; use full content only for broad restructuring, and html only for legacy imported artifacts. For rollback, list-plan-versions and get-plan-version inspect saved snapshots; restore-plan-version only when the user asks to restore.",
         };
       } catch {
         screen.visualPlanError = `Could not load visual plan ${nav.planId}`;
@@ -75,7 +76,13 @@ export default defineAction({
         const rows = await getDb()
           .select()
           .from(schema.plans)
-          .where(accessFilter(schema.plans, schema.planShares))
+          .where(
+            accessFilter(
+              schema.plans,
+              schema.planShares,
+              resolvePlanAccessContext(currentAccess()),
+            ),
+          )
           .orderBy(desc(schema.plans.updatedAt))
           .limit(12);
         screen.visualPlansList = await summarizePlans(rows);

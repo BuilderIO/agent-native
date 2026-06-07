@@ -178,10 +178,18 @@ const FORBIDDEN_ELEMENT =
 const FORBIDDEN_TAG =
   /<\/?\s*(?:script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)\b[^>]*>/gi;
 
+const DIAGRAM_FORBIDDEN_ELEMENT =
+  /<(script|style|iframe|object|embed|noscript|math|foreignObject|applet|portal|frameset|marquee)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
+
+const DIAGRAM_FORBIDDEN_TAG =
+  /<\/?\s*(?:script|style|iframe|object|embed|link|meta|base|form|math|foreignObject|noscript|frame|frameset|applet|portal|marquee)\b[^>]*>/gi;
+
 /** Inline event handlers and javascript:/data: URLs in attributes. */
 const FORBIDDEN_ATTR = /\son[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const FORBIDDEN_BOUND_ATTR =
   /\s(?::on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+const DIAGRAM_FORBIDDEN_BOUND_ATTR =
+  /\s(?:@[\w:.-]+|x-on:[\w:.-]+|:on[\w:.-]+|x-bind:on[\w:.-]+|:style|x-bind:style)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const URL_ATTR =
   /\s(?:href|src|xlink:href|srcdoc|action|formaction|data|background|poster|ping)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
 const STYLE_ATTR = /\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
@@ -261,6 +269,17 @@ function sanitizeMaybeWireframeData(data: unknown) {
   }
 }
 
+function sanitizeMaybeDiagramData(data: unknown) {
+  if (!data || typeof data !== "object") return;
+  const record = data as Record<string, unknown>;
+  if (typeof record.html === "string") {
+    record.html = sanitizeDiagramHtml(record.html);
+  }
+  if (typeof record.css === "string") {
+    record.css = sanitizeCustomHtml(record.css);
+  }
+}
+
 function sanitizeMaybeQuestionPreviews(data: unknown) {
   if (!data || typeof data !== "object") return;
   const questions = (data as Record<string, unknown>).questions;
@@ -272,6 +291,7 @@ function sanitizeMaybeQuestionPreviews(data: unknown) {
     for (const option of options) {
       if (!option || typeof option !== "object") continue;
       sanitizeMaybeWireframeData((option as Record<string, unknown>).wireframe);
+      sanitizeMaybeDiagramData((option as Record<string, unknown>).diagram);
     }
   }
 }
@@ -284,6 +304,9 @@ function sanitizeMaybeBlocks(blocks: unknown) {
     const data = record.data as Record<string, unknown> | undefined;
     if (record.type === "custom-html" || record.type === "wireframe") {
       sanitizeMaybeWireframeData(data);
+    }
+    if (record.type === "diagram") {
+      sanitizeMaybeDiagramData(data);
     }
     if (record.type === "question-form" || record.type === "visual-questions") {
       sanitizeMaybeQuestionPreviews(data);
@@ -348,6 +371,29 @@ export function sanitizeCustomHtml(value: string): string {
     .replace(/\bdata\s*:\s*(?:text\/html|image\/svg\+xml)/gi, "");
 }
 
+export function sanitizeDiagramHtml(value: string): string {
+  let out = value;
+  for (let i = 0; i < 4; i += 1) {
+    const next = out.replace(DIAGRAM_FORBIDDEN_ELEMENT, "");
+    if (next === out) break;
+    out = next;
+  }
+  return out
+    .replace(DIAGRAM_FORBIDDEN_TAG, "")
+    .replace(FORBIDDEN_ATTR, "")
+    .replace(FORBIDDEN_BOUND_ATTR, "")
+    .replace(DIAGRAM_FORBIDDEN_BOUND_ATTR, "")
+    .replace(URL_ATTR, (match, doubleQuoted, singleQuoted, bare) =>
+      hasUnsafeUrl(doubleQuoted ?? singleQuoted ?? bare ?? "") ? "" : match,
+    )
+    .replace(STYLE_ATTR, (match, doubleQuoted, singleQuoted, bare) =>
+      hasUnsafeStyle(doubleQuoted ?? singleQuoted ?? bare ?? "") ? "" : match,
+    )
+    .replace(/\bjava\s*script\s*:/gi, "")
+    .replace(/\bvb\s*script\s*:/gi, "")
+    .replace(/\bdata\s*:\s*(?:text\/html|image\/svg\+xml)/gi, "");
+}
+
 function sanitizeBlock(block: PlanBlock): PlanBlock {
   if (block.type === "wireframe") {
     return {
@@ -378,6 +424,12 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
       },
     };
   }
+  if (block.type === "diagram") {
+    return {
+      ...block,
+      data: sanitizeDiagramData(block.data),
+    };
+  }
   if (block.type === "question-form" || block.type === "visual-questions") {
     return {
       ...block,
@@ -388,6 +440,7 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
           options: question.options?.map((option) => ({
             ...option,
             wireframe: sanitizeWireframeData(option.wireframe),
+            diagram: sanitizeDiagramData(option.diagram),
           })),
         })),
       },
@@ -434,6 +487,19 @@ function sanitizeWireframeData(
       wireframe.css === undefined
         ? undefined
         : sanitizeCustomHtml(wireframe.css),
+  };
+}
+
+function sanitizeDiagramData(diagram: PlanDiagramBlock["data"] | undefined) {
+  if (!diagram) return undefined;
+  return {
+    ...diagram,
+    html:
+      diagram.html === undefined
+        ? undefined
+        : sanitizeDiagramHtml(diagram.html),
+    css:
+      diagram.css === undefined ? undefined : sanitizeCustomHtml(diagram.css),
   };
 }
 
@@ -3095,14 +3161,22 @@ function renderXRayMeterHtml(compact: boolean) {
 }
 
 function renderDiagramHtml(data: PlanDiagramBlock["data"]) {
-  const nodes = data.nodes;
+  if (data.html?.trim()) {
+    return `<div class="standalone-diagram-fragment">
+      ${data.css ? `<style>${data.css}</style>` : ""}
+      ${data.html}
+      ${data.caption ? `<p class="caption">${escapeHtml(data.caption)}</p>` : ""}
+    </div>`;
+  }
+  const nodes = data.nodes ?? [];
+  const edges = data.edges ?? [];
   const positioned = nodes.map((node, index) => ({
     ...node,
     x: node.x ?? 12 + index * (76 / Math.max(nodes.length - 1, 1)),
     y: node.y ?? 50,
   }));
   return `<svg class="sketch-diagram" viewBox="0 0 100 100" role="img">
-    ${data.edges
+    ${edges
       .map((edge) => {
         const from = positioned.find((node) => node.id === edge.from);
         const to = positioned.find((node) => node.id === edge.to);

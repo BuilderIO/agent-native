@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useDecks } from "@/context/DeckContext";
 import type { Deck } from "@/context/DeckContext";
 import PresentationView from "@/components/presentation/PresentationView";
-import { appBasePath } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client";
 
 export default function Presentation() {
   const { id } = useParams<{ id: string }>();
@@ -28,10 +28,8 @@ export default function Presentation() {
 
     let cancelled = false;
     setFallbackState("loading");
-    fetch(`${appBasePath()}/api/decks/${id}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error("missing");
-        const data = (await res.json()) as Deck;
+    callAction<Deck>("get-deck", { id }, { method: "GET" })
+      .then((data) => {
         if (!cancelled) {
           setFallbackDeck(data);
           setFallbackState("idle");

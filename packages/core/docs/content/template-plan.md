@@ -33,7 +33,10 @@ The command installs `/visual-plan` plus the companion commands:
 - `/ui-plan` for UI-first plans with mockups, states, and screen-level review.
 - `/prototype-plan` for clickable prototype-first plans with live comments.
 - `/visual-questions` for visual intake before a plan.
-- `/visualize-plan` for turning an existing text plan into a visual companion.
+
+Use `/visual-plan` for both fresh plans and existing Codex, Claude Code,
+Markdown, or pasted plans; when source plan text already exists, the agent builds
+from that plan instead of starting over.
 
 By default the CLI targets Codex. Add `--client claude-code` or `--client all`
 when you want to configure another host:
@@ -62,7 +65,6 @@ After installation, ask your agent for the command that fits the work:
 - `/prototype-plan` creates a clickable prototype above the plan document, with
   static mocks, comments, and a focused browser popout.
 - `/visual-questions` opens a visual intake questionnaire before planning.
-- `/visualize-plan` imports a plan you already have and makes it reviewable.
 
 The agent should inspect the codebase first, then create the visual plan when a
 wrong direction would be costly. The returned Plans link opens the review UI so
@@ -101,7 +103,7 @@ it to the agent starts a revision turn against the existing plan.
 - "Create a `/ui-plan` for the new onboarding screen with mobile and desktop states."
 - "Create a `/prototype-plan` for the checkout flow so I can click through it."
 - "Use `/visual-questions` to help me choose the dashboard direction first."
-- "Run `/visualize-plan` on the Markdown plan below and make it easier to review."
+- "Use `/visual-plan` on the Markdown plan below and make it easier to review."
 
 ## For developers
 

@@ -8,6 +8,7 @@ import {
 } from "../server/plan-content.js";
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -89,6 +90,11 @@ export default defineAction({
       ...(args.removeCanvas ? {} : { canvas: bundle.plan.content.canvas }),
     };
     if (args.removeCanvas) delete content.canvas;
+    await createPlanVersionSnapshot(args.planId, {
+      force: true,
+      label: "Before prototype conversion",
+      createdBy: "agent",
+    });
 
     // guard:allow-unscoped -- assertPlanEditor(args.planId) above gates this write.
     await getDb()

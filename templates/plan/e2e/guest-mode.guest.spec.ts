@@ -9,7 +9,7 @@ import {
  * GUEST MODE + CLAIM — adversarial coverage.
  *
  * Runs with --project=guest (empty storageState => logged out). Deep + edge:
- *  - guest banner shows on the plans list when logged out
+ *  - logged-out empty plans state shows skill install guidance, not a banner
  *  - a guest can VIEW a public plan with NO account (read-only viewer identity)
  *  - the create / AI-wireframe path requires sign-in (UI redirect + action 401)
  *  - private/unknown plans never leak to an anonymous viewer
@@ -25,6 +25,8 @@ import {
  */
 
 const APP_ORIGIN = process.env.PLAN_BASE_URL || "http://localhost:8081";
+const PLAN_SKILL_INSTALL_COMMAND =
+  "npx @agent-native/core@latest skills add visual-plan";
 
 function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
@@ -93,46 +95,46 @@ async function clearAuth(page: Page) {
 }
 
 test.describe("guest mode + claim", () => {
-  test("guest banner shows on the plans list when logged out", async ({
-    page,
-  }) => {
+  test("logged-out plans list shows skill empty state", async ({ page }) => {
     await clearAuth(page);
     await page.goto("/plans");
     await page.waitForLoadState("domcontentloaded");
 
-    // The slim guest strip prompts sign-in. Anchor on its copy + Sign in button.
-    await expect(
-      page.getByText(/viewing as a guest/i),
-      "guest banner copy is visible when logged out on the plans list",
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: /^sign in$/i }).first(),
     ).toBeVisible();
 
-    // Create must NOT be offered as a real create to a guest: the primary CTA
-    // reads "Sign in to create", never "New Plan".
+    // Create must NOT be offered as a real create to a guest.
     await expect(
-      page.getByRole("button", { name: /sign in to create/i }).first(),
-    ).toBeVisible({ timeout: 15_000 });
+      page.getByRole("button", { name: /sign in to create/i }),
+    ).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^new plan$/i })).toHaveCount(
       0,
     );
+
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible();
+    await expect(
+      page.getByText(PLAN_SKILL_INSTALL_COMMAND, { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Install once")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^copy$/i })).toHaveCount(0);
+    await expect(page.getByText(/already installed/i)).toHaveCount(0);
+    await expect(page.getByText(/no cli yet/i)).toHaveCount(0);
   });
 
-  test("guest clicking the create CTA is sent to sign-in (AI/create path is gated)", async ({
+  test("guest clicking the header sign-in action is sent to sign-in", async ({
     page,
   }) => {
     await clearAuth(page);
     await page.goto("/plans");
     await page.waitForLoadState("domcontentloaded");
 
-    const createCta = page
-      .getByRole("button", { name: /sign in to create/i })
-      .first();
-    await expect(createCta).toBeVisible({ timeout: 15_000 });
-    await createCta.click();
+    const signInButton = page.getByRole("button", { name: /^sign in$/i });
+    await expect(signInButton).toBeVisible({ timeout: 15_000 });
+    await signInButton.click();
 
-    // Must land on the framework sign-in surface, carrying a return to /plans.
+    // Must land on the framework sign-in surface.
     await page.waitForURL(/\/_agent-native\/sign-in/i, { timeout: 15_000 });
     expect(page.url()).toMatch(/sign-in/i);
     expect(decodeURIComponent(page.url())).toMatch(/return=\/plans/i);
@@ -298,9 +300,13 @@ test.describe("guest mode + claim", () => {
     // Start as a guest on the plans list.
     await clearAuth(page);
     await page.goto("/plans");
-    await expect(page.getByText(/viewing as a guest/i)).toBeVisible({
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible({
       timeout: 15_000,
     });
+    await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /^sign in$/i }).first(),
+    ).toBeVisible();
 
     // Register + login same-origin (verification-free path the framework uses
     // for programmatic auth), exactly as global-setup does. This is the moment a

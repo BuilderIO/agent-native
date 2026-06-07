@@ -18,6 +18,7 @@ import {
 } from "../server/lib/local-identity.js";
 import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -80,6 +81,11 @@ export default defineAction({
 
     if (args.planId) {
       await assertPlanEditor(args.planId);
+      await createPlanVersionSnapshot(args.planId, {
+        force: true,
+        label: "Before source import",
+        createdBy: "agent",
+      });
       await db
         .update(schema.plans)
         .set({

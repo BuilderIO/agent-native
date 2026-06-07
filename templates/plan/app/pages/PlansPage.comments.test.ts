@@ -113,6 +113,102 @@ describe("plan comment thread UI model", () => {
     ).toEqual(["damian@example.com", "emma@example.com", "steve@example.com"]);
   });
 
+  it("presents local logged-out comments as the current reviewer", () => {
+    const root = comment("root", {
+      authorEmail: "local@agent-native.local",
+      authorName: "Dev",
+      anchor: JSON.stringify({ x: 12, y: 18, sectionTitle: "Prototype" }),
+    });
+
+    const [thread] = buildCommentThreads([root]);
+    const annotation = thread && runtimeAnnotationFromThread(thread, 0, {});
+
+    expect(annotation).toMatchObject({
+      authorEmail: null,
+      authorName: "You",
+      authorInitials: "You",
+      authorColor: "#2563eb",
+      participants: [
+        {
+          authorEmail: null,
+          authorName: "You",
+          authorInitials: "You",
+          authorColor: "#2563eb",
+        },
+      ],
+    });
+  });
+
+  it("uses the signed-in profile for local plan-owner comments", () => {
+    const root = comment("root", {
+      authorEmail: "local@agent-native.local",
+      authorName: "Dev",
+      anchor: JSON.stringify({ x: 12, y: 18, sectionTitle: "Prototype" }),
+    });
+
+    const [thread] = buildCommentThreads([root]);
+    const annotation =
+      thread &&
+      runtimeAnnotationFromThread(
+        thread,
+        0,
+        {},
+        {
+          email: "steve@example.com",
+          name: "Steve Sewell",
+          avatarUrl: "https://example.test/steve.png",
+          color: "#123456",
+        },
+      );
+
+    expect(annotation).toMatchObject({
+      authorEmail: "steve@example.com",
+      authorName: "Steve Sewell",
+      authorInitials: "SS",
+      authorColor: "#123456",
+      authorAvatarUrl: "https://example.test/steve.png",
+      participants: [
+        {
+          authorEmail: "steve@example.com",
+          authorName: "Steve Sewell",
+          authorInitials: "SS",
+          authorColor: "#123456",
+          authorAvatarUrl: "https://example.test/steve.png",
+        },
+      ],
+    });
+  });
+
+  it("does not treat the auto-dev account as personal initials", () => {
+    const root = comment("root", {
+      authorEmail: "local@agent-native.local",
+      authorName: "Dev",
+      anchor: JSON.stringify({ x: 12, y: 18, sectionTitle: "Prototype" }),
+    });
+
+    const [thread] = buildCommentThreads([root]);
+    const annotation =
+      thread &&
+      runtimeAnnotationFromThread(
+        thread,
+        0,
+        {},
+        {
+          email: "dev@local.test",
+          name: "Dev",
+          avatarUrl: null,
+          color: "#2563eb",
+        },
+      );
+
+    expect(annotation).toMatchObject({
+      authorEmail: null,
+      authorName: "You",
+      authorInitials: "You",
+      authorColor: "#2563eb",
+    });
+  });
+
   it("merges queryable resolver metadata into runtime annotation anchors", () => {
     const root = comment("root", {
       anchor: JSON.stringify({ x: 12, y: 34, sectionTitle: "Summary" }),

@@ -20,7 +20,7 @@ Install with the Agent-Native CLI. The command installs the skill instructions, 
 agent-native skills add visual-plan
 ```
 
-Authentication is a one-time browser sign-in at setup — this is intended, and it is what lets the agent persist and share the plans it generates. This also installs the companion commands `/ui-plan`, `/visual-questions`, and `/visualize-plan` (see [Invoking the skill](#invoke)).
+Authentication is a one-time browser sign-in at setup — this is intended, and it is what lets the agent persist and share the plans it generates. This also installs the companion commands `/ui-plan`, `/prototype-plan`, `/plan-design`, and `/visual-questions` (see [Invoking the skill](#invoke)).
 
 What the auth step does depends on your client:
 
@@ -40,10 +40,13 @@ Once installed, use the slash command that fits the work:
 
 - `/visual-plan` — the canonical command for any rich plan (architecture, backend, refactors, UI).
 - `/ui-plan` — UI-first work that should start with the screens.
+- `/prototype-plan` — prototype-first work that should start with a clickable flow.
+- `/plan-design` — full-fidelity branded UI direction before implementation.
 - `/visual-questions` — a short visual intake form before planning.
-- `/visualize-plan` — turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual companion.
 
 The agent gates hard: it only builds a polished visual plan when a wrong direction would be costly, and skips it for trivial, unambiguous work. Each command generates a plan and opens the editor.
+
+When a Codex, Claude Code, Markdown, or pasted plan already exists, use `/visual-plan`. The agent should preserve that source plan and build the richer review surface from it instead of starting over.
 
 When a plan has unresolved decisions that are useful to answer after the first pass, the agent can put them in an **Open Questions** form at the bottom of the same plan. You can choose single or multiple options, fill in freeform answers, and send the answers back to the agent to revise the plan.
 

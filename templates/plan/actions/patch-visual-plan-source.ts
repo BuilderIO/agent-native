@@ -11,6 +11,7 @@ import {
 import { serializePlanContent } from "../server/plan-content.js";
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -54,6 +55,11 @@ export default defineAction({
     const nextMdx = await applyPlanMdxSourcePatches(currentMdx, args.patches);
     const nextContent = await parsePlanMdxFolder(nextMdx);
     const now = nowIso();
+    await createPlanVersionSnapshot(args.planId, {
+      force: true,
+      label: args.note ?? "Before source patch",
+      createdBy: "agent",
+    });
 
     const updatedRows = await getDb()
       .update(schema.plans)

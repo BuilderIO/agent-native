@@ -240,9 +240,7 @@ describe("NewWorkspaceAppFlow", () => {
     expect(message).toContain(
       'Use <Link to="/review"> and navigate("/review"), not "/quality/review"',
     );
-    expect(message).toContain(
-      'agentNativePath("/_agent-native/actions/<name>")',
-    );
+    expect(message).toContain("named helper that uses callAction");
     expect(message).toContain("Do not add lucide-react");
     expect(message).toContain("manifest/package/deploy metadata");
     expect(message).toContain("agent card/A2A metadata");

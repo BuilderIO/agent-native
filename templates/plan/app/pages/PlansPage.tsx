@@ -11,6 +11,7 @@ import {
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
   IconAt,
+  IconArrowLeft,
   IconArrowRight,
   IconArrowsMaximize,
   IconArrowsMinimize,
@@ -24,9 +25,11 @@ import {
   IconExternalLink,
   IconFileZip,
   IconDotsVertical,
+  IconHistory,
   IconLayoutSidebarRight,
   IconLoader2,
   IconPencil,
+  IconCircleCheck,
   IconMessageCircle,
   IconMoon,
   IconPlus,
@@ -37,6 +40,7 @@ import {
   IconX,
   IconSend,
   IconRefresh,
+  IconRestore,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -90,6 +94,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -104,14 +116,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
 import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
 import {
   toggleWireframeStyle,
   useWireframeStyle,
 } from "@/components/plan/wireframe/use-wireframe-style";
-import { GuestModeBanner } from "@/components/plan/GuestModeBanner";
 import type {
   CanvasMarkupCreateContext,
   CanvasMarkupMode,
@@ -120,13 +134,16 @@ import {
   usePlan,
   usePlans,
   useConvertVisualPlanToPrototype,
+  usePlanVersion,
+  usePlanVersions,
   usePublishVisualPlan,
+  useRestorePlanVersion,
   useUpdatePlan,
   useExportPlan,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
-import type { PlanBundle, PlanSource } from "@shared/types";
+import type { PlanBundle, PlanSource, PlanVersionSummary } from "@shared/types";
 import {
   extractCommentMentions,
   formatPlanCommentAnchorForAgent,
@@ -156,6 +173,11 @@ const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
 ];
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
+const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
+const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
+const CURRENT_USER_FALLBACK_NAME = "You";
+const CURRENT_USER_FALLBACK_INITIALS = "You";
+const CURRENT_USER_FALLBACK_COLOR = "#2563eb";
 
 type PreferredEditor =
   | "vscode"
@@ -309,6 +331,13 @@ type CommentAuthorPresentation = {
   avatarUrl: string | null;
 };
 
+type CurrentCommentAuthor = {
+  email: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+  color: string;
+};
+
 type PlanCommentItem = PlanBundle["comments"][number];
 
 type CommentThread = {
@@ -324,7 +353,53 @@ function normalizeCommentEmail(email: string | null | undefined) {
   return trimmed || null;
 }
 
-function commentAuthorName(source: CommentIdentitySource) {
+function isLocalCurrentUserEmail(email: string | null) {
+  return (
+    email === LOCAL_PLAN_OWNER_EMAIL ||
+    (email !== null && AUTO_DEV_COMMENT_EMAILS.has(email))
+  );
+}
+
+function currentCommentAuthorPresentation(
+  source: CommentIdentitySource,
+  currentUser?: CurrentCommentAuthor | null,
+): CommentAuthorPresentation | null {
+  if (source.createdBy && source.createdBy !== "human") return null;
+  const sourceEmail = normalizeCommentEmail(source.authorEmail);
+  const rawCurrentEmail = normalizeCommentEmail(currentUser?.email);
+  const currentIsSynthetic = isLocalCurrentUserEmail(rawCurrentEmail);
+  const currentEmail = currentIsSynthetic ? null : rawCurrentEmail;
+  const currentName = currentIsSynthetic ? null : currentUser?.name?.trim();
+  const currentAvatarUrl = currentIsSynthetic ? null : currentUser?.avatarUrl;
+  const isCurrentEmail = Boolean(
+    sourceEmail && currentEmail && sourceEmail === currentEmail,
+  );
+  const isLocalIdentity = isLocalCurrentUserEmail(sourceEmail);
+  const isAnonymousHuman =
+    !sourceEmail && !source.authorName?.trim() && source.createdBy === "human";
+  if (!isCurrentEmail && !isLocalIdentity && !isAnonymousHuman) return null;
+
+  const name =
+    currentName ||
+    (currentEmail ? emailToName(currentEmail) : CURRENT_USER_FALLBACK_NAME);
+  const hasPersonalIdentity = Boolean(currentEmail || currentName);
+  return {
+    name,
+    email: currentEmail,
+    initials: hasPersonalIdentity
+      ? commentAuthorInitials(name)
+      : CURRENT_USER_FALLBACK_INITIALS,
+    color: currentUser?.color ?? CURRENT_USER_FALLBACK_COLOR,
+    avatarUrl: currentAvatarUrl ?? null,
+  };
+}
+
+function commentAuthorName(
+  source: CommentIdentitySource,
+  currentUser?: CurrentCommentAuthor | null,
+) {
+  const current = currentCommentAuthorPresentation(source, currentUser);
+  if (current) return current.name;
   const explicitName = source.authorName?.trim();
   if (explicitName) return explicitName;
   const email = normalizeCommentEmail(source.authorEmail);
@@ -347,7 +422,12 @@ function commentAuthorInitials(name: string) {
   return raw.toUpperCase() || "?";
 }
 
-function commentAuthorColor(source: CommentIdentitySource) {
+function commentAuthorColor(
+  source: CommentIdentitySource,
+  currentUser?: CurrentCommentAuthor | null,
+) {
+  const current = currentCommentAuthorPresentation(source, currentUser);
+  if (current) return current.color;
   const email = normalizeCommentEmail(source.authorEmail);
   if (email) return emailToColor(email);
   if (source.createdBy === "agent") return "#0ea5e9";
@@ -358,7 +438,10 @@ function commentAuthorColor(source: CommentIdentitySource) {
 function commentAuthorPresentation(
   source: CommentIdentitySource,
   avatarUrl?: string | null,
+  currentUser?: CurrentCommentAuthor | null,
 ): CommentAuthorPresentation {
+  const current = currentCommentAuthorPresentation(source, currentUser);
+  if (current) return current;
   const name = commentAuthorName(source);
   return {
     name,
@@ -716,19 +799,24 @@ function commentIdentityKey(source: CommentIdentitySource, fallbackId: string) {
 function commentThreadParticipants(
   thread: CommentThread,
   avatarUrls: Record<string, string | null>,
+  currentUser?: CurrentCommentAuthor | null,
 ) {
   const seen = new Set<string>();
   const participants: CommentAuthorPresentation[] = [];
   for (const comment of thread.comments) {
-    const key = commentIdentityKey(comment, comment.id);
+    const author = commentAuthorPresentation(
+      comment,
+      commentAuthorAvatarUrl(comment, avatarUrls),
+      currentUser,
+    );
+    const key =
+      author.email ??
+      (author.name === CURRENT_USER_FALLBACK_NAME
+        ? "current-user"
+        : commentIdentityKey(comment, comment.id));
     if (seen.has(key)) continue;
     seen.add(key);
-    participants.push(
-      commentAuthorPresentation(
-        comment,
-        commentAuthorAvatarUrl(comment, avatarUrls),
-      ),
-    );
+    participants.push(author);
   }
   return participants;
 }
@@ -736,10 +824,12 @@ function commentThreadParticipants(
 function runtimeCommentFromPlanComment(
   comment: PlanCommentItem,
   avatarUrls: Record<string, string | null>,
+  currentUser?: CurrentCommentAuthor | null,
 ): RuntimeAnnotationComment {
   const author = commentAuthorPresentation(
     comment,
     commentAuthorAvatarUrl(comment, avatarUrls),
+    currentUser,
   );
   return {
     id: comment.id,
@@ -773,9 +863,14 @@ export function runtimeAnnotationFromThread(
   thread: CommentThread,
   index: number,
   avatarUrls: Record<string, string | null>,
+  currentUser?: CurrentCommentAuthor | null,
 ): RuntimeAnnotation | null {
   if (!thread.anchor) return null;
-  const root = runtimeCommentFromPlanComment(thread.root, avatarUrls);
+  const root = runtimeCommentFromPlanComment(
+    thread.root,
+    avatarUrls,
+    currentUser,
+  );
   return {
     ...root,
     index: index + 1,
@@ -784,11 +879,13 @@ export function runtimeAnnotationFromThread(
     sectionId: thread.root.sectionId,
     anchor: thread.anchor,
     replies: thread.replies.map((reply) =>
-      runtimeCommentFromPlanComment(reply, avatarUrls),
+      runtimeCommentFromPlanComment(reply, avatarUrls, currentUser),
     ),
-    participants: commentThreadParticipants(thread, avatarUrls).map(
-      runtimeParticipantFromAuthor,
-    ),
+    participants: commentThreadParticipants(
+      thread,
+      avatarUrls,
+      currentUser,
+    ).map(runtimeParticipantFromAuthor),
     commentCount: thread.comments.length,
   };
 }
@@ -796,7 +893,7 @@ export function runtimeAnnotationFromThread(
 function runtimeCommentFromAuthor(
   comment: RuntimeAnnotationComment,
 ): CommentAuthorPresentation {
-  return commentAuthorPresentation(
+  const author = commentAuthorPresentation(
     {
       createdBy: comment.createdBy,
       authorEmail: comment.authorEmail,
@@ -804,6 +901,11 @@ function runtimeCommentFromAuthor(
     },
     comment.authorAvatarUrl,
   );
+  return {
+    ...author,
+    color: comment.authorColor ?? author.color,
+    initials: comment.authorInitials ?? author.initials,
+  };
 }
 
 function runtimeAnnotationRootComment(
@@ -834,13 +936,18 @@ function runtimeAnnotationComments(annotation: RuntimeAnnotation) {
 function runtimeParticipantPresentation(
   participant: RuntimeAnnotationParticipant,
 ) {
-  return commentAuthorPresentation(
+  const author = commentAuthorPresentation(
     {
       authorEmail: participant.authorEmail,
       authorName: participant.authorName,
     },
     participant.authorAvatarUrl,
   );
+  return {
+    ...author,
+    color: participant.authorColor ?? author.color,
+    initials: participant.authorInitials ?? author.initials,
+  };
 }
 
 function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
@@ -1642,6 +1749,7 @@ export function PlansPage() {
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [planFullscreen, setPlanFullscreen] = useState(true);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [canvasMarkupMode, setCanvasMarkupMode] =
@@ -1758,6 +1866,9 @@ export function PlansPage() {
     { enabled: Boolean(accessResourceId) },
   );
   const canEditPlanContent = canEditPlanContentRole(planAccessQuery.data?.role);
+  const canResolveCommentThreads = Boolean(
+    bundle && (session || canEditPlanContent),
+  );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
     const ownerEmail = normalizeCommentEmail(planAccessQuery.data?.ownerEmail);
     const currentEmail = normalizeCommentEmail(collabUser?.email);
@@ -1791,6 +1902,31 @@ export function PlansPage() {
     [bundle?.comments, collabUser?.email],
   );
   const commentAvatarUrls = useCommentAvatarUrls(commentAvatarEmails);
+  const sessionWithImage = session as
+    | (typeof session & { image?: string | null })
+    | null;
+  const sessionImage = sessionWithImage?.image?.trim() || null;
+  const currentCommentAuthor = useMemo<CurrentCommentAuthor | null>(() => {
+    const email = normalizeCommentEmail(collabUser?.email);
+    if (isLocalCurrentUserEmail(email)) {
+      return {
+        email: null,
+        name: null,
+        avatarUrl: null,
+        color: CURRENT_USER_FALLBACK_COLOR,
+      };
+    }
+    const storedAvatar = email ? (commentAvatarUrls[email] ?? null) : null;
+    const avatarUrl = storedAvatar ?? sessionImage;
+    const name = collabUser?.name?.trim() || null;
+    if (!email && !name && !avatarUrl) return null;
+    return {
+      email,
+      name,
+      avatarUrl,
+      color: email ? emailToColor(email) : CURRENT_USER_FALLBACK_COLOR,
+    };
+  }, [collabUser?.email, collabUser?.name, commentAvatarUrls, sessionImage]);
   const pendingCommentAuthor = useMemo(
     () =>
       commentAuthorPresentation(
@@ -1799,22 +1935,26 @@ export function PlansPage() {
           authorEmail: collabUser?.email,
           authorName: collabUser?.name,
         },
-        collabUser?.email
-          ? commentAvatarUrls[normalizeCommentEmail(collabUser.email) ?? ""]
-          : null,
+        currentCommentAuthor?.avatarUrl ?? null,
+        currentCommentAuthor,
       ),
-    [collabUser?.email, collabUser?.name, commentAvatarUrls],
+    [collabUser?.email, collabUser?.name, currentCommentAuthor],
   );
   const runtimeCommentThreads = useMemo(
     () =>
       commentThreads
         .map((thread, index) =>
-          runtimeAnnotationFromThread(thread, index, commentAvatarUrls),
+          runtimeAnnotationFromThread(
+            thread,
+            index,
+            commentAvatarUrls,
+            currentCommentAuthor,
+          ),
         )
         .filter((annotation): annotation is RuntimeAnnotation =>
           Boolean(annotation),
         ),
-    [commentAvatarUrls, commentThreads],
+    [commentAvatarUrls, commentThreads, currentCommentAuthor],
   );
   useEffect(() => {
     setActiveAnnotation((current) => {
@@ -1852,6 +1992,18 @@ export function PlansPage() {
   }, [canvasMarkupMode, visualSurfaceMode]);
 
   useSetPageTitle(bundle?.plan.title || "Plans");
+  useSetHeaderActions(
+    !sessionLoading && !session && !selectedId ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => openSignIn()}
+      >
+        Sign in
+      </Button>
+    ) : null,
+  );
 
   useEffect(() => {
     if (!selectedId) return;
@@ -1887,8 +2039,9 @@ export function PlansPage() {
       defaults.planTheme,
       defaults.preferredEditor,
       commentAvatarUrls,
+      currentCommentAuthor,
     );
-  }, [bundle, commentAvatarUrls, documentHtml]);
+  }, [bundle, commentAvatarUrls, currentCommentAuthor, documentHtml]);
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
@@ -2318,26 +2471,13 @@ export function PlansPage() {
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
     preservePlanReaderScroll(() => {
-      if (mode === "none") {
+      if (mode !== "comment") {
         closeInlineComment();
-        return;
-      }
-      if (mode === "comment") {
-        startCommenting();
-        return;
-      }
-      if (!bundle?.plan.content?.canvas || prototypeOnly) {
         setCanvasMarkupMode("none");
         setAnnotateMode(false);
-        toast.error("Canvas markup needs a wireframe canvas.");
         return;
       }
-      setActiveAnnotation(null);
-      setAnnotationsOpen(false);
-      clearInlineCommentDraft();
-      setAnnotateMode(false);
-      setVisualSurfaceMode("wireframes");
-      setCanvasMarkupMode(mode);
+      startCommenting();
     });
   };
 
@@ -2909,6 +3049,7 @@ export function PlansPage() {
         updatedThread,
         commentThreads.findIndex((item) => item.id === threadRootId),
         commentAvatarUrls,
+        currentCommentAuthor,
       );
     if (updatedAnnotation) {
       setActiveAnnotation((current) =>
@@ -2921,12 +3062,16 @@ export function PlansPage() {
   };
 
   const setCommentThreadStatus = (
-    annotation: RuntimeAnnotation,
+    threadRootId: string,
     status: PlanBundle["comments"][number]["status"],
+    fallbackAnchor?: PlanAnnotationAnchor | null,
   ) => {
-    if (!bundle || !canEditPlanContent) return;
-    const thread = commentThreads.find((item) => item.id === annotation.id);
+    if (!bundle || !canResolveCommentThreads) return;
+    const thread = commentThreads.find((item) => item.id === threadRootId);
     if (!thread) return;
+    const fallbackAnchorJson = fallbackAnchor
+      ? JSON.stringify(fallbackAnchor)
+      : undefined;
     updatePlan.mutate(
       {
         planId: bundle.plan.id,
@@ -2936,7 +3081,7 @@ export function PlansPage() {
           status,
           message: comment.message,
           sectionId: comment.sectionId ?? undefined,
-          anchor: comment.anchor ?? JSON.stringify(annotation.anchor),
+          anchor: comment.anchor ?? fallbackAnchorJson,
           createdBy: "human",
           authorEmail: collabUser?.email,
           authorName: collabUser?.name,
@@ -2977,9 +3122,6 @@ export function PlansPage() {
 
   return (
     <div className="plans-workspace flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      {!selectedId && !sessionLoading && !session && (
-        <GuestModeBanner onSignIn={() => openSignIn()} />
-      )}
       <div
         className="plans-grid flex min-h-0 flex-1"
         data-view={immersiveReader ? "immersive" : "app"}
@@ -3032,10 +3174,6 @@ export function PlansPage() {
                 />
                 <ReviewMarkupToolbar
                   mode={reviewMode}
-                  hasCanvas={Boolean(bundle.plan.content?.canvas)}
-                  canUseCanvasMarkup={
-                    Boolean(bundle.plan.content?.canvas) && !prototypeOnly
-                  }
                   onModeChange={selectReviewMode}
                 />
                 {bundle.plan.content?.prototype && showingPrototypeSurface && (
@@ -3169,6 +3307,18 @@ export function PlansPage() {
                             {bundle.summary.openCommentCount}
                           </span>
                         )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          preservePlanReaderScroll(() => {
+                            closeInlineComment();
+                            setHistoryOpen(true);
+                          });
+                        }}
+                        className="gap-2"
+                      >
+                        <IconHistory className="size-4" />
+                        History
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => {
@@ -3518,17 +3668,28 @@ export function PlansPage() {
                     )
                   }
                   onReply={replyToCommentThread}
-                  canResolve={canEditPlanContent}
-                  onStatusChange={setCommentThreadStatus}
+                  canResolve={canResolveCommentThreads}
+                  onStatusChange={(status) =>
+                    setCommentThreadStatus(
+                      activeAnnotation.annotation.id,
+                      status,
+                      activeAnnotation.annotation.anchor,
+                    )
+                  }
                 />
               )}
               {annotationsOpen && (
                 <AnnotationsPanel
                   threads={commentThreads}
                   avatarUrls={commentAvatarUrls}
+                  currentUser={currentCommentAuthor}
                   pendingAuthor={pendingCommentAuthor}
                   isPending={updatePlan.isPending}
                   onReply={replyToCommentThread}
+                  canResolve={canResolveCommentThreads}
+                  onStatusChange={(thread, status) =>
+                    setCommentThreadStatus(thread.id, status, thread.anchor)
+                  }
                   onClose={() => setAnnotationsOpen(false)}
                 />
               )}
@@ -3543,6 +3704,15 @@ export function PlansPage() {
         canCreate={Boolean(session)}
         onRequireSignIn={() => openSignIn("/plans?create=1")}
       />
+
+      {bundle && (
+        <PlanHistorySheet
+          planId={bundle.plan.id}
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          canRestore={canEditPlanContent}
+        />
+      )}
 
       <Dialog
         open={notionSyncWarning !== null}
@@ -4092,19 +4262,14 @@ function PlanSkeletonIcon({ className }: { className?: string }) {
 
 function ReviewMarkupToolbar({
   mode,
-  hasCanvas,
-  canUseCanvasMarkup,
   onModeChange,
 }: {
   mode: CanvasMarkupMode;
-  hasCanvas: boolean;
-  canUseCanvasMarkup: boolean;
   onModeChange: (mode: CanvasMarkupMode) => void;
 }) {
-  const value =
-    mode === "none" || (!canUseCanvasMarkup && mode !== "comment") ? "" : mode;
+  const value = mode === "comment" ? "comment" : "";
   const setValue = (next: string) => {
-    onModeChange((next || "none") as CanvasMarkupMode);
+    onModeChange(next === "comment" ? "comment" : "none");
   };
   return (
     <ToggleGroup
@@ -4130,40 +4295,6 @@ function ReviewMarkupToolbar({
           {mode === "comment" ? "Stop commenting" : "Pin a comment"}
         </TooltipContent>
       </Tooltip>
-      {canUseCanvasMarkup && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ToggleGroupItem
-                value="text"
-                className="size-7 px-0"
-                disabled={!hasCanvas}
-                aria-label="Text note"
-              >
-                <IconPencil className="size-4" />
-              </ToggleGroupItem>
-            </TooltipTrigger>
-            <TooltipContent>
-              {hasCanvas ? "Place a text note" : "Canvas required"}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ToggleGroupItem
-                value="callout"
-                className="size-7 px-0"
-                disabled={!hasCanvas}
-                aria-label="Arrow callout"
-              >
-                <IconArrowRight className="size-4" />
-              </ToggleGroupItem>
-            </TooltipTrigger>
-            <TooltipContent>
-              {hasCanvas ? "Draw an arrow callout" : "Canvas required"}
-            </TooltipContent>
-          </Tooltip>
-        </>
-      )}
     </ToggleGroup>
   );
 }
@@ -4229,6 +4360,10 @@ function EmptyPlan({
   onCreate: () => void;
   canCreate: boolean;
 }) {
+  if (!canCreate) {
+    return <LoggedOutEmptyPlan />;
+  }
+
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="max-w-md text-center">
@@ -4244,8 +4379,39 @@ function EmptyPlan({
         </p>
         <Button className="mt-5" onClick={onCreate}>
           <IconPlus className="size-4" />
-          {canCreate ? "New Plan" : "Sign in to create"}
+          New Plan
         </Button>
+      </div>
+    </div>
+  );
+}
+
+const PLAN_SKILL_INSTALL_COMMAND =
+  "npx @agent-native/core@latest skills add visual-plan";
+
+function LoggedOutEmptyPlan() {
+  return (
+    <div className="flex h-full items-center justify-center p-6 sm:p-8">
+      <div className="flex w-full max-w-lg -translate-y-10 flex-col items-center gap-3 text-center sm:-translate-y-16">
+        <h2 className="text-2xl font-semibold tracking-tight">
+          Start with /visual-plan
+        </h2>
+        <p className="max-w-md text-sm leading-6 text-muted-foreground">
+          Install the Plans skill in your coding agent, then use the slash
+          command to create your first review plan.
+        </p>
+        <div className="mt-1 w-full rounded-lg border border-border bg-card p-4 text-left shadow-sm">
+          <p className="text-xs font-medium text-muted-foreground">
+            Install once
+          </p>
+          <code className="mt-2 block rounded-md bg-muted/40 px-3 py-2 font-mono text-xs leading-5 text-foreground">
+            {PLAN_SKILL_INSTALL_COMMAND}
+          </code>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            Then ask for <code>/visual-plan</code>, <code>/ui-plan</code>, or{" "}
+            <code>/prototype-plan</code> from Codex, Claude Code, or Cursor.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -4361,6 +4527,219 @@ function PlansOverviewSkeleton() {
         </div>
       </div>
     </div>
+  );
+}
+
+function planVersionSurfaceLabel(version: PlanVersionSummary) {
+  if (version.hasPrototype) return "Prototype";
+  if (version.hasCanvas) return "Canvas";
+  if (version.blockCount > 0) return `${version.blockCount} blocks`;
+  return `${version.sectionCount} sections`;
+}
+
+function PlanHistorySheet({
+  planId,
+  open,
+  onOpenChange,
+  canRestore,
+}: {
+  planId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  canRestore: boolean;
+}) {
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
+    null,
+  );
+  const versionsQuery = usePlanVersions(planId, open);
+  const versionQuery = usePlanVersion(open ? planId : null, selectedVersionId);
+  const restoreVersion = useRestorePlanVersion();
+  const versions = versionsQuery.data?.versions ?? [];
+  const selectedVersion = versionQuery.data;
+
+  useEffect(() => {
+    if (!open) setSelectedVersionId(null);
+  }, [open]);
+
+  useEffect(() => {
+    setSelectedVersionId(null);
+  }, [planId]);
+
+  const close = (nextOpen: boolean) => {
+    if (!nextOpen) setSelectedVersionId(null);
+    onOpenChange(nextOpen);
+  };
+
+  const restoreSelectedVersion = async () => {
+    if (!selectedVersionId) return;
+    try {
+      await restoreVersion.mutateAsync({
+        planId,
+        versionId: selectedVersionId,
+      });
+      toast.success("Plan version restored.");
+      close(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
+          : "Failed to restore plan version.",
+      );
+    }
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={close}>
+      <SheetContent side="right" className="w-[92vw] max-w-[720px] p-0">
+        <SheetHeader className="px-4 pt-4 pb-0">
+          <SheetTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+            {selectedVersionId ? (
+              <button
+                type="button"
+                onClick={() => setSelectedVersionId(null)}
+                className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <IconArrowLeft className="size-4" />
+                <span>Back to history</span>
+              </button>
+            ) : (
+              <>
+                <IconHistory className="size-4 text-primary" />
+                <span>Plan history</span>
+              </>
+            )}
+          </SheetTitle>
+          <SheetDescription className="sr-only">
+            Browse saved plan versions and restore a previous snapshot.
+          </SheetDescription>
+        </SheetHeader>
+        <Separator className="mt-3" />
+
+        {selectedVersionId ? (
+          <div className="flex h-[calc(100%-60px)] min-h-0 flex-col">
+            <div className="border-b border-border px-4 py-3">
+              {versionQuery.isLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+              ) : (
+                <>
+                  <p className="truncate text-sm font-medium">
+                    {selectedVersion?.title || "Untitled plan"}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {selectedVersion
+                      ? `${shortDate(selectedVersion.createdAt)} · ${planVersionSurfaceLabel(selectedVersion)}`
+                      : "Snapshot unavailable"}
+                  </p>
+                </>
+              )}
+            </div>
+            <ScrollArea className="min-h-0 flex-1 bg-plan-document">
+              {versionQuery.isLoading ? (
+                <div className="space-y-3 p-4">
+                  <Skeleton className="h-48 w-full rounded-lg" />
+                  <Skeleton className="h-28 w-full rounded-lg" />
+                  <Skeleton className="h-28 w-full rounded-lg" />
+                </div>
+              ) : selectedVersion?.plan.content ? (
+                <PlanContentRenderer
+                  content={selectedVersion.plan.content}
+                  fallbackTitle={selectedVersion.plan.title}
+                  fallbackBrief={selectedVersion.plan.brief}
+                  contentUpdatedAt={selectedVersion.plan.updatedAt}
+                  editingDisabled
+                  planId={null}
+                />
+              ) : selectedVersion?.html ? (
+                <iframe
+                  title="Plan version preview"
+                  srcDoc={selectedVersion.html}
+                  className="h-[calc(100vh-142px)] w-full border-0 bg-background"
+                />
+              ) : (
+                <div className="px-6 py-14 text-center text-sm text-muted-foreground">
+                  This snapshot has no previewable content.
+                </div>
+              )}
+            </ScrollArea>
+            {canRestore ? (
+              <div className="border-t border-border p-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-full gap-1.5"
+                  onClick={() => void restoreSelectedVersion()}
+                  disabled={restoreVersion.isPending || versionQuery.isLoading}
+                >
+                  {restoreVersion.isPending ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : (
+                    <IconRestore className="size-4" />
+                  )}
+                  Restore this version
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <ScrollArea className="h-[calc(100%-60px)]">
+            {versionsQuery.isLoading ? (
+              <div className="space-y-2 p-3">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <Skeleton key={index} className="h-20 w-full rounded-lg" />
+                ))}
+              </div>
+            ) : versions.length ? (
+              <div className="p-2">
+                {versions.map((version) => (
+                  <button
+                    key={version.id}
+                    type="button"
+                    onClick={() => setSelectedVersionId(version.id)}
+                    className="w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent"
+                  >
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/45">
+                        <IconHistory className="size-4 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-sm font-medium">
+                            {version.title || "Untitled plan"}
+                          </p>
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                            {planVersionSurfaceLabel(version)}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          {shortDate(version.createdAt)}
+                          {version.label ? ` · ${version.label}` : ""}
+                        </p>
+                        {version.preview ? (
+                          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground/80">
+                            {version.preview}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="px-6 py-14 text-center">
+                <IconHistory className="mx-auto mb-3 size-6 text-muted-foreground/60" />
+                <p className="text-sm font-medium">No saved versions yet</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Versions are saved automatically before future plan edits.
+                </p>
+              </div>
+            )}
+          </ScrollArea>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -4496,7 +4875,7 @@ function buildCreatePlanAgentMessage({
   const resolvedPlanKind =
     planKind === "auto" ? assessPlanPrompt(prompt).kind : planKind;
   const routing = imported
-    ? "Visualize this existing plan while preserving its intent."
+    ? "Build from this existing plan while preserving its intent."
     : resolvedPlanKind === "ui"
       ? "Create a UI-first plan with AI-authored wireframes and state coverage."
       : resolvedPlanKind === "questions"
@@ -4966,6 +5345,11 @@ function CommentMentionEditor({
             setQuery(null);
             return;
           }
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            onSubmitShortcut?.();
+            return;
+          }
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
             onSubmitShortcut?.();
@@ -5055,37 +5439,6 @@ function ResolutionTargetToggle({
   );
 }
 
-function CommentResolverHint({ draft }: { draft: CommentDraft }) {
-  const hasMentions = draft.mentions.length > 0;
-  const isAgent = draft.resolutionTarget === "agent" && !hasMentions;
-  const label = hasMentions
-    ? "Mentioned"
-    : draft.resolutionTarget === "human"
-      ? "Human"
-      : "Agent";
-  const tooltip = hasMentions
-    ? "This comment is routed to the mentioned people."
-    : draft.resolutionTarget === "human"
-      ? "This comment is marked for human review."
-      : "This comment will go to the agent.";
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className={cn(
-            "inline-flex h-6 items-center rounded px-1.5 text-[11px] font-medium text-muted-foreground",
-            isAgent && "bg-muted/50",
-          )}
-        >
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{tooltip}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 function InlineCommentPopover({
   position,
   initialDraft,
@@ -5147,7 +5500,6 @@ function InlineCommentPopover({
           }}
         />
         <div className="flex items-center gap-1">
-          <CommentResolverHint draft={draft} />
           <Button
             type="button"
             size="icon"
@@ -5268,7 +5620,7 @@ function ReplyComposer({
     <div className="grid gap-1.5">
       <div className="flex items-end gap-2">
         <CommentAvatar author={author} size="md" className="mb-1" />
-        <div className="flex min-w-0 flex-1 items-end gap-2 rounded-full border border-border/80 bg-muted/40 px-3 py-1.5 focus-within:border-primary/60 focus-within:bg-background">
+        <div className="flex min-w-0 flex-1 items-end gap-2 rounded-xl border border-border/80 bg-muted/40 px-3 py-2 focus-within:border-primary/60 focus-within:bg-background">
           <CommentMentionEditor
             placeholder={placeholder}
             resetKey={`reply-${resetKey}`}
@@ -5318,10 +5670,7 @@ function AnnotationPopover({
   onSave: (message: string) => void;
   onReply: (threadRootId: string, message: string) => Promise<void>;
   canResolve: boolean;
-  onStatusChange: (
-    annotation: RuntimeAnnotation,
-    status: PlanBundle["comments"][number]["status"],
-  ) => void;
+  onStatusChange: (status: PlanBundle["comments"][number]["status"]) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [messageDraft, setMessageDraft] = useState<
@@ -5371,43 +5720,62 @@ function AnnotationPopover({
           </Badge>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {canResolve && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={isResolved ? "outline" : "ghost"}
-                  className="h-8 gap-1.5 px-2 text-xs"
-                  onClick={() =>
-                    onStatusChange(annotation, isResolved ? "open" : "resolved")
-                  }
-                  disabled={isPending}
-                >
-                  <IconCheck className="size-3.5" />
-                  {isResolved ? "Reopen" : "Resolve"}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {isResolved ? "Reopen thread" : "Resolve thread"}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
                 className="size-8 shrink-0"
+                aria-label="Comment options"
+              >
+                <IconDotsVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48 rounded-xl">
+              {canResolve && (
+                <DropdownMenuItem
+                  className="gap-2"
+                  disabled={isPending}
+                  onClick={() =>
+                    onStatusChange(isResolved ? "open" : "resolved")
+                  }
+                >
+                  <IconCircleCheck className="size-4" />
+                  {isResolved ? "Reopen thread" : "Mark as resolved"}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                className="gap-2"
                 onClick={() => setEditing(true)}
-                aria-label="Edit first comment"
               >
                 <IconPencil className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Edit first comment</TooltipContent>
-          </Tooltip>
+                Edit first comment
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {canResolve && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={isResolved ? "secondary" : "ghost"}
+                  className="size-8 shrink-0 rounded-full"
+                  onClick={() =>
+                    onStatusChange(isResolved ? "open" : "resolved")
+                  }
+                  disabled={isPending}
+                  aria-label={isResolved ? "Reopen thread" : "Mark as resolved"}
+                >
+                  <IconCircleCheck className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isResolved ? "Reopen thread" : "Mark as resolved"}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </div>
       <div className="max-h-[min(360px,calc(100vh-180px))] overflow-y-auto">
@@ -5470,16 +5838,25 @@ function AnnotationPopover({
 function AnnotationsPanel({
   threads,
   avatarUrls,
+  currentUser,
   pendingAuthor,
   isPending,
   onReply,
+  canResolve,
+  onStatusChange,
   onClose,
 }: {
   threads: CommentThread[];
   avatarUrls: Record<string, string | null>;
+  currentUser?: CurrentCommentAuthor | null;
   pendingAuthor: CommentAuthorPresentation;
   isPending: boolean;
   onReply: (threadRootId: string, message: string) => Promise<void>;
+  canResolve: boolean;
+  onStatusChange: (
+    thread: CommentThread,
+    status: PlanBundle["comments"][number]["status"],
+  ) => void;
   onClose: () => void;
 }) {
   const openThreads = threads.filter(
@@ -5518,22 +5895,56 @@ function AnnotationsPanel({
             </p>
           ) : (
             visibleThreads.map((thread) => {
+              const isResolved = commentThreadStatus(thread) === "resolved";
               return (
                 <article
                   key={thread.id}
                   className="grid gap-3 rounded-lg border border-border/80 bg-muted/20 p-3"
                 >
-                  {thread.anchor && (
-                    <div className="rounded-md border border-border/60 bg-background/60 px-2.5 py-2 text-xs leading-5 text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        {normalizePlanCommentResolutionTarget(
-                          thread.anchor.resolutionTarget,
-                        ) === "human"
-                          ? "Human review"
-                          : "Agent action"}
-                      </span>
-                      {" · "}
-                      {formatAnchorForAgent(thread.anchor)}
+                  {(thread.anchor || canResolve) && (
+                    <div className="flex items-start gap-2">
+                      {thread.anchor && (
+                        <div className="min-w-0 flex-1 rounded-md border border-border/60 bg-background/60 px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {normalizePlanCommentResolutionTarget(
+                              thread.anchor.resolutionTarget,
+                            ) === "human"
+                              ? "Human review"
+                              : "Agent action"}
+                          </span>
+                          {" · "}
+                          {formatAnchorForAgent(thread.anchor)}
+                        </div>
+                      )}
+                      {canResolve && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant={isResolved ? "secondary" : "ghost"}
+                              className="size-8 shrink-0 rounded-full"
+                              disabled={isPending}
+                              onClick={() =>
+                                onStatusChange(
+                                  thread,
+                                  isResolved ? "open" : "resolved",
+                                )
+                              }
+                              aria-label={
+                                isResolved
+                                  ? "Reopen thread"
+                                  : "Mark as resolved"
+                              }
+                            >
+                              <IconCircleCheck className="size-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {isResolved ? "Reopen thread" : "Mark as resolved"}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
                   )}
                   {thread.comments.map((comment) => (
@@ -5542,6 +5953,7 @@ function AnnotationsPanel({
                       comment={runtimeCommentFromPlanComment(
                         comment,
                         avatarUrls,
+                        currentUser,
                       )}
                     />
                   ))}
@@ -5594,10 +6006,11 @@ function injectAnnotationRuntime(
   theme: "dark" | "light",
   preferredEditor: PreferredEditor,
   avatarUrls: Record<string, string | null> = {},
+  currentUser?: CurrentCommentAuthor | null,
 ) {
   const annotations = buildCommentThreads(comments)
     .map((thread, index) =>
-      runtimeAnnotationFromThread(thread, index, avatarUrls),
+      runtimeAnnotationFromThread(thread, index, avatarUrls, currentUser),
     )
     .filter((annotation): annotation is RuntimeAnnotation =>
       Boolean(annotation),

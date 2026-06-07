@@ -97,7 +97,7 @@ const architectureDataFlowPlanText = `# Architecture and data-flow diagram plan
 
 ## Architecture and data flow diagram
 
-Preserve a diagram section for the technical flow: React route -> useActionMutation -> provider-api-catalog -> provider-api-docs -> provider-api-request -> workspace integration grant -> upstream provider -> SQL application_state.
+Preserve a two-dimensional diagram section for the technical topology: group the React route and useActionMutation in a client layer, provider-api-catalog/provider-api-docs/provider-api-request in an action layer, workspace integration grant and upstream provider in a provider boundary, and SQL application_state in the storage layer.
 
 Keep these node labels visible for review: Drizzle, ownableColumns, accessFilter, ProviderApiRequestAction, ProviderApiDocsAction, and provider-api-request.
 
@@ -129,7 +129,7 @@ const richTechnicalHandoff = bundle({
       "technical_data_flow",
       "diagram",
       "Architecture and data-flow diagram",
-      "Data-flow diagram: API docs UI -> useActionMutation -> provider-api-request -> workspace integration grant -> upstream provider -> SQL application_state. Review the Drizzle accessFilter and ownableColumns boundary before implementation.",
+      "Data-flow diagram: show the API docs UI/useActionMutation client layer, provider-api-request action layer, workspace integration grant/upstream provider boundary, and SQL application_state storage layer as grouped regions. Review the Drizzle accessFilter and ownableColumns boundary before implementation.",
     ),
     section(
       "technical_implementation",
@@ -183,7 +183,7 @@ const completeTechnicalPlanHtml = `<!doctype html>
     </section>
     <section data-plan-diagram="architecture">
       <h2>Architecture/data-flow diagram</h2>
-      <p>React route -> provider-api-catalog -> provider-api-docs -> provider-api-request -> SQL application_state.</p>
+      <p>Client layer, action layer, provider boundary, and SQL application_state storage layer are shown as grouped regions.</p>
     </section>
     <section class="implementation-map" data-plan-implementation-map>
       <button class="implementation-file-tab" data-tab-target="core-request">packages/core/src/provider-api/request.ts</button>

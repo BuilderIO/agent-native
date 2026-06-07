@@ -36,12 +36,66 @@ export interface DiagramNote {
 }
 
 export interface DiagramData {
-  nodes: DiagramNode[];
-  edges: DiagramEdge[];
+  /**
+   * Preferred authoring path for architecture/code diagrams: a scoped, inert
+   * HTML/SVG fragment. The renderer supplies theme + sketch/clean style hooks.
+   */
+  html?: string;
+  css?: string;
+  caption?: string;
+  /**
+   * Legacy compatibility path for older/simple node graphs. New plans should use
+   * `html`/`css` when layout quality matters.
+   */
+  nodes?: DiagramNode[];
+  edges?: DiagramEdge[];
   notes?: DiagramNote[];
 }
 
 const idSchema = z.string().trim().min(1).max(120);
+const unsafeDiagramHtmlPattern =
+  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form|math|foreignObject|noscript|frame|frameset|applet|portal|marquee)[\s>/]|@(?:import|font-face|keyframes|page|namespace|charset)\b|\b(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml))\s*:?\s*|\bsrcdoc\s*=|(?:^|\s)(?:on[a-z][\w:-]*|@[\w:.-]+|x-on:[\w:.-]+|:on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=|expression\s*\(|url\s*\(\s*['"]?\s*(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml)))/i;
+const unsafeViewportCssPattern =
+  /(?:^|[;{\s])position\s*:\s*(?:fixed|sticky)\b|(?:^|[;{\s])z-index\s*:\s*[1-9]\d{4,}\b/i;
+
+function decodeSafetyEntities(value: string): string {
+  return value
+    .replace(/&#(x[0-9a-f]+|\d+);?/gi, (_, code: string) => {
+      const point = code.toLowerCase().startsWith("x")
+        ? Number.parseInt(code.slice(1), 16)
+        : Number.parseInt(code, 10);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    })
+    .replace(/&(colon|tab|newline);/gi, (_, name: string) => {
+      if (name.toLowerCase() === "colon") return ":";
+      if (name.toLowerCase() === "tab") return "\t";
+      return "\n";
+    });
+}
+
+function decodeCssSafetyEscapes(value: string): string {
+  return value.replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g, (_match, escaped) => {
+    const hex = String(escaped).match(/^[0-9a-fA-F]{1,6}/)?.[0];
+    if (hex) {
+      const point = Number.parseInt(hex, 16);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    }
+    return String(escaped)[0] ?? "";
+  });
+}
+
+function noActiveDiagramText(value: string) {
+  const decoded = decodeCssSafetyEscapes(decodeSafetyEntities(value));
+  const compact = decoded.toLowerCase().replace(/[\u0000-\u0020]+/g, "");
+  return (
+    !unsafeDiagramHtmlPattern.test(value) &&
+    !unsafeDiagramHtmlPattern.test(decoded) &&
+    !unsafeViewportCssPattern.test(decoded) &&
+    !/(?:javascript|vbscript):|data:(?:text\/html|image\/svg\+xml)|expression\(|url\(['"]?(?:javascript|vbscript|data:(?:text\/html|image\/svg\+xml))/.test(
+      compact,
+    )
+  );
+}
 
 const diagramNodeSchema = z.object({
   id: idSchema,
@@ -65,16 +119,42 @@ const diagramNoteSchema = z.object({
 }) as z.ZodType<DiagramNote>;
 
 /**
- * Data-compatible with `diagramDataSchema` in `plan-content.ts`. The block has no
- * `markdown()`-tagged or scalar fields — its `data` is positional node/edge/note
- * arrays — so it ships a custom read-only `Edit` (the diagram canvas) rather than
- * relying on the schema auto-editor. Editing stays comment/patch-driven.
+ * Data-compatible with `diagramDataSchema` in `plan-content.ts`. The block can
+ * be a flexible HTML/SVG fragment or a legacy positional node/edge/note graph,
+ * so it ships a custom read-only `Edit` rather than relying on the schema
+ * auto-editor. Editing stays comment/patch-driven.
  */
-export const diagramSchema = z.object({
-  nodes: z.array(diagramNodeSchema).min(1).max(80),
-  edges: z.array(diagramEdgeSchema).max(120).default([]),
-  notes: z.array(diagramNoteSchema).max(40).optional(),
-}) as unknown as z.ZodType<DiagramData>;
+export const diagramSchema = z
+  .object({
+    html: z
+      .string()
+      .trim()
+      .max(100_000)
+      .refine(noActiveDiagramText, {
+        message:
+          "Diagram html must be an inert fragment; SVG is allowed, scripts/events are not.",
+      })
+      .optional(),
+    css: z
+      .string()
+      .max(50_000)
+      .refine(noActiveDiagramText, {
+        message: "Diagram css must not include document or script tags.",
+      })
+      .optional(),
+    caption: z.string().trim().max(600).optional(),
+    nodes: z.array(diagramNodeSchema).max(80).optional(),
+    edges: z.array(diagramEdgeSchema).max(120).optional(),
+    notes: z.array(diagramNoteSchema).max(40).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.html?.trim() || (data.nodes?.length ?? 0) > 0) return;
+    ctx.addIssue({
+      code: "custom",
+      path: ["html"],
+      message: "Diagram block requires html or at least one node.",
+    });
+  }) as unknown as z.ZodType<DiagramData>;
 
 /**
  * MDX config: the entire `data` object is serialized as one JSON `data` prop and

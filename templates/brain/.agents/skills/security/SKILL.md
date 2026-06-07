@@ -1,152 +1,240 @@
 ---
 name: security
 description: >-
-  Data security model, user/org scoping, and auth patterns. Use when adding
-  tables with user data, implementing multi-user features, setting up A2A
-  cross-app calls, or reviewing data access patterns.
+  Secure coding practices for agent-native apps: input validation, SQL
+  injection, XSS, secrets, data scoping, and auth. Use when writing any action,
+  route, or component that touches user data or external input.
+metadata:
+  internal: true
 ---
 
-# Security & Data Scoping
+# Security
 
-The framework gives you two layers of isolation. Use both — they cover
-different surfaces and read the same identity.
+## Rule
 
-| Layer                                            | Where it runs                                                            | What it protects                                |
-| ------------------------------------------------ | ------------------------------------------------------------------------ | ----------------------------------------------- |
-| `accessFilter` / `resolveAccess` / `assertAccess` | Drizzle helpers used inside actions and `/api/` handlers                 | List, read, and write of **ownable resources** |
-| `owner_email` / `org_id` view scoping            | The agent's `db-query` / `db-exec` raw-SQL CLI (`pnpm action db-query`)  | Ad-hoc SQL the agent runs from the terminal     |
+Use the framework's security primitives everywhere. Never bypass them.
 
-Identity comes from the auth session via
-`runWithRequestContext({ userEmail, orgId }, fn)`; raw-SQL agent scripts
-read it from `AGENT_USER_EMAIL` / `AGENT_ORG_ID`, which the framework
-sets automatically when actions and CLI scripts execute.
+## Absolute Secrets Rule
 
-## Auth (Better Auth by default)
+Never hardcode secret values or real private data. This applies to source code,
+docs, tests, fixtures, generated prompts, screenshots, seed data, and extension
+HTML just as much as production code.
 
-The framework uses **Better Auth** for authentication. New users create an
-account on first visit; sessions feed `getSession(event)` server-side and
-`useSession()` client-side. The full mode matrix (`AUTH_MODE=local`,
-`ACCESS_TOKEN`, `AUTH_DISABLED`, BYOA via custom `getSession`) lives in
-the `authentication` skill — read it before changing how visitors sign in.
+Do not paste or invent real-looking API keys, bearer tokens, OAuth refresh
+tokens, webhook URLs, signing secrets, private Builder/internal data, or customer
+data into the repo. Examples must use obvious placeholders such as
+`<OPENAI_API_KEY>`, `${keys.SLACK_WEBHOOK}`, `sk-test-example`, or
+`example.customer@example.com`. Test literals should be clearly fake and must
+not match real provider token formats when an `example` token will do.
 
-**Key environment variables** (see `authentication` skill for the full list):
+Credential values enter the system only through approved runtime channels:
+deployment env vars for deploy-level secrets, the encrypted `app_secrets` vault
+or `saveCredential` / `resolveCredential` for user/org/workspace API keys, and
+`oauth_tokens` for OAuth. Code and instructions may name the credential key
+(`OPENAI_API_KEY`), but must never contain the credential value.
 
-- `BETTER_AUTH_SECRET` — signing key, auto-generated in dev if not set
-- `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` — enable Google OAuth
-- `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` — enable GitHub OAuth
-- `AUTH_MODE=local` — explicit local-only escape hatch
-- `ACCESS_TOKEN` / `ACCESS_TOKENS` — simple shared-token auth (no per-user identity)
-- `AUTH_DISABLED=true` — skip auth (apps behind infrastructure auth like Cloudflare Access)
+## Input Validation
 
-## Make a resource ownable
-
-For anything a user creates (notes, projects, dashboards, …), use
-`ownableColumns()` + `createSharesTable()`. This is the canonical shape —
-the framework's share dialog, list filtering, and the CI guard
-(`scripts/guard-no-unscoped-queries.mjs`) all key off it. See the
-`sharing` skill for the full registration pattern.
+Use `defineAction` with a Zod `schema:` for every action. The framework validates input automatically and returns clear 400 errors for HTTP callers and structured error results for agent tool calls.
 
 ```ts
-import {
-  table,
-  text,
-  ownableColumns,
-  createSharesTable,
-} from "@agent-native/core/db/schema";
+export default defineAction({
+  schema: z.object({
+    email: z.string().email(),
+    role: z.enum(["admin", "member"]),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+  }),
+  run: async (args) => { /* args is fully typed and validated */ },
+});
+```
 
-export const notes = table("notes", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  body: text("body"),
-  ...ownableColumns(), // adds owner_email, org_id, visibility
+The legacy `parameters:` field (plain JSON Schema) has no runtime validation — do not use it for new code.
+
+## SQL Injection
+
+Never concatenate user input into SQL strings. Use Drizzle ORM's query builder (always safe) or parameterized queries:
+
+```ts
+// Safe — Drizzle ORM
+await db.select().from(users).where(eq(users.email, args.email));
+
+// Safe — parameterized raw SQL
+await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
+
+// NEVER do this
+await client.execute(`SELECT * FROM users WHERE id = '${id}'`);
+```
+
+## XSS
+
+- React auto-escapes JSX content — trust it.
+- Never use `dangerouslySetInnerHTML`, `innerHTML`, `eval()`, or `document.write()` with user-controlled content.
+- For rich text editing, use TipTap (framework dependency).
+- For rendering markdown, use `react-markdown`.
+
+## SSRF
+
+Any server-side `fetch` of a user- or agent-controlled URL must go through the framework SSRF guard — a bare `fetch()` can be steered at cloud metadata (`169.254.169.254`), `localhost`, or internal services.
+
+```ts
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+// Blocks private/internal targets, re-checks the resolved IP at connect time
+// (DNS rebinding), and re-validates every redirect hop.
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
+```
+
+For a pre-flight-only check (e.g. before a streaming or one-shot fetch), use `isBlockedExtensionUrlWithDns(url)` plus `createSsrfSafeDispatcher()` from the same module, and set `redirect: "manual"`. Never let the default `fetch` follow redirects for an untrusted URL — a public URL can 30x into the private network.
+
+## Secrets
+
+- OAuth tokens go in the `oauth_tokens` store via `saveOAuthTokens()`.
+- Per-user / per-org API keys go through `saveCredential` / `resolveCredential` (`@agent-native/core/credentials`) or the `app_secrets` vault. Both encrypt values at rest with AES-256-GCM (keyed by `SECRETS_ENCRYPTION_KEY`, falling back to `BETTER_AUTH_SECRET`; production refuses to start without one).
+- Never hand-roll secrets into `settings`, `application_state`, source code, or action responses sent to the client. The credential / vault APIs above are the only sanctioned stores.
+- Never commit real keys, tokens, webhook URLs, signing secrets, or private
+  Builder/customer data in examples or fixtures. Use placeholders that cannot be
+  mistaken for working credentials.
+
+## User Credentials Are Per-User Data — Never `process.env`
+
+User credentials (API keys, third-party tokens) are per-user (or per-org) data. They MUST live in SQL, scoped per-user (`u:<email>:credential:KEY`) or per-org (`o:<orgId>:credential:KEY`). Always read with the request context:
+
+```ts
+import { resolveCredential } from "@agent-native/core/credentials";
+const apiKey = await resolveCredential("OPENAI_API_KEY", { userEmail, orgId });
+```
+
+Values are encrypted at rest (AES-256-GCM, shared `secrets/crypto.ts`): `saveCredential` encrypts on write and `resolveCredential` decrypts on read, with a transparent fallback for legacy plaintext rows. The agent's raw `db-query` / `db-exec` tools also cannot read credential rows — they are excluded from the scoped `settings` view. To encrypt pre-existing rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive; needs the same `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` as the app).
+
+On 2026-04-29 the previous one-arg `resolveCredential(key)` form fell back to `process.env[key]` and an unscoped global `settings` row, so every signed-in user inherited the deployment's credentials. Two guards now block this in CI (`pnpm prep`):
+
+- `scripts/guard-no-env-credentials.mjs` — bans `process.env.<KEY>` reads in `packages/core/src/credentials/`, `secrets/`, `vault/`, and `templates/*/server/{lib,routes/api}/credential*` paths, except for an explicit allowlist of deploy-level vars (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `NETLIFY_*`, etc.). Per-line opt-out: `// guard:allow-env-credential — <reason>`.
+- `scripts/guard-no-unscoped-credentials.mjs` — bans one-arg calls to `resolveCredential` / `hasCredential` / `saveCredential` / `deleteCredential`. Per-line opt-out: `// guard:allow-unscoped-credential — <reason>`.
+
+If a deploy-level value genuinely needs an env var (CI-set token, host secret), it's not a user credential — keep it out of the credentials/ secrets/ vault/ paths and the env-credentials guard won't see it.
+
+## Guards
+
+Two more CI guards (also wired into `pnpm prep`) target the 2026-04 cross-tenant leak class — request-state escaping into shared process state, and dev-mode sentinel identities used as production fallbacks.
+
+- `scripts/guard-no-env-mutation.mjs` — bans `process.env.<KEY> = …` (and bracket / compound forms) anywhere in production code. On serverless, every warm container handles many concurrent requests in one Node process, so `process.env` mutation leaks across in-flight requests (the "restore" line at the end of a handler races and never helps — most recently the Zoom webhook). Use `runWithRequestContext({ userEmail, orgId, timezone }, fn)` from `@agent-native/core/server` instead — it's AsyncLocalStorage-backed and per-request safe. Allowlisted paths: `scripts/`, `*.spec.ts` / `*.test.ts`, `packages/core/src/dev**`, `templates/*/test/`, anything under `/cli/` or `/scaffold/`. Per-line opt-out: `process.env.X = y // guard:allow-env-mutation — <reason>`.
+- `scripts/guard-no-localhost-fallback.mjs` — bans the literal `"local@localhost"` / `'local@localhost'` / `` `local@localhost` `` in production code. The bug class: `getRequestUserEmail() ?? "local@localhost"` silently pools every unauthenticated request into a single shared tenant, leaking credentials, tools, and `application_state` rows between accounts. The right behavior is to throw / 401 when there's no session. Allowlisted paths: the dev-mode auth shim (`packages/core/src/server/auth.ts`), `packages/core/src/dev**`, tests, `scripts/`, `seed/` / `seeds/`, plus a few framework helpers that intentionally inspect or migrate the dev identity. SQL DDL `DEFAULT 'local@localhost'` and the Drizzle helper `.default('local@localhost')` are skipped per-line — schema column defaults are intentional dev fixtures, not the dangerous fallback pattern. Per-line opt-out: `email ?? "local@localhost" // guard:allow-localhost-fallback — <reason>`.
+
+## Auth
+
+- All actions are protected by the auth guard automatically.
+- Prefer actions for normal app data. Do not hand-write `/api/*` routes for
+  CRUD, data queries, or action re-exports just to add auth; action endpoints
+  already get auth and request context.
+- If you must create custom `/api/` routes, always call `getSession(event)` and reject requests without a session:
+
+```ts
+import { getSession } from "@agent-native/core/server";
+
+export default defineEventHandler(async (event) => {
+  const session = await getSession(event);
+  if (!session) throw createError({ statusCode: 401 });
+  // ...
+});
+```
+
+- Never create unprotected routes that modify data.
+
+## Custom HTTP Routes Must Apply Access Control Themselves
+
+This is the single most-failed rule in the codebase. Auto-mounted action routes (`/_agent-native/actions/...`) get a request context wired up automatically. **Hand-written `/api/*` Nitro routes do not.** If your handler queries an ownable resource (any table with `...ownableColumns()`), you MUST:
+
+1. Read the session: `const session = await getSession(event).catch(() => null)`.
+2. Run the work inside `runWithRequestContext({ userEmail: session?.email, orgId: session?.orgId }, fn)` from `@agent-native/core/server`.
+3. Inside `fn`, query through one of:
+   - `accessFilter(table, sharesTable)` in the WHERE clause for list/read-many.
+   - `resolveAccess("<type>", id)` for read-by-id (returns null if no access — return 404, not 403, so existence isn't leaked).
+   - `assertAccess("<type>", id, "viewer"|"editor"|"admin")` for write/delete-by-id.
+
+```ts
+// Bad — Brent's signup leaked every other user's decks because of this exact shape.
+export default defineEventHandler(async () => {
+  const db = getDb();
+  return db.select().from(schema.decks); // no access filter!
 });
 
-export const noteShares = createSharesTable("note_shares");
+// Good
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
+export default defineEventHandler(async (event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
+      const db = getDb();
+      return db
+        .select()
+        .from(schema.decks)
+        .where(accessFilter(schema.decks, schema.deckShares));
+    },
+  );
+});
 ```
 
-`ownableColumns()` adds three columns: `owner_email` (creator), `org_id`
-(the owner's active org at creation time), and `visibility`
-(`'private' | 'org' | 'public'`, default `'private'`).
+`scripts/guard-no-unscoped-queries.mjs` runs in `pnpm prep` and fails the build if any file in `templates/*/server/`, `templates/*/actions/`, or `packages/*/src/` queries an ownable table without one of the access helpers. Last-resort opt-out is the marker comment `// guard:allow-unscoped — <reason>` — only use it for cases like the sharing primitives themselves or share-token-public viewer endpoints, and always include a reviewer-readable reason.
 
-## Use the access helpers in every server-side query
+## Data Scoping
 
-Auto-mounted action routes (`/_agent-native/actions/...`) get a request
-context wired automatically. Hand-written `/api/*` Nitro routes do **not** —
-you must wrap your work in `runWithRequestContext` after reading the
-session yourself.
+In production, the framework automatically restricts all agent SQL queries to the current user's data using temporary views. This is enforced at the SQL level — the agent cannot bypass it.
+
+The `db-query` / `db-exec` tools (and the extension SQL bridge, which shares the same path) reject schema-qualified table references like `public.<table>` or `main.<table>` — a qualified name resolves to the base table and would skip the temp view. Use bare table names; scoping is applied automatically.
+
+### Per-User Scoping (`owner_email`)
+
+Every template table with user data **must** have an `owner_email` text column:
+
+1. Framework detects `owner_email` via schema introspection
+2. Creates temp views `WHERE owner_email = <current user>` before each query
+3. Auto-injects `owner_email` into INSERT statements
+
+The current user is resolved from `AGENT_USER_EMAIL` (set automatically from the session).
+
+### Per-Org Scoping (`org_id`)
+
+For multi-org apps, tables also need `org_id`:
+
+1. `WHERE org_id = <current org>` is added (in addition to `owner_email` if present)
+2. `org_id` is auto-injected into INSERT statements
+
+Enable org scoping in the agent-chat plugin:
 
 ```ts
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
-import {
-  accessFilter,
-  resolveAccess,
-  assertAccess,
-} from "@agent-native/core/sharing";
-
-// List
-db.select()
-  .from(schema.notes)
-  .where(accessFilter(schema.notes, schema.noteShares));
-
-// Read by id (returns null when no access — return 404 to avoid existence leak)
-const access = await resolveAccess("note", id);
-
-// Write / delete (throws ForbiddenError if the role isn't met)
-await assertAccess("note", id, "editor");
+createAgentChatPlugin({
+  resolveOrgId: async (event) => {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId;
+  },
+});
 ```
 
-The CI guard fails the build if any file in `templates/*/server/`,
-`templates/*/actions/`, or `packages/*/src/` queries an ownable table
-without one of these helpers. Last-resort opt-out is the marker comment
-`// guard:allow-unscoped — <reason>`; only use it for the sharing
-primitives themselves and share-token-public viewer endpoints.
+### Column Conventions
 
-## Auto-scoping for `db-query` / `db-exec`
+| Column        | Purpose                 | Required                        |
+| ------------- | ----------------------- | ------------------------------- |
+| `owner_email` | Per-user data isolation | Yes, for all user-facing tables |
+| `org_id`      | Per-org data isolation  | Yes, for multi-org apps         |
 
-When the agent runs `pnpm action db-query --sql "SELECT ..."`, the
-framework creates temporary views that shadow real tables with
-`WHERE owner_email = <current user> [AND org_id = <current org>]`.
-INSERT statements auto-fill `owner_email` / `org_id`; UPDATE / DELETE
-statements are scoped the same way. This is the agent's escape hatch
-for ad-hoc SQL — application code should still go through the helpers
-above.
+Run `pnpm action db-check-scoping` to verify. Use `--require-org` for multi-org apps.
 
-Auto-scoping uses the same column convention `ownableColumns()` produces,
-so following the pattern above means raw-SQL scoping just works.
-Run `pnpm action db-check-scoping` to verify (use `--require-org` for
-multi-org apps).
+## Checklist
 
-## A2A Security
-
-When apps call each other via A2A, set the same `A2A_SECRET` on every
-app that needs to trust each other. Outbound calls are signed JWTs with
-`sub: "<email>"`; inbound calls verify the signature and set
-`AGENT_USER_EMAIL` from the verified `sub` claim — the access helpers
-above then keep the call scoped to that user.
-
-Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev,
-not production).
-
-## Rules for Agents
-
-1. Every new user-data table uses `ownableColumns()` (which provides
-   `owner_email`, `org_id`, and `visibility`).
-2. Every list / read-many query goes through `accessFilter`.
-3. Every read-by-id goes through `resolveAccess`.
-4. Every write / delete-by-id goes through `assertAccess`.
-5. Hand-written `/api/*` handlers that touch ownable data wrap their
-   work in `runWithRequestContext({ userEmail, orgId }, fn)` after
-   reading the session via `getSession(event)`.
-6. Don't put per-user data in `application_state` — it's session-scoped,
-   not user-scoped. Use SQL tables with `ownableColumns()`.
-7. Don't hardcode `local@localhost` as a fallback — the
-   `guard-no-localhost-fallback` CI guard rejects it. Throw / 401 when
-   there's no session instead.
-8. Test isolation with two real accounts before shipping.
+- [ ] New action uses `defineAction` with a Zod `schema:`
+- [ ] No SQL string concatenation with user input
+- [ ] No `dangerouslySetInnerHTML` with user content
+- [ ] Server-side fetches of user/agent URLs use `ssrfSafeFetch`, not bare `fetch`
+- [ ] Secrets stored via `saveCredential` / the vault (encrypted), never raw in `settings` or responses
+- [ ] No hardcoded API keys, tokens, webhook URLs, signing secrets, real
+      credential-looking strings, private Builder/internal data, or customer data
+- [ ] New env vars in `.env` only, not committed
+- [ ] New user-data tables have `owner_email` column
+- [ ] Custom routes call `getSession` and reject unauthenticated requests
 
 ## Related Skills
 
-- `sharing` — full pattern for ownable resources, share rows, and the share dialog
-- `authentication` — auth modes, sessions, organizations, BYOA
 - `storing-data` — SQL patterns and the agent's db tools
-- `actions` — `defineAction` (auto-protected by the auth guard)
+- `actions` — `defineAction` with Zod schema validation
+- `authentication` — Auth modes, sessions, and org context

@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -43,6 +43,7 @@ function inferTitle(planText: string): string {
 export default defineAction({
   description:
     "Convert an existing Codex, Claude Code, Markdown, or pasted text plan into an Agent-Native visual plan with editable rich blocks, sketch diagrams/wireframes, implementation maps, code previews, and annotation space.",
+  agentTool: false,
   schema: z.object({
     title: z.string().optional().describe("Short title for the visual plan"),
     brief: z
@@ -58,26 +59,6 @@ export default defineAction({
     repoPath: z.string().optional().describe("Repository path for the run"),
     currentFocus: z.string().optional().default("visual review"),
   }),
-  publicAgent: {
-    expose: true,
-    readOnly: false,
-    requiresAuth: true,
-    isConsequential: true,
-    title: "Visualize Plan",
-    description:
-      "Import a text plan and open a richer HTML companion for visuals and feedback.",
-  },
-  mcpApp: {
-    compactCatalog: true,
-    resource: embedApp({
-      title: "Visual Plan",
-      description:
-        "Open the Agent-Native Plans HTML companion for an imported Codex or Claude Code plan.",
-      iframeTitle: "Agent-Native Plans",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
-  },
   run: async (args) => {
     const ownerEmail = requirePlanOwnerEmailForWrite(
       getRequestUserEmail(),

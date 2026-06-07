@@ -5,6 +5,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { callAction } from "@agent-native/core/client";
 import type {
   ComposeAttachment,
   EmailMessage,
@@ -40,6 +41,16 @@ function toError(error: unknown): Error {
   if (error instanceof Error) return error;
   if (typeof error === "string") return new Error(error);
   return new Error("Request failed");
+}
+
+function assertActionSuccess<T>(result: T): T {
+  if (
+    typeof result === "string" &&
+    (/^Error:/i.test(result) || /\bFailures:/i.test(result))
+  ) {
+    throw new Error(result);
+  }
+  return result;
 }
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
@@ -543,7 +554,12 @@ export function useEmails(
 export function useEmail(id: string | undefined) {
   return useQuery<EmailMessage>({
     queryKey: ["email", id],
-    queryFn: () => apiFetch(`/api/emails/${id}`),
+    queryFn: () =>
+      callAction<EmailMessage>(
+        "get-email",
+        { id: id! },
+        { method: "GET" },
+      ).then(assertActionSuccess),
     enabled: !!id,
     retry: (failureCount, error) => !isAuthFailure(error) && failureCount < 1,
   });
@@ -815,7 +831,7 @@ export function useTrashEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/emails/${id}/trash`, { method: "PATCH" }),
+      callAction("trash-email", { id }).then(assertActionSuccess),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -854,11 +870,7 @@ export function useMoveEmail() {
       id: string;
       label: string;
       removeLabel?: string;
-    }) =>
-      apiFetch(`/_agent-native/actions/move-email`, {
-        method: "POST",
-        body: JSON.stringify({ id, label, removeLabel }),
-      }),
+    }) => callAction("move-email", { id, label, removeLabel }),
     onMutate: async ({ id }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -1264,7 +1276,12 @@ export type EmailTrackingStats = {
 export function useEmailTracking(messageId: string | undefined) {
   return useQuery<EmailTrackingStats>({
     queryKey: ["email-tracking", messageId],
-    queryFn: () => apiFetch(`/api/emails/${messageId}/tracking`),
+    queryFn: () =>
+      callAction<EmailTrackingStats>(
+        "get-tracking",
+        { id: messageId! },
+        { method: "GET" },
+      ),
     enabled: !!messageId,
     refetchInterval: 30_000,
     staleTime: 10_000,

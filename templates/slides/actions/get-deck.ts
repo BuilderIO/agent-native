@@ -1,6 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
@@ -56,6 +57,7 @@ export default defineAction({
     const row = access.resource;
     const data = JSON.parse(row.data);
     const slides = data?.slides || [];
+    const ownerEmail = getRequestUserEmail();
 
     if (args.compact === "true") {
       return {
@@ -78,17 +80,21 @@ export default defineAction({
     }
 
     return {
+      ...data,
       id: row.id,
       title: row.title || data?.title,
       visibility: row.visibility,
+      createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
       designSystemId: row.designSystemId ?? null,
       slideCount: slides.length,
       slideNumbering:
         'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
-      createdAt: row.createdAt,
+      createdAt:
+        typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
       updatedAt: row.updatedAt,
       deepLink: deckDeepLink(row.id),
       slides: slides.map((s: any, i: number) => ({
+        ...s,
         slideNumber: i + 1,
         zeroBasedIndex: i,
         id: s.id,

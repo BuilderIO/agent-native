@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
+import {
+  ForbiddenError,
+  currentAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -12,9 +16,11 @@ import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
+  resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
 import {
   getRequestUserEmail,
@@ -186,6 +192,67 @@ function isCanvasReviewMarkupRequest(args: {
   );
 }
 
+function isExistingCommentStatusUpdateRequest(args: {
+  title?: string;
+  brief?: string;
+  status?: string;
+  currentFocus?: string;
+  html?: string;
+  content?: PlanContent;
+  contentPatches: PlanContentPatch[];
+  markdown?: string;
+  sections: unknown[];
+  consumedCommentIds: string[];
+  comments: Array<{ id?: string; status: string }>;
+}) {
+  return (
+    !args.title &&
+    !args.brief &&
+    !args.status &&
+    !args.currentFocus &&
+    args.html === undefined &&
+    args.content === undefined &&
+    args.contentPatches.length === 0 &&
+    args.markdown === undefined &&
+    args.sections.length === 0 &&
+    args.consumedCommentIds.length === 0 &&
+    args.comments.length > 0 &&
+    args.comments.every(
+      (comment) =>
+        Boolean(comment.id) &&
+        (comment.status === "open" || comment.status === "resolved"),
+    )
+  );
+}
+
+function preservesExistingCommentFields(
+  comment: {
+    sectionId?: string;
+    kind: string;
+    anchor?: string;
+    message: string;
+    resolutionTarget?: string;
+    mentions?: unknown[];
+  },
+  existing: {
+    sectionId: string | null;
+    kind: string;
+    anchor: string | null;
+    message: string;
+    resolutionTarget: string | null;
+  },
+) {
+  return (
+    (comment.sectionId ?? null) === existing.sectionId &&
+    comment.kind === existing.kind &&
+    (comment.anchor ?? null) === existing.anchor &&
+    comment.message === existing.message &&
+    (comment.resolutionTarget === undefined ||
+      comment.resolutionTarget === existing.resolutionTarget) &&
+    comment.mentions === undefined
+  );
+}
+
 function prototypeItemExcerpt(
   content: PlanContent | null,
   patch: PlanContentPatch,
@@ -353,13 +420,16 @@ export default defineAction({
     const onlyAddsCanvasReviewMarkup = isCanvasReviewMarkupRequest(args);
     const onlyAddsReviewerFeedback =
       onlyAddsNewComments || onlyAddsCanvasReviewMarkup;
+    let onlyUpdatesCommentStatuses = isExistingCommentStatusUpdateRequest(args);
+    let onlyReviewerCommentWork =
+      onlyAddsReviewerFeedback || onlyUpdatesCommentStatuses;
 
     const commentRequestEmail =
-      onlyAddsReviewerFeedback && !isAnonymousPublicViewer(requesterEmail)
+      onlyReviewerCommentWork && !isAnonymousPublicViewer(requesterEmail)
         ? resolvePlanOwnerEmailForWrite(requesterEmail)
         : requesterEmail;
 
-    if (onlyAddsReviewerFeedback) {
+    if (onlyReviewerCommentWork) {
       // Commenting on a plan (including a public-link plan) requires an
       // agent-native account. The two synthetic anonymous identities must NOT be
       // able to comment — only a real account (or the local single-user identity
@@ -386,7 +456,11 @@ export default defineAction({
           "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
         );
       }
-      const access = await resolveAccess("plan", args.planId);
+      const access = await resolveAccess(
+        "plan",
+        args.planId,
+        resolvePlanAccessContext(currentAccess()),
+      );
       if (!access) throw new Error(`Plan ${args.planId} not found`);
     } else {
       await assertPlanEditor(args.planId);
@@ -452,12 +526,36 @@ export default defineAction({
     };
 
     type CommentInput = (typeof args.comments)[number];
-    const existingCommentUpdates: Array<CommentInput & { id: string }> = [];
+    type ExistingCommentSnapshot = Pick<
+      typeof schema.planComments.$inferSelect,
+      | "id"
+      | "sectionId"
+      | "kind"
+      | "anchor"
+      | "message"
+      | "createdBy"
+      | "authorEmail"
+      | "resolutionTarget"
+      | "mentionsJson"
+    >;
+    const existingCommentUpdates: Array<
+      CommentInput & { id: string; existing: ExistingCommentSnapshot }
+    > = [];
     const pendingCommentInserts: typeof args.comments = [];
     for (const comment of args.comments) {
       if (comment.id) {
         const [existing] = await db
-          .select({ id: schema.planComments.id })
+          .select({
+            id: schema.planComments.id,
+            sectionId: schema.planComments.sectionId,
+            kind: schema.planComments.kind,
+            anchor: schema.planComments.anchor,
+            message: schema.planComments.message,
+            createdBy: schema.planComments.createdBy,
+            authorEmail: schema.planComments.authorEmail,
+            resolutionTarget: schema.planComments.resolutionTarget,
+            mentionsJson: schema.planComments.mentionsJson,
+          })
           .from(schema.planComments)
           .where(
             and(
@@ -466,11 +564,30 @@ export default defineAction({
             ),
           );
         if (existing) {
-          existingCommentUpdates.push({ ...comment, id: comment.id });
+          existingCommentUpdates.push({
+            ...comment,
+            id: comment.id,
+            existing,
+          });
           continue;
         }
       }
       pendingCommentInserts.push(comment);
+    }
+    if (onlyUpdatesCommentStatuses && pendingCommentInserts.length > 0) {
+      throw new Error("Comment status update target was not found.");
+    }
+    if (
+      onlyUpdatesCommentStatuses &&
+      !existingCommentUpdates.every((comment) =>
+        preservesExistingCommentFields(comment, comment.existing),
+      )
+    ) {
+      onlyUpdatesCommentStatuses = false;
+      onlyReviewerCommentWork = onlyAddsReviewerFeedback;
+      if (!onlyAddsReviewerFeedback) {
+        await assertPlanEditor(args.planId);
+      }
     }
 
     const commentsBeforeInserts =
@@ -508,6 +625,23 @@ export default defineAction({
       consumedCommentIds: args.consumedCommentIds,
       note: args.note ?? null,
     };
+    const hasPlanAuthoringChanges =
+      args.title !== undefined ||
+      args.brief !== undefined ||
+      args.status !== undefined ||
+      args.currentFocus !== undefined ||
+      args.html !== undefined ||
+      args.content !== undefined ||
+      args.contentPatches.length > 0 ||
+      args.markdown !== undefined ||
+      args.sections.length > 0;
+    if (!onlyReviewerCommentWork && hasPlanAuthoringChanges) {
+      await createPlanVersionSnapshot(args.planId, {
+        force: true,
+        label: args.note ?? "Before plan update",
+        createdBy: "agent",
+      });
+    }
 
     // The local better-sqlite3 driver rejects async transaction callbacks
     // ("Transaction function cannot return a promise"), so the multi-statement
@@ -584,28 +718,49 @@ export default defineAction({
       }
 
       for (const comment of existingCommentUpdates) {
-        const metadata = commentMetadataForInput(comment);
+        const metadata = onlyUpdatesCommentStatuses
+          ? null
+          : commentMetadataForInput(comment);
         const resolution = commentResolutionFields({
           status: comment.status,
-          createdBy: comment.createdBy,
-          authorEmail: comment.authorEmail,
+          createdBy: onlyUpdatesCommentStatuses
+            ? comment.existing.createdBy
+            : comment.createdBy,
+          authorEmail: onlyUpdatesCommentStatuses
+            ? comment.existing.authorEmail
+            : comment.authorEmail,
           requestEmail: commentRequestEmail,
           now,
         });
         await tx
           .update(schema.planComments)
-          .set({
-            sectionId: comment.sectionId ?? null,
-            kind: comment.kind,
-            status: comment.status,
-            anchor: metadata.anchor,
-            message: comment.message,
-            resolutionTarget: metadata.resolutionTarget,
-            mentionsJson: metadata.mentionsJson,
-            resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
-            resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
-            updatedAt: now,
-          })
+          .set(
+            onlyUpdatesCommentStatuses
+              ? {
+                  sectionId: comment.existing.sectionId,
+                  kind: comment.existing.kind,
+                  status: comment.status,
+                  anchor: comment.existing.anchor,
+                  message: comment.existing.message,
+                  resolutionTarget: comment.existing.resolutionTarget,
+                  mentionsJson: comment.existing.mentionsJson,
+                  resolvedBy: resolution.resolvedBy,
+                  resolvedAt: resolution.resolvedAt,
+                  updatedAt: now,
+                }
+              : {
+                  sectionId: comment.sectionId ?? null,
+                  kind: comment.kind,
+                  status: comment.status,
+                  anchor: metadata?.anchor,
+                  message: comment.message,
+                  resolutionTarget: metadata?.resolutionTarget,
+                  mentionsJson: metadata?.mentionsJson,
+                  resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
+                  resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
+                  updatedAt: now,
+                },
+          )
           .where(
             and(
               eq(schema.planComments.id, comment.id),
@@ -636,11 +791,11 @@ export default defineAction({
         planId: args.planId,
         type: "plan.updated",
         message:
-          !onlyAddsReviewerFeedback && args.note
+          !onlyReviewerCommentWork && args.note
             ? args.note
             : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
         payload: JSON.stringify(reviewEventPayload),
-        createdBy: onlyAddsReviewerFeedback ? "human" : "agent",
+        createdBy: onlyReviewerCommentWork ? "human" : "agent",
         createdAt: now,
       });
     })(db);

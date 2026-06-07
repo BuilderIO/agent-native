@@ -776,6 +776,111 @@ describe("canvas frame / annotation patch interactions", () => {
     ).toThrow(/wireframe content|no wireframe/i);
   });
 
+  it("inlines a linked wireframe before removing its body block", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      canvas: {
+        frames: [{ id: "f1", label: "Screen", blockId: "wf" }],
+      },
+      blocks: [
+        {
+          id: "wf",
+          type: "wireframe",
+          data: { surface: "browser", html: "<div>Original canvas</div>" },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      { op: "remove-block", blockId: "wf" },
+    ]);
+    const frame = next.canvas?.frames[0];
+
+    expect(next.blocks).toHaveLength(0);
+    expect(frame?.blockId).toBeUndefined();
+    expect(frame?.wireframe?.html).toContain("Original canvas");
+  });
+
+  it("inlines a linked wireframe before replacing its block with prose", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      canvas: {
+        frames: [{ id: "f1", label: "Screen", blockId: "wf" }],
+      },
+      blocks: [
+        {
+          id: "wf",
+          type: "wireframe",
+          data: { surface: "browser", html: "<div>Keep me</div>" },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      {
+        op: "replace-block",
+        blockId: "wf",
+        block: {
+          id: "wf",
+          type: "rich-text",
+          data: { markdown: "No duplicate wireframe in the body." },
+        },
+      },
+    ]);
+    const frame = next.canvas?.frames[0];
+
+    expect(next.blocks[0]?.type).toBe("rich-text");
+    expect(frame?.blockId).toBeUndefined();
+    expect(frame?.wireframe?.html).toContain("Keep me");
+  });
+
+  it("inlines linked legacy wireframes before replace-blocks drops their blocks", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      canvas: {
+        frames: [{ id: "f1", label: "Legacy screen", blockId: "legacy-wf" }],
+      },
+      blocks: [
+        {
+          id: "legacy-wf",
+          type: "legacy-wireframe",
+          data: {
+            viewport: "desktop",
+            regions: [
+              {
+                id: "r1",
+                kind: "content",
+                label: "Original region",
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 60,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      {
+        op: "replace-blocks",
+        blocks: [
+          {
+            id: "overview",
+            type: "rich-text",
+            data: { markdown: "Canvas-only mockup now." },
+          },
+        ],
+      },
+    ]);
+    const frame = next.canvas?.frames[0];
+
+    expect(next.blocks[0]?.id).toBe("overview");
+    expect(frame?.blockId).toBeUndefined();
+    expect(frame?.legacyWireframe?.regions[0]?.label).toBe("Original region");
+  });
+
   it("update-canvas-annotation can repoint targetId and change placement", () => {
     const next = applyPlanContentPatches(canvasPlan(), [
       {

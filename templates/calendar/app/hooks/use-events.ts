@@ -1,13 +1,14 @@
 import {
-  useQuery,
-  useMutation,
   useQueryClient,
   keepPreviousData,
   type QueryKey,
 } from "@tanstack/react-query";
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import {
+  callAction,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import { nanoid } from "nanoid";
-import { appApiPath } from "@/lib/api-path";
 import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
@@ -36,17 +37,17 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   scope?: UpdateEventScope;
 };
 
+type EventListSnapshot = Array<[QueryKey, CalendarEvent[] | undefined]>;
+type EventListMutationContext = { previous?: EventListSnapshot };
+type CreateEventMutationContext = EventListMutationContext & {
+  optimisticId?: string;
+};
+type RsvpEventMutationContext = EventListMutationContext & {
+  previousEvent?: CalendarEvent;
+};
+
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
 const OPTIMISTIC_EVENT_PREFIX = "optimistic_event_";
-
-async function readErrorMessage(res: Response, fallback: string) {
-  try {
-    const body = (await res.json()) as { error?: string; message?: string };
-    return body.error || body.message || fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function buildEventsParams(
   from?: string,
@@ -70,6 +71,10 @@ function getListEventsParams(
     return undefined;
   }
   return params as Record<string, string>;
+}
+
+function getEventQueryKey(id: string) {
+  return ["action", "get-event", { id }] as const;
 }
 
 function buildOptimisticCalendarEvent(
@@ -152,50 +157,20 @@ export function prefetchEvents(
   const params = buildEventsParams(from, to, overlayEmails);
   return queryClient.prefetchQuery({
     queryKey: ["action", "list-events", params],
-    queryFn: async () => {
-      const qs = new URLSearchParams(params).toString();
-      const res = await fetch(
-        agentNativePath(`/_agent-native/actions/list-events?${qs}`),
-      );
-      if (!res.ok) throw new Error("prefetch list-events failed");
-      return res.json();
-    },
+    queryFn: () =>
+      callAction<CalendarEvent[]>("list-events", params, { method: "GET" }),
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
   });
 }
 
 export function useEvent(id: string) {
-  return useQuery<CalendarEvent>({
-    queryKey: ["events", id],
-    queryFn: async () => {
-      const res = await fetch(appApiPath(`/api/events/${id}`));
-      if (!res.ok) throw new Error("Failed to fetch event");
-      return res.json();
-    },
-    enabled: !!id,
-  });
+  return useActionQuery<CalendarEvent>("get-event", { id }, { enabled: !!id });
 }
 
 export function useCreateEvent() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: CreateEventInput) => {
-      const { _tempId, ...eventData } = data;
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/create-event"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(eventData),
-        },
-      );
-      if (!res.ok) {
-        throw new Error(await readErrorMessage(res, "Failed to create event"));
-      }
-      const result = await res.json();
-      return { ...result, _tempId };
-    },
+  return useActionMutation<CalendarEvent, CreateEventInput>("create-event", {
     onMutate: async (newData) => {
       const optimisticId =
         newData._tempId ?? `${OPTIMISTIC_EVENT_PREFIX}${nanoid()}`;
@@ -219,7 +194,8 @@ export function useCreateEvent() {
       return { previous, optimisticId };
     },
     onSuccess: (created, _newData, context) => {
-      const optimisticId = context?.optimisticId;
+      const optimisticId = (context as CreateEventMutationContext | undefined)
+        ?.optimisticId;
       updateListEventQueries(queryClient, (old, params) => {
         if (!calendarEventOverlapsListParams(created, params)) {
           return optimisticId
@@ -230,8 +206,10 @@ export function useCreateEvent() {
       });
     },
     onError: (_err, _newData, context) => {
-      if (context?.previous) {
-        for (const [key, data] of context.previous) {
+      const previous = (context as CreateEventMutationContext | undefined)
+        ?.previous;
+      if (previous) {
+        for (const [key, data] of previous) {
           queryClient.setQueryData(key, data);
         }
       }
@@ -244,18 +222,15 @@ export function useCreateEvent() {
 
 export function useUpdateEvent() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, ...data }: UpdateEventInput) => {
-      const res = await fetch(appApiPath(`/api/events/${id}`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        throw new Error(await readErrorMessage(res, "Failed to update event"));
-      }
-      return res.json();
+  return useActionMutation<
+    Partial<CalendarEvent> & {
+      id?: string;
+      success?: boolean;
+      updated?: string[];
+      message?: string;
     },
+    UpdateEventInput
+  >("update-event", {
     onMutate: async (newData) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
@@ -303,8 +278,10 @@ export function useUpdateEvent() {
       );
     },
     onError: (_err, _newData, context) => {
-      if (context?.previous) {
-        for (const [key, data] of context.previous) {
+      const previous = (context as EventListMutationContext | undefined)
+        ?.previous;
+      if (previous) {
+        for (const [key, data] of previous) {
           queryClient.setQueryData(key, data);
         }
       }
@@ -317,33 +294,22 @@ export function useUpdateEvent() {
 
 export function useDeleteEvent() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      scope,
-      sendUpdates,
-      removeOnly,
-      notificationMessage,
-    }: {
+  return useActionMutation<
+    {
+      success: boolean;
+      id: string;
+      accountEmail: string;
+      scope?: "single" | "all" | "thisAndFollowing";
+      removedOnly: boolean;
+    },
+    {
       id: string;
       scope?: "single" | "all" | "thisAndFollowing";
       sendUpdates?: "all" | "none";
       removeOnly?: boolean;
       notificationMessage?: string;
-    }) => {
-      const res = await fetch(appApiPath(`/api/events/${id}`), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scope,
-          sendUpdates,
-          removeOnly,
-          notificationMessage,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to delete event");
-      return res.json();
-    },
+    }
+  >("delete-event", {
     onMutate: async ({ id }) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
@@ -356,8 +322,10 @@ export function useDeleteEvent() {
       return { previous };
     },
     onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        for (const [key, data] of context.previous) {
+      const previous = (context as EventListMutationContext | undefined)
+        ?.previous;
+      if (previous) {
+        for (const [key, data] of previous) {
           queryClient.setQueryData(key, data);
         }
       }
@@ -370,50 +338,37 @@ export function useDeleteEvent() {
 
 export function useRsvpEvent() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      status,
-      accountEmail,
-      scope,
-      note,
-      sendUpdates,
-    }: {
+  return useActionMutation<
+    {
+      success: boolean;
+      id: string;
+      accountEmail: string;
+      status: "accepted" | "declined" | "tentative";
+      note?: string;
+      scope?: "single" | "all" | "thisAndFollowing";
+    },
+    {
       id: string;
       status: "accepted" | "declined" | "tentative";
       accountEmail?: string;
       scope?: "single" | "all" | "thisAndFollowing";
       note?: string;
       sendUpdates?: "all" | "none";
-    }) => {
-      const res = await fetch(appApiPath(`/api/events/${id}/rsvp`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status,
-          accountEmail,
-          scope,
-          note,
-          sendUpdates,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to update RSVP");
-      return res.json();
-    },
+    }
+  >("rsvp-event", {
     onMutate: async ({ id, status, accountEmail, scope, note }) => {
       await queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: LIST_EVENTS_QUERY_KEY,
       });
-      const previousEvent = queryClient.getQueryData<CalendarEvent>([
-        "events",
-        id,
-      ]);
+      const previousEvent = queryClient.getQueryData<CalendarEvent>(
+        getEventQueryKey(id),
+      );
 
       updateListEventQueries(queryClient, (old) =>
         applyCalendarEventRsvp(old, id, status, scope, accountEmail, note),
       );
-      queryClient.setQueryData<CalendarEvent>(["events", id], (old) => {
+      queryClient.setQueryData<CalendarEvent>(getEventQueryKey(id), (old) => {
         const updated = applyCalendarEventRsvp(
           old ? [old] : undefined,
           id,
@@ -428,18 +383,22 @@ export function useRsvpEvent() {
       return { previous, previousEvent };
     },
     onError: (_err, vars, context) => {
-      if (context?.previous) {
-        for (const [key, data] of context.previous) {
+      const mutationContext = context as RsvpEventMutationContext | undefined;
+      if (mutationContext?.previous) {
+        for (const [key, data] of mutationContext.previous) {
           queryClient.setQueryData(key, data);
         }
       }
-      if (context?.previousEvent) {
-        queryClient.setQueryData(["events", vars.id], context.previousEvent);
+      if (mutationContext?.previousEvent) {
+        queryClient.setQueryData(
+          getEventQueryKey(vars.id),
+          mutationContext.previousEvent,
+        );
       }
     },
     onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: ["events", vars.id] });
+      queryClient.invalidateQueries({ queryKey: getEventQueryKey(vars.id) });
     },
   });
 }

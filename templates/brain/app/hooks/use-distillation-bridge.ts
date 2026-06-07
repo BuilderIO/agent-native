@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
   agentNativePath,
+  callAction,
   sendToAgentChat,
   useActionQuery,
 } from "@agent-native/core/client";
@@ -55,16 +56,10 @@ async function claimDistillation(
   queueId?: string,
 ): Promise<boolean> {
   try {
-    const res = await fetch(
-      agentNativePath("/_agent-native/actions/claim-distillation"),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ captureId, queueId }),
-      },
+    const payload = await callAction(
+      "claim-distillation" as any,
+      { captureId, queueId } as any,
     );
-    if (!res.ok) return false;
-    const payload = await res.json().catch(() => null);
     return Boolean(payload?.claimed);
   } catch {
     return false;

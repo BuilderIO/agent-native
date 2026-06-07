@@ -2,6 +2,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import {
   assertAccess,
   ForbiddenError,
+  currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { asc, eq, inArray } from "drizzle-orm";
@@ -31,6 +32,7 @@ import {
   type PlanCommentMention,
 } from "../shared/comment-context.js";
 import { buildPlanContentHtml, parsePlanContent } from "./plan-content.js";
+import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 type ImplementationFile = {
   id: string;
@@ -91,7 +93,8 @@ export const commentInputSchema = z.object({
 export type PlanCommentInput = z.infer<typeof commentInputSchema>;
 
 export function newId(prefix: string): string {
-  return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const separator = prefix === "plan" ? "-" : "_";
+  return `${prefix}${separator}${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
 
 export function nowIso(): string {
@@ -544,11 +547,20 @@ export async function writeEvent(input: {
 }
 
 export async function assertPlanEditor(planId: string) {
-  return assertAccess("plan", planId, "editor");
+  return assertAccess(
+    "plan",
+    planId,
+    "editor",
+    resolvePlanAccessContext(currentAccess()),
+  );
 }
 
 export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
-  const access = await resolveAccess("plan", planId);
+  const access = await resolveAccess(
+    "plan",
+    planId,
+    resolvePlanAccessContext(currentAccess()),
+  );
   // `!access` means not-found OR no-permission (the resolver conflates them to
   // avoid leaking existence). Throw ForbiddenError (statusCode 403) so the action
   // surface returns a clean 4xx instead of a 500 stack — a missing/private plan

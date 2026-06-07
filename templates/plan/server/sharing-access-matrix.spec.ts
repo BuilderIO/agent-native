@@ -84,6 +84,7 @@ async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
   await client.executeMultiple(`
     DELETE FROM plan_events;
+    DELETE FROM plan_versions;
     DELETE FROM plan_comments;
     DELETE FROM plan_sections;
     DELETE FROM plan_shares;
@@ -214,6 +215,16 @@ beforeAll(async () => {
       type TEXT NOT NULL,
       message TEXT NOT NULL,
       payload TEXT,
+      created_by TEXT NOT NULL DEFAULT 'agent',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE plan_versions (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      plan_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      change_label TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
       created_at TEXT NOT NULL
     );
@@ -818,9 +829,10 @@ describe("local single-user mode", () => {
     expect((await rawPlan(planId)).ownerEmail).toBe(LOCAL_OWNER);
   });
 
-  // A different real account must NOT read/edit a plan owned by the local
-  // single-user identity (local plans are still owner-scoped).
-  it("a different account cannot read or edit a local-owned plan", async () => {
+  // In local mode, the CLI/no-login agent and a signed-in local browser are the
+  // same single-user workspace. A dev/auth session must not strand a locally
+  // created private plan behind the synthetic local owner.
+  it("a signed-in local browser can read and edit a local-owned plan", async () => {
     const planId = await asUser({ userEmail: LOCAL_OWNER }, async () => {
       const r = await createVisualPlan.run({
         title: "Local-owned",
@@ -833,57 +845,48 @@ describe("local single-user mode", () => {
       return r.planId as string;
     });
 
-    await expect(
-      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
-    ).rejects.toThrow();
-    await expect(
-      asUser({ userEmail: OTHER }, () =>
-        updateVisualPlan.run({
-          planId,
-          title: "hijack local",
-          contentPatches: [],
-          sections: [],
-          comments: [],
-          consumedCommentIds: [],
-        }),
-      ),
-    ).rejects.toMatchObject({ statusCode: 403 });
+    const readable = await asUser({ userEmail: OTHER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    expect(readable.plan.id).toBe(planId);
+
+    const updated = await asUser({ userEmail: OTHER }, () =>
+      updateVisualPlan.run({
+        planId,
+        title: "Local browser edit",
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    );
+    expect(updated.plan.title).toBe("Local browser edit");
+    expect((await rawPlan(planId)).ownerEmail).toBe(LOCAL_OWNER);
   });
 
-  // ROBUSTNESS PIN (write/read identity asymmetry): the create action resolves
-  // its WRITE owner via `requirePlanOwnerEmailForWrite` (which substitutes the
-  // local identity even when the request context carries NO userEmail), but the
-  // read-back it performs in the same call (`loadPlanBundle` -> `resolveAccess`
-  // -> `currentAccess`) reads `getRequestUserEmail()` directly with NO local
-  // fallback. So a local-mode create on a context that lacks the injected
-  // identity writes a plan it then cannot read back, and throws "not found"
-  // AFTER persisting the row. The framework normally injects the identity so
-  // this does not bite in production, but the asymmetry is fragile — this test
-  // pins the current behavior so a regression (or a fix) is noticed.
-  it("DOCUMENTS write/read asymmetry: local create with no injected identity persists the row then throws on read-back", async () => {
-    let thrown: unknown;
-    await asUser({}, async () => {
-      try {
-        await createVisualPlan.run({
-          title: "Asymmetry",
-          brief: "b",
-          source: "manual",
-          status: "review",
-          sections: [],
-          comments: [],
-        });
-      } catch (err) {
-        thrown = err;
-      }
-    });
-    // The create threw "not found" on read-back...
-    expect(String((thrown as Error)?.message)).toMatch(/not found/i);
-    // ...yet a row WAS persisted with the local owner (orphaned-from-caller).
+  it("local create with no injected identity can read back the plan it just wrote", async () => {
+    const created = await asUser({}, () =>
+      createVisualPlan.run({
+        title: "No injected identity",
+        brief: "b",
+        source: "manual",
+        status: "review",
+        sections: [],
+        comments: [],
+      }),
+    );
+
+    expect(created.plan.title).toBe("No injected identity");
     const [row] = await db
       .select()
       .from(planSchema.plans)
-      .where(eq(planSchema.plans.ownerEmail, LOCAL_OWNER));
+      .where(eq(planSchema.plans.id, created.planId as string));
     expect(row).toBeTruthy();
-    expect((row as any).title).toBe("Asymmetry");
+    expect((row as any).ownerEmail).toBe(LOCAL_OWNER);
+
+    const readable = await asUser({}, () =>
+      getVisualPlan.run({ id: created.planId as string }),
+    );
+    expect(readable.plan.id).toBe(created.planId);
   });
 });

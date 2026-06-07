@@ -39,7 +39,6 @@ import {
   UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_QUESTIONS_SKILL_MD,
-  VISUALIZE_PLAN_SKILL_MD,
 } from "./skills.js";
 import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
 
@@ -168,7 +167,6 @@ describe(
         "ui-plan",
         "prototype-plan",
         "plan-design",
-        "visualize-plan",
         "visual-questions",
       ]) {
         expect(
@@ -309,7 +307,6 @@ describe("Plans skills install — materialized output", () => {
       "ui-plan",
       "prototype-plan",
       "plan-design",
-      "visualize-plan",
     ]);
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
@@ -322,7 +319,6 @@ describe("Plans skills install — materialized output", () => {
       ["ui-plan", UI_PLAN_SKILL_MD],
       ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
       ["plan-design", PLAN_DESIGN_SKILL_MD],
-      ["visualize-plan", VISUALIZE_PLAN_SKILL_MD],
     ];
     for (const [name, constant] of expected) {
       // The materialized file the user receives must be byte-identical to the
@@ -336,7 +332,6 @@ describe("Plans skills install — materialized output", () => {
       "ui-plan",
       "visual-plan",
       "visual-questions",
-      "visualize-plan",
     ]);
   });
 
@@ -349,7 +344,6 @@ describe("Plans skills install — materialized output", () => {
       "plan-designs",
       "design-plan",
       "design-plans",
-      "visualize-plan",
       "visual-questions",
       "plannotate",
       "html-plan",
@@ -362,16 +356,15 @@ describe("Plans skills install — materialized output", () => {
         "ui-plan",
         "prototype-plan",
         "plan-design",
-        "visualize-plan",
       ]);
     }
   });
 
-  it("materialized visual-plan uses structured content guidance, not legacy HTML", async () => {
+  it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
     const { captured } = await materializeViaAlias("visual-plan");
     const md = captured["visual-plan"];
     expect(md).toBeDefined();
-    expect(md).toContain("structured `content`");
+    expect(md).toContain("pass it as `planText`");
     expect(md).not.toContain("data-plan-tabs");
   });
 });
@@ -401,11 +394,6 @@ describe("Plans skill three-copy sync (deep)", () => {
       constant: PLAN_DESIGN_SKILL_MD,
       templateDir: "plan-design",
       exportedDir: "plan-design",
-    },
-    {
-      constant: VISUALIZE_PLAN_SKILL_MD,
-      templateDir: "visualize-plan",
-      exportedDir: "visualize-plan",
     },
     {
       constant: VISUAL_QUESTIONS_SKILL_MD,
@@ -445,7 +433,7 @@ describe("Plans skill three-copy sync (deep)", () => {
         `${s.templateDir} frontmatter`,
       ).toBe(true);
       expect(s.constant).toMatch(/\nname:\s*\S+/);
-      // visual-plan / ui-plan / visualize-plan are `exported`; visual-questions
+      // visual-plan / ui-plan are `exported`; visual-questions
       // is `both`. Either way the skill must declare a visibility.
       expect(s.constant, `${s.templateDir} visibility`).toMatch(
         /visibility:\s*(exported|both)/,

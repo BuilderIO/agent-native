@@ -155,6 +155,20 @@ ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_by TEXT;
 ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_at TEXT;
 CREATE INDEX IF NOT EXISTS plan_comments_resolution_idx ON plan_comments(plan_id, resolution_target, status, consumed_at)`,
     },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS plan_versions (
+  id TEXT PRIMARY KEY,
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  plan_id TEXT NOT NULL REFERENCES plans(id),
+  title TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  change_label TEXT,
+  created_by TEXT NOT NULL DEFAULT 'agent',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS plan_versions_plan_owner_created_idx ON plan_versions(plan_id, owner_email, created_at)`,
+    },
   ],
   { table: "plans_migrations" },
 );

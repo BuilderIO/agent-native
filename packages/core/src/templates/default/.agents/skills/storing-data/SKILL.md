@@ -1,128 +1,161 @@
 ---
 name: storing-data
 description: >-
-  How and where to store application data. Use when adding new data models,
-  deciding between settings vs Drizzle tables, reading/writing app config,
-  or working with application state.
+  How to store application data in agent-native apps. All data lives in SQL.
+  Use when adding data models, deciding where to store data, or reading/writing
+  application data.
+metadata:
+  internal: true
 ---
 
-# Storing Data
+# Storing Data — SQL is the Source of Truth
 
-## Where Data Goes
+## Rule
 
-All data lives in one SQLite database (`data/app.db`). In production, set `DATABASE_URL` to point to Turso, Neon, Supabase, or D1 — same code, no changes needed.
+All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. Do not store durable app data in the filesystem.
 
-There are three storage layers, each for a different kind of data:
+## How It Works
 
-### 1. Settings — app configuration
+Agent-native apps use Drizzle ORM over the configured SQL backend. Local development works out of the box with a SQLite file at `data/app.db`; production and shared preview deploys need a persistent `DATABASE_URL` because container/serverless filesystems can reset. The code should behave the same across backends, but the local SQLite file is not durable once deployed.
 
-Key-value store for persistent non-secret config that the user or agent can change. Theme, preferences, integration settings, availability schedules.
+For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
-```ts
-import { getSetting, putSetting } from "@agent-native/core/settings";
+### Core SQL Stores (auto-created, available in all templates)
 
-// Read (returns null if not set)
-const prefs = await getSetting("user-preferences");
+| Store               | Purpose                                              | Access                                     |
+| ------------------- | ---------------------------------------------------- | ------------------------------------------ |
+| `application_state` | Ephemeral UI state (compose windows, navigation)     | `readAppState()` / `writeAppState()`       |
+| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `putSetting()`            |
+| `oauth_tokens`      | OAuth credentials                                    | `@agent-native/core/oauth-tokens`          |
+| `sessions`          | Auth sessions                                        | `@agent-native/core/server`               |
 
-// Write (creates or replaces)
-await putSetting("user-preferences", { theme: "dark", density: "comfortable" });
-```
+### Domain Data (per-template)
 
-From scripts:
-```ts
-import { readSetting, writeSetting } from "@agent-native/core/settings";
-const prefs = await readSetting("user-preferences");
-```
-
-SSE: writes automatically notify the UI via `{ source: "settings", type: "change", key }`.
-
-### 2. Application State — ephemeral UI state
-
-For state the agent and UI share in real-time: what the user is looking at, compose drafts, navigation commands. Scoped by session — cleared between sessions.
+Define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
 
 ```ts
-import { readAppState, writeAppState, deleteAppState, listAppState } from "@agent-native/core/application-state";
+import { eq } from "drizzle-orm";
+import { table, text, integer, now } from "@agent-native/core/db/schema";
 
-// Write state (UI updates instantly via SSE)
-await writeAppState("navigate", { view: "inbox", threadId: "t-123" });
-
-// Read state
-const nav = await readAppState("navigation");
-
-// List by prefix (e.g., all compose drafts)
-const drafts = await listAppState("compose-");
-
-// Delete (one-shot commands: UI reads, then agent or UI deletes)
-await deleteAppState("navigate");
-```
-
-SSE: writes automatically notify the UI via `{ source: "app-state", type: "change", key }`.
-
-### 3. Drizzle Tables — structured domain data
-
-For data with schemas, relationships, and queries: forms, bookings, emails, compositions. Define tables in `server/db/schema.ts` using Drizzle ORM.
-
-```ts
-import { table, text, integer } from "@agent-native/core/db/schema";
-
-export const bookings = table("bookings", {
+export const tasks = table("tasks", {
   id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull(),
-  startTime: integer("start_time").notNull(),
-  endTime: integer("end_time").notNull(),
+  title: text("title").notNull(),
+  completed: integer("completed", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  createdAt: text("created_at").notNull().default(now()),
 });
+
+const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 ```
 
-Query via `getDb()` singleton from `server/db/index.ts`.
+Never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
 
-### 4. OAuth Tokens — credentials
+| Template     | Tables                                        |
+| ------------ | --------------------------------------------- |
+| **Mail**     | emails, labels (+ Gmail API when connected)   |
+| **Calendar** | events, bookings                              |
+| **Forms**    | forms, responses                              |
+| **Content**  | documents                                     |
+| **Slides**   | decks (JSON stored in SQL)                    |
+| **Videos**   | compositions in registry + localStorage       |
 
-For OAuth tokens acquired at runtime (Google, etc.). Never store these in settings — use the dedicated store.
+### Agent Access
+
+The agent uses app-specific actions to read/write the database. Core DB scripts are for inspection and maintenance, not for implementing normal product behavior:
+
+- `pnpm action db-schema` — Show all tables, columns, types
+- `pnpm action db-query --sql "SELECT * FROM forms"` — Run SELECT queries
+- `pnpm action db-exec --sql "UPDATE ..."` — Last-resort ad-hoc maintenance for short columns, multi-column writes, or computed updates when no domain action exists. For several related writes, prefer `--statements '[{"sql":"...","args":[...]}]'` so they run sequentially in one transaction. Schema changes are blocked; use reviewed additive migrations/startup code instead.
+- `pnpm action db-patch --table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` — **Surgical search/replace on a large text column.** Sends the diff instead of re-transmitting the whole value, so it's dramatically more token-efficient than `db-exec UPDATE` when editing multi-kilobyte documents, slide HTML, dashboard/form JSON, etc. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` to replace every occurrence.
+- App-specific actions for domain operations — **always prefer these over raw SQL when one exists.** They encode business rules, power the client action hooks, and for editor-backed tables (documents, slides) also push live Yjs updates to open collaborative editors. `db-patch` is the generic fallback for tables without a dedicated edit action.
+
+**For one-off maintenance, how to choose between `db-exec UPDATE` and `db-patch`:**
+
+| Scenario                                                       | Use          |
+| -------------------------------------------------------------- | ------------ |
+| `SET status = 'published'` on one row                          | `db-exec`    |
+| `SET calories = calories + 50`                                 | `db-exec`    |
+| Updating several columns at once                               | `db-exec`    |
+| Inserting/updating several rows as one logical operation        | `db-exec --statements` |
+| Fixing a typo in a 50KB markdown document's `content` column   | `db-patch`   |
+| Changing a single key in a dashboard's JSON blob               | `db-patch`   |
+| Tweaking one paragraph of slide HTML stored in `decks.data`    | `db-patch`   |
+| Any edit where you'd otherwise re-send thousands of characters | `db-patch`   |
+
+All of these honor the per-user / per-org data scoping — you can't read or write rows outside the current user's data, regardless of which tool you choose.
+
+### Frontend Access
+
+The frontend calls actions using React Query hooks from the client API. The framework owns the HTTP transport behind these hooks, so components should not call action routes with raw `fetch`.
 
 ```ts
-import { saveOAuthTokens, getOAuthTokens, listOAuthAccounts } from "@agent-native/core/oauth-tokens";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
-await saveOAuthTokens("google", "user@gmail.com", { access_token: "...", refresh_token: "..." });
-const tokens = await getOAuthTokens("google", "user@gmail.com");
-const accounts = await listOAuthAccounts("google");
+// Read data
+const { data } = useActionQuery("list-meals", { date: "2025-01-01" });
+
+// Write data
+const { mutate } = useActionMutation("log-meal");
 ```
 
-### 5. Secrets / Credentials — encrypted values
+Actions are the **preferred way** for the frontend to access data. You rarely need custom `/api/` routes — only for file uploads, streaming, webhooks, or OAuth callbacks.
 
-For API keys, service tokens, webhook secrets, and user/org/workspace
-credentials. Register user-facing secrets with the secrets registry and read
-them server-side with `readAppSecret`, or use `saveCredential` /
-`resolveCredential` for scoped credential lookup. Never store these values in
-settings, application state, source code, docs, examples, logs, or action
-responses.
+### Production / Cloud Deployment
 
-## Which Layer to Use
+Local SQLite works out of the box for development. To deploy to production or any environment where data must survive restarts:
 
-| Data | Layer | Why |
-|------|-------|-----|
-| User preferences, theme, config | Settings | Persistent KV, SSE notifications, simple read/write |
-| What the user sees on screen | Application State | Ephemeral, real-time sync, agent ↔ UI bridge |
-| Compose drafts, wizard steps | Application State | Temporary, deleted when done |
-| Domain records (forms, bookings) | Drizzle table | Needs schema, queries, relationships |
-| API keys, service tokens, webhook secrets | Secrets / credentials | Encrypted and scoped; never client-readable |
-| OAuth refresh tokens | OAuth Tokens | Secure, per-provider, per-account |
+1. Set `DATABASE_URL` to a persistent SQL database.
+2. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
+3. No code changes should be needed when the schema and queries stay portable.
 
-## Environment Variables
+Turso is one valid option, not the required option. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, Cloudflare D1 bindings, and managed platform SQL environments when available.
 
-Infrastructure config stays in `.env` — these differ per deployment:
+### Real-time Sync
 
-- `DATABASE_URL` — database connection (default: `file:./data/app.db`)
-- `DATABASE_AUTH_TOKEN` — for remote databases
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — OAuth app credentials
-- `ACCESS_TOKEN` — production auth token
+Polling streams database changes to the UI. When the agent writes to the database via scripts, the UI updates automatically via `useDbSync()` which invalidates React Query caches.
 
-Everything else (user settings, app state, domain data) goes in SQL through the
-appropriate store. User/org/workspace credential values go in the encrypted
-secrets/credential stores, not plain settings rows.
+## Do
 
-## Security Rules
+- Use Drizzle ORM for structured domain data (forms, bookings, documents)
+- Use Drizzle query builder methods (`select`, `insert`, `update`, `delete`) and portable operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads/writes
+- Use framework schema helpers from `@agent-native/core/db/schema`, not dialect-specific Drizzle imports
+- Use the `settings` store for app configuration and user preferences
+- Use `application-state` for ephemeral UI state that the agent and UI share
+- Use `oauth-tokens` for OAuth credentials
+- Use core DB scripts (`db-schema`, `db-query`, `db-exec`, `db-patch`) for ad-hoc database operations
+- Use `db-exec --statements` instead of several separate `db-exec` calls for related writes; it is faster and rolls back the whole batch if one statement fails
+- Reach for `db-patch` instead of `db-exec UPDATE` whenever you're making a small change to a large text/JSON column — it's much cheaper on tokens
 
-- **Never store API keys or secrets in Settings or Application State** — use the secrets registry / vault or `saveCredential` / `resolveCredential` for API keys and service tokens, deploy env vars only for deploy-level secrets, and `oauth_tokens` for OAuth credentials. Settings and application state are readable by the client.
-- **Every Drizzle table with user data must have `owner_email`** — the framework auto-scopes queries in production so users only see their own data. Run `pnpm action db-check-scoping` to verify. See the `security` skill for the full model.
-- **Never return secrets in action responses** — action responses may be visible in the agent chat or sent to the client. Keep credentials server-side only.
+## Don't
+
+- Don't store structured app data as JSON files
+- Don't store app state in localStorage, sessionStorage, or cookies (except for UI-only preferences like sidebar width)
+- Don't keep state only in memory (server variables, global stores)
+- Don't use Redis or any external state store for app data
+- Don't implement product features with raw SQL or `getDbExec()` when Drizzle can express the query
+- Don't write SQLite-only or Postgres-only SQL in app code
+- Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder
+
+## Security
+
+- **SQL injection** — Use Drizzle ORM's query builder, never raw string interpolation for SQL queries
+- **Validate before writing** — Check data shape before writing, especially for user-submitted data
+
+## Application State and Context Awareness
+
+When storing app-state, include **navigation state** — the agent needs to know what the user is looking at. The `application_state` table holds ephemeral UI state that both the agent and UI share. Key patterns:
+
+- **`navigation` key** — the UI writes current view and selection on every route change. The agent reads this before acting.
+- **`navigate` key** — the agent writes one-shot commands to navigate the UI. The UI processes and deletes them.
+- **Domain-specific keys** (e.g., `compose-{id}`) — bidirectional state for features like email drafts.
+
+When adding a new data model or feature, also consider what navigation and selection state needs to be exposed via application-state. See the **context-awareness** skill for the full pattern.
+
+## Related Skills
+
+- **context-awareness** — How to expose navigation and selection state via application-state
+- **real-time-sync** — Set up polling so the UI updates when the database changes
+- **actions** — Create actions with `defineAction` to query the database
+- **client-methods** — Keep route details behind named client helpers/hooks
+- **self-modifying-code** — The agent can also modify the app's source code

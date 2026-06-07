@@ -28,9 +28,9 @@ and operate UI states, needs design review before code, wants comments pinned to
 live screens, or asks to move a visual plan into a prototype.
 
 Prefer `/visual-plan` for architecture, data flow, or non-interactive planning.
-Prefer `/ui-plan` when static screen review is enough. Use `/visualize-plan`
-first only when the user hands you an existing Markdown/Codex/Claude plan that
-needs a visual companion before becoming interactive.
+Prefer `/ui-plan` when static screen review is enough. Use `/visual-plan` first
+when the user hands you an existing Markdown/Codex/Claude plan that needs a
+visual companion before becoming interactive.
 
 ## Core Workflow
 
@@ -154,5 +154,4 @@ reviewing and iterating.
 
 - `visual-plan`
 - `ui-plan`
-- `visualize-plan`
 - `visual-questions`

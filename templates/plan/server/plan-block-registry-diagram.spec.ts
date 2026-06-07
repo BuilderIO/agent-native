@@ -24,6 +24,12 @@ const diagramData = {
   notes: [{ id: "note1", text: "Retries 3x", x: 50, y: 5 }],
 };
 
+const htmlDiagramData = {
+  html: '<div class="diagram-panel"><svg viewBox="0 0 100 40"><path d="M5 20 L95 20" /></svg></div>',
+  css: ".diagram-panel { padding: 12px; }",
+  caption: "The policy module owns the unstable branch.",
+};
+
 function diagramContent(): PlanContent {
   return planContentSchema.parse({
     version: 2,
@@ -91,14 +97,46 @@ describe("plan block registry — diagram", () => {
     }
   });
 
-  it("introspects diagram data as positional arrays (no auto-editor fields)", () => {
+  it("round-trips an html/svg diagram through the registry MDX path", async () => {
+    const source = planContentSchema.parse({
+      version: 2,
+      title: "HTML diagram",
+      brief: "Proving flexible diagram fragments survive.",
+      blocks: [
+        {
+          id: "diagram-html",
+          type: "diagram",
+          title: "Route policy",
+          data: htmlDiagramData,
+        },
+      ],
+    });
+    const folder = await exportPlanContentToMdxFolder({
+      content: source,
+      title: source.title,
+      brief: source.brief,
+    });
+
+    expect(folder["plan.mdx"]).toContain("<Diagram");
+    expect(folder["plan.mdx"]).toContain("diagram-panel");
+    expect(folder["plan.mdx"]).toContain("<svg");
+
+    const parsed = await parsePlanMdxFolder(folder);
+    const diagram = parsed.blocks.find((block) => block.type === "diagram");
+    expect(diagram).toBeDefined();
+    if (diagram && diagram.type === "diagram") {
+      expect(diagram.data).toEqual(htmlDiagramData);
+    }
+  });
+
+  it("introspects diagram data as flexible html plus legacy arrays", () => {
     const registry = new BlockRegistry();
     registerPlanBlocks(registry);
     const spec = registry.get("diagram");
     const fields = introspect(spec!.schema);
     const byKey = Object.fromEntries(fields.map((field) => [field.key, field]));
-    // nodes/edges are positional arrays → the spec ships a custom (read-only)
-    // Edit rather than relying on the schema auto-editor for these.
+    expect(byKey.html?.kind).toBe("longtext");
+    expect(byKey.css?.kind).toBe("longtext");
     expect(byKey.nodes?.kind).toBe("array");
     expect(byKey.edges?.kind).toBe("array");
   });

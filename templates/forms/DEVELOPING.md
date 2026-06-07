@@ -26,13 +26,13 @@ app/
   pages/         # FormsListPage, FormBuilderPage, FormFillPage, ResponsesPage
   routes/        # File-based routes
 server/
-  routes/api/    # API route handlers
+  routes/api/    # Route-only handlers (uploads, public submit, SEO/OG)
   handlers/      # forms.ts, submissions.ts
   plugins/       # auth, SSE
   db/            # Drizzle schema + init
 shared/
   types.ts       # Form, FormField, FormResponse types
-actions/         # Agent-callable scripts
+actions/               # Shared app operations (defineAction; UI uses action hooks)
 data/            # Local development SQLite file only
 ```
 
@@ -64,7 +64,9 @@ Forms support these field types:
 
 Each field has: `id`, `type`, `label`, `placeholder`, `description`, `required`, `options` (for select/radio/multiselect), `validation` (min/max/pattern), `conditional` (show/hide based on another field), `width` (full/half).
 
-## API Routes
+## Route-Only API Endpoints
+
+Prefer actions for authenticated app CRUD. The routes below are current public/route-shaped endpoints or legacy implementation details to migrate when editing this area. New normal app data should use `defineAction` plus `useActionQuery` / `useActionMutation`.
 
 | Method | Path                       | Auth   | Purpose                                    |
 | ------ | -------------------------- | ------ | ------------------------------------------ |
@@ -122,7 +124,7 @@ pnpm dev          # Start dev server (client + server)
 pnpm build        # Production build
 pnpm typecheck    # TypeScript validation
 pnpm test         # Run Vitest tests
-pnpm action <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run an action
 ```
 
 ## TypeScript Everywhere

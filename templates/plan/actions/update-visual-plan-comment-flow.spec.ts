@@ -19,6 +19,7 @@ const getDbMock = vi.hoisted(() => vi.fn());
 const loadPlanBundleMock = vi.hoisted(() => vi.fn());
 const notifyPlanCommentRecipientsMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const createPlanVersionSnapshotMock = vi.hoisted(() => vi.fn());
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
@@ -47,6 +48,7 @@ vi.mock("@agent-native/core/sharing", () => {
   }
   return {
     ForbiddenError,
+    currentAccess: () => ({ userEmail: request.email }),
     resolveAccess: (...args: unknown[]) => resolveAccessMock(...args),
   };
 });
@@ -56,7 +58,18 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     plans: { id: "plans.id", updatedAt: "plans.updatedAt" },
     planSections: { id: "planSections.id", planId: "planSections.planId" },
-    planComments: { id: "planComments.id", planId: "planComments.planId" },
+    planComments: {
+      id: "planComments.id",
+      planId: "planComments.planId",
+      sectionId: "planComments.sectionId",
+      kind: "planComments.kind",
+      anchor: "planComments.anchor",
+      message: "planComments.message",
+      createdBy: "planComments.createdBy",
+      authorEmail: "planComments.authorEmail",
+      resolutionTarget: "planComments.resolutionTarget",
+      mentionsJson: "planComments.mentionsJson",
+    },
     planEvents: {},
   },
 }));
@@ -72,6 +85,11 @@ vi.mock("../server/plan-mdx.js", () => ({
 
 vi.mock("../server/lib/local-plan-files.js", () => ({
   writePlanLocalFiles: vi.fn(),
+}));
+
+vi.mock("../server/lib/plan-versions.js", () => ({
+  createPlanVersionSnapshot: (...args: unknown[]) =>
+    createPlanVersionSnapshotMock(...args),
 }));
 
 vi.mock("../server/lib/comment-notifications.js", () => ({
@@ -106,7 +124,36 @@ type CapturedRow = {
   createdBy: string;
 };
 
-function buildTransactionDb(capturedRows: CapturedRow[]) {
+type CapturedCommentUpdate = {
+  sectionId: string | null;
+  kind: string;
+  status: string;
+  anchor: string | null;
+  message: string;
+  resolutionTarget: string | null;
+  mentionsJson: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  updatedAt: string;
+};
+
+type ExistingCommentRow = {
+  id: string;
+  sectionId: string | null;
+  kind: string;
+  anchor: string | null;
+  message: string;
+  createdBy: string;
+  authorEmail: string | null;
+  resolutionTarget: string | null;
+  mentionsJson: string | null;
+};
+
+function buildTransactionDb(
+  capturedRows: CapturedRow[],
+  capturedUpdates: CapturedCommentUpdate[] = [],
+  existingComments: ExistingCommentRow[] = [],
+) {
   const txInsert = vi.fn((table: unknown) => ({
     values: vi.fn(async (row: CapturedRow) => {
       // Only capture comment-shaped rows (have authorEmail field).
@@ -116,11 +163,20 @@ function buildTransactionDb(capturedRows: CapturedRow[]) {
     }),
   }));
   const txUpdate = vi.fn(() => ({
-    set: vi.fn(() => ({
-      where: vi.fn(() => ({
-        returning: vi.fn(async () => [{ id: "plan_1" }]),
-      })),
-    })),
+    set: vi.fn((row: CapturedCommentUpdate) => {
+      if (
+        row &&
+        Object.prototype.hasOwnProperty.call(row, "message") &&
+        Object.prototype.hasOwnProperty.call(row, "status")
+      ) {
+        capturedUpdates.push(row);
+      }
+      return {
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "plan_1" }]),
+        })),
+      };
+    }),
   }));
   const txSelect = vi.fn(() => ({
     from: vi.fn(() => ({ where: vi.fn(async () => []) })),
@@ -133,7 +189,7 @@ function buildTransactionDb(capturedRows: CapturedRow[]) {
     update: txUpdate,
     // top-level select used to detect existing comments-by-id before tx
     select: vi.fn(() => ({
-      from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      from: vi.fn(() => ({ where: vi.fn(async () => existingComments) })),
     })),
   };
 }
@@ -149,8 +205,10 @@ beforeEach(() => {
   notifyPlanCommentRecipientsMock.mockResolvedValue(undefined);
   resolveAccessMock.mockReset();
   resolveAccessMock.mockResolvedValue({ resource: { id: "plan_1" } });
+  createPlanVersionSnapshotMock.mockReset();
+  createPlanVersionSnapshotMock.mockResolvedValue({ created: true });
   delete process.env.AUTH_MODE;
-  delete process.env.PLAN_LOCAL_MODE;
+  process.env.PLAN_LOCAL_MODE = "0";
 });
 
 afterEach(() => {
@@ -203,7 +261,150 @@ describe("update-visual-plan comment path (integration)", () => {
     expect(captured[0].authorName).toBe("Reviewer");
     // Comment-only request must NOT require editor access, only resolveAccess.
     expect(assertPlanEditorMock).not.toHaveBeenCalled();
-    expect(resolveAccessMock).toHaveBeenCalledWith("plan", "plan_1");
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "plan",
+      "plan_1",
+      expect.objectContaining({ userEmail: "reviewer@example.com" }),
+    );
+  });
+
+  it("lets a reviewer resolve an existing comment without changing its content fields", async () => {
+    request.email = "reviewer@example.com";
+    request.name = "Reviewer";
+    const capturedRows: CapturedRow[] = [];
+    const capturedUpdates: CapturedCommentUpdate[] = [];
+    getDbMock.mockReturnValue(
+      buildTransactionDb(capturedRows, capturedUpdates, [
+        {
+          id: "existing_root",
+          sectionId: "sec_1",
+          kind: "comment",
+          anchor: JSON.stringify({ x: 20, y: 30, sectionTitle: "Mockup" }),
+          message: "Original feedback",
+          createdBy: "human",
+          authorEmail: "owner@example.com",
+          resolutionTarget: "agent",
+          mentionsJson: JSON.stringify([]),
+        },
+      ]),
+    );
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await run({
+      planId: "plan_1",
+      contentPatches: [],
+      sections: [],
+      consumedCommentIds: [],
+      comments: [
+        {
+          id: "existing_root",
+          message: "Original feedback",
+          kind: "comment",
+          status: "resolved",
+          sectionId: "sec_1",
+          anchor: JSON.stringify({ x: 20, y: 30, sectionTitle: "Mockup" }),
+          createdBy: "human",
+          authorEmail: "attacker@example.com",
+          authorName: "Attacker",
+          resolutionTarget: "agent",
+          resolvedBy: "attacker@example.com",
+          resolvedAt: "2030-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(assertPlanEditorMock).not.toHaveBeenCalled();
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "plan",
+      "plan_1",
+      expect.objectContaining({ userEmail: "reviewer@example.com" }),
+    );
+    expect(capturedRows).toHaveLength(0);
+    expect(capturedUpdates).toEqual([
+      {
+        sectionId: "sec_1",
+        kind: "comment",
+        status: "resolved",
+        anchor: JSON.stringify({ x: 20, y: 30, sectionTitle: "Mockup" }),
+        message: "Original feedback",
+        resolutionTarget: "agent",
+        mentionsJson: JSON.stringify([]),
+        resolvedBy: "reviewer@example.com",
+        resolvedAt: "2026-06-05T00:00:00.000Z",
+        updatedAt: "2026-06-05T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("rejects a status-only update when the target comment is missing", async () => {
+    request.email = "reviewer@example.com";
+    const capturedRows: CapturedRow[] = [];
+    getDbMock.mockReturnValue(buildTransactionDb(capturedRows));
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await expect(
+      run({
+        planId: "plan_1",
+        contentPatches: [],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [
+          {
+            id: "ghost_comment",
+            message: "Resolve a ghost",
+            kind: "comment",
+            status: "resolved",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).rejects.toThrow("Comment status update target was not found.");
+    expect(capturedRows).toHaveLength(0);
+    expect(notifyPlanCommentRecipientsMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps existing comment content edits behind the editor gate", async () => {
+    request.email = "reviewer@example.com";
+    assertPlanEditorMock.mockRejectedValueOnce(new Error("editor gate"));
+    const capturedRows: CapturedRow[] = [];
+    const capturedUpdates: CapturedCommentUpdate[] = [];
+    getDbMock.mockReturnValue(
+      buildTransactionDb(capturedRows, capturedUpdates, [
+        {
+          id: "existing_root",
+          sectionId: null,
+          kind: "comment",
+          anchor: null,
+          message: "Original feedback",
+          createdBy: "human",
+          authorEmail: "owner@example.com",
+          resolutionTarget: "agent",
+          mentionsJson: JSON.stringify([]),
+        },
+      ]),
+    );
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await expect(
+      run({
+        planId: "plan_1",
+        contentPatches: [],
+        sections: [],
+        consumedCommentIds: [],
+        comments: [
+          {
+            id: "existing_root",
+            message: "Edited feedback",
+            kind: "comment",
+            status: "open",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).rejects.toThrow("editor gate");
+    expect(assertPlanEditorMock).toHaveBeenCalledWith("plan_1");
+    expect(capturedRows).toHaveLength(0);
+    expect(capturedUpdates).toHaveLength(0);
   });
 
   it("notifies recipients with the inserted ids and prior comments after a comment insert", async () => {

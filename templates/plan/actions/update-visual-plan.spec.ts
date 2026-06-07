@@ -16,6 +16,7 @@ const getDbMock = vi.hoisted(() =>
 const loadPlanBundleMock = vi.hoisted(() => vi.fn());
 const notifyPlanCommentRecipientsMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const createPlanVersionSnapshotMock = vi.hoisted(() => vi.fn());
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
@@ -46,6 +47,7 @@ vi.mock("@agent-native/core/sharing", () => {
 
   return {
     ForbiddenError,
+    currentAccess: () => ({ userEmail: request.email }),
     resolveAccess: (...args: unknown[]) => resolveAccessMock(...args),
   };
 });
@@ -64,7 +66,16 @@ vi.mock("../server/db/index.js", () => ({
     planComments: {
       id: "planComments.id",
       planId: "planComments.planId",
+      sectionId: "planComments.sectionId",
+      kind: "planComments.kind",
+      anchor: "planComments.anchor",
+      message: "planComments.message",
+      createdBy: "planComments.createdBy",
+      authorEmail: "planComments.authorEmail",
+      resolutionTarget: "planComments.resolutionTarget",
+      mentionsJson: "planComments.mentionsJson",
     },
+    planEvents: {},
   },
 }));
 
@@ -80,6 +91,11 @@ vi.mock("../server/plan-mdx.js", () => ({
 
 vi.mock("../server/lib/local-plan-files.js", () => ({
   writePlanLocalFiles: vi.fn(),
+}));
+
+vi.mock("../server/lib/plan-versions.js", () => ({
+  createPlanVersionSnapshot: (...args: unknown[]) =>
+    createPlanVersionSnapshotMock(...args),
 }));
 
 vi.mock("../server/lib/comment-notifications.js", () => ({
@@ -164,6 +180,8 @@ describe("update-visual-plan comments", () => {
     notifyPlanCommentRecipientsMock.mockReset();
     notifyPlanCommentRecipientsMock.mockResolvedValue(undefined);
     resolveAccessMock.mockReset();
+    createPlanVersionSnapshotMock.mockReset();
+    createPlanVersionSnapshotMock.mockResolvedValue({ created: true });
     delete process.env.AUTH_MODE;
     delete process.env.PLAN_LOCAL_MODE;
   });
@@ -267,7 +285,11 @@ describe("update-visual-plan comments", () => {
       }),
     ).resolves.toMatchObject({ planId: "plan_public" });
     expect(assertPlanEditorMock).not.toHaveBeenCalled();
-    expect(resolveAccessMock).toHaveBeenCalledWith("plan", "plan_public");
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "plan",
+      "plan_public",
+      expect.objectContaining({ userEmail: "local@agent-native.local" }),
+    );
     expect(txInsertValuesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "plan.updated",
@@ -374,7 +396,11 @@ describe("update-visual-plan comments", () => {
     ).resolves.toMatchObject({ planId: "plan_public" });
 
     expect(assertPlanEditorMock).not.toHaveBeenCalled();
-    expect(resolveAccessMock).toHaveBeenCalledWith("plan", "plan_public");
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "plan",
+      "plan_public",
+      expect.objectContaining({ userEmail: "local@agent-native.local" }),
+    );
     expect(txUpdateSetMock).toHaveBeenCalledWith(
       expect.objectContaining({
         updatedAt: "2026-06-05T00:00:00.000Z",
@@ -516,6 +542,11 @@ describe("update-visual-plan comments", () => {
       }),
     ).resolves.toMatchObject({ planId: "plan_public" });
 
+    expect(createPlanVersionSnapshotMock).toHaveBeenCalledWith("plan_public", {
+      force: true,
+      label: "Before plan update",
+      createdBy: "agent",
+    });
     expect(dbUpdateMock).toHaveBeenCalled();
     expect(dbInsertValuesMock).toHaveBeenCalledWith(
       expect.objectContaining({

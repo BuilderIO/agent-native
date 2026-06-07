@@ -6,9 +6,10 @@
  * Only when they want to SHARE a plan do they make a lazy account and publish
  * the plan to a hosted instance (see `publish-visual-plan`).
  *
- * To make that work, the plan actions must resolve an owner identity even when
- * there is no authenticated user — but ONLY when the runtime is genuinely local.
- * On a hosted/production deployment a missing user must still be rejected.
+ * To make that work, the plan actions must resolve one stable local owner
+ * identity for local plan work — even when the browser happens to have a dev
+ * auth session. On a hosted/production deployment a missing user must still be
+ * rejected.
  *
  * The gating here deliberately mirrors the existing dev-only auth precedents in
  * `@agent-native/core`:
@@ -94,13 +95,46 @@ export function isLocalPlanRuntime(): boolean {
   return true;
 }
 
+function shouldUseLocalPlanOwner(
+  authenticatedEmail: string | undefined,
+): boolean {
+  if (!isLocalPlanRuntime()) return false;
+  // Public-link viewers stay read-only public viewers. Do not accidentally turn
+  // an anonymous public review session into the local owner/editor.
+  if (isAnonymousPublicViewer(authenticatedEmail)) return false;
+  return true;
+}
+
+export type PlanAccessContext = {
+  userEmail?: string;
+  orgId?: string;
+};
+
+/**
+ * Current request context adjusted for local single-user plan access.
+ *
+ * In local plan runtime, a coding agent may create a plan through the CLI/no-login
+ * path while Codex Desktop has a signed-in browser session. Both are one local
+ * workspace, so reads/lists/edits should resolve against the same synthetic
+ * owner instead of stranding private plans behind whichever auth surface created
+ * them. Hosted/production contexts are returned unchanged.
+ */
+export function resolvePlanAccessContext(
+  ctx: PlanAccessContext,
+): PlanAccessContext {
+  if (shouldUseLocalPlanOwner(ctx.userEmail)) {
+    return { userEmail: LOCAL_PLAN_OWNER_EMAIL };
+  }
+  return ctx;
+}
+
 /**
  * Resolve the owner email for a plan write/read.
  *
  * Priority:
- *   1. The authenticated request user (always honored — hosted and local).
- *   2. The local single-user identity, ONLY when `isLocalPlanRuntime()` and the
+ *   1. The local single-user identity, ONLY when `isLocalPlanRuntime()` and the
  *      caller is not an anonymous public-plan viewer.
+ *   2. The authenticated request user (hosted and non-local auth modes).
  *
  * Anonymous public-plan viewers (`public-*@agent-native.local`, minted by
  * `resolvePublicPlanViewerOwner`) are passed through unchanged so they keep
@@ -112,8 +146,10 @@ export function isLocalPlanRuntime(): boolean {
 export function resolvePlanOwnerEmail(
   authenticatedEmail: string | undefined,
 ): string | undefined {
+  if (shouldUseLocalPlanOwner(authenticatedEmail)) {
+    return LOCAL_PLAN_OWNER_EMAIL;
+  }
   if (authenticatedEmail) return authenticatedEmail;
-  if (isLocalPlanRuntime()) return LOCAL_PLAN_OWNER_EMAIL;
   return undefined;
 }
 
@@ -121,10 +157,11 @@ export function resolvePlanOwnerEmail(
  * Resolve the owner email for a plan WRITE (create / import / patch / visualize).
  *
  * Resolution priority:
- *   1. The authenticated request user — always honored, hosted and local,
- *      except for the legacy hosted guest-author identity
- *      (`guest-*@agent-native.guest`), which is no longer allowed to write.
- *   2. The local single-user identity, ONLY when `isLocalPlanRuntime()`.
+ *   1. The local single-user identity, ONLY when `isLocalPlanRuntime()` and the
+ *      caller is not an anonymous public-plan viewer.
+ *   2. The authenticated request user, except for the legacy hosted guest-author
+ *      identity (`guest-*@agent-native.guest`), which is no longer allowed to
+ *      write on hosted deployments.
  *
  * Anonymous public-plan VIEWERS (`public-*@agent-native.local`) must never reach
  * this path — they are read-only.
@@ -135,10 +172,12 @@ export function resolvePlanOwnerEmail(
 export function resolvePlanOwnerEmailForWrite(
   authenticatedEmail: string | undefined,
 ): string | undefined {
+  if (shouldUseLocalPlanOwner(authenticatedEmail)) {
+    return LOCAL_PLAN_OWNER_EMAIL;
+  }
   if (authenticatedEmail && !isGuestAuthorIdentity(authenticatedEmail)) {
     return authenticatedEmail;
   }
-  if (isLocalPlanRuntime()) return LOCAL_PLAN_OWNER_EMAIL;
   return undefined;
 }
 
