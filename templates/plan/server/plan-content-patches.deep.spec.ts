@@ -258,6 +258,280 @@ describe("legacy canvas structures survive patching", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* update-design-element-style for full-fidelity design fragments              */
+/* -------------------------------------------------------------------------- */
+
+describe("update-design-element-style", () => {
+  const designPlan = (): PlanContent =>
+    planContentSchema.parse({
+      version: 2,
+      canvas: {
+        mode: "design",
+        frames: [
+          {
+            id: "home-frame",
+            label: "Home",
+            wireframe: {
+              surface: "desktop",
+              renderMode: "design",
+              html: '<main><button data-design-id="primary-cta" class="cta">Buy now</button></main>',
+            },
+          },
+        ],
+      },
+      prototype: {
+        initialScreenId: "home-frame",
+        screens: [
+          {
+            id: "home-frame",
+            renderMode: "design",
+            html: '<main><button data-design-id="primary-cta" class="cta">Buy now</button></main>',
+          },
+        ],
+      },
+      blocks: [
+        {
+          id: "linked-design",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            renderMode: "design",
+            html: '<section data-plan-design-id="hero-panel" style="color: #111; padding: 8px">Hero</section>',
+          },
+        },
+      ],
+    });
+
+  it("updates a selected canvas design element by data-design-id", () => {
+    const next = applyPlanContentPatches(designPlan(), [
+      {
+        op: "update-design-element-style",
+        frameId: "home-frame",
+        elementId: "primary-cta",
+        styles: {
+          "background-color": "#0f766e",
+          borderRadius: "10px",
+        },
+      },
+    ]);
+
+    const html = next.canvas?.frames[0]?.wireframe?.html;
+    expect(html).toContain('data-design-id="primary-cta"');
+    expect(html).toContain(
+      'style="background-color: #0f766e; border-radius: 10px"',
+    );
+    expect(next.prototype?.screens[0]?.html).toContain(
+      'style="background-color: #0f766e; border-radius: 10px"',
+    );
+  });
+
+  it("uses frameId as the selected source and does not patch a mismatched blockId", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      canvas: {
+        mode: "design",
+        frames: [
+          {
+            id: "selected-frame",
+            blockId: "frame-source",
+            wireframe: {
+              surface: "desktop",
+              renderMode: "design",
+              html: '<button data-design-id="target">Inline source</button>',
+            },
+          },
+        ],
+      },
+      blocks: [
+        {
+          id: "frame-source",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            renderMode: "design",
+            html: '<button data-design-id="target">Block source</button>',
+          },
+        },
+        {
+          id: "wrong-block",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            renderMode: "design",
+            html: '<button data-design-id="target">Wrong source</button>',
+          },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      {
+        op: "update-design-element-style",
+        frameId: "selected-frame",
+        blockId: "wrong-block",
+        elementId: "target",
+        styles: { color: "#0f766e" },
+      },
+    ]);
+    const source = next.blocks.find((block) => block.id === "frame-source");
+    const wrong = next.blocks.find((block) => block.id === "wrong-block");
+    if (source?.type !== "wireframe" || wrong?.type !== "wireframe") {
+      throw new Error("expected wireframes");
+    }
+    expect(source.data.html).toContain('style="color: #0f766e"');
+    expect(next.canvas?.frames[0]?.wireframe?.html).toBe(source.data.html);
+    expect(wrong.data.html).not.toContain("#0f766e");
+  });
+
+  it("updates and removes inline styles on block-backed design fragments", () => {
+    const next = applyPlanContentPatches(designPlan(), [
+      {
+        op: "update-design-element-style",
+        blockId: "linked-design",
+        elementId: "hero-panel",
+        styles: {
+          color: "#222",
+          padding: null,
+        },
+      },
+    ]);
+
+    const block = next.blocks.find(
+      (candidate) => candidate.id === "linked-design",
+    );
+    if (block?.type !== "wireframe") throw new Error("expected wireframe");
+    expect(block.data.html).toContain('style="color: #222"');
+    expect(block.data.html).not.toContain("padding");
+  });
+
+  it("does not auto-sync block-only patches across prototype screens with matching element ids", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      prototype: {
+        initialScreenId: "one",
+        screens: [
+          {
+            id: "one",
+            renderMode: "design",
+            html: '<button data-design-id="shared">One</button>',
+          },
+          {
+            id: "two",
+            renderMode: "design",
+            html: '<button data-design-id="shared">Two</button>',
+          },
+        ],
+      },
+      blocks: [
+        {
+          id: "block-source",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            renderMode: "design",
+            html: '<button data-design-id="shared">Block</button>',
+          },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      {
+        op: "update-design-element-style",
+        blockId: "block-source",
+        elementId: "shared",
+        styles: { color: "#0f766e" },
+      },
+    ]);
+    const block = next.blocks.find(
+      (candidate) => candidate.id === "block-source",
+    );
+    if (block?.type !== "wireframe") throw new Error("expected wireframe");
+    expect(block.data.html).toContain('style="color: #0f766e"');
+    expect(next.prototype?.screens[0]?.html).not.toContain("#0f766e");
+    expect(next.prototype?.screens[1]?.html).not.toContain("#0f766e");
+  });
+
+  it("rejects unsafe property names, style values, and viewport traps", () => {
+    expect(() =>
+      applyPlanContentPatches(designPlan(), [
+        {
+          op: "update-design-element-style",
+          frameId: "home-frame",
+          elementId: "primary-cta",
+          styles: { "background-color;position": "fixed" },
+        },
+      ]),
+    ).toThrow(/Invalid CSS property name/i);
+
+    expect(() =>
+      applyPlanContentPatches(designPlan(), [
+        {
+          op: "update-design-element-style",
+          frameId: "home-frame",
+          elementId: "primary-cta",
+          styles: { background: "url(javascript:alert(1))" },
+        },
+      ]),
+    ).toThrow(/Unsafe CSS style value/i);
+
+    expect(() =>
+      applyPlanContentPatches(designPlan(), [
+        {
+          op: "update-design-element-style",
+          frameId: "home-frame",
+          elementId: "primary-cta",
+          styles: { position: "fixed" },
+        },
+      ]),
+    ).toThrow(/Unsafe CSS style value/i);
+
+    expect(() =>
+      applyPlanContentPatches(designPlan(), [
+        {
+          op: "update-design-element-style",
+          frameId: "home-frame",
+          elementId: "primary-cta",
+          styles: { background: String.raw`url(\6a avascript:alert(1))` },
+        },
+      ]),
+    ).toThrow(/Unsafe CSS style value/i);
+  });
+
+  it("rejects duplicate data-design-id targets in one design screen", () => {
+    expect(() =>
+      applyPlanContentPatches(
+        planContentSchema.parse({
+          version: 2,
+          canvas: {
+            mode: "design",
+            frames: [
+              {
+                id: "dup-frame",
+                wireframe: {
+                  surface: "desktop",
+                  renderMode: "design",
+                  html: '<button data-design-id="dup">One</button><button data-design-id="dup">Two</button>',
+                },
+              },
+            ],
+          },
+          blocks: [],
+        }),
+        [
+          {
+            op: "update-design-element-style",
+            frameId: "dup-frame",
+            elementId: "dup",
+            styles: { color: "#0f766e" },
+          },
+        ],
+      ),
+    ).toThrow(/matched 2 elements/i);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* batch patches in one call applied sequentially                             */
 /* -------------------------------------------------------------------------- */
 

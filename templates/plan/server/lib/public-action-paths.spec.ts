@@ -19,6 +19,9 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
       "/_agent-native/actions/create-prototype-plan",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/create-plan-design",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
       "/_agent-native/actions/create-visual-questions",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(

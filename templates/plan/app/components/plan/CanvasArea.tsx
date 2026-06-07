@@ -23,7 +23,7 @@ import type {
   PlanContent,
   PlanWireframeSurface,
 } from "@shared/plan-content";
-import { Wireframe } from "./wireframe/Wireframe";
+import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
 
 /* -------------------------------------------------------------------------- */
 /* Pan / zoom feel — recovered from the on-main hardcoded renderer            */
@@ -59,6 +59,8 @@ export type CanvasMarkupCreateContext = {
   };
 };
 
+export type { DesignElementSelection };
+
 type WorldPoint = {
   x: number;
   y: number;
@@ -93,6 +95,8 @@ export function CanvasArea({
   blockLookup,
   markupMode = "none",
   onCanvasMarkupCreate,
+  selectedDesignElementKey,
+  onDesignElementSelect,
 }: {
   canvas: NonNullable<PlanContent["canvas"]>;
   blockLookup: Map<string, PlanBlock>;
@@ -101,6 +105,8 @@ export function CanvasArea({
     annotation: CanvasMarkupAnnotationInput,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  selectedDesignElementKey?: string | null;
+  onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const initialView = useMemo<CanvasView>(
@@ -264,6 +270,47 @@ export function CanvasArea({
     );
     return { width: maxX + 360, height: maxY + 280 };
   }, [frames, annotations, legacyNotes]);
+
+  const hasSavedViewport = Boolean(
+    canvas.viewport?.zoom !== undefined ||
+    canvas.viewport?.pan?.x !== undefined ||
+    canvas.viewport?.pan?.y !== undefined,
+  );
+
+  useEffect(() => {
+    if (hasSavedViewport || canvas.mode !== "design") return;
+    const element = viewportRef.current;
+    const firstFrame = frames[0];
+    if (!element || !firstFrame) return;
+    const frameWidth =
+      firstFrame.width ?? SURFACE_SIZE[surfaceOf(firstFrame)].width;
+    const frameHeight =
+      firstFrame.height ?? SURFACE_SIZE[surfaceOf(firstFrame)].height;
+    const zoom = clamp(
+      Math.min(
+        DEFAULT_VIEW.zoom,
+        (element.clientWidth - 48) / frameWidth,
+        (element.clientHeight - 48) / frameHeight,
+      ),
+      MIN_ZOOM,
+      MAX_ZOOM,
+    );
+    setView({
+      zoom,
+      pan: {
+        x: Math.max(
+          16,
+          (element.clientWidth - frameWidth * zoom) / 2 -
+            (firstFrame.x ?? 96) * zoom,
+        ),
+        y: Math.max(
+          24,
+          (element.clientHeight - frameHeight * zoom) / 2 -
+            (firstFrame.y ?? 96) * zoom,
+        ),
+      },
+    });
+  }, [canvas.mode, frames, hasSavedViewport]);
 
   const { zoom, pan } = view;
   const isCanvasMarkupMode =
@@ -445,6 +492,13 @@ export function CanvasArea({
     const target = event.target as HTMLElement;
     // Don't start a pan when grabbing interactive chrome (zoom controls etc.).
     if (event.button === 0 && target.closest("[data-plan-interactive]")) return;
+    if (
+      event.button === 0 &&
+      onDesignElementSelect &&
+      target.closest("[data-design-id], [data-plan-design-id]")
+    ) {
+      return;
+    }
     if (markupMode === "comment") return;
     if (isCanvasMarkupMode && event.button === 0) {
       const point = clientPointToWorld(event);
@@ -572,6 +626,7 @@ export function CanvasArea({
               key={`${edge.from}-${edge.to}-${index}`}
               edge={edge}
               frameById={measuredFrameById}
+              showLabel={false}
             />
           ))}
 
@@ -598,6 +653,18 @@ export function CanvasArea({
               frame={frame}
               block={frame.blockId ? blockLookup.get(frame.blockId) : undefined}
               onMeasure={reportFrameHeight}
+              selectedDesignElementKey={selectedDesignElementKey}
+              onDesignElementSelect={
+                markupMode === "none" ? onDesignElementSelect : undefined
+              }
+            />
+          ))}
+
+          {connectors.map((edge, index) => (
+            <CanvasConnectorLabel
+              key={`connector-label-${edge.from}-${edge.to}-${index}`}
+              edge={edge}
+              frameById={measuredFrameById}
             />
           ))}
 
@@ -796,10 +863,14 @@ function CanvasArtboard({
   frame,
   block,
   onMeasure,
+  selectedDesignElementKey,
+  onDesignElementSelect,
 }: {
   frame: PlanArtboard;
   block?: PlanBlock;
   onMeasure?: (id: string, height: number) => void;
+  selectedDesignElementKey?: string | null;
+  onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
   const surface = surfaceOf(frame);
   const preset = SURFACE_SIZE[surface];
@@ -858,6 +929,10 @@ function CanvasArtboard({
             data={kitData as unknown as Parameters<typeof Wireframe>[0]["data"]}
             canvasSize={height}
             canvasWidth={width}
+            frameId={frame.id}
+            blockId={frame.blockId}
+            selectedDesignElementKey={selectedDesignElementKey}
+            onDesignElementSelect={onDesignElementSelect}
           />
         ) : legacyData ? (
           <Wireframe data={legacyData} canvasSize={height} />
@@ -1885,9 +1960,11 @@ function CanvasLegacyNote({ note }: { note: PlanCanvasNote }) {
 function CanvasConnector({
   edge,
   frameById,
+  showLabel = true,
 }: {
   edge: PlanConnector;
   frameById: Map<string, PlanArtboard>;
+  showLabel?: boolean;
 }) {
   const from = frameById.get(edge.from);
   const to = frameById.get(edge.to);
@@ -1943,7 +2020,7 @@ function CanvasConnector({
         <path d={path} />
         <path d={sketchHeadPath(ex, ey, headBase.x, headBase.y)} />
       </g>
-      {edge.label && (
+      {showLabel && edge.label && (
         <text
           x={isHorizontal ? midX : (sx + ex) / 2}
           y={isHorizontal ? Math.min(sy, ey) - 9 : midY - 9}
@@ -1954,6 +2031,37 @@ function CanvasConnector({
         </text>
       )}
     </svg>
+  );
+}
+
+function CanvasConnectorLabel({
+  edge,
+  frameById,
+}: {
+  edge: PlanConnector;
+  frameById: Map<string, PlanArtboard>;
+}) {
+  if (!edge.label) return null;
+  const from = frameById.get(edge.from);
+  const to = frameById.get(edge.to);
+  if (!from || !to) return null;
+
+  const route = connectorRoute(from, to);
+  const isHorizontal = route.axis === "horizontal";
+  const left = isHorizontal
+    ? (route.from.x + route.to.x) / 2
+    : (route.from.x + route.to.x) / 2;
+  const top = isHorizontal
+    ? Math.min(route.from.y, route.to.y) - 26
+    : (route.from.y + route.to.y) / 2 - 28;
+
+  return (
+    <div
+      className="pointer-events-none absolute z-20 -translate-x-1/2 rounded-full border border-plan-line bg-plan-paper/95 px-2 py-0.5 text-[15px] font-semibold text-[hsl(var(--ring))] shadow-sm"
+      style={{ left, top }}
+    >
+      {edge.label}
+    </div>
   );
 }
 

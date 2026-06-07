@@ -11,6 +11,7 @@ import type {
 import {
   type CanvasMarkupCreateContext,
   type CanvasMarkupMode,
+  type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
 import {
@@ -121,6 +122,20 @@ export function PlanContentRenderer({
     await updateBlock(blockId, {
       ...block,
       data: { ...block.data, markdown },
+    });
+  };
+
+  const updateDesignElementStyle = async (
+    selection: DesignElementSelection,
+    styles: Record<string, string | null>,
+  ) => {
+    if (!onContentPatch || editingDisabled) return;
+    await onContentPatch({
+      op: "update-design-element-style",
+      elementId: selection.elementId,
+      frameId: selection.frameId,
+      blockId: selection.blockId,
+      styles,
     });
   };
 
@@ -267,6 +282,11 @@ export function PlanContentRenderer({
             prototypeOnly={prototypeOnly}
             visualMode={visualSurfaceMode}
             onVisualModeChange={onVisualSurfaceModeChange}
+            onDesignElementStyleChange={
+              editingDisabled || !onContentPatch
+                ? undefined
+                : updateDesignElementStyle
+            }
           />
         )}
         {!prototypeOnly && (

@@ -71,7 +71,9 @@ export type CreatePrototypePlanInput = CreatePlanInput & {
     title: string;
     summary?: string;
     surface?: "desktop" | "mobile" | "popover" | "panel" | "browser";
+    renderMode?: "wireframe" | "design";
     html?: string;
+    css?: string;
     state?: Array<{ id?: string; label: string; value: string }>;
   }>;
   transitions?: Array<{
@@ -82,6 +84,13 @@ export type CreatePrototypePlanInput = CreatePlanInput & {
     trigger?: string;
   }>;
   implementationNotes?: string;
+};
+
+export type CreatePlanDesignInput = CreatePrototypePlanInput & {
+  designMd?: string;
+  brandKit?: Record<string, unknown>;
+  codebaseStyles?: Record<string, unknown>;
+  designNotes?: string;
 };
 
 export type VisualQuestionOptionInput = {
@@ -210,6 +219,17 @@ export function useCreatePrototypePlan() {
   >("create-prototype-plan", {
     onSuccess: invalidate,
     onError: showActionError("Failed to create prototype plan"),
+  });
+}
+
+export function useCreatePlanDesign() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    CreatePlanDesignInput
+  >("create-plan-design", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to create plan design"),
   });
 }
 

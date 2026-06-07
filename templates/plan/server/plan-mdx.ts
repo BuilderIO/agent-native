@@ -298,6 +298,7 @@ function serializeNode(node: PlanWireframeNode, indent = ""): string {
 
 function serializeScreen(data: {
   surface: string;
+  renderMode?: string;
   caption?: string;
   html?: string;
   css?: string;
@@ -306,6 +307,7 @@ function serializeScreen(data: {
 }): string {
   const attrs = [
     prop("surface", data.surface),
+    prop("renderMode", data.renderMode),
     prop("caption", data.caption),
     prop("html", data.html),
     prop("css", data.css),
@@ -463,7 +465,7 @@ function serializePrototype(prototype: PlanPrototype): string {
   const screens = prototype.screens
     .map(
       (screen) =>
-        `<PrototypeScreen${prop("id", screen.id)}${prop("title", screen.title)}${prop("summary", screen.summary)}${prop("surface", screen.surface)}${prop("state", screen.state)}${prop("html", screen.html)} />`,
+        `<PrototypeScreen${prop("id", screen.id)}${prop("title", screen.title)}${prop("summary", screen.summary)}${prop("surface", screen.surface)}${prop("renderMode", screen.renderMode)}${prop("state", screen.state)}${prop("html", screen.html)}${prop("css", screen.css)} />`,
     )
     .join("\n\n");
   const transitions = (prototype.transitions ?? [])
@@ -536,7 +538,7 @@ function serializeCanvas(content: PlanContent): string {
     )
     .join("\n");
 
-  return `<DesignBoard${prop("title", canvas.title)}${prop("version", content.version)}>\n${[
+  return `<DesignBoard${prop("title", canvas.title)}${prop("mode", canvas.mode)}${prop("design", canvas.design)}${prop("version", content.version)}>\n${[
     sectionSource,
     looseFrames,
     annotations,
@@ -789,6 +791,10 @@ function parseScreen(
   return {
     surface:
       (stringAttr(node, "surface") as PlanArtboard["surface"]) ?? "desktop",
+    renderMode: stringAttr(
+      node,
+      "renderMode",
+    ) as PlanWireframeBlock["data"]["renderMode"],
     caption: stringAttr(node, "caption"),
     html: stringAttr(node, "html"),
     css: stringAttr(node, "css"),
@@ -918,11 +924,16 @@ function parsePrototype(source: string): PlanPrototype | undefined {
         title: stringAttr(child, "title"),
         summary: stringAttr(child, "summary"),
         surface: stringAttr(child, "surface") as PlanPrototypeScreen["surface"],
+        renderMode: stringAttr(
+          child,
+          "renderMode",
+        ) as PlanPrototypeScreen["renderMode"],
         state: arrayAttr<NonNullable<PlanPrototypeScreen["state"]>[number]>(
           child,
           "state",
         ),
         html,
+        css: stringAttr(child, "css"),
       });
       continue;
     }
@@ -1032,7 +1043,14 @@ function parseCanvas(source: string): PlanContent["canvas"] {
     parseCanvasChild(child, undefined, `canvas-${index}`);
 
   return {
+    mode: stringAttr(board, "mode") as NonNullable<
+      PlanContent["canvas"]
+    >["mode"],
     title: stringAttr(board, "title"),
+    design: dataAttr<NonNullable<PlanContent["canvas"]>["design"]>(
+      board,
+      "design",
+    ),
     sections: sections.length ? sections : undefined,
     frames,
     flow: flow.length ? flow : undefined,

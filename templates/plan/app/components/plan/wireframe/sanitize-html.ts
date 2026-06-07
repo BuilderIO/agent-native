@@ -68,6 +68,27 @@ function isSafeUrl(value: string): boolean {
 
 const DANGEROUS_STYLE =
   /(expression\s*\(|javascript:|vbscript:|url\s*\(\s*['"]?\s*(?:javascript|vbscript|data:text\/html))/i;
+const DANGEROUS_CSS =
+  /(@(?:import|font-face|keyframes|page|namespace|charset)\b|expression\s*\(|javascript:|vbscript:|data:text\/html|data:image\/svg\+xml|<\/?\s*(?:script|style)\b)/i;
+const DANGEROUS_VIEWPORT_CSS =
+  /(?:^|[;{\s])position\s*:\s*(?:fixed|sticky)\b|(?:^|[;{\s])z-index\s*:\s*[1-9]\d{4,}\b/i;
+
+function decodeCssSafetyEscapes(value: string): string {
+  return value.replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g, (_match, escaped) => {
+    const hex = String(escaped).match(/^[0-9a-fA-F]{1,6}/)?.[0];
+    if (hex) {
+      const point = Number.parseInt(hex, 16);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    }
+    return String(escaped)[0] ?? "";
+  });
+}
+
+function cssSafetyText(value: string): string {
+  return decodeCssSafetyEscapes(value)
+    .toLowerCase()
+    .replace(/[\u0000-\u0020]+/g, "");
+}
 
 /** Conservative no-DOM fallback for any non-browser code path (SSR). */
 function fallbackStrip(html: string): string {
@@ -102,6 +123,104 @@ export function sanitizeWireframeHtml(html: string | undefined): string {
   doc.querySelectorAll(BLOCKED_TAGS).forEach((el) => el.remove());
   sanitizeElementAttributes(doc.body);
   return doc.body.innerHTML;
+}
+
+export function sanitizeWireframeCss(css: string | undefined): string {
+  if (!css) return "";
+  return css
+    .split("\n")
+    .filter((line) => {
+      const decoded = decodeCssSafetyEscapes(line);
+      const compact = cssSafetyText(line);
+      return !(
+        DANGEROUS_CSS.test(line) ||
+        DANGEROUS_CSS.test(decoded) ||
+        DANGEROUS_VIEWPORT_CSS.test(decoded) ||
+        /(?:javascript|vbscript):|data:(?:text\/html|image\/svg\+xml)|expression\(|url\(['"]?(?:javascript|vbscript|data:(?:text\/html|image\/svg\+xml))/.test(
+          compact,
+        )
+      );
+    })
+    .join("\n")
+    .replace(/\bjava\s*script\s*:/gi, "")
+    .replace(/\bvb\s*script\s*:/gi, "")
+    .replace(/\bdata\s*:\s*(?:text\/html|image\/svg\+xml)/gi, "");
+}
+
+export function scopeDesignCss(css: string, scopeSelector: string): string {
+  if (!css.trim()) return "";
+  return css.replace(
+    /(^|[{}])\s*([^@{}][^{}]*)\{/g,
+    (_match, boundary: string, selectors: string) => {
+      const scoped = splitSelectorList(selectors)
+        .map((selector) => selector.trim())
+        .filter(Boolean)
+        .map((selector) => {
+          if (selector.startsWith(scopeSelector)) return selector;
+          if (
+            selector === ":root" ||
+            selector === "html" ||
+            selector === "body"
+          )
+            return scopeSelector;
+          return `${scopeSelector} ${selector}`;
+        })
+        .join(", ");
+      return `${boundary} ${scoped} {`;
+    },
+  );
+}
+
+function splitSelectorList(selectors: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (const char of selectors) {
+    current += char;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (char === "]") {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+      continue;
+    }
+    if (char === "(") {
+      parenDepth += 1;
+      continue;
+    }
+    if (char === ")") {
+      parenDepth = Math.max(0, parenDepth - 1);
+      continue;
+    }
+    if (char === "," && parenDepth === 0 && bracketDepth === 0) {
+      parts.push(current.slice(0, -1));
+      current = "";
+    }
+  }
+
+  parts.push(current);
+  return parts;
 }
 
 function sanitizeElementAttributes(root: ParentNode) {

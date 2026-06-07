@@ -17,9 +17,10 @@ react to.
 
 `/visual-plan` remains the general command for architecture, backend, refactors,
 and mixed work. Use `/prototype-plan` when the UI review needs a functional live
-prototype instead of static screens. Use `/visual-questions` only when the user
-explicitly wants visual intake before planning, and `/visualize-plan` when a text
-plan already exists.
+prototype instead of static screens. Use `/plan-design` when polish, brand, or
+visual fidelity are material to the decision. Use `/visual-questions` only when
+the user explicitly wants visual intake before planning, and `/visualize-plan`
+when a text plan already exists.
 
 ## Plan Discipline
 
@@ -364,6 +365,8 @@ already shows. Never produce this.
 - `create-ui-plan`: create the UI-first structured visual plan.
 - `create-prototype-plan`: create a prototype-first plan when UI review needs a
   functional live prototype.
+- `create-plan-design`: create a full-fidelity branded design plan when polish,
+  brand, and detailed visual direction are primary review inputs.
 - `convert-visual-plan-to-prototype`: convert an existing HTML wireframe canvas
   into a prototype plan.
 - `create-visual-questions`: use only for the explicit `/visual-questions`
@@ -399,7 +402,7 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`,
+After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`, `/plan-design`,
 `/visual-questions`, `/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.

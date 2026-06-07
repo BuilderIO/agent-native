@@ -98,6 +98,7 @@ function serializeNode(node: PlanWireframeNode, indent = ""): string {
 function serializeScreen(data: WireframeData): string {
   const attrs = [
     prop("surface", data.surface),
+    prop("renderMode", data.renderMode),
     prop("caption", data.caption),
     prop("html", data.html),
     prop("css", data.css),
@@ -193,6 +194,7 @@ function parseScreen(node: WireframeMdxNode, idContext: string): WireframeData {
   return {
     surface:
       (stringAttr(node, "surface") as WireframeData["surface"]) ?? "desktop",
+    renderMode: stringAttr(node, "renderMode") as WireframeData["renderMode"],
     caption: stringAttr(node, "caption"),
     html: stringAttr(node, "html"),
     css: stringAttr(node, "css"),

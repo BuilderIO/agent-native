@@ -19,6 +19,7 @@ user reacts to visuals first and reads prose only where it helps.
 `/visual-plan` is the canonical command and the main entry point. Use `/ui-plan`
 when the work is primarily product UI and review should start with the screens.
 Use `/prototype-plan` when review should start with a functional live prototype.
+Use `/plan-design` when review should start with full-fidelity branded design.
 Use `/visual-questions` only when the user explicitly wants a visual intake form
 before planning. Use `/visualize-plan` to turn an existing Codex, Claude Code,
 Markdown, or pasted plan into a visual companion.
@@ -407,6 +408,8 @@ already shows. Never produce this.
 - `create-ui-plan`: start a UI-first plan when the work is primarily product UI.
 - `create-prototype-plan`: start a prototype-first plan with a functional top
   review surface.
+- `create-plan-design`: start a full-fidelity branded Design-tab plan with an
+  optional matching Prototype tab.
 - `convert-visual-plan-to-prototype`: convert an existing HTML wireframe canvas
   into a prototype plan.
 - `create-visual-questions`: use only for the explicit `/visual-questions`
@@ -443,7 +446,7 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 ```
 
-After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`,
+After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`, `/plan-design`,
 `/visual-questions`, `/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.

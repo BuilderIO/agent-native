@@ -134,6 +134,8 @@ export type PlanWireframeSurface =
   | "panel"
   | "browser";
 
+export type PlanVisualCanvasMode = "wireframe" | "design";
+
 /** Tone keyword reused across screen primitives. The renderer maps to color. */
 export type PlanWireframeTone = "default" | "accent" | "warn" | "ok" | "muted";
 
@@ -241,6 +243,8 @@ export type PlanWireframeBlock = PlanBlockBase & {
   type: "wireframe";
   data: {
     surface: PlanWireframeSurface;
+    /** `design` renders full-fidelity branded HTML/CSS instead of a sketch. */
+    renderMode?: PlanVisualCanvasMode;
     caption?: string;
     /**
      * Neutral, textless loading register. The renderer drops borders, the sketch
@@ -701,6 +705,7 @@ export type PlanPrototypeScreen = {
   title?: string;
   summary?: string;
   surface?: PlanWireframeSurface;
+  renderMode?: PlanVisualCanvasMode;
   /**
    * A bounded semantic HTML fragment. Prototype HTML may use the renderer's
    * safe Alpine-like directives (`x-data`, `x-model`, `x-for`, `x-text`,
@@ -709,6 +714,8 @@ export type PlanPrototypeScreen = {
    * changes; never include scripts.
    */
   html: string;
+  /** Scoped CSS for full-fidelity prototype screens. */
+  css?: string;
   /** Optional metadata for exports/back-compat; the live viewer does not render this as chrome. */
   state?: Array<{
     id?: string;
@@ -751,7 +758,21 @@ export type PlanContent = {
   notionSync?: boolean;
   prototype?: PlanPrototype;
   canvas?: {
+    /** `design` changes the top canvas tab from Wireframes to Design. */
+    mode?: PlanVisualCanvasMode;
     title?: string;
+    /** Captured brand/design source context used by /plan-design. */
+    design?: {
+      designMd?: string;
+      brandKit?: Record<string, unknown>;
+      codebaseStyles?: Record<string, unknown>;
+      notes?: string;
+      styleSources?: Array<{
+        kind: "design-md" | "fig-file" | "codebase" | "manual";
+        title?: string;
+        summary?: string;
+      }>;
+    };
     /** Optional initial viewport persisted by source-sync exports. */
     viewport?: PlanCanvasViewport;
     sections?: PlanBoardSection[];
@@ -793,6 +814,17 @@ export type PlanContentPatch =
       op: "patch-prototype-html";
       screenId: string;
       edits: Array<{ find: string; replace: string; all?: boolean }>;
+    }
+  | {
+      /**
+       * Update inline CSS for one full-fidelity design element identified by
+       * `data-design-id` or `data-plan-design-id`.
+       */
+      op: "update-design-element-style";
+      elementId: string;
+      frameId?: string;
+      blockId?: string;
+      styles: Record<string, string | null>;
     }
   | {
       op: "replace-block";
@@ -900,7 +932,7 @@ const baseBlockSchema = z.object({
 });
 
 const unsafeCustomHtmlPattern =
-  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)[\s>/]|\b(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml))\s*:?\s*|\bsrcdoc\s*=|(?:^|\s)(?:on[a-z][\w:-]*|:on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=|expression\s*\(|url\s*\(\s*['"]?\s*(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml)))/i;
+  /(?:<!doctype|<\/?(?:html|head|body|script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)[\s>/]|@(?:import|font-face|keyframes|page|namespace|charset)\b|\b(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml))\s*:?\s*|\bsrcdoc\s*=|(?:^|\s)(?:on[a-z][\w:-]*|:on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=|expression\s*\(|url\s*\(\s*['"]?\s*(?:java\s*script|vb\s*script|data\s*:\s*(?:text\/html|image\/svg\+xml)))/i;
 
 function decodeSafetyEntities(value: string): string {
   return value
@@ -917,15 +949,35 @@ function decodeSafetyEntities(value: string): string {
     });
 }
 
+function decodeCssSafetyEscapes(value: string): string {
+  return value.replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g, (_match, escaped) => {
+    const hex = String(escaped).match(/^[0-9a-fA-F]{1,6}/)?.[0];
+    if (hex) {
+      const point = Number.parseInt(hex, 16);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
+    }
+    return String(escaped)[0] ?? "";
+  });
+}
+
+const decodedSafetyText = (value: string) =>
+  decodeCssSafetyEscapes(decodeSafetyEntities(value));
+
 const compactSafetyText = (value: string) =>
-  decodeSafetyEntities(value)
+  decodedSafetyText(value)
     .toLowerCase()
     .replace(/[\u0000-\u0020]+/g, "");
 
+const unsafeViewportCssPattern =
+  /(?:^|[;{\s])position\s*:\s*(?:fixed|sticky)\b|(?:^|[;{\s])z-index\s*:\s*[1-9]\d{4,}\b/i;
+
 const noFullHtmlDocument = (value: string) => {
+  const decoded = decodedSafetyText(value);
   const compact = compactSafetyText(value);
   return (
     !unsafeCustomHtmlPattern.test(value) &&
+    !unsafeCustomHtmlPattern.test(decoded) &&
+    !unsafeViewportCssPattern.test(decoded) &&
     !/(?:javascript|vbscript):|data:(?:text\/html|image\/svg\+xml)|expression\(|url\(['"]?(?:javascript|vbscript|data:(?:text\/html|image\/svg\+xml))/.test(
       compact,
     )
@@ -1045,9 +1097,12 @@ const wireframeSurfaceSchema = z.enum([
   "browser",
 ]);
 
+const visualCanvasModeSchema = z.enum(["wireframe", "design"]);
+
 export const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
   .object({
     surface: wireframeSurfaceSchema,
+    renderMode: visualCanvasModeSchema.optional(),
     caption: z.string().trim().max(400).optional(),
     skeleton: z.boolean().optional(),
     html: z
@@ -1623,6 +1678,43 @@ const boardSectionSchema: z.ZodType<PlanBoardSection> = z.object({
   artboardIds: z.array(idSchema).max(80).optional(),
 });
 
+const DESIGN_METADATA_JSON_MAX = 20_000;
+
+function isCompactJsonRecord(value: Record<string, unknown>): boolean {
+  try {
+    return JSON.stringify(value).length <= DESIGN_METADATA_JSON_MAX;
+  } catch {
+    return false;
+  }
+}
+
+const designMetadataSchema = z.object({
+  designMd: z.string().max(100_000).optional(),
+  brandKit: z
+    .record(z.string(), z.unknown())
+    .refine(isCompactJsonRecord, {
+      message: "Brand kit metadata is too large.",
+    })
+    .optional(),
+  codebaseStyles: z
+    .record(z.string(), z.unknown())
+    .refine(isCompactJsonRecord, {
+      message: "Codebase style metadata is too large.",
+    })
+    .optional(),
+  notes: z.string().max(20_000).optional(),
+  styleSources: z
+    .array(
+      z.object({
+        kind: z.enum(["design-md", "fig-file", "codebase", "manual"]),
+        title: z.string().trim().max(180).optional(),
+        summary: z.string().trim().max(2_000).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+});
+
 const prototypeScreenStateSchema = z.object({
   id: idSchema.optional(),
   label: z.string().trim().min(1).max(80),
@@ -1635,10 +1727,19 @@ const prototypeScreenSchema: z.ZodType<PlanPrototypeScreen> = z
     title: z.string().trim().max(180).optional(),
     summary: z.string().trim().max(500).optional(),
     surface: wireframeSurfaceSchema.optional(),
+    renderMode: visualCanvasModeSchema.optional(),
     html: z.string().max(40_000).refine(noFullHtmlDocument, {
       message:
         "Prototype screen html must be a bounded fragment without html/head/body/script/style tags.",
     }),
+    css: z
+      .string()
+      .max(20_000)
+      .refine(noFullHtmlDocument, {
+        message:
+          "Prototype screen css must not include document or script tags.",
+      })
+      .optional(),
     state: z.array(prototypeScreenStateSchema).max(24).optional(),
   })
   .strict();
@@ -1768,7 +1869,9 @@ export const planContentSchema: z.ZodType<PlanContent> = z
       prototype: prototypeSchema.optional(),
       canvas: z
         .object({
+          mode: visualCanvasModeSchema.optional(),
           title: z.string().trim().max(180).optional(),
+          design: designMetadataSchema.optional(),
           viewport: z
             .object({
               zoom: z.number().min(0.05).max(8).optional(),
@@ -2017,12 +2120,21 @@ const prototypeScreenPatchSchema = z
     title: z.string().trim().max(180).optional(),
     summary: z.string().trim().max(500).optional(),
     surface: wireframeSurfaceSchema.optional(),
+    renderMode: visualCanvasModeSchema.optional(),
     html: z
       .string()
       .max(40_000)
       .refine(noFullHtmlDocument, {
         message:
           "Prototype screen html must be a bounded fragment without html/head/body/script/style tags.",
+      })
+      .optional(),
+    css: z
+      .string()
+      .max(20_000)
+      .refine(noFullHtmlDocument, {
+        message:
+          "Prototype screen css must not include document or script tags.",
       })
       .optional(),
     state: z.array(prototypeScreenStateSchema).max(24).optional(),
@@ -2062,6 +2174,24 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
         .min(1)
         .max(40),
     }),
+    z
+      .object({
+        op: z.literal("update-design-element-style"),
+        elementId: z.string().trim().min(1).max(160),
+        frameId: idSchema.optional(),
+        blockId: idSchema.optional(),
+        styles: z.record(
+          z.string().trim().min(1).max(80),
+          z.union([z.string().max(400), z.null()]),
+        ),
+      })
+      .refine((patch) => Boolean(patch.frameId || patch.blockId), {
+        message: "Provide frameId or blockId for update-design-element-style.",
+      })
+      .refine((patch) => Object.keys(patch.styles).length > 0, {
+        message: "Provide at least one style to update.",
+        path: ["styles"],
+      }),
     z.object({
       op: z.literal("replace-block"),
       blockId: idSchema,
@@ -2228,6 +2358,10 @@ export function applyPlanContentPatches(
           : html.replace(edit.find, edit.replace);
       }
       screen.html = html;
+      continue;
+    }
+    if (patch.op === "update-design-element-style") {
+      updateDesignElementStyle(next, patch);
       continue;
     }
     if (patch.op === "replace-block") {
@@ -2480,6 +2614,220 @@ export function applyPlanContentPatches(
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+type DesignElementStylePatch = Extract<
+  PlanContentPatch,
+  { op: "update-design-element-style" }
+>;
+
+function updateDesignElementStyle(
+  content: PlanContent,
+  patch: DesignElementStylePatch,
+) {
+  const updateData = (
+    data: PlanWireframeBlock["data"],
+    label: string,
+  ): PlanWireframeBlock["data"] => {
+    if (typeof data.html !== "string") {
+      throw new Error(`${label} has no HTML design fragment to edit.`);
+    }
+    return {
+      ...data,
+      html: updateDesignElementStyleHtml(
+        data.html,
+        patch.elementId,
+        patch.styles,
+      ),
+    };
+  };
+
+  const updateBlockWireframe = (
+    blockId: string,
+    sourceData?: PlanWireframeBlock["data"],
+  ) => {
+    content.blocks = updateBlock(content.blocks, blockId, (block) => {
+      if (block.type !== "wireframe") {
+        throw new Error(`Block ${blockId} is ${block.type}, not wireframe.`);
+      }
+      return {
+        ...block,
+        data: sourceData
+          ? updateData(sourceData, `Canvas frame ${patch.frameId}`)
+          : updateData(block.data, `Block ${blockId}`),
+      };
+    }).blocks;
+  };
+
+  if (patch.frameId) {
+    const frame = content.canvas?.frames.find(
+      (candidate) => candidate.id === patch.frameId,
+    );
+    if (!frame) {
+      throw new Error(`Canvas frame ${patch.frameId} was not found.`);
+    }
+    if (frame.wireframe) {
+      const updated = updateData(frame.wireframe, `Canvas frame ${frame.id}`);
+      frame.wireframe = updated;
+      if (frame.blockId) updateBlockWireframe(frame.blockId, updated);
+      updatePrototypeDesignElementStyle(content, patch, frame);
+      return;
+    }
+    if (frame.blockId) {
+      updateBlockWireframe(frame.blockId);
+      updatePrototypeDesignElementStyle(content, patch, frame);
+      return;
+    }
+    throw new Error(`Canvas frame ${frame.id} has no editable design HTML.`);
+  }
+
+  if (patch.blockId) {
+    updateBlockWireframe(patch.blockId);
+    return;
+  }
+
+  throw new Error(
+    "Provide frameId or blockId for update-design-element-style.",
+  );
+}
+
+function updatePrototypeDesignElementStyle(
+  content: PlanContent,
+  patch: DesignElementStylePatch,
+  frame?: PlanArtboard,
+) {
+  if (!content.prototype) return;
+  const candidateIds = new Set<string>();
+  const addFrameScreenIds = (id: string | undefined) => {
+    if (!id) return;
+    candidateIds.add(id);
+    if (id.startsWith("frame-")) candidateIds.add(id.slice("frame-".length));
+  };
+
+  addFrameScreenIds(frame?.id ?? patch.frameId);
+  if (candidateIds.size === 0) return;
+
+  for (const screen of content.prototype.screens) {
+    if (!candidateIds.has(screen.id)) continue;
+    if (countDesignElementMatches(screen.html, patch.elementId) === 0) continue;
+    screen.html = updateDesignElementStyleHtml(
+      screen.html,
+      patch.elementId,
+      patch.styles,
+    );
+  }
+}
+
+function updateDesignElementStyleHtml(
+  html: string,
+  elementId: string,
+  styles: Record<string, string | null>,
+): string {
+  const escaped = escapeRegExp(elementId);
+  const tagPattern = new RegExp(
+    `<([a-zA-Z][\\w:-]*)([^<>]*\\s(?:data-design-id|data-plan-design-id)\\s*=\\s*(["'])${escaped}\\3[^<>]*)>`,
+    "gi",
+  );
+  const matches = Array.from(html.matchAll(tagPattern));
+  if (matches.length === 0) {
+    throw new Error(
+      `Design element ${elementId} was not found. Add data-design-id="${elementId}" to the target element or select an existing design id.`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `Design element ${elementId} matched ${matches.length} elements; data-design-id values must be unique within a design screen.`,
+    );
+  }
+  const match = matches[0];
+  if (!match) throw new Error(`Design element ${elementId} was not found.`);
+  const [openingTag, tagName, attrs] = match;
+  const nextAttrs = mergeStyleAttribute(attrs, styles);
+  return html.replace(openingTag, `<${tagName}${nextAttrs}>`);
+}
+
+function countDesignElementMatches(html: string, elementId: string): number {
+  const escaped = escapeRegExp(elementId);
+  return Array.from(
+    html.matchAll(
+      new RegExp(
+        `<[a-zA-Z][\\w:-]*[^<>]*\\s(?:data-design-id|data-plan-design-id)\\s*=\\s*(["'])${escaped}\\1[^<>]*>`,
+        "gi",
+      ),
+    ),
+  ).length;
+}
+
+function mergeStyleAttribute(
+  attrs: string,
+  updates: Record<string, string | null>,
+) {
+  const styleAttr = attrs.match(/\sstyle\s*=\s*(["'])([\s\S]*?)\1/i);
+  const styles = parseInlineStyle(styleAttr?.[2] ?? "");
+
+  for (const [rawName, value] of Object.entries(updates)) {
+    const name = normalizeCssPropertyName(rawName);
+    if (value === null || value.trim() === "") styles.delete(name);
+    else {
+      const trimmed = value.trim();
+      if (!noFullHtmlDocument(`${name}: ${trimmed}`)) {
+        throw new Error(`Unsafe CSS style value for ${name}.`);
+      }
+      styles.set(name, trimmed);
+    }
+  }
+
+  const nextStyle = serializeInlineStyle(styles);
+  if (!nextStyle) return attrs.replace(/\sstyle\s*=\s*(["'])([\s\S]*?)\1/i, "");
+  const escapedStyle = escapeHtmlAttribute(nextStyle);
+  if (styleAttr) {
+    return attrs.replace(
+      /\sstyle\s*=\s*(["'])([\s\S]*?)\1/i,
+      ` style="${escapedStyle}"`,
+    );
+  }
+  return `${attrs} style="${escapedStyle}"`;
+}
+
+function parseInlineStyle(style: string) {
+  const parsed = new Map<string, string>();
+  for (const entry of style.split(";")) {
+    const colon = entry.indexOf(":");
+    if (colon <= 0) continue;
+    const name = normalizeCssPropertyName(entry.slice(0, colon));
+    const value = entry.slice(colon + 1).trim();
+    if (value) parsed.set(name, value);
+  }
+  return parsed;
+}
+
+function serializeInlineStyle(styles: Map<string, string>) {
+  return Array.from(styles.entries())
+    .map(([name, value]) => `${name}: ${value}`)
+    .join("; ");
+}
+
+function normalizeCssPropertyName(name: string) {
+  const normalized = name
+    .trim()
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .toLowerCase();
+  if (!/^(?:--)?[a-z0-9][a-z0-9-]*$/.test(normalized)) {
+    throw new Error(`Invalid CSS property name: ${name}`);
+  }
+  return normalized;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 /** Compact a snippet for find/replace error messages. */

@@ -1,4 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  type MouseEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+} from "react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import type {
@@ -16,7 +24,11 @@ import {
   renderNodes,
 } from "./kit";
 import { useWireframeStyle } from "./use-wireframe-style";
-import { sanitizeWireframeHtml } from "./sanitize-html";
+import {
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "./sanitize-html";
 import {
   RUNTIME_SENTINEL_ATTR,
   mountPrototypeRuntime,
@@ -58,6 +70,17 @@ type WireframeData =
   | PlanWireframeBlock["data"]
   | PlanLegacyWireframeBlock["data"];
 
+export type DesignElementSelection = {
+  frameId?: string;
+  blockId?: string;
+  elementId: string;
+  tagName: string;
+  className: string;
+  inlineStyle: string;
+  text: string;
+  computedStyles: Record<string, string>;
+};
+
 function isHtmlData(data: WireframeData): data is PlanWireframeBlock["data"] {
   const html = (data as PlanWireframeBlock["data"]).html;
   return typeof html === "string" && html.trim().length > 0;
@@ -75,12 +98,20 @@ export function Wireframe({
   canvasSize,
   canvasWidth,
   interactive,
+  frameId,
+  blockId,
+  selectedDesignElementKey,
+  onDesignElementSelect,
 }: {
   data: WireframeData;
   compact?: boolean;
   canvasSize?: number;
   canvasWidth?: number;
   interactive?: boolean;
+  frameId?: string;
+  blockId?: string;
+  selectedDesignElementKey?: string | null;
+  onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
   if (isHtmlData(data)) {
     return (
@@ -90,6 +121,10 @@ export function Wireframe({
         canvasSize={canvasSize}
         canvasWidth={canvasWidth}
         interactive={interactive}
+        frameId={frameId}
+        blockId={blockId}
+        selectedDesignElementKey={selectedDesignElementKey}
+        onDesignElementSelect={onDesignElementSelect}
       />
     );
   }
@@ -122,6 +157,7 @@ function ArtboardFrame({
   canvasSize,
   canvasWidth,
   skeleton,
+  renderMode,
   selector,
   caption,
   render,
@@ -131,6 +167,7 @@ function ArtboardFrame({
   canvasSize?: number;
   canvasWidth?: number;
   skeleton?: boolean;
+  renderMode?: "wireframe" | "design";
   selector: string;
   caption?: string;
   render: (ctx: {
@@ -146,8 +183,15 @@ function ArtboardFrame({
   const height = canvasSize ?? preset.height;
   const width = canvasWidth ?? preset.width;
   const scale = compact ? Math.min(1, 320 / preset.width) : 1;
-  const sketchy = style === "sketchy" && !skeleton;
-  const paper = theme === "dark" ? "#201f1c" : "#fbfaf6";
+  const designMode = renderMode === "design";
+  const sketchy = !designMode && style === "sketchy" && !skeleton;
+  const paper = designMode
+    ? theme === "dark"
+      ? "#0f1115"
+      : "#ffffff"
+    : theme === "dark"
+      ? "#201f1c"
+      : "#fbfaf6";
   // Frame border for clean + skeleton modes (sketchy draws its frame via the
   // rough overlay). Soft, matching --wf-line — not hard ink. Skeleton uses its
   // own neutral fill so the loader frame still reads as a frame.
@@ -233,17 +277,33 @@ function HtmlArtboard({
   canvasSize,
   canvasWidth,
   interactive,
+  frameId,
+  blockId,
+  selectedDesignElementKey,
+  onDesignElementSelect,
 }: {
   data: PlanWireframeBlock["data"];
   compact?: boolean;
   canvasSize?: number;
   canvasWidth?: number;
   interactive?: boolean;
+  frameId?: string;
+  blockId?: string;
+  selectedDesignElementKey?: string | null;
+  onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
   // Sanitize model-authored HTML at the render point (defense-in-depth against
   // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
   // html changes, not on every theme/zoom re-render.
   const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const renderMode = data.renderMode ?? "wireframe";
+  const designMode = renderMode === "design";
+  const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const scopeSelector = `[data-plan-design-scope="${scopeId}"]`;
+  const scopedCss = useMemo(() => {
+    const safeCss = sanitizeWireframeCss(data.css);
+    return scopeDesignCss(safeCss, scopeSelector);
+  }, [data.css, scopeSelector]);
   const htmlRef = useRef<HTMLDivElement>(null);
   const runtimeCleanupRef = useRef<(() => void) | null>(null);
   const runtimeTimerRef = useRef<number | null>(null);
@@ -276,6 +336,74 @@ function HtmlArtboard({
 
   useEffect(() => cleanupRuntime, [cleanupRuntime]);
 
+  useEffect(() => {
+    if (!designMode) return;
+    const root = htmlRef.current;
+    if (!root) return;
+    root
+      .querySelectorAll("[data-plan-design-selected]")
+      .forEach((node) => node.removeAttribute("data-plan-design-selected"));
+    if (!selectedDesignElementKey) return;
+    const [selectedFrameId, selectedBlockId, selectedElementId] =
+      selectedDesignElementKey.split("::");
+    if (
+      selectedFrameId !== (frameId ?? "") ||
+      selectedBlockId !== (blockId ?? "") ||
+      !selectedElementId
+    ) {
+      return;
+    }
+    const target = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        "[data-design-id], [data-plan-design-id]",
+      ),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-design-id") === selectedElementId ||
+        candidate.getAttribute("data-plan-design-id") === selectedElementId,
+    );
+    target?.setAttribute("data-plan-design-selected", "true");
+  }, [blockId, designMode, frameId, selectedDesignElementKey, safeHtml]);
+
+  const handleDesignClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (!designMode || !onDesignElementSelect) return;
+      const root = htmlRef.current;
+      const rawTarget = event.target;
+      if (!root || !(rawTarget instanceof HTMLElement)) return;
+      const target = rawTarget.closest<HTMLElement>(
+        "[data-design-id], [data-plan-design-id]",
+      );
+      if (!target || !root.contains(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const computed = window.getComputedStyle(target);
+      onDesignElementSelect({
+        frameId,
+        blockId,
+        elementId:
+          target.getAttribute("data-design-id") ??
+          target.getAttribute("data-plan-design-id") ??
+          "",
+        tagName: target.tagName.toLowerCase(),
+        className: target.getAttribute("class") ?? "",
+        inlineStyle: target.getAttribute("style") ?? "",
+        text: (target.textContent ?? "").trim().slice(0, 120),
+        computedStyles: {
+          color: computed.color,
+          backgroundColor: computed.backgroundColor,
+          fontFamily: computed.fontFamily,
+          fontSize: computed.fontSize,
+          fontWeight: computed.fontWeight,
+          borderRadius: computed.borderRadius,
+          padding: computed.padding,
+          margin: computed.margin,
+        },
+      });
+    },
+    [blockId, designMode, frameId, onDesignElementSelect],
+  );
+
   return (
     <ArtboardFrame
       surface={data.surface}
@@ -283,6 +411,7 @@ function HtmlArtboard({
       canvasSize={canvasSize}
       canvasWidth={canvasWidth}
       skeleton={data.skeleton}
+      renderMode={renderMode}
       selector={HTML_ROUGH_SELECTOR}
       caption={data.caption}
       render={({ theme, style }) => (
@@ -291,10 +420,18 @@ function HtmlArtboard({
           className="plan-html-frame"
           data-theme={theme}
           data-style={style}
+          data-render-mode={renderMode}
+          data-plan-design-scope={scopeId}
           data-skeleton={data.skeleton ? "true" : undefined}
           data-prototype-live={interactive ? "true" : undefined}
-          dangerouslySetInnerHTML={{ __html: safeHtml }}
-        />
+          onClick={handleDesignClick}
+        >
+          {scopedCss && <style>{scopedCss}</style>}
+          <div
+            className="plan-html-frame-content"
+            dangerouslySetInnerHTML={{ __html: safeHtml }}
+          />
+        </div>
       )}
     />
   );

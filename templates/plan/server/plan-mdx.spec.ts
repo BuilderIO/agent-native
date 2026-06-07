@@ -12,7 +12,31 @@ function sampleContent(): PlanContent {
     title: "Checkout review flow",
     brief: "Review checkout states before implementation.",
     canvas: {
+      mode: "design",
       title: "Checkout board",
+      design: {
+        designMd: "Use polished checkout review surfaces.",
+        brandKit: {
+          colors: { primary: "#0f766e", ink: "#111827" },
+          radius: { card: "8px" },
+        },
+        codebaseStyles: {
+          cssVars: { "--radius-card": "8px", "--color-primary": "#0f766e" },
+        },
+        notes: "Prefer dense operational UI over marketing layout.",
+        styleSources: [
+          {
+            kind: "design-md",
+            title: "design.md",
+            summary: "Primary design brief.",
+          },
+          {
+            kind: "codebase",
+            title: "app/globals.css",
+            summary: "Existing CSS custom properties.",
+          },
+        ],
+      },
       viewport: { zoom: 0.81, pan: { x: 24, y: 36 } },
       sections: [
         {
@@ -189,6 +213,8 @@ describe("plan MDX source adapter", () => {
     expect(folder["plan.mdx"]).toContain("<RichText");
     expect(folder["plan.mdx"]).toContain("<ImplementationMap");
     expect(folder["canvas.mdx"]).toContain("<DesignBoard");
+    expect(folder["canvas.mdx"]).toContain('mode="design"');
+    expect(folder["canvas.mdx"]).toContain("styleSources");
     expect(folder["canvas.mdx"]).toContain("<Artboard");
     expect(folder["canvas.mdx"]).toContain("<FrameScreen");
     expect(folder["canvas.mdx"]).toContain("<Annotation");
@@ -221,6 +247,13 @@ describe("plan MDX source adapter", () => {
     ).toBe("Continue");
     expect(parsed.canvas?.viewport?.zoom).toBe(0.81);
     expect(parsed.canvas?.viewport?.pan?.x).toBe(24);
+    expect(parsed.canvas?.mode).toBe("design");
+    expect(
+      parsed.canvas?.design?.styleSources?.map((source) => source.title),
+    ).toEqual(["design.md", "app/globals.css"]);
+    expect(parsed.canvas?.design?.brandKit?.colors).toMatchObject({
+      primary: "#0f766e",
+    });
     expect(parsed.canvas?.annotations?.map((note) => note.id)).toContain(
       "legacy-review-note",
     );
