@@ -31,16 +31,16 @@ app/                   # React frontend
 
 server/                # Nitro API server
   routes/
-    api/               # File-based API routes (auto-discovered)
+    api/               # Route-only endpoints (uploads, webhooks, OAuth, streaming)
     [...page].get.ts   # SSR catch-all (delegates to React Router)
   plugins/             # Server plugins (startup logic)
   lib/                 # Shared server modules
 
 shared/                # Isomorphic code (imported by both client & server)
 
-actions/               # Agent-callable scripts
+actions/               # Shared app operations (defineAction; UI uses action hooks)
   run.ts               # Script dispatcher
-  *.ts                 # Individual scripts (pnpm action <name>)
+  *.ts                 # Individual actions (pnpm action <name>)
 
 data/                  # Local development database fallback
 
@@ -50,7 +50,7 @@ react-router.config.ts # React Router framework config
 
 ## Framework Basics
 
-**SSR-first framework, CSR-by-default content:** This app uses React Router v7 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). All real data fetching and rendering happens on the client via React Query hooks. Server-side data fetching is the exception — only used for public pages that need SEO/og tags.
+**SSR-first framework, CSR-by-default content:** This app uses React Router v7 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). Normal app data fetching happens on the client via action hooks. Server-side data fetching is the exception — only used for public pages that need SEO/OG tags.
 
 ## Adding a Page
 
@@ -114,19 +114,17 @@ Then add `app/routes/reports.tsx` and render the page with
 to inherit package updates because the package still owns the layout, sidebar,
 header, and built-in routes.
 
-**Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO content or og tags based on dynamic data. The standard pattern is: SSR renders a loading spinner, client hydrates, React Query hooks fetch from `/api/*`.
+**Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO/OG content. The standard pattern is: SSR renders the shell, client hydrates, and React reads/writes normal app data through actions with `useActionQuery` / `useActionMutation`.
 
-## Adding an API Route
+## Adding App Data
 
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
 
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
+## Adding a Route-Only Endpoint
 
-Each file exports a default `defineEventHandler`.
+Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.
+
+Each route-only endpoint still exports a default `defineEventHandler`, but keep shared app logic in actions or server libraries so agent and UI behavior do not fork.
 
 ## Adding a Server Plugin
 
@@ -152,10 +150,9 @@ export default defineNitroPlugin(async (nitroApp) => {
 | `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
 | `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
 
-## Adding a Script
+## Adding an Action
 
-Create `actions/my-script.ts` exporting `default async function(args: string[])`.
-Run with: `pnpm action my-script --arg value`
+Create `actions/<verb>-<resource>.ts` with `defineAction`. Run with `pnpm action <name> --id value`; React callers should use `useActionQuery` for GET actions and `useActionMutation` for mutating actions, not a matching `/api/*` wrapper.
 
 **Sending to agent chat from UI:**
 

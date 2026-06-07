@@ -57,7 +57,7 @@ import {
 const PLAN_SERVER_LIBRARY_OVERRIDES: LibraryBlockConfigOverrides = {
   mermaid: {
     description:
-      "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
+      "A Mermaid diagram for cases where textual sequence or flowchart grammar is clearer than a spatial layout; not the default for architecture maps.",
   },
   "file-tree": {
     description:
@@ -89,7 +89,7 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       placement: ["block"],
       label: "Diagram",
       description:
-        "A sketch flow diagram of labeled nodes connected by edges, with optional notes.",
+        "A flexible inline document diagram for architecture, dependency, data-flow, or state relationships. Prefer html/css with SVG or semantic HTML for polished two-dimensional diagrams; legacy nodes/edges remain for simple previews.",
     }),
     defineBlock<WireframeData>({
       type: "wireframe",
@@ -100,7 +100,7 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       placement: ["block"],
       label: "Wireframe",
       description:
-        "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface frame (desktop/mobile/popover/panel/browser).",
+        "A UI/product screen mockup built from an HTML fragment, rendered in a chosen surface frame (desktop/mobile/popover/panel/browser). Use the top canvas for primary UI visuals; do not use wireframes for architecture/code-only plans.",
     }),
     defineBlock<QuestionFormData>({
       type: "question-form",
@@ -111,7 +111,7 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
       placement: ["block"],
       label: "Question form",
       description:
-        "An interactive form block for open questions, single-choice or multi-choice chips, freeform answers, recommended options, and optional wireframe/diagram previews.",
+        "An interactive form block for open questions, single-choice or multi-choice option rows, freeform answers, recommended options, and optional wireframe/diagram previews. Previews should clarify choices without duplicating the top canvas; for code plans, use diagram previews sparingly.",
     }),
   ]);
 

@@ -94,6 +94,21 @@ export const planEvents = table("plan_events", {
   createdAt: text("created_at").notNull(),
 });
 
+export const planVersions = table("plan_versions", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  planId: text("plan_id")
+    .notNull()
+    .references(() => plans.id),
+  title: text("title").notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  changeLabel: text("change_label"),
+  createdBy: text("created_by", { enum: PLAN_AUTHORS })
+    .notNull()
+    .default("agent"),
+  createdAt: text("created_at").notNull(),
+});
+
 export const planShares = createSharesTable("plan_shares");
 
 export const planGuestMints = table("plan_guest_mints", {

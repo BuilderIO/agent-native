@@ -117,10 +117,10 @@ registerBlocks(planBlockRegistry, [
     placement: ["block"],
     label: "Diagram",
     description:
-      "A sketch flow diagram of labeled nodes connected by edges, with optional notes.",
-    // `nodes` requires at least one entry; seed a single labeled node with no
-    // edges so the schema validates and the canvas has something to render.
-    empty: () => ({ nodes: [{ id: "n1", label: "Step 1" }], edges: [] }),
+      "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; legacy nodes/edges are only for simple previews.",
+    // Seed the legacy fallback shape so a fresh block validates while agents can
+    // replace it with html/css when layout quality matters.
+    empty: () => ({ nodes: [{ id: "n1", label: "Module" }], edges: [] }),
   }),
   defineBlock<WireframeData>({
     type: "wireframe",
@@ -149,7 +149,7 @@ registerBlocks(planBlockRegistry, [
     placement: ["block"],
     label: "Question form",
     description:
-      "An interactive form block for open questions, single-choice or multi-choice chips, freeform answers, recommended options, and optional wireframe/diagram previews.",
+      "An interactive form block for open questions, single-choice or multi-choice option rows, freeform answers, recommended options, and optional wireframe/diagram previews.",
     empty: () => ({
       submitLabel: "Send to agent",
       questions: [
@@ -174,7 +174,7 @@ registerBlocks(planBlockRegistry, [
 const PLAN_LIBRARY_OVERRIDES: LibraryBlockOverrides = {
   mermaid: {
     description:
-      "A Mermaid diagram (flowchart, sequence, etc.) defined as text and rendered in the plan's hand-drawn style.",
+      "A Mermaid diagram for cases where textual sequence or flowchart grammar is clearer than a spatial layout; not the default for architecture maps.",
   },
   "openapi-spec": {
     empty: (): OpenApiSpecData => ({

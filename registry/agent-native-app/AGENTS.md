@@ -7,8 +7,13 @@ the agent can use.
 ## Core Contract
 
 - Data lives in SQL through Drizzle. Keep schemas provider agnostic.
-- Define app operations in `actions/` with `defineAction`; the frontend and the
-  agent should share those actions.
+- Normal app data must flow through actions. Define operations in `actions/`
+  with `defineAction`; mark reads with `http: { method: "GET" }`; call them
+  from React with `useActionQuery` / `useActionMutation` or `callAction`.
+  Do not add duplicate JSON CRUD routes under `/api/*`, and do not add routes
+  whose main job is to wrap, proxy, or re-export an action. Use custom routes
+  only for route-only concerns such as uploads, streaming, webhooks, OAuth
+  callbacks, public SEO/OG endpoints, or binary/static asset serving.
 - All AI work goes through the agent chat. Do not call LLMs directly from UI
   components.
 - Application state belongs in SQL `application_state` so the agent can know the

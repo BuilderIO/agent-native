@@ -26,13 +26,13 @@ app/
   pages/          # InboxPage, NotFound
   lib/            # utils.ts
 server/
-  routes/         # File-based API routes (auto-discovered by Nitro)
+  routes/         # File-based route-only endpoints (auto-discovered by Nitro)
   handlers/       # Route handler modules
   plugins/        # Server plugins (startup logic)
   lib/            # Shared server modules
 shared/
   types.ts        # Shared TypeScript types
-actions/
+actions/               # Shared app operations (defineAction; UI uses action hooks)
   run.ts          # Script dispatcher
 data/
   app.db          # Local development database fallback
@@ -46,31 +46,21 @@ This app uses **Nitro** (via `@agent-native/core`) for the server. All server co
 
 ```
 server/
-  routes/     # File-based API routes (auto-discovered by Nitro)
+  routes/     # File-based route-only endpoints (auto-discovered by Nitro)
   handlers/   # Route handler logic modules
   plugins/    # Server plugins — run at startup (DB migrations, auth)
   lib/        # Shared server modules
 ```
 
-### Adding an API Route
+### Adding App Data
 
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
 
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
+### Adding a Route-Only Endpoint
 
-Each file exports a default `defineEventHandler`:
+Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.
 
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
+Each route-only endpoint still exports a default `defineEventHandler`, but keep shared app logic in actions or server libraries so agent and UI behavior do not fork.
 
 ### Server Plugins
 
@@ -115,20 +105,12 @@ pnpm dev          # Vite dev server + Nitro plugin (single process)
 pnpm build        # Single Vite build (client SPA + Nitro server)
 pnpm start        # node .output/server/index.mjs (production)
 pnpm typecheck    # TypeScript validation
-pnpm action <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run an action
 ```
 
-## Adding New Scripts
+## Adding an Action
 
-Create `actions/my-script.ts` with:
-
-```typescript
-export default async function main(args: string[]): Promise<void> {
-  // parse args, use readAppState/writeAppState or readSetting/writeSetting
-}
-```
-
-Run with `pnpm action my-script` (auto-discovered, no registration needed).
+Create `actions/<verb>-<resource>.ts` with `defineAction`. Run with `pnpm action <name> --id value`; React callers should use `useActionQuery` for GET actions and `useActionMutation` for mutating actions, not a matching `/api/*` wrapper.
 
 ## Extensions (Framework Feature)
 

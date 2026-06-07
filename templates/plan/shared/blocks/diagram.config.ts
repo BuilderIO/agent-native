@@ -36,8 +36,19 @@ export interface DiagramNote {
 }
 
 export interface DiagramData {
-  nodes: DiagramNode[];
-  edges: DiagramEdge[];
+  /**
+   * Preferred authoring path for architecture/code diagrams: a scoped, inert
+   * HTML/SVG fragment. The renderer supplies theme + sketch/clean style hooks.
+   */
+  html?: string;
+  css?: string;
+  caption?: string;
+  /**
+   * Legacy compatibility path for older/simple node graphs. New plans should use
+   * `html`/`css` when layout quality matters.
+   */
+  nodes?: DiagramNode[];
+  edges?: DiagramEdge[];
   notes?: DiagramNote[];
 }
 
@@ -65,15 +76,25 @@ const diagramNoteSchema = z.object({
 }) as z.ZodType<DiagramNote>;
 
 /**
- * Data-compatible with `diagramDataSchema` in `plan-content.ts`. The block has no
- * `markdown()`-tagged or scalar fields — its `data` is positional node/edge/note
- * arrays — so it ships a custom read-only `Edit` (the diagram canvas) rather than
- * relying on the schema auto-editor. Editing stays comment/patch-driven.
+ * Data-compatible with `diagramDataSchema` in `plan-content.ts`. The block can
+ * be a flexible HTML/SVG fragment or a legacy positional node/edge/note graph,
+ * so it ships a custom read-only `Edit` rather than relying on the schema
+ * auto-editor. Editing stays comment/patch-driven.
  */
 export const diagramSchema = z.object({
-  nodes: z.array(diagramNodeSchema).min(1).max(80),
-  edges: z.array(diagramEdgeSchema).max(120).default([]),
+  html: z.string().trim().max(100_000).optional(),
+  css: z.string().max(50_000).optional(),
+  caption: z.string().trim().max(600).optional(),
+  nodes: z.array(diagramNodeSchema).max(80).optional(),
+  edges: z.array(diagramEdgeSchema).max(120).optional(),
   notes: z.array(diagramNoteSchema).max(40).optional(),
+}).superRefine((data, ctx) => {
+  if (data.html?.trim() || (data.nodes?.length ?? 0) > 0) return;
+  ctx.addIssue({
+    code: "custom",
+    path: ["html"],
+    message: "Diagram block requires html or at least one node.",
+  });
 }) as unknown as z.ZodType<DiagramData>;
 
 /**

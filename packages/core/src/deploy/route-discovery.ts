@@ -171,6 +171,65 @@ export interface DiscoveredAction {
   absPath: string;
   /** HTTP method (from defineAction's http config, default POST) */
   method: string;
+  /**
+   * Custom route segment from defineAction's `http.path`. When unset the
+   * route falls back to `name`, mirroring the runtime mount
+   * (`action-routes.ts`: `path = http?.path ?? name`).
+   */
+  path?: string;
+}
+
+/** HTTP methods an action may expose via `http.method`. */
+const VALID_ACTION_METHODS = new Set([
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "options",
+  "head",
+]);
+
+/**
+ * Statically extract the `http` config from a defineAction source file.
+ *
+ * Deploy discovery cannot import the action module — edge bundlers rewrite
+ * require()/import in ways that crash (see getFs note above), and action
+ * files often pull in Node-only deps — so we parse the source text instead.
+ * The parse is scoped to the `http: { ... }` object literal so unrelated
+ * `method:`/`path:` keys elsewhere in the file (e.g. a
+ * `fetch(url, { method: "GET" })` in the action body) cannot flip the
+ * route's method. A naive `content.includes('method: "GET"')` did exactly
+ * that, and it also missed PUT/PATCH/DELETE and dropped `http.path`.
+ *
+ * The http config is shallow (method + path scalars), so a non-greedy match
+ * to the first closing brace is sufficient.
+ *
+ * Returns `false` when the action opts out of HTTP (`http: false`); otherwise
+ * `{ method, path? }` with method lowercased and defaulting to "post".
+ */
+export function parseActionHttpConfig(
+  content: string,
+): false | { method: string; path?: string } {
+  // `http: false` (whitespace-tolerant) → agent-only, no route.
+  if (/\bhttp\s*:\s*false\b/.test(content)) return false;
+
+  let method = "post";
+  let path: string | undefined;
+
+  const httpBlock = content.match(/\bhttp\s*:\s*\{([\s\S]*?)\}/);
+  if (httpBlock) {
+    const body = httpBlock[1];
+    const methodMatch = body.match(/\bmethod\s*:\s*['"]([A-Za-z]+)['"]/);
+    if (methodMatch) {
+      const m = methodMatch[1].toLowerCase();
+      if (VALID_ACTION_METHODS.has(m)) method = m;
+    }
+    const pathMatch = body.match(/\bpath\s*:\s*['"]([^'"]+)['"]/);
+    if (pathMatch) path = pathMatch[1];
+  }
+
+  return { method, path };
 }
 
 /**
@@ -198,22 +257,23 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
     // (export default async function()) often use Node-only APIs
     // (fs, path) that can't run on edge runtimes — they're meant
     // to be invoked via `pnpm action <name>`, not as HTTP endpoints.
-    let method = "post"; // default
+    let content: string;
     try {
-      const content = fs.readFileSync(absPath, "utf-8");
-      if (!content.includes("defineAction")) continue;
-      if (content.includes("http: false")) continue;
-      if (
-        content.includes('method: "GET"') ||
-        content.includes("method: 'GET'")
-      ) {
-        method = "get";
-      }
+      content = fs.readFileSync(absPath, "utf-8");
     } catch {
       continue;
     }
+    if (!content.includes("defineAction")) continue;
 
-    out.push({ name, absPath, method });
+    const http = parseActionHttpConfig(content);
+    if (http === false) continue; // agent-only
+
+    out.push({
+      name,
+      absPath,
+      method: http.method,
+      ...(http.path ? { path: http.path } : {}),
+    });
   }
 
   return out;

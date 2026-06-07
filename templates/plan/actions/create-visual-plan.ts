@@ -20,6 +20,7 @@ import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   buildPlanHtml,
   commentInputSchema,
+  deriveSectionsFromText,
   insertInitialPlanComments,
   loadPlanBundle,
   newId,
@@ -33,9 +34,22 @@ import {
 } from "../server/plans.js";
 import { planContentSchema } from "../shared/plan-content.js";
 
+function inferImportedPlanTitle(planText: string): string {
+  const firstHeading = planText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,3}\s+\S/.test(line));
+  if (firstHeading) return firstHeading.replace(/^#{1,3}\s+/, "").slice(0, 90);
+  const firstLine = planText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return firstLine ? firstLine.slice(0, 90) : "Imported visual plan";
+}
+
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task. Use this before implementation to open a durable visual spec with an optional top visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs), diagrams, file/symbol implementation maps, code previews, options, annotations, and a share/export workflow.",
+    "Create an Agent-Native plan for a coding-agent task, or import existing Codex, Claude Code, Markdown, or pasted plan text as the starting point. Use this before implementation to open a durable structured plan with inline document diagrams, file/symbol implementation maps, code previews, options, annotations, and an optional top UI/product visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs).",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -44,7 +58,14 @@ export default defineAction({
         .string()
         .optional()
         .describe("Compatibility alias for brief; prefer brief"),
-      source: planSourceSchema.optional().default("manual"),
+      planText: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Existing Codex, Claude Code, Markdown, or pasted plan text to preserve and turn into a visual review plan.",
+        ),
+      source: planSourceSchema.optional(),
       repoPath: z.string().optional().describe("Repository path for the run"),
       currentFocus: z.string().optional().describe("Current plan focus"),
       status: planStatusSchema.optional().default("review"),
@@ -57,7 +78,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable plan content. Prefer this for rich text, diagrams, implementation maps, question-form open questions, and any top visual surface. Omit canvas/prototype for non-visual plans; use canvas only for static visuals; include both canvas and prototype for multi-step flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
+          "Structured editable plan content. Prefer this for rich text, inline diagrams, implementation maps, question-form open questions, and any optional top UI/product visual surface. For architecture-only, backend-only, refactor, API, data model, migration, and code plans, omit canvas/prototype; use inline diagram, data-model, file-tree, implementation-map, code-tabs, annotated-code, or compact custom-html blocks near the relevant prose. For architecture/code diagrams, use diagram blocks with data.html/data.css so the diagram can be real semantic HTML and inline SVG: grouped regions, layers, swimlanes, dependency clusters, matrices, and side-by-side before/after or current/target panels. Use legacy diagram nodes/edges only for tiny previews or true step-by-step flows. Use mermaid only when textual sequence/flowchart grammar is materially clearer. Use canvas only for static UI/product visuals; include both canvas and prototype for multi-step UI/product flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()
@@ -74,8 +95,8 @@ export default defineAction({
         .default([])
         .describe("Initial annotations or review prompts"),
     })
-    .refine((args) => Boolean(args.brief || args.goal), {
-      message: "Either brief or goal is required.",
+    .refine((args) => Boolean(args.brief || args.goal || args.planText), {
+      message: "Either brief, goal, or planText is required.",
     }),
   publicAgent: {
     expose: true,
@@ -84,14 +105,14 @@ export default defineAction({
     isConsequential: true,
     title: "Create Visual Plan",
     description:
-      "Create a plan where a person can scan visuals, annotate, and respond before the agent builds.",
+      "Create a plan where a person can scan structured blocks, inline diagrams, optional UI visuals, annotate, and respond before the agent builds.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
       title: "Plan",
       description:
-        "Open the Agent-Native Plans review surface for diagrams, wireframes, mockups, prototypes, and comments.",
+        "Open the Agent-Native Plans review surface for structured blocks, inline diagrams, optional UI wireframes/prototypes, and comments.",
       iframeTitle: "Agent-Native Plans",
       openLabel: "Open Plan",
       height: 860,
@@ -106,36 +127,48 @@ export default defineAction({
     );
     await assertGuestCreateWithinLimits(ownerEmail);
 
+    const importedPlanText = args.planText?.trim();
     const id = newId("plan");
     const now = nowIso();
-    const brief = args.brief || args.goal || "";
-    const title = args.title || "Untitled visual plan";
+    const brief =
+      args.brief ||
+      args.goal ||
+      (importedPlanText
+        ? "Visual companion for an imported coding-agent plan."
+        : "");
+    const title =
+      args.title ||
+      (importedPlanText
+        ? inferImportedPlanTitle(importedPlanText)
+        : "Untitled visual plan");
     const sections =
       args.sections.length > 0
         ? args.sections
-        : [
-            {
-              type: "summary" as const,
-              title: "What we are planning",
-              body: brief,
-              order: 0,
-              createdBy: "agent" as const,
-            },
-            {
-              type: "diagram" as const,
-              title: "Review flow",
-              body: "The plan is meant to be scanned, annotated, revised, then used for implementation.",
-              order: 1,
-              createdBy: "agent" as const,
-            },
-            {
-              type: "implementation" as const,
-              title: "Files and symbols to review",
-              body: "Add file references here once the agent has inspected the repo, for example `app/routes/example.tsx` - symbols: `ExampleRoute`; update the route behavior and include a short code preview.",
-              order: 2,
-              createdBy: "agent" as const,
-            },
-          ];
+        : importedPlanText && !args.content && !args.html
+          ? deriveSectionsFromText(importedPlanText)
+          : [
+              {
+                type: "summary" as const,
+                title: "What we are planning",
+                body: brief,
+                order: 0,
+                createdBy: "agent" as const,
+              },
+              {
+                type: "diagram" as const,
+                title: "Review flow",
+                body: "The plan is meant to be scanned, annotated, revised, then used for implementation.",
+                order: 1,
+                createdBy: "agent" as const,
+              },
+              {
+                type: "implementation" as const,
+                title: "Files and symbols to review",
+                body: "Add file references here once the agent has inspected the repo, for example `app/routes/example.tsx` - symbols: `ExampleRoute`; update the route behavior and include a short code preview.",
+                order: 2,
+                createdBy: "agent" as const,
+              },
+            ];
     const content = args.content
       ? normalizePlanContent(args.content)
       : args.html
@@ -159,11 +192,11 @@ export default defineAction({
         title,
         brief,
         status: args.status,
-        source: args.source,
+        source: args.source ?? (importedPlanText ? "imported" : "manual"),
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "visual review",
         html: args.html ?? null,
-        markdown: args.markdown ?? null,
+        markdown: args.markdown ?? importedPlanText ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,
         updatedAt: now,
@@ -200,9 +233,19 @@ export default defineAction({
 
     await writeEvent({
       planId: id,
-      type: "plan.created",
-      message: "Visual plan created.",
-      createdBy: "agent",
+      type: importedPlanText ? "plan.imported" : "plan.created",
+      message: importedPlanText
+        ? "Imported text plan for visual review."
+        : "Visual plan created.",
+      ...(importedPlanText
+        ? {
+            payload: {
+              source: args.source ?? "imported",
+              textLength: importedPlanText.length,
+            },
+          }
+        : {}),
+      createdBy: importedPlanText ? "import" : "agent",
     });
 
     const bundle = await loadPlanBundle(id);
@@ -223,7 +266,7 @@ export default defineAction({
       url: planPath(id),
       ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
-        "Open the Agent-Native Plans link, scan the editable rich plan blocks and any top visual tabs, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
+        "Open the Agent-Native Plans link, scan the editable rich plan blocks and any top UI/product visual tabs, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

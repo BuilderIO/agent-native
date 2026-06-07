@@ -74,6 +74,33 @@ Keep one canonical instructions file: `AGENTS.md`. If a client expects
 hand-maintained files drift, and the agent ends up with contradictory rules.
 One source of truth, linked where needed.
 
+## Keep generated guidance in sync
+
+Framework guidance is authored once in this repo and copied outward. Treat
+`.agents/skills/` as the canonical source for shared skills. Generated
+workspace skills in `packages/core/src/templates/workspace-core/.agents/skills/`
+and first-party template copies of shared skills must stay byte-for-byte in
+sync; run `pnpm sync:workspace-skills` after editing a shared skill, and
+`pnpm guard:workspace-skills` before calling the guidance done.
+
+Generated app and workspace instructions must teach the same action-first data
+contract:
+
+- Normal app data goes through `defineAction` files in `actions/`.
+- React calls actions with `useActionQuery`, `useActionMutation`, or
+  `callAction`; route paths are a transport detail hidden behind helpers.
+- Custom `/api/*` routes are only for route-shaped protocols such as uploads,
+  streaming, webhooks, OAuth callbacks, public SEO/OG endpoints, or binary
+  assets.
+- Do not create pass-through routes whose main job is to call, repackage, or
+  re-export an action.
+
+When documenting version history, restore, or audit trails, use actions for
+full restorable snapshots (`list-<resource>-versions`,
+`get-<resource>-version`, `restore-<resource>-version`). Do not copy legacy
+raw-route version panels, such as document-version `/api/*` helpers, into new
+features. The Plans version-history pattern is the preferred model.
+
 ## SKILL.md frontmatter must say what AND when
 
 The `description` is the only thing the agent sees when deciding whether to read

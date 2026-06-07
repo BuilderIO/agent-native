@@ -1,50 +1,76 @@
 ---
 name: capture-learnings
 description: >-
-  Capture and apply accumulated knowledge in learnings.md. Use when the user
-  corrects a mistake, when debugging reveals unexpected behavior, or when an
-  architectural decision should be recorded for future reference.
+  Capture and apply accumulated knowledge via structured memory. Use when the
+  user gives feedback, shares preferences, corrects a mistake, or when you
+  discover something worth remembering for future conversations.
 user-invocable: false
+metadata:
+  internal: true
 ---
 
 # Capture Learnings
 
-This is background knowledge, not a slash command. Read `learnings.md` before starting significant work. Update it when you discover something worth remembering.
+This is background knowledge, not a slash command. **Your memory index is loaded at the start of every conversation.** Use `save-memory` proactively when you learn something worth remembering.
+
+## How to Read & Write Memories
+
+Memories are stored as **resources** in the SQL database (personal scope), not as files on disk.
+
+- **Save a memory:** `save-memory --name <name> --type <type> --description "..." --content "..."`
+- **Read a memory:** `resource-read --path memory/<name>.md`
+- **Delete a memory:** `delete-memory --name <name>`
+- **List all memories:** `resource-list --prefix memory/`
+
+## Memory Types
+
+| Type | Use for |
+|------|---------|
+| `user` | Preferences, role, personal context, contacts |
+| `feedback` | Corrections, confirmed approaches, things to avoid or repeat |
+| `project` | Ongoing work context, decisions, deadlines, status |
+| `reference` | Pointers to external systems, URLs, API details |
 
 ## When to Capture
 
-Use judgment, not rules. Capture when:
+### User Preferences & Memory (`user`)
+- **Tone and style** — "I prefer casual tone", "don't use emojis", "keep replies short"
+- **Personal context** — contacts, relationships, habits ("my wife's email is...", "I'm in PST timezone")
+- **Workflow preferences** — "always CC my assistant", "I like to review before sending"
+- **Role and expertise** — "I'm a data scientist", "new to React"
 
-- **Surprising behavior** — Something didn't work as expected and you figured out why
-- **Repeated friction** — You hit the same issue twice; write it down so there's no third time
-- **Architectural decisions** — Why something is done a certain way (the "why" isn't in the code)
-- **API/library quirks** — Undocumented behavior, version-specific gotchas
-- **Performance insights** — What's slow and what fixed it
+### Feedback & Corrections (`feedback`)
+- **Corrections** — user says "no, do it this way" → capture the right way
+- **Confirmed approaches** — user validates a non-obvious choice ("yes, that's perfect")
+- **Repeated friction** — you hit the same issue twice; save it
 
-Don't capture:
+### Project Context (`project`)
+- **Ongoing work** — who is doing what, why, by when
+- **Decisions** — why something is done a certain way
+- **Status** — current state of initiatives
 
-- Things that are obvious from reading the code
+### References (`reference`)
+- **External systems** — "bugs are tracked in Linear project INGEST"
+- **URLs** — dashboards, documentation, tools
+- **API quirks** — undocumented behavior, version-specific gotchas
+
+### Don't Capture
+- Things obvious from reading the code
 - Standard language/framework behavior
 - Temporary debugging notes
+- Anything already in AGENTS.md or skills
+- Ephemeral task details (use tasks/plans instead)
 
-## Format
+## Key Rules
 
-Add entries to `learnings.md` at the project root. Match the existing format — typically a heading per topic with a brief explanation:
-
-```markdown
-## [Topic]
-
-[What you learned and why it matters. Keep it to 2-3 sentences.]
-```
+1. **Save proactively — don't ask permission.** When you learn something, save it immediately.
+2. **One memory per topic** — e.g. `coding-style`, `project-alpha`, not one giant dump
+3. **Read before updating** — if a memory exists, read it first and merge, don't overwrite
+4. **Keep descriptions concise** — the index is loaded every conversation
+5. **Memories are SQL-backed** — safe for personal info, persist across sessions, not in git
 
 ## Graduation
 
-When a learning is referenced repeatedly, it's outgrowing `learnings.md`. Propose adding it to the relevant skill or creating a new skill via `create-skill`.
-
-- Updating `learnings.md` is a Tier 1 modification (data — auto-apply)
-- Updating a SKILL.md based on learnings is Tier 2 (source — verify after)
-
-## Related Skills
-
-- **self-modifying-code** — Learnings.md updates are Tier 1; skill updates are Tier 2
-- **create-skill** — When a learning graduates, create a skill from it
+When a memory is referenced repeatedly, it may belong in AGENTS.md or a skill:
+- Saving a memory is lightweight (auto-apply, personal scope)
+- Updating AGENTS.md or a skill is heavier (affects all users/agents)

@@ -30,13 +30,14 @@ Supported aliases include:
 - `npx @agent-native/core@latest skills add visual-questions`
 - `npx @agent-native/core@latest skills add ui-plan`
 - `npx @agent-native/core@latest skills add prototype-plan`
-- `npx @agent-native/core@latest skills add visualize-plan`
 
 Restart or reload the host if the tools are not visible immediately.
 
 ## Use
 
-Type `/visual-plan` when you want a fresh plan before the agent builds.
+Type `/visual-plan` when you want a fresh plan before the agent builds, or when
+you already have a Codex, Claude Code, Markdown, or pasted plan and want the
+agent to preserve it while adding a richer visual review surface.
 
 Type `/visual-questions` when you explicitly want visual intake before a plan.
 
@@ -46,18 +47,16 @@ high-fidelity mockups and states reviewed before implementation details.
 Type `/prototype-plan` when interaction feel matters and you want a clickable
 prototype above the plan document.
 
-Type `/visualize-plan` when you already have a Codex, Claude Code, Markdown, or
-pasted plan and want a richer visual companion.
-
 Command behavior:
 
 - `/visual-plan` creates a new rich visual plan with docs-level detail, diagrams,
   detailed wireframes/mockups when UI is involved, tradeoffs, open questions,
-  file/symbol implementation details, code previews, and feedback prompts.
+  file/symbol implementation details, code previews, and feedback prompts. When
+  an existing plan is provided, it builds from that plan instead of starting
+  over.
 - `/visual-questions` creates a visual intake questionnaire with chip choices,
   freeform answers, mockup option tabs, sketch diagrams, and a generated answer
-  summary that can feed `/visual-plan`, `/ui-plan`, `/visualize-plan`, or an
-  existing plan update.
+  summary that can feed `/visual-plan`, `/ui-plan`, or an existing plan update.
 - `/ui-plan` creates a UI-first visual plan with an optional top pan/zoom
   wireframe or diagram canvas, then a refined Notion-like document with rich
   tabs, tables, sketchy diagrams, code tabs, comments, and handoff notes. When
@@ -65,8 +64,6 @@ Command behavior:
 - `/prototype-plan` creates a prototype-first plan with a clickable live
   prototype, rough/clean and dark/light toggles, comment pins, a focused popout,
   static mocks, and implementation notes below.
-- `/visualize-plan` imports an existing text plan, preserves its intent, and
-  adds visual structure so the user can annotate and react before implementation.
 
 ## Normal Planning Flow
 

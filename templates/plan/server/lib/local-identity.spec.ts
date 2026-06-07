@@ -6,11 +6,14 @@ import {
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
   requirePlanOwnerEmailForWrite,
+  resolvePlanAccessContext,
   resolvePlanOwnerEmail,
   resolvePlanOwnerEmailForWrite,
 } from "./local-identity.js";
 
 const GUEST_EMAIL = `guest-123e4567-e89b-12d3-a456-426614174000@${GUEST_AUTHOR_DOMAIN}`;
+const PUBLIC_VIEWER_EMAIL =
+  "public-123e4567-e89b-12d3-a456-426614174000@agent-native.local";
 
 const ENV_KEYS = ["NODE_ENV", "AUTH_MODE", "PLAN_LOCAL_MODE"] as const;
 
@@ -83,10 +86,17 @@ describe("local-identity", () => {
   });
 
   describe("resolvePlanOwnerEmail", () => {
-    it("always honors the authenticated user", () => {
+    it("honors the authenticated user in hosted mode", () => {
       setEnv({ NODE_ENV: "production" });
       expect(resolvePlanOwnerEmail("user@example.com")).toBe(
         "user@example.com",
+      );
+    });
+
+    it("uses the local identity for authenticated users in local mode", () => {
+      setEnv({ NODE_ENV: "development" });
+      expect(resolvePlanOwnerEmail("user@example.com")).toBe(
+        LOCAL_PLAN_OWNER_EMAIL,
       );
     });
 
@@ -101,11 +111,37 @@ describe("local-identity", () => {
     });
   });
 
+  describe("resolvePlanAccessContext", () => {
+    it("maps a signed-in local browser to the local owner", () => {
+      setEnv({ NODE_ENV: "development" });
+      expect(
+        resolvePlanAccessContext({
+          userEmail: "user@example.com",
+          orgId: "org_1",
+        }),
+      ).toEqual({ userEmail: LOCAL_PLAN_OWNER_EMAIL });
+    });
+
+    it("does not upgrade public-link viewers to local owner/editor", () => {
+      setEnv({ NODE_ENV: "development" });
+      expect(
+        resolvePlanAccessContext({ userEmail: PUBLIC_VIEWER_EMAIL }),
+      ).toEqual({ userEmail: PUBLIC_VIEWER_EMAIL });
+    });
+  });
+
   describe("resolvePlanOwnerEmailForWrite", () => {
     it("honors a real authenticated user (hosted)", () => {
       setEnv({ NODE_ENV: "production" });
       expect(resolvePlanOwnerEmailForWrite("user@example.com")).toBe(
         "user@example.com",
+      );
+    });
+
+    it("uses the local identity for authenticated writes in local mode", () => {
+      setEnv({ NODE_ENV: "development" });
+      expect(resolvePlanOwnerEmailForWrite("user@example.com")).toBe(
+        LOCAL_PLAN_OWNER_EMAIL,
       );
     });
 

@@ -542,6 +542,55 @@ export default {
       echo: { hello: "again" },
     });
   });
+
+  it("mounts an action under its custom http.path, not its name", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "aliased-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  run: async (params) => ({ ok: true, echo: params }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        // Mirrors the runtime mount: route = `${PREFIX}/${http.path ?? name}`.
+        [{ name: "aliased", absPath: actionPath, method: "post", path: "v2" }],
+      ),
+    );
+
+    const aliased = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/v2", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      }),
+      {},
+      {},
+    );
+    expect(aliased.status).toBe(200);
+    await expect(aliased.json()).resolves.toEqual({
+      ok: true,
+      echo: { hello: "world" },
+    });
+
+    // The bare name is no longer a route when a custom path is set.
+    const byName = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/aliased", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      }),
+      {},
+      {},
+    );
+    expect(byName.status).toBe(404);
+  });
 });
 
 describe("Nitro runtime scan ignores", () => {

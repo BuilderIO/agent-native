@@ -18,6 +18,7 @@ import {
   PlanVisualSurface,
   type PlanVisualSurfaceMode,
 } from "./PlanVisualSurface";
+import { PlanTableOfContents } from "./PlanTableOfContents";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { PlanDocumentEditor } from "../editor/PlanDocumentEditor";
 
@@ -290,7 +291,8 @@ export function PlanContentRenderer({
           />
         )}
         {!prototypeOnly && (
-          <div className="mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
+          <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
+            <PlanTableOfContents content={content} />
             <header className="border-b border-plan-line pb-8">
               <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
                 {planLabel}

@@ -18,6 +18,7 @@
 
 const BLOCKED_TAGS =
   "script,style,iframe,object,embed,link,meta,base,form,noscript,frame,frameset,applet,marquee,portal";
+const DIAGRAM_BLOCKED_TAGS = `${BLOCKED_TAGS},math,foreignObject,foreignobject`;
 
 const URL_ATTRS = new Set([
   "href",
@@ -125,6 +126,22 @@ export function sanitizeWireframeHtml(html: string | undefined): string {
   return doc.body.innerHTML;
 }
 
+export function sanitizeDiagramHtml(html: string | undefined): string {
+  if (!html) return "";
+  if (typeof DOMParser === "undefined" || typeof document === "undefined") {
+    return fallbackStrip(html)
+      .replace(/<\/?\s*(?:math|foreignObject|foreignobject)\b[^>]*>/gi, "")
+      .replace(
+        /\s(?:@[\w:.-]+|x-on:[\w:.-]+|:on[\w:.-]+|x-bind:on[\w:.-]+|:style|x-bind:style)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+        "",
+      );
+  }
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll(DIAGRAM_BLOCKED_TAGS).forEach((el) => el.remove());
+  sanitizeElementAttributes(doc.body, { stripRuntimeDirectives: true });
+  return doc.body.innerHTML;
+}
+
 export function sanitizeWireframeCss(css: string | undefined): string {
   if (!css) return "";
   return css
@@ -223,11 +240,26 @@ function splitSelectorList(selectors: string): string[] {
   return parts;
 }
 
-function sanitizeElementAttributes(root: ParentNode) {
+function sanitizeElementAttributes(
+  root: ParentNode,
+  options?: { stripRuntimeDirectives?: boolean },
+) {
   root.querySelectorAll<HTMLElement>("*").forEach((el) => {
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase();
       if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        options?.stripRuntimeDirectives &&
+        (name.startsWith("@") ||
+          name.startsWith("x-on:") ||
+          name.startsWith(":on") ||
+          name.startsWith("x-bind:on") ||
+          name === ":style" ||
+          name === "x-bind:style")
+      ) {
         el.removeAttribute(attr.name);
         continue;
       }
@@ -240,7 +272,7 @@ function sanitizeElementAttributes(root: ParentNode) {
       }
     }
     if (el instanceof HTMLTemplateElement) {
-      sanitizeElementAttributes(el.content);
+      sanitizeElementAttributes(el.content, options);
     }
   });
 }

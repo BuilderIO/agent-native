@@ -23,6 +23,6 @@ actions and SQL state.
 
 ## Skills
 
-Read `update-calories` before changing calorie/macro behavior. Use root
-`actions`, `storing-data`, `security`, `frontend-design`, and `shadcn-ui` for
-framework work.
+Read `update-calories` before changing calorie/macro behavior. Use `actions`,
+`storing-data`, `security`, `frontend-design`, and `shadcn-ui` for framework
+work.

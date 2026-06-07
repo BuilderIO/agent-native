@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
+  useActionMutation,
   useChatModels,
   useChangeVersions,
 } from "@agent-native/core/client";
@@ -1041,26 +1042,7 @@ function DraftingSection() {
   const queryClient = useQueryClient();
   const [signature, setSignature] = useState("");
   const [writingStyle, setWritingStyle] = useState("");
-  const importSignature = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/import-gmail-signature"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error || `Request failed (${res.status})`);
-      }
-      return res.json() as Promise<{
-        account: string;
-        signature: string;
-        imported: boolean;
-      }>;
-    },
+  const importSignature = useActionMutation("import-gmail-signature", {
     onSuccess: (result) => {
       setSignature(result.signature);
       queryClient.setQueryData<UserSettings>(["settings"], (prev) =>
@@ -1136,7 +1118,7 @@ function DraftingSection() {
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-[11px]"
-                  onClick={() => importSignature.mutate()}
+                  onClick={() => importSignature.mutate({})}
                   disabled={importSignature.isPending}
                 >
                   {importSignature.isPending && (

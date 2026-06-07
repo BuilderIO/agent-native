@@ -237,6 +237,84 @@
   border-top: 0;
 }
 
+[data-plan-toc-target] {
+  scroll-margin-top: 2rem;
+}
+
+.plan-document-toc {
+  display: none;
+}
+
+@media (min-width: 1400px) {
+  .plan-document-toc {
+    position: absolute;
+    top: 3.5rem;
+    bottom: 0;
+    left: calc(100% + 1.25rem);
+    z-index: 2;
+    display: block;
+    width: 12rem;
+    pointer-events: none;
+  }
+
+  .plan-document-toc__nav {
+    position: sticky;
+    top: 1.25rem;
+    max-height: calc(100vh - 2.5rem);
+    overflow-y: auto;
+    border-left: 1px solid var(--plan-line);
+    padding: 0.25rem 0 1.5rem 0.75rem;
+    pointer-events: auto;
+  }
+
+  .plan-document-toc__heading {
+    margin: 0 0 0.5rem;
+    color: var(--plan-muted);
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    line-height: 1.25;
+    text-transform: uppercase;
+  }
+
+  .plan-document-toc__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .plan-document-toc__link {
+    display: block;
+    border-radius: 6px;
+    padding: 0.28rem 0.45rem;
+    color: var(--plan-muted);
+    font-size: 0.78rem;
+    line-height: 1.35;
+    text-decoration: none;
+    transition:
+      background-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .plan-document-toc__link:hover {
+    background: color-mix(in srgb, var(--plan-block) 58%, transparent);
+    color: var(--plan-text);
+    text-decoration: none;
+  }
+
+  .plan-document-toc__link.is-active {
+    background: color-mix(in srgb, var(--plan-block) 78%, transparent);
+    color: var(--plan-text);
+    box-shadow: inset 2px 0 0 hsl(var(--ring));
+  }
+
+  .plan-document-toc__link.is-nested {
+    padding-left: 1.1rem;
+    font-size: 0.75rem;
+  }
+}
+
 /* Small, muted block label (not a document heading). Block titles used to render
  * as large <h2> headings that read like the block's type name; they now render
  * as this restrained eyebrow label instead. */

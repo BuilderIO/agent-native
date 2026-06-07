@@ -5,7 +5,7 @@ import {
   useCalendarContext,
   type ViewMode,
 } from "@/components/layout/AppLayout";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, callAction } from "@agent-native/core/client";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 
 interface NavigationState {
@@ -205,17 +205,11 @@ export function useNavigationState() {
       const eventId = cmd.eventId;
       (async () => {
         try {
-          const res = await fetch(
-            agentNativePath(
-              `/_agent-native/actions/get-event?id=${encodeURIComponent(
-                eventId,
-              )}`,
-            ),
+          const evt = await callAction<CalendarEvent & { error?: string }>(
+            "get-event",
+            { id: eventId },
+            { method: "GET" },
           );
-          if (!res.ok) return;
-          const evt = (await res.json()) as CalendarEvent & {
-            error?: string;
-          };
           if (!evt || evt.error || !evt.id) return;
           if (!cmd.date && typeof evt.start === "string" && evt.start) {
             const startDate = new Date(evt.start);

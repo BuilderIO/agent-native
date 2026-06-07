@@ -45,7 +45,10 @@ review before code changes happen.
 planning mode: inspect the codebase, use parallel agents when useful, gather the
 information needed, ask clarifying questions through the host's native
 ask-user-question tools when needed, then call `create-visual-plan` to publish
-the plan.
+the plan. When the user pasted, referenced, or already has a Codex / Claude Code
+/ Markdown plan, keep `/visual-plan` as the command and pass the source text to
+`create-visual-plan` as `planText` so the new review surface builds from what
+they already have.
 
 Use `/prototype-plan` when the user needs to click through states or review the
 feel of an interaction before implementation. Call `create-prototype-plan` for a
@@ -93,8 +96,6 @@ Document Quality cores, so do not restate those rules here.
   Design tab plus optional matching Prototype tab.
 - `.agents/skills/visual-questions/SKILL.md` — `/visual-questions`, visual intake
   before a plan.
-- `.agents/skills/visualize-plan/SKILL.md` — `/visualize-plan`, a companion for
-  an existing Codex / Claude Code / Markdown / pasted plan.
 
 When the user critiques a plan's look or structure, fix the renderer or the
 sync-guarded skills (not just one stored plan) so the improvement sticks.
@@ -112,6 +113,20 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Do not fork the vocabulary. MDX components must map to the same runtime terms:
   `DesignBoard`, `Section`, `Artboard`, `Screen`, `Annotation`, `Connector`, and
   the wireframe kit primitives from `shared/plan-content.ts`.
+
+## Version History
+
+- Plans keep DB-backed snapshots before meaningful authoring changes. Pure
+  comments, feedback replies, and comment status changes do not create history
+  snapshots.
+- Use `list-plan-versions` to see saved snapshots for a plan, and
+  `get-plan-version` to inspect one full snapshot before recommending a
+  rollback.
+- Use `restore-plan-version` only when the user asks to restore or roll back.
+  The current plan is snapshotted first with `Before restore`, so restore is
+  reversible. Restore preserves sharing, ownership, hosted publish metadata,
+  comments, and activity history; it restores the plan's authoring content and
+  legacy sections.
 
 ## Browser Editing
 

@@ -18,6 +18,10 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe("Set to 'true' for compact output"),
+    includeSlides: z
+      .enum(["true", "false"])
+      .optional()
+      .describe("Set to 'true' for full frontend deck payloads"),
     createdBy: z
       .enum(["all", "me"])
       .optional()
@@ -29,9 +33,19 @@ export default defineAction({
     label: "Open decks in Slides",
     view: "list",
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const ownerEmail = getRequestUserEmail();
+    if (
+      args.includeSlides === "true" &&
+      ctx?.caller === "frontend" &&
+      !ownerEmail
+    ) {
+      const err = new Error("Unauthorized") as Error & { statusCode?: number };
+      err.statusCode = 401;
+      throw err;
+    }
+
     if (args.createdBy === "me" && !ownerEmail) {
       return { count: 0, decks: [] };
     }
@@ -54,6 +68,21 @@ export default defineAction({
     const items = rows.map((row) => {
       const data = JSON.parse(row.data);
       const slides = data?.slides;
+      if (args.includeSlides === "true") {
+        return {
+          ...data,
+          id: row.id,
+          title: row.title,
+          visibility: row.visibility,
+          createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+          designSystemId: row.designSystemId ?? data.designSystemId ?? null,
+          createdAt:
+            typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
+          updatedAt: row.updatedAt,
+          slides: Array.isArray(slides) ? slides : [],
+        };
+      }
+
       if (args.compact === "true") {
         return {
           id: row.id,

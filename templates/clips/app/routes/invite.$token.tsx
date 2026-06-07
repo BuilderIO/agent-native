@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
-import { agentNativePath, useSession } from "@agent-native/core/client";
+import { callAction, useSession } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,13 +52,10 @@ export default function InviteAcceptRoute() {
         return;
       }
       try {
-        const res = await fetch(
-          agentNativePath(
-            `/_agent-native/actions/get-invite?token=${encodeURIComponent(token)}`,
-          ),
-        );
-        if (!res.ok) throw new Error(`Invite not found (${res.status})`);
-        const json = await res.json();
+        const json = await callAction<{
+          invite: InvitePayload | null;
+          error?: string;
+        }>("get-invite" as any, { token } as any, { method: "GET" });
         if (cancelled) return;
         if (!json.invite) {
           setError(json.error ?? "Invite not found or expired.");
@@ -85,18 +82,7 @@ export default function InviteAcceptRoute() {
     if (!token) return;
     setAccepting(true);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/accept-invite"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        },
-      );
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error ?? `Accept failed (${res.status})`);
-      }
+      await callAction("accept-invite" as any, { token } as any);
       toast.success(`Joined ${invite?.organizationName ?? "the team"}`);
       navigate("/library", { replace: true });
     } catch (err) {
@@ -111,11 +97,7 @@ export default function InviteAcceptRoute() {
   async function handleDecline() {
     if (!token) return;
     try {
-      await fetch(agentNativePath("/_agent-native/actions/decline-invite"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
+      await callAction("decline-invite" as any, { token } as any);
       toast.success("Invite declined");
       navigate("/", { replace: true });
     } catch (err) {

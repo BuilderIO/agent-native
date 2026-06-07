@@ -8,20 +8,21 @@ import {
   UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_QUESTIONS_SKILL_MD,
-  VISUALIZE_PLAN_SKILL_MD,
 } from "./skills.js";
 
 /**
- * The Plans skills are stored in three places that ship to users:
+ * The Plans skills are stored in four places that ship to users or guide this
+ * repo's own coding agents:
  *   1. the shipped constants in skills.ts (what `agent-native skills add`
  *      materializes for every host),
  *   2. templates/plan/.agents/skills/<name>/SKILL.md (the template copy),
  *   3. skills/<name>/SKILL.md (the top-level exported mirror).
+ *   4. .agents/skills/<name>/SKILL.md (the repo-local installed skill).
  *
  * Historically these drifted silently (the shipped constant once said "author a
  * complete bespoke html document" while the template copies had already moved on
  * to structured content). This guard fails the moment any copy drifts so the
- * three stay a single source of truth, and it forbids the stale
+ * copies stay a single source of truth, and it forbids the stale
  * "bespoke html" / "standalone HTML document" phrasing outside the explicit
  * legacy-import caveat.
  */
@@ -72,13 +73,6 @@ const PLAN_SKILLS = [
     hasCores: false,
   },
   {
-    label: "visualize-plan",
-    constant: VISUALIZE_PLAN_SKILL_MD,
-    templateDir: "visualize-plan",
-    exportedDir: "visualize-plan",
-    hasCores: true,
-  },
-  {
     label: "visual-questions",
     constant: VISUAL_QUESTIONS_SKILL_MD,
     templateDir: "visual-questions",
@@ -101,6 +95,10 @@ function templatePath(dir: string): string {
 
 function exportedPath(dir: string): string {
   return path.join(ROOT, "skills", dir, "SKILL.md");
+}
+
+function repoSkillPath(dir: string): string {
+  return path.join(ROOT, ".agents", "skills", dir, "SKILL.md");
 }
 
 function read(file: string): string {
@@ -144,17 +142,47 @@ function findStaleHtmlPhrasing(md: string): string[] {
 }
 
 describe("Plans skills sync guard", () => {
-  it("keeps the shipped constant, template copy, and exported mirror byte-identical", () => {
+  it("keeps the shipped constant, template copy, exported mirror, and repo-local skill byte-identical", () => {
     for (const skill of PLAN_SKILLS) {
       const template = read(templatePath(skill.templateDir));
       const exported = read(exportedPath(skill.exportedDir));
+      const repoLocal = read(repoSkillPath(skill.label));
       expect(template, `${skill.label}: template vs constant`).toBe(
         skill.constant,
       );
       expect(exported, `${skill.label}: exported mirror vs constant`).toBe(
         skill.constant,
       );
+      expect(repoLocal, `${skill.label}: repo-local skill vs constant`).toBe(
+        skill.constant,
+      );
     }
+  });
+
+  it("keeps the Plans app skill manifest aligned with installable plan skills", () => {
+    const manifest = JSON.parse(
+      read(path.join(ROOT, "templates", "plan", "agent-native.app-skill.json")),
+    ) as {
+      skills: Array<{
+        path: string;
+        visibility: string;
+        exportAs?: string;
+      }>;
+    };
+
+    expect(
+      manifest.skills.map((skill) => ({
+        path: skill.path,
+        visibility: skill.visibility,
+        exportAs: skill.exportAs,
+      })),
+    ).toEqual(
+      PLAN_SKILLS.map((skill) => ({
+        path: `.agents/skills/${skill.templateDir}`,
+        visibility: "both",
+        exportAs: skill.label,
+      })),
+    );
   });
 
   it("keeps the shared Wireframe & Document cores identical across plan skills", () => {

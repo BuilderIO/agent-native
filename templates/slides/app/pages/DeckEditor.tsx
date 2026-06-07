@@ -37,8 +37,8 @@ import {
   useSession,
   emailToColor,
   emailToName,
-  agentNativePath,
   appBasePath,
+  callAction,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client";
 import { useOrg } from "@agent-native/core/client/org";
@@ -843,14 +843,10 @@ export default function DeckEditor() {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
           updateDeck(id, { aspectRatio: ratio });
-          fetch(
-            agentNativePath("/_agent-native/actions/update-deck-aspect-ratio"),
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
-            },
-          ).catch((err) => {
+          callAction("update-deck-aspect-ratio", {
+            deckId: id,
+            aspectRatio: ratio,
+          }).catch((err) => {
             console.error("Failed to set aspect ratio:", err);
             updateDeck(id, { aspectRatio: previous });
           });

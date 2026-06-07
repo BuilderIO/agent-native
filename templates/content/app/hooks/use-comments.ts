@@ -1,9 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  appApiPath,
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
 export interface Comment {
   id: string;
@@ -25,12 +20,6 @@ export interface CommentThread {
   quotedText: string | null;
   resolved: boolean;
   comments: Comment[];
-}
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(appApiPath(url), init);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
 }
 
 export function useComments(documentId: string | null) {
@@ -76,27 +65,14 @@ export function useCreateComment() {
 }
 
 export function useResolveComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id }: { id: string; documentId: string }) =>
-      fetchJson<{ ok: boolean }>(`/api/comments/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resolved: true }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action"] });
-    },
-  });
+  return useActionMutation<
+    { ok: boolean; resolved?: boolean },
+    { id: string; documentId: string; resolved?: boolean }
+  >("update-comment");
 }
 
 export function useDeleteComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id }: { id: string; documentId: string }) =>
-      fetchJson<{ ok: boolean }>(`/api/comments/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action"] });
-    },
-  });
+  return useActionMutation<{ ok: boolean }, { id: string; documentId: string }>(
+    "delete-comment",
+  );
 }

@@ -4,6 +4,7 @@ import {
   buildPlanHtml,
   buildUpdatedPlanCommentRows,
   deriveSectionsFromText,
+  newId,
   summarizePlan,
 } from "./plans.js";
 import { buildUiPlanHtml } from "./ui-plan-html.js";
@@ -47,6 +48,15 @@ function comment(id: string, status: PlanComment["status"]): PlanComment {
 }
 
 describe("Plans helpers", () => {
+  it("generates URL-friendly dashed IDs", () => {
+    expect(newId("plan")).toMatch(/^plan-[0-9a-f]{16}$/);
+    expect(newId("plan")).not.toContain("plan_");
+  });
+
+  it("keeps non-plan generated IDs compatible", () => {
+    expect(newId("cmt")).toMatch(/^cmt_[0-9a-f]{16}$/);
+  });
+
   it("summarizes sections and open comments", () => {
     const summary = summarizePlan(
       [section("a", "summary"), section("b", "wireframe")],

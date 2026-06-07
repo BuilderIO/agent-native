@@ -216,7 +216,8 @@ export function generateWorkerEntry(
     const a = actions[i];
     const varName = `action_${i}`;
     actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
-    const routePath = `/_agent-native/actions/${a.name}`;
+    // Mirror the runtime mount (action-routes.ts): `path = http?.path ?? name`.
+    const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};

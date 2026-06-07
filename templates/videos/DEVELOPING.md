@@ -26,7 +26,7 @@ app/                      # React SPA frontend
 └── global.css            # TailwindCSS 3 theming and global styles
 
 server/                   # Nitro API server
-├── routes/               # File-based API routes (auto-discovered by Nitro)
+├── routes/               # File-based route-only endpoints (auto-discovered by Nitro)
 ├── plugins/              # Server plugins (startup logic)
 └── lib/                  # Shared server modules
 
@@ -42,31 +42,21 @@ This app uses **Nitro** (via `@agent-native/core`) for the server. All server co
 
 ```
 server/
-  routes/     # File-based API routes (auto-discovered by Nitro)
+  routes/     # File-based route-only endpoints (auto-discovered by Nitro)
   handlers/   # Route handler logic modules
   plugins/    # Server plugins — run at startup (auth, SSE, etc.)
   lib/        # Shared server modules (watcher instance, helpers)
 ```
 
-### Adding an API Route
+### Adding App Data
 
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
 
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
+### Adding a Route-Only Endpoint
 
-Each file exports a default `defineEventHandler`:
+Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.
 
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
+Each route-only endpoint still exports a default `defineEventHandler`, but keep shared app logic in actions or server libraries so agent and UI behavior do not fork.
 
 ### Server Plugins
 

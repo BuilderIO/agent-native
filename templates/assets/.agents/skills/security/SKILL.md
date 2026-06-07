@@ -1,213 +1,240 @@
 ---
 name: security
 description: >-
-  Secure coding guide for agent-native apps. Covers input validation, SQL
-  injection prevention, XSS, secrets management, auth patterns, data scoping,
-  and A2A security. Read this when generating any code that handles user data.
+  Secure coding practices for agent-native apps: input validation, SQL
+  injection, XSS, secrets, data scoping, and auth. Use when writing any action,
+  route, or component that touches user data or external input.
+metadata:
+  internal: true
 ---
 
 # Security
 
-The framework provides strong security primitives. Use them — don't reinvent security.
+## Rule
+
+Use the framework's security primitives everywhere. Never bypass them.
+
+## Absolute Secrets Rule
+
+Never hardcode secret values or real private data. This applies to source code,
+docs, tests, fixtures, generated prompts, screenshots, seed data, and extension
+HTML just as much as production code.
+
+Do not paste or invent real-looking API keys, bearer tokens, OAuth refresh
+tokens, webhook URLs, signing secrets, private Builder/internal data, or customer
+data into the repo. Examples must use obvious placeholders such as
+`<OPENAI_API_KEY>`, `${keys.SLACK_WEBHOOK}`, `sk-test-example`, or
+`example.customer@example.com`. Test literals should be clearly fake and must
+not match real provider token formats when an `example` token will do.
+
+Credential values enter the system only through approved runtime channels:
+deployment env vars for deploy-level secrets, the encrypted `app_secrets` vault
+or `saveCredential` / `resolveCredential` for user/org/workspace API keys, and
+`oauth_tokens` for OAuth. Code and instructions may name the credential key
+(`OPENAI_API_KEY`), but must never contain the credential value.
 
 ## Input Validation
 
-**Always use `defineAction` with a Zod `schema:`** for every action that accepts user input. The framework validates automatically and returns clear error messages.
+Use `defineAction` with a Zod `schema:` for every action. The framework validates input automatically and returns clear 400 errors for HTTP callers and structured error results for agent tool calls.
 
 ```ts
-// SECURE — framework validates before run() is called
 export default defineAction({
-  description: "Create a note",
   schema: z.object({
-    title: z.string().min(1).max(200),
-    content: z.string().optional(),
+    email: z.string().email(),
+    role: z.enum(["admin", "member"]),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
   }),
-  run: async (args) => {
-    // args is guaranteed valid — { title: string; content?: string }
-  },
+  run: async (args) => { /* args is fully typed and validated */ },
 });
 ```
 
-The legacy `parameters:` format (plain JSON Schema) has **no runtime validation** — the agent receives whatever the caller sends. Do not use it for new code.
+The legacy `parameters:` field (plain JSON Schema) has no runtime validation — do not use it for new code.
 
-Actions without a `schema:` are unvalidated. This is acceptable for internal/dev scripts but never for user-facing operations.
+## SQL Injection
 
-## SQL Injection Prevention
-
-The framework's `db-query` and `db-exec` tools use **parameterized queries** (`?` placeholders). The database driver handles escaping — user input never touches the SQL string.
+Never concatenate user input into SQL strings. Use Drizzle ORM's query builder (always safe) or parameterized queries:
 
 ```ts
-// WRONG — SQL injection vulnerability
-await exec(`INSERT INTO notes (title) VALUES ('${title}')`)
-await exec(`SELECT * FROM notes WHERE title LIKE '%${search}%'`)
+// Safe — Drizzle ORM
+await db.select().from(users).where(eq(users.email, args.email));
 
-// RIGHT — parameterized queries (framework default)
-await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] })
-await exec({ sql: "SELECT * FROM notes WHERE title LIKE ?", args: [`%${search}%`] })
+// Safe — parameterized raw SQL
+await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
+
+// NEVER do this
+await client.execute(`SELECT * FROM users WHERE id = '${id}'`);
 ```
 
-**Drizzle ORM is always safe** — it generates parameterized queries automatically:
+## XSS
+
+- React auto-escapes JSX content — trust it.
+- Never use `dangerouslySetInnerHTML`, `innerHTML`, `eval()`, or `document.write()` with user-controlled content.
+- For rich text editing, use TipTap (framework dependency).
+- For rendering markdown, use `react-markdown`.
+
+## SSRF
+
+Any server-side `fetch` of a user- or agent-controlled URL must go through the framework SSRF guard — a bare `fetch()` can be steered at cloud metadata (`169.254.169.254`), `localhost`, or internal services.
 
 ```ts
-const notes = await db.select().from(notesTable).where(eq(notesTable.title, title));
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+// Blocks private/internal targets, re-checks the resolved IP at connect time
+// (DNS rebinding), and re-validates every redirect hop.
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
 ```
 
-**When is SQL injection a risk?**
-- Only when writing raw SQL with string concatenation in server routes or actions
-- Never when using `db-query`/`db-exec` with `args` arrays
-- Never when using Drizzle ORM
+For a pre-flight-only check (e.g. before a streaming or one-shot fetch), use `isBlockedExtensionUrlWithDns(url)` plus `createSsrfSafeDispatcher()` from the same module, and set `redirect: "manual"`. Never let the default `fetch` follow redirects for an untrusted URL — a public URL can 30x into the private network.
 
-## XSS Prevention
+## Secrets
 
-React auto-escapes all JSX expressions by default. Trust it.
+- OAuth tokens go in the `oauth_tokens` store via `saveOAuthTokens()`.
+- Per-user / per-org API keys go through `saveCredential` / `resolveCredential` (`@agent-native/core/credentials`) or the `app_secrets` vault. Both encrypt values at rest with AES-256-GCM (keyed by `SECRETS_ENCRYPTION_KEY`, falling back to `BETTER_AUTH_SECRET`; production refuses to start without one).
+- Never hand-roll secrets into `settings`, `application_state`, source code, or action responses sent to the client. The credential / vault APIs above are the only sanctioned stores.
+- Never commit real keys, tokens, webhook URLs, signing secrets, or private
+  Builder/customer data in examples or fixtures. Use placeholders that cannot be
+  mistaken for working credentials.
 
-```tsx
-// SAFE — React escapes the output
-<p>{userInput}</p>
-<span>{comment.text}</span>
+## User Credentials Are Per-User Data — Never `process.env`
 
-// DANGEROUS — bypasses React's escaping
-<div dangerouslySetInnerHTML={{ __html: userInput }} />  // NEVER with user content
-element.innerHTML = userInput;                             // NEVER
-eval(userInput);                                           // NEVER
-document.write(userInput);                                 // NEVER
-new Function(userInput);                                   // NEVER
-```
-
-**For rich text:** Use TipTap (framework dependency) with the Collaboration extension. TipTap sanitizes content through its schema — only allowed node types render.
-
-**For markdown:** Use `react-markdown` (already used in the framework). It parses markdown to React elements without `dangerouslySetInnerHTML`.
-
-**For HTML from external sources:** If you absolutely must render external HTML, use a sanitization library like `dompurify`. But prefer structured data (markdown, TipTap JSON) over raw HTML.
-
-## Secrets Management
-
-| Secret type | Where to store | Why |
-|-------------|---------------|-----|
-| API keys (OpenAI, Stripe, etc.) | `.env` file (gitignored) | Never committed, server-side only |
-| OAuth tokens (Google, GitHub) | `oauth_tokens` store | Per-user, per-provider, server-side |
-| App configuration | `settings` store | OK for non-secret config (themes, preferences) |
-| Session tokens | Framework handles | Automatic via Better Auth |
-
-**Rules:**
-- Never store secrets in `settings`, `application_state`, or source code
-- Never return secrets in action responses — they may appear in agent chat or client UI
-- Never log secrets (tokens, keys, passwords)
-- Never commit `.env` files — they're gitignored by default
-- Access env vars via `process.env` in actions/server code, never send them to the client
-
-## Auth Patterns
-
-### Use `defineAction` (recommended)
-
-Actions defined with `defineAction` are automatically protected by the auth guard. Unauthenticated requests get a 401 response. This is the safest pattern.
+User credentials (API keys, third-party tokens) are per-user (or per-org) data. They MUST live in SQL, scoped per-user (`u:<email>:credential:KEY`) or per-org (`o:<orgId>:credential:KEY`). Always read with the request context:
 
 ```ts
-// Auto-protected — auth guard runs before this code
-export default defineAction({
-  description: "Delete a note",
-  schema: z.object({ id: z.string() }),
-  run: async (args) => {
-    // Only authenticated users reach here
-  },
-});
+import { resolveCredential } from "@agent-native/core/credentials";
+const apiKey = await resolveCredential("OPENAI_API_KEY", { userEmail, orgId });
 ```
 
-### Custom `/api/` routes (use sparingly)
+Values are encrypted at rest (AES-256-GCM, shared `secrets/crypto.ts`): `saveCredential` encrypts on write and `resolveCredential` decrypts on read, with a transparent fallback for legacy plaintext rows. The agent's raw `db-query` / `db-exec` tools also cannot read credential rows — they are excluded from the scoped `settings` view. To encrypt pre-existing rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive; needs the same `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` as the app).
 
-If you must create custom routes (file uploads, streaming, webhooks), always check auth:
+On 2026-04-29 the previous one-arg `resolveCredential(key)` form fell back to `process.env[key]` and an unscoped global `settings` row, so every signed-in user inherited the deployment's credentials. Two guards now block this in CI (`pnpm prep`):
+
+- `scripts/guard-no-env-credentials.mjs` — bans `process.env.<KEY>` reads in `packages/core/src/credentials/`, `secrets/`, `vault/`, and `templates/*/server/{lib,routes/api}/credential*` paths, except for an explicit allowlist of deploy-level vars (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `NETLIFY_*`, etc.). Per-line opt-out: `// guard:allow-env-credential — <reason>`.
+- `scripts/guard-no-unscoped-credentials.mjs` — bans one-arg calls to `resolveCredential` / `hasCredential` / `saveCredential` / `deleteCredential`. Per-line opt-out: `// guard:allow-unscoped-credential — <reason>`.
+
+If a deploy-level value genuinely needs an env var (CI-set token, host secret), it's not a user credential — keep it out of the credentials/ secrets/ vault/ paths and the env-credentials guard won't see it.
+
+## Guards
+
+Two more CI guards (also wired into `pnpm prep`) target the 2026-04 cross-tenant leak class — request-state escaping into shared process state, and dev-mode sentinel identities used as production fallbacks.
+
+- `scripts/guard-no-env-mutation.mjs` — bans `process.env.<KEY> = …` (and bracket / compound forms) anywhere in production code. On serverless, every warm container handles many concurrent requests in one Node process, so `process.env` mutation leaks across in-flight requests (the "restore" line at the end of a handler races and never helps — most recently the Zoom webhook). Use `runWithRequestContext({ userEmail, orgId, timezone }, fn)` from `@agent-native/core/server` instead — it's AsyncLocalStorage-backed and per-request safe. Allowlisted paths: `scripts/`, `*.spec.ts` / `*.test.ts`, `packages/core/src/dev**`, `templates/*/test/`, anything under `/cli/` or `/scaffold/`. Per-line opt-out: `process.env.X = y // guard:allow-env-mutation — <reason>`.
+- `scripts/guard-no-localhost-fallback.mjs` — bans the literal `"local@localhost"` / `'local@localhost'` / `` `local@localhost` `` in production code. The bug class: `getRequestUserEmail() ?? "local@localhost"` silently pools every unauthenticated request into a single shared tenant, leaking credentials, tools, and `application_state` rows between accounts. The right behavior is to throw / 401 when there's no session. Allowlisted paths: the dev-mode auth shim (`packages/core/src/server/auth.ts`), `packages/core/src/dev**`, tests, `scripts/`, `seed/` / `seeds/`, plus a few framework helpers that intentionally inspect or migrate the dev identity. SQL DDL `DEFAULT 'local@localhost'` and the Drizzle helper `.default('local@localhost')` are skipped per-line — schema column defaults are intentional dev fixtures, not the dangerous fallback pattern. Per-line opt-out: `email ?? "local@localhost" // guard:allow-localhost-fallback — <reason>`.
+
+## Auth
+
+- All actions are protected by the auth guard automatically.
+- Prefer actions for normal app data. Do not hand-write `/api/*` routes for
+  CRUD, data queries, or action re-exports just to add auth; action endpoints
+  already get auth and request context.
+- If you must create custom `/api/` routes, always call `getSession(event)` and reject requests without a session:
 
 ```ts
-// server/routes/api/upload.ts
 import { getSession } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
   const session = await getSession(event);
-  if (!session?.email) {
-    setResponseStatus(event, 401);
-    return { error: "Unauthorized" };
-  }
-  // ... handle upload with session.email
+  if (!session) throw createError({ statusCode: 401 });
+  // ...
 });
 ```
 
-### CSRF Protection
+- Never create unprotected routes that modify data.
 
-The framework uses `SameSite=lax` cookies with `httpOnly` flag. This prevents most CSRF attacks. Additional rules:
-- State-changing actions should use POST (the default for `defineAction`)
-- GET actions (`http: { method: "GET" }`) should be read-only
-- Never perform writes in response to GET requests
+## Custom HTTP Routes Must Apply Access Control Themselves
+
+This is the single most-failed rule in the codebase. Auto-mounted action routes (`/_agent-native/actions/...`) get a request context wired up automatically. **Hand-written `/api/*` Nitro routes do not.** If your handler queries an ownable resource (any table with `...ownableColumns()`), you MUST:
+
+1. Read the session: `const session = await getSession(event).catch(() => null)`.
+2. Run the work inside `runWithRequestContext({ userEmail: session?.email, orgId: session?.orgId }, fn)` from `@agent-native/core/server`.
+3. Inside `fn`, query through one of:
+   - `accessFilter(table, sharesTable)` in the WHERE clause for list/read-many.
+   - `resolveAccess("<type>", id)` for read-by-id (returns null if no access — return 404, not 403, so existence isn't leaked).
+   - `assertAccess("<type>", id, "viewer"|"editor"|"admin")` for write/delete-by-id.
+
+```ts
+// Bad — Brent's signup leaked every other user's decks because of this exact shape.
+export default defineEventHandler(async () => {
+  const db = getDb();
+  return db.select().from(schema.decks); // no access filter!
+});
+
+// Good
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
+export default defineEventHandler(async (event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
+      const db = getDb();
+      return db
+        .select()
+        .from(schema.decks)
+        .where(accessFilter(schema.decks, schema.deckShares));
+    },
+  );
+});
+```
+
+`scripts/guard-no-unscoped-queries.mjs` runs in `pnpm prep` and fails the build if any file in `templates/*/server/`, `templates/*/actions/`, or `packages/*/src/` queries an ownable table without one of the access helpers. Last-resort opt-out is the marker comment `// guard:allow-unscoped — <reason>` — only use it for cases like the sharing primitives themselves or share-token-public viewer endpoints, and always include a reviewer-readable reason.
 
 ## Data Scoping
 
-In production, the framework enforces data isolation at the SQL level. Agents and users can only see and modify data they own. This is automatic — you don't write WHERE clauses yourself.
+In production, the framework automatically restricts all agent SQL queries to the current user's data using temporary views. This is enforced at the SQL level — the agent cannot bypass it.
+
+The `db-query` / `db-exec` tools (and the extension SQL bridge, which shares the same path) reject schema-qualified table references like `public.<table>` or `main.<table>` — a qualified name resolves to the base table and would skip the temp view. Use bare table names; scoping is applied automatically.
 
 ### Per-User Scoping (`owner_email`)
 
-Every table with user-specific data **must** have an `owner_email` text column.
+Every template table with user data **must** have an `owner_email` text column:
 
-```ts
-import { table, text, integer } from "@agent-native/core/db/schema";
+1. Framework detects `owner_email` via schema introspection
+2. Creates temp views `WHERE owner_email = <current user>` before each query
+3. Auto-injects `owner_email` into INSERT statements
 
-export const notes = table("notes", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  content: text("content"),
-  owner_email: text("owner_email").notNull(), // REQUIRED for user data
-});
-```
-
-**What happens automatically:**
-- `db-query` creates temporary views with `WHERE owner_email = <current user>`
-- `db-exec` INSERT statements get `owner_email` auto-injected
-- `db-exec` UPDATE/DELETE statements are scoped to the current user's rows
-- The current user comes from `AGENT_USER_EMAIL` (set from the auth session)
+The current user is resolved from `AGENT_USER_EMAIL` (set automatically from the session).
 
 ### Per-Org Scoping (`org_id`)
 
-For multi-user apps where teams share data, add an `org_id` column:
+For multi-org apps, tables also need `org_id`:
+
+1. `WHERE org_id = <current org>` is added (in addition to `owner_email` if present)
+2. `org_id` is auto-injected into INSERT statements
+
+Enable org scoping in the agent-chat plugin:
 
 ```ts
-export const projects = table("projects", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  owner_email: text("owner_email").notNull(),
-  org_id: text("org_id").notNull(),
+createAgentChatPlugin({
+  resolveOrgId: async (event) => {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId;
+  },
 });
 ```
 
-When both columns are present, queries are scoped by **both**: `WHERE owner_email = ? AND org_id = ?`.
+### Column Conventions
 
-### Validation
+| Column        | Purpose                 | Required                        |
+| ------------- | ----------------------- | ------------------------------- |
+| `owner_email` | Per-user data isolation | Yes, for all user-facing tables |
+| `org_id`      | Per-org data isolation  | Yes, for multi-org apps         |
 
-Run `pnpm action db-check-scoping` to verify all tables have proper ownership columns. Use `--require-org` for multi-org apps.
+Run `pnpm action db-check-scoping` to verify. Use `--require-org` for multi-org apps.
 
-## A2A Security
+## Checklist
 
-### Cross-App Identity
+- [ ] New action uses `defineAction` with a Zod `schema:`
+- [ ] No SQL string concatenation with user input
+- [ ] No `dangerouslySetInnerHTML` with user content
+- [ ] Server-side fetches of user/agent URLs use `ssrfSafeFetch`, not bare `fetch`
+- [ ] Secrets stored via `saveCredential` / the vault (encrypted), never raw in `settings` or responses
+- [ ] No hardcoded API keys, tokens, webhook URLs, signing secrets, real
+      credential-looking strings, private Builder/internal data, or customer data
+- [ ] New env vars in `.env` only, not committed
+- [ ] New user-data tables have `owner_email` column
+- [ ] Custom routes call `getSession` and reject unauthenticated requests
 
-When apps call each other via A2A, they need to verify identity. Set the same `A2A_SECRET` on all apps that need to trust each other:
+## Related Skills
 
-```bash
-A2A_SECRET=your-shared-secret-at-least-32-chars
-```
-
-**How it works:**
-1. App A signs a JWT with `A2A_SECRET` containing `sub: "steve@builder.io"`
-2. App B receives the call, verifies the JWT signature
-3. App B sets `AGENT_USER_EMAIL` from the verified `sub` claim
-4. Data scoping applies — App B only shows steve's data
-
-Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev, not production).
-
-## Rules for Agents
-
-1. **Every new table with user data must have `owner_email`.** No exceptions.
-2. **Always use `defineAction` with a Zod `schema:`** for input validation on user-facing actions.
-3. **Never concatenate user input into SQL** — use parameterized queries or Drizzle ORM.
-4. **Never use `dangerouslySetInnerHTML`** or `innerHTML` with user-controlled content.
-5. **Never store secrets outside `.env` or `oauth_tokens`** — no settings, no source code, no responses.
-6. **Never bypass scoping** — don't raw-query tables without going through `db-query`/`db-exec`.
-7. **Never create unprotected routes that modify data** — use `defineAction` or check `getSession()`.
-8. **Don't hardcode emails** — use `AGENT_USER_EMAIL` environment variable.
-9. **Don't expose user data in application state** — it's per-session, not per-user. Use SQL tables with `owner_email`.
+- `storing-data` — SQL patterns and the agent's db tools
+- `actions` — `defineAction` with Zod schema validation
+- `authentication` — Auth modes, sessions, and org context

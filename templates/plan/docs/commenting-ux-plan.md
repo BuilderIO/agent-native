@@ -563,7 +563,7 @@ Companion: **`get-comment-crop({ planId, commentId })`** returns one marked crop
 Every agent-facing wording change must land in **all three** or the test fails:
 
 1. `packages/core/src/cli/skills.ts` constants (`VISUAL_PLANS_SKILL_MD`,
-   `UI_PLAN_SKILL_MD`, `VISUALIZE_PLAN_SKILL_MD`),
+   `UI_PLAN_SKILL_MD`),
 2. `templates/plan/.agents/skills/<name>/SKILL.md` (canonical),
 3. `skills/<name>/SKILL.md` (exported mirror).
 

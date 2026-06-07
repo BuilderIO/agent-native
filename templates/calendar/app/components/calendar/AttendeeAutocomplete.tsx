@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { agentNativePath } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client";
 import {
   IconAddressBook,
   IconBuilding,
@@ -244,12 +244,11 @@ export const AttendeeAutocomplete = forwardRef<
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const params = new URLSearchParams({ q: query, scope: "all" });
-        const response = await fetch(
-          agentNativePath(`/_agent-native/actions/search-people?${params}`),
+        const data = await callAction<PeopleSearchResponse>(
+          "search-people",
+          { q: query, scope: "all" },
+          { method: "GET" },
         );
-        if (!response.ok) return;
-        const data = (await response.json()) as PeopleSearchResponse;
         setResults(data.results ?? []);
         setScopeRequired(Boolean(data.scopeRequired));
         setOpen(true);

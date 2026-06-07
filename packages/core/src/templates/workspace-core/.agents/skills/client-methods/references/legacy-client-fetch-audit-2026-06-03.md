@@ -7,6 +7,11 @@ contracts; some need new actions or helper modules first.
 
 ## Highest Priority
 
+- 2026-06-07 follow-up: the same high-priority route-first clusters are still
+  present. The biggest migrations remain Analytics, Calendar, Mail, Slides, and
+  Content. Do not copy these patterns into new work; when editing the relevant
+  area, add or reuse actions first, then call them with `useActionQuery`,
+  `useActionMutation`, or `callAction`.
 - `templates/analytics/app/pages/analyses/AnalysesList.tsx`,
   `templates/analytics/app/pages/analyses/AnalysisDetail.tsx`,
   `templates/analytics/app/components/layout/Sidebar.tsx`, and
@@ -43,6 +48,10 @@ contracts; some need new actions or helper modules first.
 - Content comments and versions are partially migrated. Add missing actions such
   as `resolve-comment`, `delete-comment`, `list-document-versions`, and
   `restore-document-version`.
+- Plans version history is the model to copy for new history/rollback work:
+  `list-plan-versions`, `get-plan-version`, and `restore-plan-version` are
+  action-native, and the UI calls them through action hooks. Do not copy
+  Content's legacy document-version `/api/*` helpers into new version panels.
 
 ## Acceptable Exceptions
 

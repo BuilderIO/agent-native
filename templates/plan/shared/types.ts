@@ -155,3 +155,50 @@ export interface PlanBundle {
     openCommentCount: number;
   };
 }
+
+export interface PlanVersionSnapshot {
+  plan: Pick<
+    Plan,
+    | "title"
+    | "brief"
+    | "status"
+    | "source"
+    | "repoPath"
+    | "currentFocus"
+    | "html"
+    | "markdown"
+    | "content"
+    | "approvedAt"
+  >;
+  sections: PlanSection[];
+}
+
+export interface PlanVersionSummary {
+  id: string;
+  planId: string;
+  title: string;
+  label?: string | null;
+  createdBy: PlanAuthor;
+  createdAt: string;
+  status: PlanStatus;
+  source: PlanSource;
+  blockCount: number;
+  sectionCount: number;
+  hasCanvas: boolean;
+  hasPrototype: boolean;
+  preview: string;
+}
+
+export interface PlanVersionDetail extends PlanVersionSummary {
+  snapshot: PlanVersionSnapshot;
+  plan: Plan;
+  sections: PlanSection[];
+  html: string;
+  markdown?: string | null;
+}
+
+export interface PlanVersionListResponse {
+  planId: string;
+  count: number;
+  versions: PlanVersionSummary[];
+}

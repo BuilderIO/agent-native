@@ -3,12 +3,8 @@ import type { DiagramData } from "@shared/blocks/diagram.config";
 import { SketchDiagram } from "../wireframe/Wireframe";
 
 /**
- * Read-only renderer for a `diagram` block. Mirrors the legacy `PlanBlockView`
- * diagram branch (same `plan-block` section + title + `SketchDiagram` + trailing
- * summary) so converting the block to the registry does not change the rendered
- * output. `SketchDiagram`'s `compact` mode (used only in dense tab panes) is not
- * threaded through the registry context, so the registry path renders the
- * standard, non-compact diagram — matching the normal document flow.
+ * Read-only renderer for a `diagram` block. `SketchDiagram` now handles both
+ * preferred HTML/SVG diagrams and legacy node graphs.
  */
 export function DiagramBlock({
   data,
@@ -27,10 +23,8 @@ export function DiagramBlock({
 
 /**
  * Edit renderer for a `diagram` block. Diagram editing stays comment/patch-driven
- * (the node/edge/note graph is positional structured data, not form fields), so
- * the editor renders the same read-only `SketchDiagram` rather than the schema
- * auto-editor — which would otherwise show "needs a custom editor" hints for the
- * array fields. This keeps edit mode from regressing the diagram's appearance.
+ * (HTML/SVG or graph data is easier to patch than form-edit), so the editor
+ * renders the same read-only `SketchDiagram` rather than the schema auto-editor.
  *
  * Like the schema auto-editor, this renders BARE content (just the diagram
  * canvas, no `<section>`/title/summary). In edit mode `PlanBlockView` wraps the

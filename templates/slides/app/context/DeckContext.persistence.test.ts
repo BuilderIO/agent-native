@@ -32,6 +32,23 @@ function setupFetch() {
       });
     }
 
+    if (href.includes("/_agent-native/actions/list-decks")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ count: 0, decks: [] }), {
+          status: 200,
+        }),
+      );
+    }
+
+    if (href.includes("/_agent-native/actions/get-deck")) {
+      if (accessibleDeck) {
+        return Promise.resolve(
+          new Response(JSON.stringify(accessibleDeck), { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    }
+
     if (href.endsWith("/api/decks")) {
       return Promise.resolve(new Response("[]", { status: 200 }));
     }
@@ -60,7 +77,7 @@ function setupFetch() {
 
 function deckFetchCalls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls.filter(([url]) =>
-    String(url).includes("/api/decks/"),
+    String(url).includes("/_agent-native/actions/get-deck"),
   );
 }
 
@@ -250,18 +267,28 @@ describe("DeckContext deck creation persistence", () => {
             ? url.toString()
             : url.url;
 
-      if (href.endsWith("/api/decks")) {
-        return Promise.resolve(new Response("[]", { status: 200 }));
+      if (href.includes("/_agent-native/actions/list-decks")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ count: 0, decks: [] }), {
+            status: 200,
+          }),
+        );
       }
 
-      if (href.endsWith("/api/decks/first-deck")) {
+      if (
+        href.includes("/_agent-native/actions/get-deck") &&
+        href.includes("id=first-deck")
+      ) {
         firstDeckRequestStarted = true;
         return new Promise<Response>((resolve) => {
           resolveFirstDeck = resolve;
         });
       }
 
-      if (href.endsWith("/api/decks/second-deck")) {
+      if (
+        href.includes("/_agent-native/actions/get-deck") &&
+        href.includes("id=second-deck")
+      ) {
         return Promise.resolve(
           new Response(JSON.stringify(secondDeck), { status: 200 }),
         );
@@ -316,7 +343,7 @@ describe("DeckContext deck creation persistence", () => {
             ? url.toString()
             : url.url;
 
-      if (href.endsWith("/api/decks")) {
+      if (href.includes("/_agent-native/actions/list-decks")) {
         return new Promise<Response>((resolve) => {
           resolveDecks = resolve;
         });
@@ -331,7 +358,11 @@ describe("DeckContext deck creation persistence", () => {
 
     window.history.pushState({}, "", "/deck/second-deck");
     await act(async () => {
-      resolveDecks(new Response(JSON.stringify([firstDeck]), { status: 200 }));
+      resolveDecks(
+        new Response(JSON.stringify({ count: 1, decks: [firstDeck] }), {
+          status: 200,
+        }),
+      );
     });
 
     await waitFor(() => expect(result.current.loading).toBe(false));

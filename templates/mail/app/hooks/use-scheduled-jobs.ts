@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { callAction } from "@agent-native/core/client";
 import {
   suppressThread,
   unsuppressThread,
@@ -20,6 +21,16 @@ export interface ScheduledJob {
   runAt: number; // epoch ms
   status: "pending" | "processing" | "done" | "cancelled";
   createdAt: number;
+}
+
+function assertActionSuccess<T>(result: T): T {
+  if (
+    typeof result === "string" &&
+    (/^Error:/i.test(result) || /\bwas not found\b/i.test(result))
+  ) {
+    throw new Error(result);
+  }
+  return result;
 }
 
 export function useScheduledJobs() {
@@ -149,13 +160,8 @@ export function useScheduleEmail() {
 export function useDeleteScheduledJob() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(appApiPath(`/api/scheduled-jobs/${id}`), {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to cancel job");
-      return res.json();
-    },
+    mutationFn: (id: string) =>
+      callAction("cancel-scheduled-email", { id }).then(assertActionSuccess),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -181,19 +187,7 @@ export function useDeleteScheduledJob() {
 export function useSendScheduledJobNow() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(
-        appApiPath(`/api/scheduled-jobs/${id}/send-now`),
-        {
-          method: "POST",
-        },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error || "Failed to send scheduled email");
-      }
-      return res.json();
-    },
+    mutationFn: (id: string) => callAction("send-scheduled-email-now", { id }),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({

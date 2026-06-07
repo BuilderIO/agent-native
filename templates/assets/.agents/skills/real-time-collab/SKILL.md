@@ -1,183 +1,158 @@
 ---
 name: real-time-collab
 description: >-
-  How to enable multi-user collaborative editing with Yjs CRDT, TipTap
-  Collaboration extension, live cursors, and agent-driven edits.
+  Multi-user collaborative editing with Yjs CRDT and live cursors. Use when
+  adding real-time collaborative editing to a template, debugging sync issues,
+  or understanding how the agent and humans edit documents simultaneously.
+metadata:
+  internal: true
 ---
 
 # Real-Time Collaboration
 
-The framework provides a Yjs-based collaborative editing system in `@agent-native/core/collab`. Multiple users can edit the same document simultaneously with live cursor positions, and the AI agent can make surgical edits that appear in real-time.
+## Rule
 
-## Architecture
+Collaborative editing uses Yjs CRDT via TipTap. The agent and human users are equal participants — both edit the same Y.Doc and changes merge cleanly without conflicts.
 
-```
-User A (TipTap + Collaboration ext)  ←→  Y.XmlFragment  ←→  Server (_collab_docs table)
-User B (TipTap + Collaboration ext)  ←→  Y.XmlFragment  ←→       ↑
-Agent (edit-document action)         ←→  search-replace endpoint ─┘
-```
+## How It Works
 
-- **Yjs Y.Doc** stores the document as a `Y.XmlFragment` (ProseMirror node tree)
+- **`Y.Doc`** stores the document as a `Y.XmlFragment` (ProseMirror node tree)
 - **TipTap's Collaboration extension** binds the editor to the Y.XmlFragment via `ySyncPlugin`
 - **CollaborationCaret extension** renders remote users' cursors with names and colors
 - **Polling** (every 2s) syncs Y.Doc updates and awareness state between clients and server
-- **SQL `_collab_docs` table** persists Yjs state (base64-encoded binary)
+- **SQL `_collab_docs` table** persists Yjs state as base64-encoded binary (works across SQLite/Postgres)
 
-## Enabling Collaboration in a Template
+## Agent + Human Editing
 
-### 1. Install dependencies
+1. **Human edits** → TipTap → ySyncPlugin → Y.XmlFragment → `POST /_agent-native/collab/:docId/update`
+2. **Agent edits** → action edits canonical SQL content + bumps `updatedAt` → change-sync refetch → the open editor reconciles the new content into the live Y.Doc (see below) → poll update → all clients
 
-```bash
-pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap --filter your-template
-```
+Both produce Yjs operations that merge cleanly. Agent edits appear without destroying cursor position, selection, or undo history.
 
-### 2. Add Vite optimizeDeps
+This is how content (documents) and slides now work. The agent does **not** push edits into Yjs in-process, and it does **not** call any `findCollabOrigin()` / localhost probe — that approach silently no-op'd on serverless (the action runs in a different process), so agent edits didn't show up live until the user navigated away and back. Nor does it search-and-replace inside existing Y.XmlText nodes, which could never create new block structure (lists, headings, tables). The peer-editor model below replaces both.
 
-In `vite.config.ts`:
-```ts
-export default defineConfig({
-  plugins: [reactRouter()],
-  optimizeDeps: {
-    include: [
-      "yjs",
-      "y-protocols/awareness",
-      "@tiptap/extension-collaboration",
-      "@tiptap/extension-collaboration-caret",
-      "@tiptap/y-tiptap",
-    ],
-  },
-});
-```
+## Agent Edits As A Real-Time Peer Editor
 
-This prevents Vite from re-bundling TipTap in incompatible ways during dev.
+The agent edits documents the same way a human collaborator does: its change lands in the shared Y.Doc, propagates to every connected client, and persists. It gets there without any in-process Yjs push from the action.
 
-### 3. Add the collab server plugin
+**SQL is the durable source of truth for document body content.** The agent action edits the canonical content (e.g. `documents.content`) and bumps `updatedAt`. That's the whole server side — no localhost calls, no Yjs mutation from the action.
 
-Create `server/plugins/collab.ts`:
-```ts
-import { createCollabPlugin } from "@agent-native/core/server";
-export default createCollabPlugin({
-  table: "your_table",
-  contentColumn: "content",
-  idColumn: "id",
-  autoSeed: false, // Client-side seeding on first load
-});
-```
+**The open editor reconciles authoritative external content into the live Y.Doc.** The action's `updatedAt` bump flows through the change-sync system (see `real-time-sync`), which refetches the record. The editor applies the new content through its real markdown/HTML pipeline via `setContent`, so new block structure (lists, headings, tables) renders correctly and merges with concurrent human edits through the Yjs CRDT diff. The result: the agent's edit propagates to every connected client and persists, exactly like a human collaborator's edit.
 
-This mounts routes under `/_agent-native/collab/`:
-- `GET /:docId/state` — fetch Y.Doc state
-- `POST /:docId/update` — apply client update
-- `POST /:docId/text` — apply full text (diff-based)
-- `POST /:docId/search-replace` — surgical text find/replace in Y.XmlFragment
-- `POST /:docId/awareness` — sync cursor/presence state
+### The `updatedAt` gate
 
-### 4. Use the `useCollaborativeDoc` hook
+The editor only adopts content that is genuinely **newer** than what it already reflects. An older-or-equal `updatedAt` is a lagging poll or a stale snapshot and is **ignored**.
 
 ```ts
-import { useCollaborativeDoc, generateTabId } from "@agent-native/core/client";
-
-const TAB_ID = generateTabId();
-
-const { ydoc, awareness, isLoading, activeUsers } = useCollaborativeDoc({
-  docId: documentId,
-  requestSource: TAB_ID,
-  user: { name: "Steve", email: "steve@example.com", color: "#60a5fa" },
-});
+// Pseudocode in the editor's reconcile effect
+if (loaded.updatedAt > lastAppliedUpdatedAt.current) {
+  applyAuthoritativeContent(loaded.content); // adopt
+  lastAppliedUpdatedAt.current = loaded.updatedAt;
+}
+// else: lagging poll / stale snapshot → ignore
 ```
 
-The hook:
-- Creates a stable `Y.Doc` per docId (never changes identity)
-- Fetches server state and applies it
-- Sends local updates to server
-- Polls for remote updates (every 2s)
-- Tracks active users via awareness
+**Why:** without the gate, a slightly-behind poll response re-applies old content right after the agent's edit, so the edit "reverts on the next poll" / "doesn't show until refresh" — the whack-a-mole we kept hitting. A **fresh mount or doc-switch has no baseline**, so it always adopts whatever content it loaded — which is why a manual refresh is always correct.
 
-### 5. Add Collaboration extension to TipTap
+### Lead-client election
+
+Exactly ONE connected client applies an authoritative snapshot into the shared Y.Doc; the rest receive it through normal Yjs sync. The lead is the present client with the lowest Yjs `clientID`, decided by the core helper:
 
 ```ts
-import Collaboration from "@tiptap/extension-collaboration";
-import CollaborationCaret from "@tiptap/extension-collaboration-caret";
-import { Awareness } from "y-protocols/awareness";
+import { isReconcileLeadClient } from "@agent-native/core/client";
 
-// Create awareness locally (must use same y-protocols as the caret extension)
-const awareness = new Awareness(ydoc);
-awareness.setLocalStateField("user", { name, color });
-
-const editor = useEditor({
-  extensions: [
-    StarterKit.configure({ history: false }), // Disable history — Yjs handles undo
-    Collaboration.configure({ document: ydoc }),
-    CollaborationCaret.configure({
-      provider: { awareness },
-      user: { name, color },
-    }),
-    // ... other extensions
-  ],
-  content: initialContent, // Seeds Y.XmlFragment on first load
-});
-```
-
-**Important:** Disable `history` in StarterKit when using Collaboration — Yjs handles undo/redo.
-
-### 6. Seed the Y.XmlFragment
-
-The Collaboration extension does NOT auto-seed from the `content` prop. You must seed manually:
-
-```ts
-useEffect(() => {
-  if (!editor || !ydoc || !content) return;
-  const fragment = ydoc.getXmlFragment("default");
-  if (fragment.length === 0) {
-    editor.commands.setContent(parseContent(content));
-  }
-}, [editor, ydoc, content]);
-```
-
-**Critical:** Guard against saving empty content back to SQL when the editor is in collab mode but hasn't been seeded yet:
-
-```ts
-onUpdate: ({ editor }) => {
-  const md = editor.storage.markdown.getMarkdown();
-  if (!md.trim() && ydoc) return; // Don't save empty during seeding
-  onChange(md);
+if (
+  loaded.updatedAt > lastAppliedUpdatedAt.current &&
+  isReconcileLeadClient(provider.awareness, ydoc.clientID)
+) {
+  applyAuthoritativeContent(loaded.content);
 }
 ```
 
-## Agent Edits via `edit-document`
+**Why:** if every open editor independently diffed the same snapshot into the CRDT, each would insert the changed region at the same position, duplicating it N times (concurrent inserts → duplicated text). Electing one lead avoids that. The agent's awareness id (`AGENT_CLIENT_ID`, max int) can never win, and a client editing alone is always the lead. The election is deterministic across clients with no coordination round-trip.
 
-The `edit-document` action uses search-and-replace:
+### v1 limitation
+
+A full-content reconcile is **last-writer-wins for the rare case** where a human has unsaved edits in the exact region the agent simultaneously rewrites — the agent's snapshot can clobber that in-flight human edit. Inline and structural edits in **different** regions merge fine through the CRDT; only same-region simultaneous rewrites are at risk.
+
+## Enabling Collaboration
+
+### 1. Install packages
+
 ```bash
-pnpm action edit-document --id <docId> --find "old text" --replace "new text"
+pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap
 ```
 
-When collab state exists, the action calls the server's `search-replace` endpoint which:
-1. Walks the Y.XmlFragment tree
-2. Finds the text in Y.XmlText nodes
-3. Applies minimal delete/insert operations
-4. Emits a Yjs update via the poll system
-5. Client receives the update → ySyncPlugin applies a targeted ProseMirror transaction → cursor preserved
+### 2. Add collab server plugin
 
-**Important:** Actions run in a separate process, so they must use the HTTP endpoint (not the collab module directly) to emit updates to the server's poll system.
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/collab";
 
-## Key Modules
+export default createCollabPlugin({
+  table: "documents",
+  contentColumn: "content",
+  idColumn: "id",
+});
+```
 
-| Module | Path | Purpose |
-|--------|------|---------|
-| `@agent-native/core/collab` | `packages/core/src/collab/` | Server-side Yjs management |
-| `useCollaborativeDoc` | `packages/core/src/collab/client.ts` | Client hook |
-| `createCollabPlugin` | `packages/core/src/server/collab-plugin.ts` | Route mounting |
-| `searchAndReplace` | `packages/core/src/collab/ydoc-manager.ts` | Y.XmlFragment text mutation |
+### 3. Use the client hook
+
+```ts
+import { useCollaborativeDoc } from "@agent-native/core/client";
+
+const { ydoc, provider } = useCollaborativeDoc(documentId);
+```
+
+### 4. Add TipTap extensions
+
+```ts
+import { Collaboration } from "@tiptap/extension-collaboration";
+import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
+
+const editor = useEditor({
+  extensions: [
+    Collaboration.configure({ document: ydoc }),
+    CollaborationCaret.configure({
+      provider,
+      user: { name: session.email, color: "#6366f1" },
+    }),
+  ],
+});
+```
+
+### 5. Add to vite.config.ts optimizeDeps
+
+```ts
+optimizeDeps: {
+  include: [
+    "@tiptap/extension-collaboration",
+    "@tiptap/extension-collaboration-caret",
+    "@tiptap/y-tiptap",
+  ],
+}
+```
+
+## Collab Routes (auto-mounted)
+
+| Route | Purpose |
+| ----- | ------- |
+| `GET /_agent-native/collab/:docId/state` | Fetch full Y.Doc state |
+| `POST /_agent-native/collab/:docId/update` | Apply client Yjs update |
+| `POST /_agent-native/collab/:docId/text` | Apply full text (diff-based) |
+| `POST /_agent-native/collab/:docId/search-replace` | Surgical find/replace in Y.XmlFragment |
+| `POST /_agent-native/collab/:docId/awareness` | Sync cursor/presence state |
+| `GET /_agent-native/collab/:docId/users` | List active users |
 
 ## Common Pitfalls
 
-1. **TipTap version mismatch** — All `@tiptap/*` packages must be the same version. The Collaboration extension requires `editor.utils` which was added in v3.22.2.
+- **Don't pass `content` as a TipTap prop** when Collaboration is enabled — Yjs owns the content. Set initial content via the Y.Doc instead.
+- **Don't call `editor.setContent()` ad hoc for agent edits.** The only sanctioned `setContent` is the editor's reconcile path described above — gated by `updatedAt` and guarded by `isReconcileLeadClient`. Calling it from elsewhere (e.g. on every poll, or from every client) re-applies stale content or duplicates the changed region across the CRDT.
+- **Add packages to `optimizeDeps`** — Vite won't pre-bundle Yjs packages correctly otherwise, causing runtime errors in dev.
+- **One `Y.Doc` per document** — Don't create multiple Y.Doc instances for the same document ID. Use the `useCollaborativeDoc` hook which caches by ID.
 
-2. **Empty editor on first load** — The Collaboration extension uses Y.XmlFragment as the source of truth. If the fragment is empty, the editor shows empty. Seed manually (see above).
+## Related Skills
 
-3. **Data loss from empty saves** — The `onUpdate` handler fires when the editor initializes with an empty Y.XmlFragment. If this empty content is saved to SQL, it overwrites the real content. Always guard against saving empty content in collab mode.
-
-4. **Stale content on document switch** — Use `key={documentId}` on the editor component to force a full remount when switching documents. This ensures the Y.Doc, seeding, and editor state are all fresh.
-
-5. **Separate process for actions** — Actions run via `pnpm action` in a new Node.js process. The in-memory EventEmitter in the action process doesn't reach the dev server's poll system. Use HTTP endpoints for collab operations from actions.
-
-6. **Vite dep optimization** — Adding Yjs-related packages to a template changes Vite's dependency bundling, which can break TipTap's React integration. Always add them to `optimizeDeps.include`.
+- `real-time-sync` — The change-sync system that delivers the `updatedAt` bump driving editor reconciliation; also `useReconciledState` for non-collaborative "copy a server value into local edit state" surfaces
+- `storing-data` — The `_collab_docs` table where Yjs state is persisted; SQL holds the canonical document body that the editor reconciles from
+- `self-modifying-code` — Agent edits to collaborative documents edit canonical SQL content, not raw Yjs

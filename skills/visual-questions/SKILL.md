@@ -11,10 +11,10 @@ metadata:
 # Visual Questions
 
 Use `/visual-questions` when the next best step is not a plan yet, but a
-reviewable visual intake: single-choice chips, multi-select chips, freeform
-notes, mockup choices, sketch diagrams, and a generated answer summary that feeds
-the next planning prompt. It composes with `/visual-plan`, `/ui-plan`,
-`/prototype-plan`, `/plan-design`, and `/visualize-plan`.
+reviewable visual intake: single-choice option rows, multi-select option rows,
+freeform notes, mockup choices, sketch diagrams, and a generated answer summary
+that feeds the next planning prompt. It composes with `/visual-plan`, `/ui-plan`,
+`/prototype-plan`, and `/plan-design`.
 
 ## When To Use
 
@@ -41,9 +41,9 @@ Visual questions are an explicit intake command, not an automatic preflight for
 4. The generated summary drives the next step: `create-ui-plan` for static UI
    review, `create-prototype-plan` for click-through UI flows,
    `create-plan-design` for high-fidelity branded UI review,
-   `create-visual-plan` for general plans, `visualize-plan` when a text plan
-   already exists, or `update-visual-plan` with targeted `contentPatches` to
-   fold answers into an active plan.
+   `create-visual-plan` for general plans or when a text plan already exists,
+   or `update-visual-plan` with targeted `contentPatches` to fold answers into
+   an active plan.
 5. If the user leaves comments, call `get-plan-feedback` before using the answers.
 
 ## Question Types
@@ -82,8 +82,9 @@ desktop/mobile pair for a popover, panel, or component.
   interaction feel matters.
 - `create-plan-design`: create a high-fidelity branded design plan from the
   answers when visual polish is the primary review input.
-- `create-visual-plan`: create a general visual plan from the answers.
-- `visualize-plan`: enrich an existing text plan after answers are gathered.
+- `create-visual-plan`: create a general visual plan from the answers, or pass
+  existing plan text as `planText` when the answers should shape an imported
+  plan.
 - `export-visual-plan`: export answer plans as HTML, Markdown fallback,
   structured JSON, and MDX files when the intake needs to be checked into a repo.
 - `read-visual-plan-source` / `patch-visual-plan-source`: inspect or patch the
@@ -103,7 +104,7 @@ agent-native skills add visual-plan
 ```
 
 After that, `/visual-plan` (and `/ui-plan`, `/prototype-plan`, `/plan-design`,
-`/visual-questions`, `/visualize-plan`) generate a plan and open the editor. Pass `--no-connect` to
+`/visual-questions`) generate a plan and open the editor. Pass `--no-connect` to
 register the connector without authenticating, then run
 `agent-native connect https://plan.agent-native.com` whenever you are ready.
 

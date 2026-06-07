@@ -343,8 +343,17 @@ export type PlanDiagramEdge = {
 export type PlanDiagramBlock = PlanBlockBase & {
   type: "diagram";
   data: {
-    nodes: PlanDiagramNode[];
-    edges: PlanDiagramEdge[];
+    /**
+     * Preferred authoring path for architecture/code diagrams. This is an inert,
+     * scoped fragment rendered by the plan viewer with theme + sketch/clean
+     * style hooks. Legacy node graphs remain supported below for old plans and
+     * simple previews.
+     */
+    html?: string;
+    css?: string;
+    caption?: string;
+    nodes?: PlanDiagramNode[];
+    edges?: PlanDiagramEdge[];
     notes?: Array<{
       id: string;
       text: string;
@@ -1221,21 +1230,33 @@ const diagramEdgeSchema: z.ZodType<PlanDiagramEdge> = z.object({
   label: z.string().trim().max(100).optional(),
 });
 
-const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z.object({
-  nodes: z.array(diagramNodeSchema).min(1).max(80),
-  edges: z.array(diagramEdgeSchema).max(120).default([]),
-  notes: z
-    .array(
-      z.object({
-        id: idSchema,
-        text: z.string().trim().min(1).max(500),
-        x: z.number().min(0).max(100).optional(),
-        y: z.number().min(0).max(100).optional(),
-      }),
-    )
-    .max(40)
-    .optional(),
-});
+const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
+  .object({
+    html: z.string().trim().max(100_000).optional(),
+    css: z.string().max(50_000).optional(),
+    caption: z.string().trim().max(600).optional(),
+    nodes: z.array(diagramNodeSchema).max(80).optional(),
+    edges: z.array(diagramEdgeSchema).max(120).optional(),
+    notes: z
+      .array(
+        z.object({
+          id: idSchema,
+          text: z.string().trim().min(1).max(500),
+          x: z.number().min(0).max(100).optional(),
+          y: z.number().min(0).max(100).optional(),
+        }),
+      )
+      .max(40)
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.html?.trim() || (data.nodes?.length ?? 0) > 0) return;
+    ctx.addIssue({
+      code: "custom",
+      path: ["html"],
+      message: "Diagram block requires html or at least one node.",
+    });
+  });
 
 const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
   .object({
@@ -1913,6 +1934,7 @@ export const planContentSchema: z.ZodType<PlanContent> = z
     };
 
     const seen = new Set<string>();
+    const blocksById = new Map<string, PlanBlock>();
     const visit = (block: PlanBlock) => {
       if (seen.has(block.id)) {
         context.addIssue({
@@ -1922,6 +1944,7 @@ export const planContentSchema: z.ZodType<PlanContent> = z
         });
       }
       seen.add(block.id);
+      blocksById.set(block.id, block);
       if (block.type === "tabs") {
         for (const tab of block.data.tabs) {
           for (const child of tab.blocks) {
@@ -1944,6 +1967,18 @@ export const planContentSchema: z.ZodType<PlanContent> = z
         "canvas",
         "frames",
       ]);
+      for (const [index, frame] of content.canvas.frames.entries()) {
+        if (!frame.blockId) continue;
+        const block = blocksById.get(frame.blockId);
+        if (block?.type === "wireframe" || block?.type === "legacy-wireframe") {
+          continue;
+        }
+        context.addIssue({
+          code: "custom",
+          path: ["canvas", "frames", index, "blockId"],
+          message: `Canvas frame ${frame.id} references missing or non-wireframe block: ${frame.blockId}`,
+        });
+      }
       checkUniqueIds(content.canvas.annotations, "canvas annotation", [
         "canvas",
         "annotations",
@@ -2365,6 +2400,11 @@ export function applyPlanContentPatches(
       continue;
     }
     if (patch.op === "replace-block") {
+      preserveCanvasLinkedWireframeBeforeBlockChange(
+        next,
+        patch.blockId,
+        patch.block,
+      );
       next.blocks = updateBlock(
         next.blocks,
         patch.blockId,
@@ -2373,6 +2413,7 @@ export function applyPlanContentPatches(
       continue;
     }
     if (patch.op === "replace-blocks") {
+      preserveCanvasLinkedWireframesBeforeReplaceBlocks(next, patch.blocks);
       next.blocks = patch.blocks.map((block) => planBlockSchema.parse(block));
       continue;
     }
@@ -2594,6 +2635,7 @@ export function applyPlanContentPatches(
       continue;
     }
     if (patch.op === "remove-block") {
+      preserveCanvasLinkedWireframeBeforeBlockChange(next, patch.blockId);
       const result = removeBlock(next.blocks, patch.blockId);
       if (!result.changed) {
         throw new Error(`Block ${patch.blockId} was not found.`);
@@ -2614,6 +2656,95 @@ export function applyPlanContentPatches(
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isWireframeBlock(
+  block: PlanBlock | null | undefined,
+): block is PlanWireframeBlock | PlanLegacyWireframeBlock {
+  return block?.type === "wireframe" || block?.type === "legacy-wireframe";
+}
+
+function findBlock(blocks: PlanBlock[], blockId: string): PlanBlock | null {
+  for (const block of blocks) {
+    if (block.id === blockId) return block;
+    if (block.type !== "tabs") continue;
+    for (const tab of block.data.tabs) {
+      const child = findBlock(tab.blocks, blockId);
+      if (child) return child;
+    }
+  }
+  return null;
+}
+
+function collectBlocksById(blocks: PlanBlock[]) {
+  const byId = new Map<string, PlanBlock>();
+  const visit = (block: PlanBlock) => {
+    byId.set(block.id, block);
+    if (block.type !== "tabs") return;
+    for (const tab of block.data.tabs) {
+      for (const child of tab.blocks) visit(child);
+    }
+  };
+  for (const block of blocks) visit(block);
+  return byId;
+}
+
+function inlineWireframeBlockOnFrame(
+  frame: PlanArtboard,
+  block: PlanWireframeBlock | PlanLegacyWireframeBlock,
+) {
+  if (block.type === "wireframe") {
+    frame.wireframe = cloneJson(block.data);
+    delete frame.legacyWireframe;
+  } else {
+    frame.legacyWireframe = cloneJson(block.data);
+    delete frame.wireframe;
+  }
+  delete frame.blockId;
+}
+
+function preservesCanvasBlockReference(
+  blockId: string,
+  replacement: PlanBlock | null | undefined,
+) {
+  return replacement?.id === blockId && isWireframeBlock(replacement);
+}
+
+function preserveCanvasLinkedWireframeBeforeBlockChange(
+  content: PlanContent,
+  blockId: string,
+  replacement?: PlanBlock,
+) {
+  if (!content.canvas) return;
+  if (preservesCanvasBlockReference(blockId, replacement)) return;
+
+  const existingBlock = findBlock(content.blocks, blockId);
+  if (!isWireframeBlock(existingBlock)) return;
+
+  for (const frame of content.canvas.frames) {
+    if (frame.blockId !== blockId) continue;
+    inlineWireframeBlockOnFrame(frame, existingBlock);
+  }
+}
+
+function preserveCanvasLinkedWireframesBeforeReplaceBlocks(
+  content: PlanContent,
+  replacementBlocks: PlanBlock[],
+) {
+  if (!content.canvas) return;
+
+  const replacementBlocksById = collectBlocksById(replacementBlocks);
+  const currentBlocksById = collectBlocksById(content.blocks);
+
+  for (const frame of content.canvas.frames) {
+    if (!frame.blockId) continue;
+    const replacement = replacementBlocksById.get(frame.blockId);
+    if (isWireframeBlock(replacement)) continue;
+
+    const existingBlock = currentBlocksById.get(frame.blockId);
+    if (!isWireframeBlock(existingBlock)) continue;
+    inlineWireframeBlockOnFrame(frame, existingBlock);
+  }
 }
 
 type DesignElementStylePatch = Extract<

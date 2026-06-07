@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
 import {
+  sanitizeDiagramHtml,
   sanitizeWireframeCss,
   sanitizeWireframeHtml,
   scopeDesignCss,
@@ -91,6 +92,29 @@ describe("sanitizeWireframeHtml", () => {
   it("handles empty / undefined", () => {
     expect(sanitizeWireframeHtml(undefined)).toBe("");
     expect(sanitizeWireframeHtml("")).toBe("");
+  });
+});
+
+describe("sanitizeDiagramHtml", () => {
+  it("preserves inert inline SVG for architecture diagrams", () => {
+    const out = sanitizeDiagramHtml(
+      '<svg viewBox="0 0 100 50" role="img"><defs><marker id="arrow"></marker></defs><path d="M10 10 L90 40" marker-end="url(#arrow)"></path><text x="12" y="16">route policy</text></svg>',
+    );
+
+    expect(out).toContain("<svg");
+    expect(out).toMatch(/viewbox/i);
+    expect(out).toContain("<path");
+    expect(out).toContain("route policy");
+  });
+
+  it("strips script, event bindings, unsafe URLs, and foreignObject", () => {
+    const out = sanitizeDiagramHtml(
+      '<svg onload="alert(1)"><script>alert(1)</script><foreignObject><button x-on:click="evil()" @click="evil()" :onclick="evil()">x</button></foreignObject><a href="javascript:alert(1)">bad</a></svg>',
+    );
+
+    expect(out).not.toMatch(/script|onload|x-on:click|@click|:onclick/i);
+    expect(out).not.toMatch(/foreignObject/i);
+    expect(out.toLowerCase()).not.toContain("javascript:");
   });
 });
 

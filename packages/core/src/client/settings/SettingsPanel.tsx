@@ -53,6 +53,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useSession } from "../use-session.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
+import { callAction } from "../use-action.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -671,16 +672,15 @@ function LLMSectionInner({
   }, [refreshSettingsStatus]);
 
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "list" }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
+    callAction("manage-agent-engine" as any, { action: "list" } as any)
       .then((data) => {
         if (!data) return;
-        setEngines(data.engines ?? []);
-        const cur = data.current ?? {};
+        const engineData = data as {
+          engines?: EngineInfo[];
+          current?: { engine?: string; model?: string };
+        };
+        setEngines(engineData.engines ?? []);
+        const cur = engineData.current ?? {};
         setCurrentEngine(cur.engine ?? "anthropic");
         setCurrentModel(cur.model ?? "");
         setSelectedEngine(cur.engine ?? "anthropic");
@@ -786,21 +786,16 @@ function LLMSectionInner({
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/manage-agent-engine"),
+      const data = await callAction(
+        "manage-agent-engine" as any,
         {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "test",
-            engine: selectedEngine,
-            model: selectedModel || selectedEngineInfo?.defaultModel,
-          }),
-        },
+          action: "test",
+          engine: selectedEngine,
+          model: selectedModel || selectedEngineInfo?.defaultModel,
+        } as any,
       );
-      // The action endpoint wraps tool output; some paths return the JSON
-      // string as-is, others wrap in { result }. Accept either shape.
-      const data = await res.json();
+      // Older action paths wrapped tool output in { result }. Accept either
+      // shape while the action route normalizes JSON-string script output.
       const parsed =
         typeof data === "string"
           ? JSON.parse(data)
