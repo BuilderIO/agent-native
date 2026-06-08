@@ -41,11 +41,5 @@
     "tsx": "^4.20.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "@assistant-ui/store": "0.2.13",
-      "@assistant-ui/tap": "^0.5.14"
-    }
   }
 }

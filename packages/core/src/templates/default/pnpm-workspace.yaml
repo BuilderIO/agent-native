@@ -1,0 +1,7 @@
+overrides:
+  "@assistant-ui/store": "0.2.13"
+  "@assistant-ui/tap": "^0.5.14"
+
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
