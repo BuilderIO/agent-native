@@ -1564,7 +1564,9 @@ export function createAgentChatAdapter(options?: {
             // Bail when the same write tool is stuck in-flight across too many
             // consecutive continuations. Checked before the text-repeat guard
             // because hasInFlightTool=true would mask the repeat as progress.
-            if (repeatedInFlightToolCount >= MAX_REPEATED_INFLIGHT_TOOL_STALLS) {
+            if (
+              repeatedInFlightToolCount >= MAX_REPEATED_INFLIGHT_TOOL_STALLS
+            ) {
               recoveryGaveUpOnRepetition = true;
               return { ok: false, resetVisibleContent: false };
             }
