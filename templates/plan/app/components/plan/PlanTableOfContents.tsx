@@ -85,6 +85,9 @@ function assignPlanTocTargets(root: HTMLElement, items: PlanTocItem[]) {
 }
 
 export function PlanTableOfContents({ content }: { content: PlanContent }) {
+  if (typeof window !== "undefined") {
+    (window as unknown as { __planTocBuild?: number }).__planTocBuild = 7;
+  }
   const navRef = useRef<HTMLElement>(null);
   const [activeId, setActiveId] = useState("");
   const items = useMemo(
@@ -92,6 +95,7 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
     [content.blocks],
   );
 
+  // Keep TOC anchors in sync with the asynchronously-mounted document editor.
   useEffect(() => {
     const ids = items.map((item) => item.id);
     if (ids.length === 0) {
@@ -100,13 +104,13 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
     }
 
     const OFFSET = 140;
-    const MAX_BIND_ATTEMPTS = 8;
+    const MAX_ROOT_ATTEMPTS = 30;
     let scrollTarget: HTMLElement | Window | null = null;
     let mutationObserver: MutationObserver | null = null;
-    let raf = 0;
-    let retryTimer = 0;
+    let rootRaf = 0;
+    let syncRaf = 0;
     let scrollRaf = 0;
-    let bindAttempts = 0;
+    let rootAttempts = 0;
 
     const getActiveId = () =>
       getActivePlanTocId(
@@ -129,45 +133,53 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
       });
     };
 
-    const syncTargets = () => {
-      const root = findDocumentFlow(navRef.current);
-      if (!root) return false;
+    // Assign ids to the rendered headings/blocks, then bind the scroll listener
+    // once a target exists. The document editor (Tiptap) mounts asynchronously,
+    // so this can run several times before the headings appear in the DOM.
+    const sync = (root: HTMLElement) => {
       assignPlanTocTargets(root, items);
+      if (!scrollTarget) {
+        const firstEl = document.getElementById(ids[0]);
+        if (firstEl) {
+          scrollTarget = findScrollParent(firstEl);
+          scrollTarget.addEventListener("scroll", scheduleUpdateActiveId, {
+            passive: true,
+          });
+        }
+      }
       updateActiveId();
-      return true;
     };
 
-    const bindScrollTarget = () => {
-      const synced = syncTargets();
-      const firstEl = document.getElementById(ids[0]);
-      if ((!synced || !firstEl) && bindAttempts < MAX_BIND_ATTEMPTS) {
-        bindAttempts += 1;
-        retryTimer = window.setTimeout(bindScrollTarget, 80);
+    const scheduleSync = (root: HTMLElement) => {
+      if (syncRaf) return;
+      syncRaf = window.requestAnimationFrame(() => {
+        syncRaf = 0;
+        sync(root);
+      });
+    };
+
+    const start = () => {
+      const root = findDocumentFlow(navRef.current);
+      if (!root) {
+        if (rootAttempts < MAX_ROOT_ATTEMPTS) {
+          rootAttempts += 1;
+          rootRaf = window.requestAnimationFrame(start);
+        }
         return;
       }
-
-      if (!firstEl) return;
-      scrollTarget = findScrollParent(firstEl);
-      scrollTarget.addEventListener("scroll", scheduleUpdateActiveId, {
-        passive: true,
-      });
-
-      const root = findDocumentFlow(navRef.current);
-      if (root) {
-        mutationObserver = new MutationObserver(() => {
-          window.cancelAnimationFrame(raf);
-          raf = window.requestAnimationFrame(syncTargets);
-        });
-        mutationObserver.observe(root, { childList: true, subtree: true });
-      }
+      // Re-sync whenever the document subtree changes (editor mount, block
+      // inserts, async rendering) so targets and the active item stay correct.
+      mutationObserver = new MutationObserver(() => scheduleSync(root));
+      mutationObserver.observe(root, { childList: true, subtree: true });
+      sync(root);
     };
 
-    raf = window.requestAnimationFrame(bindScrollTarget);
+    rootRaf = window.requestAnimationFrame(start);
 
     return () => {
-      window.cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(rootRaf);
+      window.cancelAnimationFrame(syncRaf);
       window.cancelAnimationFrame(scrollRaf);
-      window.clearTimeout(retryTimer);
       mutationObserver?.disconnect();
       scrollTarget?.removeEventListener("scroll", scheduleUpdateActiveId);
     };
