@@ -52,11 +52,16 @@ const uiPlanComponentSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined implementation document with file maps, contracts, snippets, validation, comments, share/export, and agent handoff.",
+    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined implementation document with annotated code for the key files, contracts, validation, comments, share/export, and agent handoff.",
   schema: z
     .object({
       title: z.string().optional().describe("Short UI plan title"),
-      brief: z.string().optional().describe("Plain-language UI plan brief"),
+      brief: z
+        .string()
+        .optional()
+        .describe(
+          "One short sentence summarizing the UI plan, shown as the lede under the title. Keep it to a single tight line; the document carries the detail.",
+        ),
       goal: z
         .string()
         .optional()
@@ -74,7 +79,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable UI plan content. Prefer this for app-owned top canvas wireframes (HTML mockups: set the wireframe's data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex), sketch diagrams, rich text, code tabs, implementation maps, validation checklists, and bounded custom HTML fragments. Diagram data.html/data.css should use renderer-owned .diagram-* primitives plus --wf-* tokens, not custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Virgil/rough.js modes remain correct. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes. The renderer owns all visual styling; emit lean content, not pixels.",
+          "Structured editable UI plan content. Prefer this for app-owned top canvas wireframes (HTML mockups: set the wireframe's data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex), sketch diagrams, rich text, code blocks (grouped in a vertical tabs block for a file map), annotated code for key files, validation checklists, and bounded custom HTML fragments. Diagram data.html/data.css should use renderer-owned .diagram-* primitives plus --wf-* tokens, not custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()
@@ -134,8 +139,8 @@ export default defineAction({
     resource: embedApp({
       title: "UI Plan",
       description:
-        "Open the Agent-Native Plans UI review surface for sketch mockups, state annotations, implementation maps, snippets, and validation notes.",
-      iframeTitle: "Agent-Native Plans",
+        "Open the Agent-Native Plan UI review surface for sketch mockups, state annotations, implementation maps, snippets, and validation notes.",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open UI Plan",
       height: 860,
     }),

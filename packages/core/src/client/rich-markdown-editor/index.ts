@@ -41,6 +41,13 @@ export {
   type SharedRichEditorProps,
 } from "./SharedRichEditor.js";
 export {
+  createCodeBlockNode,
+  DEFAULT_CODE_LANGUAGES,
+  type CodeLanguageOption,
+  type CodeBlockClassNames,
+  type CreateCodeBlockNodeOptions,
+} from "./CodeBlockNode.js";
+export {
   RichMarkdownEditor,
   createRichMarkdownExtensions,
   type RichMarkdownEditorProps,

@@ -103,7 +103,7 @@ function planUrl(planId: string): string {
 
 function appName(): string {
   return (
-    process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent-Native Plans"
+    process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent-Native Plan"
   );
 }
 

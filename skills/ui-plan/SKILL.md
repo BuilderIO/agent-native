@@ -412,12 +412,16 @@ machine-checked list of block types and their data schemas, call `get-plan-block
 so you never emit a block the editor cannot render or round-trip:
 
 - `rich-text` for plan prose with real bold/italic/code/links and nested lists.
-- `implementation-map` / `code-tabs` for the file map: file path, the
-  symbols/components to touch, the reason, risk/coordination notes, and a
-  concise syntax-highlighted snippet of the code shape in every file tab —
-  never the whole file, never a prose-only file list. If the exact code is not
-  known yet, include the smallest plausible planned shape or a short comment
-  stub that names what needs to be filled in.
+- `code` for the file map: show how the few load-bearing files actually change
+  as real, syntax-highlighted code — the new action, the changed schema, the
+  wiring point. Highlight only the files worth reading; never an exhaustive list
+  of every touched file, and never a prose-only description of a file. When more
+  than one file matters, group the `code` blocks in a vertical `tabs` block
+  (the standard tab primitive) rather than a bespoke container. Reach for
+  `annotated-code` instead only when a snippet needs line-anchored margin notes.
+  If the exact code is unknown, show the smallest plausible planned shape or a
+  commented stub naming what to fill in. (`code-tabs` and `implementation-map`
+  are legacy: their renderers stay for old plans, but do not author new ones.)
 - `decision` for two or three option cards with consequences. These are static
   records; do not style them like clickable tabs or chips unless the renderer
   truly supports changing the selection.
@@ -433,7 +437,7 @@ so you never emit a block the editor cannot render or round-trip:
   `.diagram-pill`, `.diagram-muted`, and `[data-rough]`; they map to the plan's
   Tailwind theme variables through `--wf-ink`, `--wf-muted`, `--wf-line`,
   `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
-  `--wf-ok`, and switch to Virgil plus rough.js outlines in sketchy mode. Do not
+  `--wf-ok`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set `font-family` and do not hard-code hex, rgb, or hsl colors in diagram HTML
   or CSS. Use legacy `nodes` / `edges` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
@@ -452,7 +456,10 @@ block titled "Open Questions" so the renderer presents it as a distinct section.
 Use `single` or `multi` for clear choices, `freeform` for constraints,
 `recommended: true` for the default you would pick, and option `wireframe` /
 `diagram` previews only when the options are not already visible in the top
-canvas. Keep non-answerable assumptions or risks as concise `callout` blocks in
+canvas. `single` and `multi` questions always render a write-in field so a
+reviewer can answer with a custom option — never add an explicit "Other" option
+yourself; set `allowOther: false` only when a free-text answer makes no sense.
+Keep non-answerable assumptions or risks as concise `callout` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
 narrative, and never ask the same question in both a `decision` block and a
 `question-form`.
@@ -486,8 +493,9 @@ elements, helper classes, and `--wf-*` tokens, so the renderer applies the
 correct desktop footprint, theme, and one subtle whole-frame wobble. Plain-text
 designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
-done-criteria, an `implementation-map` naming the real components and actions
-with short highlighted snippets, a `decision` card weighing two real approaches,
+done-criteria, a few `code` blocks (grouped in a vertical `tabs` block when
+more than one) showing the real shape of the load-bearing files, a `decision`
+card weighing two real approaches,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with

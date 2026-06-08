@@ -1,6 +1,6 @@
-# Agent-Native Plans — Agent Guide
+# Agent-Native Plan — Agent Guide
 
-Agent-Native Plans is a local-first structured visual plan mode for coding
+Agent-Native Plan is a local-first structured visual plan mode for coding
 agents. Its job is to turn agent plans into editable rich blocks, diagrams,
 wireframes, prototype options, annotations, and comments that a person can
 review before code changes happen.
@@ -112,8 +112,11 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 
 - `columns` is the generic before/after layout primitive for structured
   comparisons. Use it for side-by-side schema, API, prose, and model blocks.
-- PR automation can publish org-gated recap plans when `PLAN_RECAP_APP_URL` and
-  `PLAN_RECAP_TOKEN` are configured; the recap link is informational and must
+- The PR Visual Recap GitHub Action runs the `visual-recap` skill on each PR via
+  an LLM coding agent (Claude Code or Codex, chosen with `VISUAL_RECAP_AGENT`;
+  model and reasoning depth via `VISUAL_RECAP_MODEL` / `VISUAL_RECAP_REASONING`)
+  when `PLAN_RECAP_TOKEN` and the backend's API key are configured, then posts a
+  sticky comment with an inline screenshot. The recap is informational and must
   not imply the diff has been reviewed.
 
 ## Source Sync

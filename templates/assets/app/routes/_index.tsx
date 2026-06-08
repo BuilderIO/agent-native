@@ -118,7 +118,7 @@ export default function CreatePage() {
   return (
     <PageShell
       title="Create"
-      description="Generate image or video candidates with optional brand-library grounding."
+      description="Generate image or video candidates with optional brand-kit grounding."
       className="space-y-8"
     >
       <HomeGeneratePanel
@@ -141,7 +141,7 @@ export default function CreatePage() {
 
 function LibrarySectionSkeleton() {
   return (
-    <div className="space-y-3" aria-label="Loading libraries">
+    <div className="space-y-3" aria-label="Loading brand kits">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Skeleton className="size-4 rounded-sm" />
@@ -489,11 +489,11 @@ function HomeGeneratePanel({
           setCreatedLibrary(next);
           chooseLibrary(next.id);
           setCreatingPresetId(null);
-          toast.success(`${next.title} library ready`);
+          toast.success(`${next.title} brand kit ready`);
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
-          toast.error(error.message || "Could not create preset library.");
+          toast.error(error.message || "Could not create preset brand kit.");
         },
       },
     );
@@ -563,7 +563,7 @@ function HomeGeneratePanel({
     }
 
     if (imageFiles.length > 0 && !selectedLibrary) {
-      toast.error("Pick a library to attach content images.");
+      toast.error("Pick a brand kit to attach content images.");
       return;
     }
 
@@ -883,7 +883,7 @@ function HomeGeneratePanel({
                       Start with a default style
                     </h3>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Create a library from a preset, then generate from the
+                      Create a brand kit from a preset, then generate from the
                       prompt above.
                     </p>
                   </div>
@@ -895,7 +895,7 @@ function HomeGeneratePanel({
                     className="gap-2"
                   >
                     <IconPhotoPlus className="h-4 w-4" />
-                    Custom library
+                    Custom brand kit
                   </Button>
                 </div>
                 <LibraryPresetGrid
@@ -1033,14 +1033,14 @@ function AssetComposerToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <SelectTrigger
-                  aria-label="Library"
+                  aria-label="Brand kit"
                   className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[6rem] sm:max-w-[12rem]`}
                 >
                   <span className="truncate">{selectedLibraryLabel}</span>
                 </SelectTrigger>
               </TooltipTrigger>
               <TooltipContent className="max-w-[16rem]">
-                Choose a library to match it's style and reference images
+                Choose a brand kit to match it's style and reference images
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -1058,7 +1058,7 @@ function AssetComposerToolbar({
               <SelectItem value="__new__">
                 <span className="flex items-center gap-2">
                   <IconPhotoPlus className="size-3.5" />
-                  New library...
+                  New brand kit...
                 </span>
               </SelectItem>
             </SelectGroup>

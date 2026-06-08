@@ -2982,7 +2982,7 @@ function renderBlockHtml(block: PlanBlock): string {
     ]
       .filter(Boolean)
       .join("\n");
-    return `<section class="plan-block">${title}<div class="custom-fragment"><p class="caption">Custom HTML fragment. Plans renders this safely in a sandboxed iframe; standalone exports show the source instead of executing it.</p><pre><code>${escapeHtml(source)}</code></pre></div>${block.data.caption ? `<p class="caption">${escapeHtml(block.data.caption)}</p>` : ""}</section>`;
+    return `<section class="plan-block">${title}<div class="custom-fragment"><p class="caption">Custom HTML fragment. Plan renders this safely in a sandboxed iframe; standalone exports show the source instead of executing it.</p><pre><code>${escapeHtml(source)}</code></pre></div>${block.data.caption ? `<p class="caption">${escapeHtml(block.data.caption)}</p>` : ""}</section>`;
   }
   if (block.type === "question-form" || block.type === "visual-questions") {
     return `<section class="plan-block">${title}${block.data.questions.map((question, index) => `<article class="question"><h3>${index + 1}. ${escapeHtml(question.title)}</h3>${question.subtitle ? `<p>${escapeHtml(question.subtitle)}</p>` : ""}<div class="chips">${question.options?.map((option) => `<span>${escapeHtml(option.label)}</span>`).join("") ?? ""}</div></article>`).join("")}</section>`;
@@ -3447,7 +3447,7 @@ h3 { margin: 0 0 10px; }
 .copy { max-width: 840px; color: var(--muted); font-size: 18px; }
 .sketch-wireframe { position: relative; height: 360px; border: 2px solid currentColor; border-radius: 18px; color: #eceae5; background: var(--paper); }
 .sketch-wireframe.phone { width: 260px; height: 480px; border-radius: 38px; }
-.sketch-wireframe.template { display: flex; color: var(--text); padding: 18px; font-family: "Virgil", "Comic Sans MS", "Bradley Hand", cursive; }
+.sketch-wireframe.template { display: flex; color: var(--text); padding: 18px; font-family: "Excalifont", "Comic Sans MS", "Bradley Hand", cursive; }
 .wf-template { display: grid; width: 100%; height: 100%; min-height: 0; gap: 14px; }
 .wf-template.popover { grid-template-rows: auto auto auto 1fr; gap: 16px; padding: 10px; }
 .wf-template.popover.map { grid-template-rows: auto 1fr auto; }
@@ -3499,7 +3499,7 @@ h3 { margin: 0 0 10px; }
 .sketch-diagram line { stroke: var(--accent); stroke-width: 1.7; stroke-linecap: round; }
 .sketch-diagram rect { fill: var(--paper); stroke: currentColor; stroke-width: 1.3; }
 .sketch-diagram text { fill: currentColor; font: 4px ui-sans-serif, system-ui; text-anchor: middle; dominant-baseline: middle; }
-.kit-wireframe { display: flex; flex-direction: column; gap: var(--kit-gap, 11px); min-height: 320px; padding: 16px; border: 1.4px solid var(--line); border-radius: 16px; background: var(--paper); color: var(--text); font-family: "Gaegu", "Virgil", "Comic Sans MS", "Bradley Hand", cursive; }
+.kit-wireframe { display: flex; flex-direction: column; gap: var(--kit-gap, 11px); min-height: 320px; padding: 16px; border: 1.4px solid var(--line); border-radius: 16px; background: var(--paper); color: var(--text); font-family: "Gaegu", "Excalifont", "Comic Sans MS", "Bradley Hand", cursive; }
 .kit-wireframe.surface-mobile { width: 300px; min-height: 560px; border-radius: 30px; margin: 0 auto; }
 .kit-wireframe .kit-node { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .kit-wireframe .kit-row { flex-direction: row; align-items: center; gap: 10px; }

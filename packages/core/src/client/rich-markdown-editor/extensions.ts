@@ -10,7 +10,6 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { createLowlight } from "lowlight";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
@@ -48,6 +47,7 @@ const codeLowlight = createLowlight({
 import type { Doc as YDoc } from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
+import { createCodeBlockNode } from "./CodeBlockNode.js";
 
 /**
  * Markdown dialect the editor parses/serializes.
@@ -286,16 +286,14 @@ export function createSharedEditorExtensions({
     }),
   ];
 
-  // Syntax-highlighted code block (replaces StarterKit's plain one) only when the
-  // embedder opts in via `features.codeBlock`. Content disables it and ships its
-  // own code node, so this affects Plans (and future opt-in apps) alone.
+  // Notion-style syntax-highlighted code block (replaces StarterKit's plain one)
+  // only when the embedder opts in via `features.codeBlock`. The shared node adds
+  // a language picker header (Auto-detects by default) over `CodeBlockLowlight`,
+  // so fenced markdown still round-trips byte-identically. Content disables this
+  // and ships its own code node, so this affects Plans (and future opt-in apps)
+  // alone.
   if (feat.codeBlock) {
-    exts.push(
-      CodeBlockLowlight.configure({
-        lowlight: codeLowlight,
-        defaultLanguage: null,
-      }),
-    );
+    exts.push(createCodeBlockNode({ lowlight: codeLowlight }));
   }
 
   if (feat.placeholder) {

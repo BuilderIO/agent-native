@@ -246,6 +246,158 @@ describe("extensions/store", () => {
     );
   });
 
+  it("excludes globally-hidden extensions by default and includes them on request", async () => {
+    const allRows = [
+      { id: "ext-visible", name: "Visible", hiddenAt: null },
+      {
+        id: "ext-hidden",
+        name: "Hidden",
+        hiddenAt: "2026-06-08T00:00:00.000Z",
+      },
+    ];
+    // The helper combines accessFilter() with isNull(hiddenAt) via and() for
+    // the default case, and skips it when includeGloballyHidden is true. We
+    // spy on and()/isNull() (keeping the real drizzle module intact so
+    // schema.ts's sql`` template still works) to detect which branch ran and
+    // emulate the DB-side filter deterministically.
+    const andSpy = vi.fn(() => ({ __hidesVisible: true }));
+    const isNullSpy = vi.fn(() => ({}));
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((where: unknown) =>
+            Promise.resolve(
+              where && (where as any).__hidesVisible
+                ? allRows.filter((row) => row.hiddenAt == null)
+                : allRows,
+            ),
+          ),
+        })),
+      })),
+    };
+    const client = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      intType: () => "INTEGER",
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => db,
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      accessFilter: vi.fn(() => null),
+      assertAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
+      resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
+      ForbiddenError: class ForbiddenError extends Error {},
+    }));
+    vi.doMock("drizzle-orm", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("drizzle-orm")>();
+      return { ...actual, and: andSpy, isNull: isNullSpy };
+    });
+
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { listExtensions } = await import("./store.js");
+
+    const visibleOnly = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () => listExtensions({ includeHidden: true }),
+    );
+    expect(visibleOnly.map((row) => row.id)).toEqual(["ext-visible"]);
+    expect(isNullSpy).toHaveBeenCalled();
+
+    const withHidden = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        listExtensions({ includeHidden: true, includeGloballyHidden: true }),
+    );
+    expect(withHidden.map((row) => row.id)).toEqual([
+      "ext-visible",
+      "ext-hidden",
+    ]);
+  });
+
+  it("globally hides and unhides an extension on the tools row", async () => {
+    const statements: { sql: string; args: unknown[] }[] = [];
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            { id: "ext-1", ownerEmail: "owner@example.com", visibility: "org" },
+          ]),
+        })),
+      })),
+    };
+    const client = {
+      execute: vi.fn(
+        async (input: string | { sql: string; args: unknown[] }) => {
+          if (typeof input !== "string") statements.push(input);
+          return { rows: [], rowsAffected: 0 };
+        },
+      ),
+    };
+
+    vi.doMock("../application-state/store.js", () => ({
+      appStatePut: vi.fn(async () => {}),
+    }));
+    vi.doMock("../server/poll.js", () => ({
+      recordChange: vi.fn(),
+    }));
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      intType: () => "INTEGER",
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => db,
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+    const assertAccess = vi.fn(async () => ({ role: "owner", resource: {} }));
+    vi.doMock("../sharing/access.js", () => ({
+      accessFilter: vi.fn(() => null),
+      assertAccess,
+      resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
+      ForbiddenError: class ForbiddenError extends Error {},
+    }));
+
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { globalHideExtension, globalUnhideExtension } =
+      await import("./store.js");
+
+    await runWithRequestContext({ userEmail: "admin@example.com" }, () =>
+      globalHideExtension("ext-1"),
+    );
+    expect(assertAccess).toHaveBeenCalledWith("extension", "ext-1", "admin");
+    const hideStmt = statements.find((s) =>
+      /UPDATE\s+tools\s+SET\s+hidden_at\s*=\s*\?/i.test(s.sql),
+    );
+    expect(hideStmt).toBeTruthy();
+    expect(hideStmt?.args).toContain("admin@example.com");
+
+    statements.length = 0;
+    await runWithRequestContext({ userEmail: "admin@example.com" }, () =>
+      globalUnhideExtension("ext-1"),
+    );
+    expect(
+      statements.some((s) =>
+        /UPDATE\s+tools\s+SET\s+hidden_at\s*=\s*NULL/i.test(s.sql),
+      ),
+    ).toBe(true);
+  });
+
   it("refuses to flip an existing extension to public visibility", async () => {
     // Defense in depth — the framework `set-resource-visibility` action
     // already rejects 'public' for extensions, but `updateExtension` is also

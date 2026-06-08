@@ -12,7 +12,7 @@ const pageTitles: Record<string, string> = {
 
 function LibraryTitle({ id }: { id: string }) {
   const { data } = useActionQuery("get-library", { id }) as any;
-  const title = data?.library?.title ?? "Library";
+  const title = data?.library?.title ?? "Brand Kit";
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>
   );

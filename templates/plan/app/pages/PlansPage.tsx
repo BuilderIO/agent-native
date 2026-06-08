@@ -1532,7 +1532,7 @@ function buildPlanAgentContext(input: {
     .join("\n");
 
   return [
-    "Current Agent-Native Plans review context:",
+    "Current Agent-Native Plan review context:",
     `Plan ID: ${input.bundle.plan.id}`,
     `Title: ${input.bundle.plan.title}`,
     `Status: ${input.bundle.plan.status}`,
@@ -1988,7 +1988,7 @@ export function PlansPage() {
     }
   }, [canvasMarkupMode, visualSurfaceMode]);
 
-  useSetPageTitle(bundle?.plan.title || "Plans");
+  useSetPageTitle(bundle?.plan.title || "Plan");
   useSetHeaderActions(
     !sessionLoading && !session && !selectedId ? (
       <Button
@@ -4324,7 +4324,7 @@ function LoggedOutEmptyPlan() {
           Start with /visual-plan
         </h2>
         <p className="max-w-md text-sm leading-6 text-muted-foreground">
-          Install the Plans skill in your coding agent, then use the slash
+          Install the Plan skill in your coding agent, then use the slash
           command to create your first review plan.
         </p>
         <div className="mt-1 w-full rounded-lg border border-border bg-card p-4 text-left shadow-sm">
@@ -4374,7 +4374,7 @@ function PlansOverview({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold tracking-tight">
-              Plans
+              Plan
             </h1>
             <p className="text-sm text-muted-foreground">
               {plans.length} document{plans.length === 1 ? "" : "s"}
@@ -4815,7 +4815,7 @@ function buildCreatePlanAgentMessage({
     routing,
     `Source/provenance: ${sourceOptionLabel(source)}.`,
     "",
-    "Use the Plans actions after you have enough substance. Generate the wireframes, diagrams, implementation map, review prompts, and concrete file/symbol notes yourself. Do not use placeholder file names, generic scaffold text, or browser-generated fallback sections as the final plan content.",
+    "Use the Plan actions after you have enough substance. Generate the wireframes, diagrams, implementation map, review prompts, and concrete file/symbol notes yourself. Do not use placeholder file names, generic scaffold text, or browser-generated fallback sections as the final plan content.",
     "After creating the plan, open the plan link for review.",
     "",
     "Request:",
@@ -4868,7 +4868,7 @@ function CreatePlanDialog({
       message: buildCreatePlanAgentMessage({ prompt, source, planKind }),
     });
     onOpenChange(false);
-    toast.success("Sent to the Plans agent");
+    toast.success("Sent to the Plan agent");
   };
 
   return (
@@ -4878,7 +4878,7 @@ function CreatePlanDialog({
           <DialogTitle>Ask agent to create plan</DialogTitle>
           <DialogDescription>
             Describe the plan you want, or paste an existing Codex/Claude plan.
-            The Plans agent will generate the wireframes and review structure.
+            The Plan agent will generate the wireframes and review structure.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">

@@ -125,8 +125,7 @@ Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--
 First-party app skills install the instructions and the hosted MCP connector together with the Agent Native CLI:
 
 ```bash
-npx @agent-native/core@latest skills add assets              # aliases: images, image-generation
-npx @agent-native/core@latest skills add design-exploration  # aliases: design, ux-exploration
+npx @agent-native/core@latest skills add assets              # alias: image-generation
 ```
 
 The Vercel/open Skills CLI path is also available when you only want portable
@@ -134,17 +133,15 @@ instructions:
 
 ```bash
 npx skills add BuilderIO/agent-native --skill assets
-npx skills add BuilderIO/agent-native --skill design-exploration
 ```
 
 The raw `skills` CLI installs `SKILL.md` files only; local MCP clients still
 need a connector such as `npx @agent-native/core@latest connect
 https://assets.agent-native.com`.
 
-| Skill                | Alias    | For                    |
-| -------------------- | -------- | ---------------------- |
-| `assets`             | `images` | image/video generation |
-| `design-exploration` | `design` | UI/design exploration  |
+| Skill    | Alias              | For                    |
+| -------- | ------------------ | ---------------------- |
+| `assets` | `image-generation` | image/video generation |
 
 The default client is `codex`; add `--client claude-code` or `--client all` for others. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
 

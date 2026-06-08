@@ -5,6 +5,8 @@ import { Link } from "react-router";
 import {
   IconArrowLeft,
   IconDotsVertical,
+  IconEye,
+  IconEyeOff,
   IconPlus,
   IconTool,
   IconTrash,
@@ -36,6 +38,7 @@ interface Extension {
   description?: string;
   icon?: string;
   canDelete?: boolean;
+  globallyHidden?: boolean;
 }
 
 let lastCreateSubmission: { prompt: string; at: number } | null = null;
@@ -81,6 +84,7 @@ export function ExtensionsListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showGloballyHidden, setShowGloballyHidden] = useState(false);
   const queryClient = useQueryClient();
   const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
     typeof window !== "undefined" ? getToolsOrder() : [],
@@ -106,9 +110,15 @@ export function ExtensionsListPage() {
   }, []);
 
   const { data: extensions, isLoading } = useQuery<Extension[]>({
-    queryKey: ["extensions"],
+    queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
-      const res = await fetch(agentNativePath("/_agent-native/extensions"));
+      const res = await fetch(
+        agentNativePath(
+          showGloballyHidden
+            ? "/_agent-native/extensions?includeGloballyHidden=true"
+            : "/_agent-native/extensions",
+        ),
+      );
       if (!res.ok) return [];
       return res.json();
     },
@@ -142,6 +152,19 @@ export function ExtensionsListPage() {
     }
   };
 
+  const handleGlobalHideToggle = async (extension: Extension) => {
+    setConfirmDeleteId(null);
+    const action = extension.globallyHidden ? "global-unhide" : "global-hide";
+    try {
+      await fetch(
+        agentNativePath(`/_agent-native/extensions/${extension.id}/${action}`),
+        { method: "POST" },
+      );
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+    }
+  };
+
   return (
     <div className="flex h-full w-full flex-col">
       <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
@@ -156,6 +179,24 @@ export function ExtensionsListPage() {
           <h1 className="text-sm font-semibold">Extensions</h1>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowGloballyHidden((prev) => !prev)}
+            aria-pressed={showGloballyHidden}
+            className={cn(
+              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium",
+              showGloballyHidden
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            {showGloballyHidden ? (
+              <IconEye className="h-4 w-4" />
+            ) : (
+              <IconEyeOff className="h-4 w-4" />
+            )}
+            {showGloballyHidden ? "Hiding shown" : "Show hidden"}
+          </button>
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>
               <button
@@ -226,6 +267,7 @@ export function ExtensionsListPage() {
                 className={cn(
                   "group relative rounded-lg border border-border bg-card",
                   "hover:border-primary/30 hover:shadow-sm",
+                  extension.globallyHidden && "opacity-60",
                 )}
               >
                 <Link
@@ -235,8 +277,14 @@ export function ExtensionsListPage() {
                   <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
                     <IconTool className="h-5 w-5" />
                   </div>
-                  <h3 className="mb-1 text-sm font-semibold text-foreground">
-                    {extension.name}
+                  <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                    {extension.globallyHidden && (
+                      <IconEyeOff
+                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                        aria-label="Hidden from everyone"
+                      />
+                    )}
+                    <span className="truncate">{extension.name}</span>
                   </h3>
                   {extension.description && (
                     <p className="line-clamp-2 text-xs text-muted-foreground">
@@ -264,6 +312,27 @@ export function ExtensionsListPage() {
                     sideOffset={4}
                     className="w-64 p-0"
                   >
+                    {extension.canDelete !== false && (
+                      <div className="border-b p-1">
+                        <button
+                          type="button"
+                          onClick={() => handleGlobalHideToggle(extension)}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent"
+                        >
+                          {extension.globallyHidden ? (
+                            <>
+                              <IconEye className="h-3.5 w-3.5" />
+                              Unhide for everyone
+                            </>
+                          ) : (
+                            <>
+                              <IconEyeOff className="h-3.5 w-3.5" />
+                              Hide from everyone
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
                     <div className="p-3">
                       <p className="text-[12px]">
                         {extension.canDelete === false ? "Remove " : "Delete "}

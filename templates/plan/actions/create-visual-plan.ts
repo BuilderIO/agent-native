@@ -50,11 +50,16 @@ function inferImportedPlanTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task, or import existing Codex, Claude Code, Markdown, or pasted plan text as the starting point. Use this before implementation to open a durable structured plan with inline document diagrams, file/symbol implementation maps, code previews, options, annotations, and an optional top UI/product visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs).",
+    "Create an Agent-Native plan for a coding-agent task, or import existing Codex, Claude Code, Markdown, or pasted plan text as the starting point. Use this before implementation to open a durable structured plan with inline document diagrams, annotated code for the key files, options, annotations, and an optional top UI/product visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs).",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
-      brief: z.string().optional().describe("Plain-language plan brief"),
+      brief: z
+        .string()
+        .optional()
+        .describe(
+          "One short sentence summarizing the plan, shown as the lede under the title. Keep it to a single tight line — the document body carries the detail, not this summary.",
+        ),
       goal: z
         .string()
         .optional()
@@ -79,7 +84,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable plan content. Prefer this for rich text, inline diagrams, implementation maps, question-form open questions, and any optional top UI/product visual surface. For architecture-only, backend-only, refactor, API, data model, migration, and code plans, omit canvas/prototype; use inline diagram, mermaid, api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer, implementation-map, code-tabs, or compact custom-html blocks near the relevant prose. Keep API endpoint and OpenAPI reference blocks in the normal single-column document flow; use columns for API material only when the work is explicitly a before/after contract comparison. For architecture/code diagrams, use diagram blocks with data.html/data.css so the diagram can be real semantic HTML and inline SVG: grouped regions, layers, swimlanes, dependency clusters, matrices, and side-by-side before/after or current/target panels. Use renderer-owned diagram classes such as .diagram-panel, .diagram-card, .diagram-node, .diagram-box, .diagram-pill, .diagram-muted, and data-rough plus --wf-* CSS tokens; the renderer maps them to Tailwind theme variables, Virgil, and rough.js sketch outlines. Do not set fonts or hard-code hex/rgb/hsl colors in diagram HTML/CSS. Use legacy diagram nodes/edges only for tiny previews or true step-by-step flows. Use mermaid only when textual sequence/flowchart grammar is materially clearer. Use canvas only for static UI/product visuals; include both canvas and prototype for multi-step UI/product flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
+          "Structured editable plan content. Prefer this for rich text, inline diagrams, annotated code for key files, question-form open questions, and any optional top UI/product visual surface. For architecture-only, backend-only, refactor, API, data model, migration, and code plans, omit canvas/prototype; use inline diagram, mermaid, api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer, code, annotated-code, or compact custom-html blocks near the relevant prose. For a file map, use `code` blocks grouped in a vertical `tabs` block (one tab per key file) rather than a bespoke code-tabs container. Keep API endpoint and OpenAPI reference blocks in the normal single-column document flow; use columns for API material only when the work is explicitly a before/after contract comparison. For architecture/code diagrams, use diagram blocks with data.html/data.css so the diagram can be real semantic HTML and inline SVG: grouped regions, layers, swimlanes, dependency clusters, matrices, and side-by-side before/after or current/target panels. Use renderer-owned diagram classes such as .diagram-panel, .diagram-card, .diagram-node, .diagram-box, .diagram-pill, .diagram-muted, and data-rough plus --wf-* CSS tokens; the renderer maps them to Tailwind theme variables, Excalifont, and rough.js sketch outlines. Do not set fonts or hard-code hex/rgb/hsl colors in diagram HTML/CSS. Use legacy diagram nodes/edges only for tiny previews or true step-by-step flows. Use mermaid only when textual sequence/flowchart grammar is materially clearer. Use canvas only for static UI/product visuals; include both canvas and prototype for multi-step UI/product flows so the renderer shows Wireframes / Prototype tabs. Put any answerable unresolved decisions in a bottom question-form block with single/multi/freeform questions, recommended options, and optional wireframe/diagram previews. Canvas wireframes are HTML mockups: set data.html to a semantic fragment and pick a surface — the renderer owns theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex. Prototype screens use semantic HTML with data-goto attributes for navigation. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()
@@ -113,8 +118,8 @@ export default defineAction({
     resource: embedApp({
       title: "Plan",
       description:
-        "Open the Agent-Native Plans review surface for structured blocks, inline diagrams, optional UI wireframes/prototypes, and comments.",
-      iframeTitle: "Agent-Native Plans",
+        "Open the Agent-Native Plan review surface for structured blocks, inline diagrams, optional UI wireframes/prototypes, and comments.",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan",
       height: 860,
     }),
@@ -271,7 +276,7 @@ export default defineAction({
       url: planPath(id),
       ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
-        "Open the Agent-Native Plans link, scan the editable rich plan blocks and any top UI/product visual tabs, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
+        "Open the Agent-Native Plan link, scan the editable rich plan blocks and any top UI/product visual tabs, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };
   },
   link: ({ result }) => {

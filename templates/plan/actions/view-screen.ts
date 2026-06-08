@@ -18,7 +18,7 @@ import { loadPlanBundle, summarizePlans } from "../server/plans.js";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at in Agent-Native Plans, including the active structured plan, exported HTML, sections, and annotations.",
+    "See what the user is currently looking at in Agent-Native Plan, including the active structured plan, exported HTML, sections, and annotations.",
   schema: z.object({}),
   http: false,
   readOnly: true,

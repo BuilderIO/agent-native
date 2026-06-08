@@ -87,7 +87,9 @@ export default defineAction({
       brief: z
         .string()
         .optional()
-        .describe("Question the prototype should answer"),
+        .describe(
+          "The question the prototype answers, in one short line. Shown as the lede under the title — keep it tight, not a paragraph.",
+        ),
       goal: z
         .string()
         .optional()
@@ -154,8 +156,8 @@ export default defineAction({
     resource: embedApp({
       title: "Prototype Plan",
       description:
-        "Open the Agent-Native Plans prototype review surface for functional states, comments, static mocks, and implementation notes.",
-      iframeTitle: "Agent-Native Plans",
+        "Open the Agent-Native Plan prototype review surface for functional states, comments, static mocks, and implementation notes.",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open Prototype Plan",
       height: 860,
     }),

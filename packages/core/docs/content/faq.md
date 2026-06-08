@@ -83,6 +83,16 @@ That's the whole point. Fork a template and customize it by asking the agent. "A
 
 Yes. Run `npx @agent-native/core create my-app` without picking a template — you get the framework scaffolding (frontend, backend, agent panel, database) but no domain-specific code. See [Getting Started](/docs/getting-started). For agent-first products with no traditional UI, see [Pure-Agent Apps](/docs/pure-agent-apps).
 
+### Can I try it without forking a template? {#try-with-a-skill}
+
+Yes. Add an agent-native **skill** to a coding agent you already use (Claude Code, Codex, Cursor) with one command — no scaffold, no deploy. Start with the **Plans** skill:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+It installs the skill, registers the hosted MCP connector, and signs you in once; then run `/visual-plan`. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills.
+
 ## Agent capabilities {#agent-capabilities}
 
 ### Can the agent really modify the app's own code? {#can-the-agent-modify-code}

@@ -378,7 +378,7 @@ the actual diff:
   `.diagram-pill`, `.diagram-muted`, and `[data-rough]`; these map to the plan's
   Tailwind theme variables through `--wf-ink`, `--wf-muted`, `--wf-line`,
   `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
-  `--wf-ok`, and switch to Virgil plus rough.js outlines in sketchy mode. Do not
+  `--wf-ok`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set `font-family` and do not emit hex, rgb/hsl literals, or one-off dark/light
   palettes in diagram CSS.
 - **Outcome-first narrative** → `rich-text` for the "what changed and why" prose:

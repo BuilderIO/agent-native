@@ -17,7 +17,12 @@ export default defineAction({
       .optional()
       .describe("Existing recap plan ID to replace on a subsequent push."),
     title: z.string().optional().describe("Recap title override."),
-    brief: z.string().optional().describe("Recap brief override."),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "Optional one-line recap summary shown under the title. Keep it to a single short sentence.",
+      ),
     source: planSourceSchema.optional().default("imported"),
     repoPath: z.string().optional().describe("Repository path for the recap."),
     currentFocus: z
@@ -27,7 +32,7 @@ export default defineAction({
       .describe("Current focus for the review surface."),
     status: planStatusSchema.optional().default("review"),
     mdx: planMdxFileSchema.describe(
-      "Recap source files. plan.mdx should contain grounded blocks derived from the real diff: file-tree, split diffs, columns, data-model, api-endpoint, realistic wireframes for UI changes, diagrams for architecture/data-flow changes, and short prose. Include WireframeBlock or canvas.mdx before/after wireframes whenever the diff changes rendered UI, layout, density, visual state, or interaction affordances. For comparable before/after UI states, put one standard WireframeBlock in each side of a Columns block labeled Before and After instead of stacking the wireframes vertically. Use the standard WireframeBlock/Screen renderer so the Plan viewer owns the surface, theme, and sketchy/clean toggle; keep renderMode unset or wireframe unless a design-only editable mock is explicitly required, and use --wf-* tokens, semantic controls, and rough targets such as data-rough/.wf-card/.wf-box/buttons/inputs/textareas. Let canvas artboards use surface preset sizing/auto-layout when possible; do not rely on custom width/height props to shrink desktop/browser frames, and render-check that artboards and labels do not overlap. Small UI surfaces must look like the real component: a popover change should use a popover surface with matching before/after geometry, a root wrapper with at least 14-16px of padding inside the bordered Screen, visible fields/options, and the changed control placed in its actual slot (for example a top-right header action stays in the top-right header). Do not use diagram blocks as stand-ins for rendered UI. Keep API endpoint groups in normal single-column document flow; use columns for API material only when it is an explicit before/after contract comparison. Diagram data.html/data.css should use renderer-owned .diagram-* primitives and --wf-* tokens instead of custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Virgil/rough.js modes remain correct.",
+      "Recap source files. plan.mdx should contain grounded blocks derived from the real diff: file-tree, split diffs, columns, data-model, api-endpoint, realistic wireframes for UI changes, diagrams for architecture/data-flow changes, and short prose. Include WireframeBlock or canvas.mdx before/after wireframes whenever the diff changes rendered UI, layout, density, visual state, or interaction affordances. For comparable before/after UI states, put one standard WireframeBlock in each side of a Columns block labeled Before and After instead of stacking the wireframes vertically. Use the standard WireframeBlock/Screen renderer so the Plan viewer owns the surface, theme, and sketchy/clean toggle; keep renderMode unset or wireframe unless a design-only editable mock is explicitly required, and use --wf-* tokens, semantic controls, and rough targets such as data-rough/.wf-card/.wf-box/buttons/inputs/textareas. Let canvas artboards use surface preset sizing/auto-layout when possible; do not rely on custom width/height props to shrink desktop/browser frames, and render-check that artboards and labels do not overlap. Small UI surfaces must look like the real component: a popover change should use a popover surface with matching before/after geometry, a root wrapper with at least 14-16px of padding inside the bordered Screen, visible fields/options, and the changed control placed in its actual slot (for example a top-right header action stays in the top-right header). Do not use diagram blocks as stand-ins for rendered UI. Keep API endpoint groups in normal single-column document flow; use columns for API material only when it is an explicit before/after contract comparison. Diagram data.html/data.css should use renderer-owned .diagram-* primitives and --wf-* tokens instead of custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct.",
     ),
   }),
   publicAgent: {
@@ -44,8 +49,8 @@ export default defineAction({
     resource: embedApp({
       title: "Visual Recap",
       description:
-        "Open the Agent-Native Plans review surface for a visual code-review recap.",
-      iframeTitle: "Agent-Native Plans",
+        "Open the Agent-Native Plan review surface for a visual code-review recap.",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open Recap",
       height: 860,
     }),

@@ -26,6 +26,8 @@ import {
   deleteExtension,
   hideExtension,
   unhideExtension,
+  globalHideExtension,
+  globalUnhideExtension,
   ensureExtensionsTables,
   type ExtensionRow,
 } from "./store.js";
@@ -145,9 +147,12 @@ async function dispatch(
     return handleProxy(event, userEmail);
   }
 
-  // GET / — list
+  // GET / — list. `?includeGloballyHidden=true` surfaces extensions an
+  // admin/owner has globally hidden (so they can be unhidden for everyone).
   if (method === "GET" && parts.length === 0) {
-    const rows = await listExtensions();
+    const includeGloballyHidden =
+      event.url?.searchParams?.get("includeGloballyHidden") === "true";
+    const rows = await listExtensions({ includeGloballyHidden });
     return Promise.all(rows.map((row) => extensionResponse(row)));
   }
 
@@ -273,6 +278,26 @@ async function dispatch(
     return { ok: true, hidden: false };
   }
 
+  // POST /:id/global-hide — admin/owner hides the extension from EVERYONE.
+  if (method === "POST" && parts.length === 2 && parts[1] === "global-hide") {
+    const ok = await globalHideExtension(parts[0]);
+    if (!ok) {
+      setResponseStatus(event, 404);
+      return { error: "Extension not found" };
+    }
+    return { ok: true, globallyHidden: true };
+  }
+
+  // POST /:id/global-unhide — admin/owner reverses a global hide.
+  if (method === "POST" && parts.length === 2 && parts[1] === "global-unhide") {
+    const ok = await globalUnhideExtension(parts[0]);
+    if (!ok) {
+      setResponseStatus(event, 404);
+      return { error: "Extension not found" };
+    }
+    return { ok: true, globallyHidden: false };
+  }
+
   // PUT /:id
   if (method === "PUT" && parts.length === 1) {
     const body = await readBody(event);
@@ -339,6 +364,7 @@ async function extensionResponse(
       ? ["owner", "admin", "editor"].includes(resolvedRole)
       : false,
     canDelete: resolvedRole ? ["owner", "admin"].includes(resolvedRole) : false,
+    globallyHidden: row.hiddenAt != null,
   };
 }
 

@@ -28,18 +28,20 @@ import {
   installLocalContextXray,
 } from "./context-xray-local.js";
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
+import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 
 const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plan|visual-recap|visual-questions|ui-plan|prototype-plan|plan-design|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-recap|visual-questions|ui-plan|prototype-plan|plan-design|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
   agent-native skills add visual-plan
+  agent-native skills add visual-plan --with-github-action
   agent-native skills add visual-plan --no-connect
   agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
@@ -605,12 +607,16 @@ machine-checked list of block types and their data schemas, call \`get-plan-bloc
 so you never emit a block the editor cannot render or round-trip:
 
 - \`rich-text\` for plan prose with real bold/italic/code/links and nested lists.
-- \`implementation-map\` / \`code-tabs\` for the file map: file path, the
-  symbols/components to touch, the reason, risk/coordination notes, and a
-  concise syntax-highlighted snippet of the code shape in every file tab —
-  never the whole file, never a prose-only file list. If the exact code is not
-  known yet, include the smallest plausible planned shape or a short comment
-  stub that names what needs to be filled in.
+- \`code\` for the file map: show how the few load-bearing files actually change
+  as real, syntax-highlighted code — the new action, the changed schema, the
+  wiring point. Highlight only the files worth reading; never an exhaustive list
+  of every touched file, and never a prose-only description of a file. When more
+  than one file matters, group the \`code\` blocks in a vertical \`tabs\` block
+  (the standard tab primitive) rather than a bespoke container. Reach for
+  \`annotated-code\` instead only when a snippet needs line-anchored margin notes.
+  If the exact code is unknown, show the smallest plausible planned shape or a
+  commented stub naming what to fill in. (\`code-tabs\` and \`implementation-map\`
+  are legacy: their renderers stay for old plans, but do not author new ones.)
 - \`decision\` for two or three option cards with consequences. These are static
   records; do not style them like clickable tabs or chips unless the renderer
   truly supports changing the selection.
@@ -626,7 +632,7 @@ so you never emit a block the editor cannot render or round-trip:
   \`.diagram-pill\`, \`.diagram-muted\`, and \`[data-rough]\`; they map to the plan's
   Tailwind theme variables through \`--wf-ink\`, \`--wf-muted\`, \`--wf-line\`,
   \`--wf-paper\`, \`--wf-card\`, \`--wf-accent\`, \`--wf-accent-soft\`, \`--wf-warn\`, and
-  \`--wf-ok\`, and switch to Virgil plus rough.js outlines in sketchy mode. Do not
+  \`--wf-ok\`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set \`font-family\` and do not hard-code hex, rgb, or hsl colors in diagram HTML
   or CSS. Use legacy \`nodes\` / \`edges\` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
@@ -645,7 +651,10 @@ block titled "Open Questions" so the renderer presents it as a distinct section.
 Use \`single\` or \`multi\` for clear choices, \`freeform\` for constraints,
 \`recommended: true\` for the default you would pick, and option \`wireframe\` /
 \`diagram\` previews only when the options are not already visible in the top
-canvas. Keep non-answerable assumptions or risks as concise \`callout\` blocks in
+canvas. \`single\` and \`multi\` questions always render a write-in field so a
+reviewer can answer with a custom option — never add an explicit "Other" option
+yourself; set \`allowOther: false\` only when a free-text answer makes no sense.
+Keep non-answerable assumptions or risks as concise \`callout\` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
 narrative, and never ask the same question in both a \`decision\` block and a
 \`question-form\`.
@@ -677,8 +686,9 @@ elements, helper classes, and \`--wf-*\` tokens, so the renderer applies the
 correct desktop footprint, theme, and one subtle whole-frame wobble. Plain-text
 designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
-done-criteria, an \`implementation-map\` naming the real components and actions
-with short highlighted snippets, a \`decision\` card weighing two real approaches,
+done-criteria, a few \`code\` blocks (grouped in a vertical \`tabs\` block when
+more than one) showing the real shape of the load-bearing files, a \`decision\`
+card weighing two real approaches,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with
@@ -721,7 +731,7 @@ metadata:
 
 Agent-Native Plans is structured visual planning mode for coding agents. Build
 the plan you would normally write in Markdown, but as a scannable document with
-editable blocks mixed in: inline diagrams, implementation maps, code previews,
+editable blocks mixed in: inline diagrams, code snippets,
 open questions, and an optional top visual review area (wireframe canvas, live
 prototype, or both in tabs). Architecture, backend, data, and refactor plans
 usually start in the document with local diagrams near each claim. UI and product
@@ -797,7 +807,7 @@ plan needs a richer review surface.
    migration, or code plans, usually omit \`content.canvas\` and
    \`content.prototype\`; put \`diagram\`, \`mermaid\`, \`api-endpoint\`,
    \`openapi-spec\`, \`data-model\`, \`diff\`, \`file-tree\`, \`json-explorer\`,
-   \`implementation-map\` and \`code-tabs\` blocks directly next
+   \`code\` and \`annotated-code\` blocks directly next
    to the relevant prose. Skip the top visual surface for non-visual work.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
@@ -1572,7 +1582,7 @@ the actual diff:
   \`.diagram-pill\`, \`.diagram-muted\`, and \`[data-rough]\`; these map to the plan's
   Tailwind theme variables through \`--wf-ink\`, \`--wf-muted\`, \`--wf-line\`,
   \`--wf-paper\`, \`--wf-card\`, \`--wf-accent\`, \`--wf-accent-soft\`, \`--wf-warn\`, and
-  \`--wf-ok\`, and switch to Virgil plus rough.js outlines in sketchy mode. Do not
+  \`--wf-ok\`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set \`font-family\` and do not emit hex, rgb/hsl literals, or one-off dark/light
   palettes in diagram CSS.
 - **Outcome-first narrative** → \`rich-text\` for the "what changed and why" prose:
@@ -1713,6 +1723,12 @@ Each option can include \`label\`, \`value\`, \`description\`, \`recommended\`,
 \`desktop\`, \`mobile\`, \`popover\`, \`panel\`, \`component\`, \`split\`, \`flow\`, and
 \`diagram\`. Pick the preview that matches the real footprint — do not offer a
 desktop/mobile pair for a popover, panel, or component.
+
+\`single\`, \`multi\`, and \`visual\` questions always render a write-in field, so a
+reviewer can answer with their own option instead of the listed choices. Do not
+add an explicit "Other" or "Something else" option yourself; set
+\`allowOther: false\` only on the rare question where a free-text answer makes no
+sense.
 
 ## Quality Bar
 
@@ -1885,7 +1901,7 @@ const BUILT_IN_APP_SKILLS = {
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
-      displayName: "Agent-Native Plans",
+      displayName: "Agent-Native Plan",
       description:
         "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, optional UI wireframes/prototypes, annotations, feedback, and HTML export.",
       hosted: {
@@ -1896,7 +1912,7 @@ const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plans MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -2139,6 +2155,12 @@ export interface ParsedSkillsArgs {
    * an ngrok tunnel, a local dev origin, or a self-hosted deployment.
    */
   mcpUrl?: string;
+  /**
+   * When installing the visual-plan skill, also write the PR Visual Recap
+   * GitHub Action workflow into `.github/workflows/` so PRs get automatic
+   * recaps. Only applies to the `visual-plan` target.
+   */
+  withGithubAction?: boolean;
 }
 
 export interface SkillsAddResult {
@@ -2166,6 +2188,13 @@ export interface SkillsAddResult {
    * was not needed.
    */
   connectCommand?: string;
+  /**
+   * When `--with-github-action` installed the PR Visual Recap workflow, the
+   * repo-relative path it was written to (and whether it overwrote an existing
+   * file).
+   */
+  githubActionPath?: string;
+  githubActionExisted?: boolean;
 }
 
 interface SkillInstallTarget {
@@ -2422,6 +2451,8 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
       out.mcp = false;
     else if (arg === "--no-connect" || arg === "--skip-connect")
       out.connect = false;
+    else if (arg === "--with-github-action" || arg === "--with-github-actions")
+      out.withGithubAction = true;
     else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
     else if (!out.target) out.target = arg;
     else throw new Error(`Unexpected argument: ${arg}`);
@@ -2881,6 +2912,25 @@ export async function addAgentNativeSkill(
       }
     }
 
+    // `--with-github-action`: also drop the PR Visual Recap workflow into the
+    // repo so PRs get automatic recaps. Only meaningful for the plan family.
+    let githubActionPath: string | undefined;
+    let githubActionExisted: boolean | undefined;
+    if (parsed.withGithubAction) {
+      if (knownTarget !== "visual-plans") {
+        options.log?.(
+          "--with-github-action only applies to the visual-plan skill; skipping the workflow.",
+        );
+      } else {
+        const written = writePrVisualRecapWorkflow(
+          options.baseDir ?? process.cwd(),
+        );
+        githubActionPath = written.path;
+        githubActionExisted = written.existed;
+        commands.push(`write ${written.path}`);
+      }
+    }
+
     return {
       id: installTarget.id,
       displayName: installTarget.displayName,
@@ -2893,6 +2943,8 @@ export async function addAgentNativeSkill(
       commands,
       connected,
       connectCommand,
+      githubActionPath,
+      githubActionExisted,
     };
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -3014,6 +3066,16 @@ export async function runSkills(
     : pendingConnectCommands.length
       ? `Authentication: pending — run ${pendingConnectCommands.join(" && ")}`
       : "";
+  const githubActions = [
+    ...new Set(
+      results
+        .map((result) => result.githubActionPath)
+        .filter((p): p is string => Boolean(p)),
+    ),
+  ];
+  const githubActionLine = githubActions.length
+    ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nSet these GitHub repo secrets/variables for it to run:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
+    : "";
   process.stdout.write(
     [
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}.`,
@@ -3027,6 +3089,7 @@ export async function runSkills(
         ? `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`
         : "",
       authLine,
+      githubActionLine,
       localCommands.length ? `Local command: ${localCommands.join(", ")}.` : "",
       "Restart or reload selected agent clients if the skill is not visible yet.",
       parsed.clientExplicit

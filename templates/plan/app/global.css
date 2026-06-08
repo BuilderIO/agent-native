@@ -4,8 +4,8 @@
 @import "@agent-native/core/styles/agent-native.css";
 
 @font-face {
-  font-family: "Virgil";
-  src: url("/fonts/Virgil-Regular.woff2") format("woff2");
+  font-family: "Excalifont";
+  src: url("/fonts/Excalifont-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -34,6 +34,12 @@
   --input: 36 10% 86%;
   --ring: 218 85% 57%;
   --radius: 0.5rem;
+  /* Callout tone accents — info/decision/risk/warning/success. */
+  --plan-tone-info: 218 85% 57%;
+  --plan-tone-decision: 262 83% 58%;
+  --plan-tone-risk: 0 84% 60%;
+  --plan-tone-warning: 25 95% 48%;
+  --plan-tone-success: 142 71% 38%;
   --sidebar-background: 42 18% 96%;
   --sidebar-foreground: 30 6% 43%;
   --sidebar-primary: 30 5% 13%;
@@ -65,6 +71,12 @@
   --input: 35 5% 21%;
   --ring: 218 85% 67%;
   --radius: 0.5rem;
+  /* Callout tone accents — brighter so they read on the dark surface. */
+  --plan-tone-info: 218 85% 67%;
+  --plan-tone-decision: 263 88% 74%;
+  --plan-tone-risk: 0 84% 67%;
+  --plan-tone-warning: 28 96% 60%;
+  --plan-tone-success: 142 60% 52%;
   --sidebar-background: 30 5% 10%;
   --sidebar-foreground: 38 7% 63%;
   --sidebar-primary: 40 9% 92%;
@@ -237,7 +249,10 @@
   border-top: 0;
 }
 
-[data-plan-toc-target] {
+.plan-document-flow .an-rich-md-prose > h1,
+.plan-document-flow .an-rich-md-prose > h2,
+.plan-document-flow .an-rich-md-prose > h3,
+.plan-document-flow [data-block-id] {
   scroll-margin-top: 2rem;
 }
 
@@ -262,13 +277,12 @@
     top: 1.25rem;
     max-height: calc(100vh - 2.5rem);
     overflow-y: auto;
-    border-left: 1px solid var(--plan-line);
-    padding: 0.25rem 0 1.5rem 0.75rem;
+    padding: 0.25rem 0 1.5rem;
     pointer-events: auto;
   }
 
   .plan-document-toc__heading {
-    margin: 0 0 0.5rem;
+    margin: 0 0 0.75rem;
     color: var(--plan-muted);
     font-size: 0.72rem;
     font-weight: 650;
@@ -285,33 +299,26 @@
 
   .plan-document-toc__link {
     display: block;
-    border-radius: 6px;
-    padding: 0.28rem 0.45rem;
+    padding: 0.25rem 0;
     color: var(--plan-muted);
-    font-size: 0.78rem;
-    line-height: 1.35;
+    font-size: 0.8125rem;
+    line-height: 1.4;
     text-decoration: none;
-    transition:
-      background-color 140ms ease,
-      color 140ms ease,
-      box-shadow 140ms ease;
+    transition: color 120ms ease;
   }
 
   .plan-document-toc__link:hover {
-    background: color-mix(in srgb, var(--plan-block) 58%, transparent);
     color: var(--plan-text);
     text-decoration: none;
   }
 
   .plan-document-toc__link.is-active {
-    background: color-mix(in srgb, var(--plan-block) 78%, transparent);
-    color: var(--plan-text);
-    box-shadow: inset 2px 0 0 hsl(var(--ring));
+    color: hsl(var(--ring));
+    font-weight: 550;
   }
 
   .plan-document-toc__link.is-nested {
-    padding-left: 1.1rem;
-    font-size: 0.75rem;
+    padding-left: 0.75rem;
   }
 }
 
@@ -347,6 +354,16 @@
 .plan-copy h3,
 .plan-copy blockquote {
   color: var(--plan-text);
+}
+
+/* Canonical document body / lede text size. The header summary and block detail
+ * copy (implementation-map notes, code-tabs captions, decision prompts) all use
+ * this so body text reads at ONE size across the document — matching the
+ * rich-text and callout prose (`.an-rich-md-prose`, 1.0625rem). Block headings
+ * and labels keep their own larger sizes; this is only for body/lede paragraphs. */
+.plan-doc-body {
+  font-size: 1.0625rem;
+  line-height: 1.75;
 }
 
 /* ── Notion-like rich-text prose ─────────────────────────────────────── */
@@ -403,6 +420,24 @@
   .an-rich-md-prose
   > :last-child {
   margin-bottom: 0;
+}
+
+/* Annotated-code side notes: compact prose so a note matches its small card
+   instead of the 1.0625rem document body. Mirrors the table-cell reset above. */
+.plan-annotation-note > .plan-rich-markdown-editor {
+  margin-top: 0;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: inherit;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose p {
+  margin: 0;
+  color: inherit;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose p + p {
+  margin-top: 0.45rem;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose h1,
@@ -470,16 +505,19 @@
 }
 
 /* Inline code only — never the block code inside <pre>, whose tokens would
-   otherwise each get a stray inline-code background over the dark code surface. */
+   otherwise each get a stray inline-code background over the code surface. */
 .plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
   background: var(--plan-block);
   color: var(--plan-text);
 }
 
+/* Block code is rendered by the shared `.an-code-block` node view (editor) and
+   `.plan-code-surface` (read view); both follow the plan's light/dark palette
+   below. Any stray bare <pre> falls back to the same surface. */
 .plan-rich-markdown-editor .an-rich-md-prose pre {
-  border: 1px solid hsl(220 13% 22%);
-  background: hsl(220 13% 11%);
-  color: hsl(220 14% 94%);
+  border: 1px solid var(--plan-line);
+  background: var(--plan-code);
+  color: var(--plan-code-text);
 }
 
 .plan-rich-markdown-editor .an-rich-md-table th,
@@ -636,7 +674,14 @@
   color: var(--plan-muted);
 }
 
-/* ── Code block: follows the current plan light/dark surface ─────────── */
+/* ── Code block — shared light/dark surface ──────────────────────────────
+   Two render paths share this palette: the read-only `.plan-code-surface`
+   (code tabs, API specs, the markdown read view) and the editor's
+   `.an-code-block` node view. Both follow the plan's `--plan-code` surface,
+   use a compact JetBrains Mono size, and collapse long snippets instead of
+   scrolling a fixed-height box. */
+
+/* Read-only surface (Shiki-highlighted, collapses past `--plan-code-max-lines`). */
 .plan-code-surface {
   border-radius: 12px;
   overflow: hidden;
@@ -644,17 +689,73 @@
   background: var(--plan-code);
 }
 
+.plan-code-surface-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.4rem 0.85rem;
+  border-bottom: 1px solid var(--plan-line);
+}
+
+.plan-code-surface-lang {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--plan-muted);
+}
+
+.plan-code-surface-scroll {
+  position: relative;
+  overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+/* Collapsed: clamp to N lines (+ the pre's top padding) and hide the rest. */
+.plan-code-surface[data-collapsed="true"] .plan-code-surface-scroll {
+  max-height: calc(var(--plan-code-max-lines, 30) * 1lh + 0.85rem);
+  overflow: hidden;
+}
+
+.plan-code-surface-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3.5rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--plan-code) 92%);
+}
+
+.plan-code-surface-toggle {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.85rem;
+  border-top: 1px solid var(--plan-line);
+  background: transparent;
+  color: var(--plan-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+
+.plan-code-surface-toggle:hover {
+  color: var(--plan-text);
+  background: color-mix(in srgb, var(--plan-block) 60%, transparent);
+}
+
 .plan-code-surface .plan-shiki,
 .plan-code-surface pre {
   margin: 0;
-  max-height: 520px;
-  overflow: auto;
-  padding: 1.1rem 1.25rem;
+  padding: 0.85rem 1.1rem;
   background: var(--shiki-light-bg, var(--plan-code)) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
-  line-height: 1.65;
+  font-size: 0.8rem;
+  line-height: 1.6;
 }
 
 .plan-code-surface pre code {
@@ -684,10 +785,324 @@
   background: var(--shiki-dark-bg);
 }
 
+/* `code` primitive block: read wraps the single-bordered .plan-code-surface with
+   a borderless filename header + hover chrome (copy); edit is a single-bordered
+   surface that auto-grows (no drag-to-resize) with a hover language switcher. */
+.plan-code {
+  position: relative;
+}
+
+.plan-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.15rem 0.4rem;
+}
+
+.plan-code-filename {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--plan-text);
+}
+
+.plan-code-muted {
+  color: var(--plan-muted);
+  font-weight: 500;
+}
+
+.plan-code-chrome {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.plan-code:hover .plan-code-chrome,
+.plan-code:focus-within .plan-code-chrome {
+  opacity: 1;
+}
+
+.plan-code-chrome-float {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+}
+
+.plan-code-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.75rem;
+  width: 1.75rem;
+  border-radius: 7px;
+  border: 1px solid var(--plan-line);
+  background: var(--plan-code);
+  color: var(--plan-muted);
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background-color 0.12s;
+}
+
+.plan-code-chip:hover {
+  color: var(--plan-text);
+  background: var(--plan-block);
+}
+
+.plan-code-lang-select {
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border-radius: 7px;
+  border: 1px solid var(--plan-line);
+  background: var(--plan-code);
+  color: var(--plan-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.plan-code-lang-select:hover {
+  color: var(--plan-text);
+}
+
+/* Editable surface: ONE border, auto-grows to content (no drag-to-resize). */
+.plan-code-editing {
+  overflow: hidden;
+  border: 1px solid var(--plan-line);
+  border-radius: 12px;
+  background: var(--plan-code);
+}
+
+.plan-code-editing .plan-code-head {
+  padding: 0.4rem 0.5rem 0.4rem 0.85rem;
+  border-bottom: 1px solid var(--plan-line);
+}
+
+.plan-code-editing:hover .plan-code-chrome,
+.plan-code-editing:focus-within .plan-code-chrome {
+  opacity: 1;
+}
+
+.plan-code-editor-body {
+  position: relative;
+  overflow: auto;
+}
+
+.plan-code-editor-layer,
+.plan-code-editor-input {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.plan-code-editor-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--plan-code-text);
+}
+
+.plan-code-editor-input {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 2.5rem;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--plan-text);
+  outline: none;
+}
+
+.plan-code-editor-input::placeholder {
+  color: var(--plan-muted);
+}
+
+.plan-code-caption {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--plan-muted);
+}
+
+.plan-code-caption-input {
+  width: 100%;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  font-size: 0.8rem;
+  color: var(--plan-muted);
+  outline: none;
+}
+
+/* Editor node view (Tiptap): language picker header + highlighted <pre>. */
+.an-code-block {
+  position: relative;
+  margin: 1.1rem 0;
+  border: 1px solid var(--plan-line);
+  border-radius: 12px;
+  background: var(--plan-code);
+  overflow: hidden;
+}
+
+.an-code-block__header {
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 0.55rem;
+  border-bottom: 1px solid var(--plan-line);
+  min-height: 2rem;
+}
+
+.an-code-block__lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--plan-muted);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.an-code-block__lang:hover {
+  background: color-mix(in srgb, var(--plan-block) 70%, transparent);
+  color: var(--plan-text);
+}
+
+.an-code-block__lang--readonly,
+.an-code-block__lang--readonly:hover {
+  cursor: default;
+  background: transparent;
+  color: var(--plan-muted);
+}
+
+/* The node-view wrapper owns the surface (border + `--plan-code` bg), so the
+   inner <pre> is transparent. Scoped via `.an-rich-md-prose` (not a specific
+   editor wrapper) so it applies in every plan editor surface. Token colors come
+   from the shared `.an-rich-md-prose pre code .hljs-*` palette in core. */
+.an-rich-md-prose .an-code-block pre {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--plan-code-text);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.an-code-block pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* Language picker popover (rendered in a portal by the shared Popover). */
+.an-code-block__search {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.an-code-block__list {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+
+.an-code-block__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.an-code-block__option:hover {
+  background: hsl(var(--accent));
+}
+
+.an-code-block__option.is-active {
+  color: hsl(var(--primary));
+}
+
 .plan-callout {
   max-width: 860px;
   border-left: 3px solid hsl(var(--ring));
   padding-left: 1.25rem;
+}
+
+/* Tone styling: `data-tone` is set by the callout reader/editor (it defaults to
+ * "info"). Each tone picks an accent; the bar, a faint left-anchored wash, and
+ * the block label all derive from it so warning reads orange, risk red, etc. */
+.plan-callout[data-tone="info"] {
+  --plan-callout-accent: var(--plan-tone-info);
+}
+.plan-callout[data-tone="decision"] {
+  --plan-callout-accent: var(--plan-tone-decision);
+}
+.plan-callout[data-tone="risk"] {
+  --plan-callout-accent: var(--plan-tone-risk);
+}
+.plan-callout[data-tone="warning"] {
+  --plan-callout-accent: var(--plan-tone-warning);
+}
+.plan-callout[data-tone="success"] {
+  --plan-callout-accent: var(--plan-tone-success);
+}
+
+.plan-callout[data-tone] {
+  border-left-color: hsl(var(--plan-callout-accent));
+  border-radius: 0 8px 8px 0;
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--plan-callout-accent) / 0.08),
+    hsl(var(--plan-callout-accent) / 0.02) 38%,
+    transparent 72%
+  );
+  transition:
+    border-left-color 0.12s ease,
+    background-image 0.12s ease;
+}
+
+.plan-callout[data-tone] .plan-block-label {
+  color: hsl(var(--plan-callout-accent));
 }
 
 .plan-sketch-region {
@@ -699,7 +1114,7 @@
 
 .plan-sketch {
   font-family:
-    "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+    "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
   letter-spacing: 0;
 }
 

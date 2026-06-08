@@ -1,6 +1,6 @@
 {
   "name": "plan",
-  "displayName": "Agent-Native Plans",
+  "displayName": "Agent-Native Plan",
   "description": "Generate and review coding-agent plans with diagrams, wireframes, annotations, prototypes, and feedback.",
   "private": true,
   "type": "module",

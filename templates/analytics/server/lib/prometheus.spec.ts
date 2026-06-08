@@ -13,6 +13,7 @@ vi.mock("./credentials-context", () => ({
 const {
   buildAuthHeader,
   parsePanelDescriptor,
+  serializePanelDescriptorInput,
   flattenMatrix,
   flattenVector,
   defaultStep,
@@ -53,6 +54,29 @@ describe("parsePanelDescriptor", () => {
   it("accepts mode=instant", () => {
     expect(parsePanelDescriptor('{"promql":"up","mode":"instant"}').mode).toBe(
       "instant",
+    );
+  });
+});
+
+describe("serializePanelDescriptorInput", () => {
+  it("keeps serialized descriptors unchanged", () => {
+    expect(serializePanelDescriptorInput('{"promql":"up"}')).toBe(
+      '{"promql":"up"}',
+    );
+  });
+
+  it("serializes object descriptors for legacy dashboard configs", () => {
+    expect(
+      serializePanelDescriptorInput({ promql: "up", mode: "instant" }),
+    ).toBe('{"promql":"up","mode":"instant"}');
+  });
+
+  it("rejects non-object descriptors", () => {
+    expect(() => serializePanelDescriptorInput(null)).toThrow(
+      /JSON string or object/,
+    );
+    expect(() => serializePanelDescriptorInput(["up"])).toThrow(
+      /JSON string or object/,
     );
   });
 });

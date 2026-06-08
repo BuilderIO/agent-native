@@ -7,8 +7,14 @@ description: "Install Agent-Native Plans as an app-backed skill for Codex, Claud
 
 Agent-Native Plans is visual plan mode for coding agents. It turns an ordinary
 Codex, Claude Code, Markdown, or pasted implementation plan into a structured
-review surface with rich text, diagrams, wireframes, prototypes, implementation
-maps, annotations, comments, and shareable links.
+review surface with rich text, diagrams, wireframes, implementation maps,
+annotations, comments, and shareable links.
+
+It comes down to two commands. `/visual-plan` builds a plan **before** the agent
+writes code. `/visual-recap` turns a change that **already** happened — a PR,
+commit, branch, or git diff — into a high-altitude visual code review. Both open
+the same review surface, so you annotate, comment, and hand feedback back to the
+agent the same way.
 
 ![Agent-Native Plans review surface](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd73f749f8c54dbcb577420ab1a18788)
 
@@ -28,15 +34,12 @@ If you already have the CLI installed, the shorter command is equivalent:
 agent-native skills add visual-plan
 ```
 
-The command installs `/visual-plan` plus the companion commands:
-
-- `/ui-plan` for UI-first plans with mockups, states, and screen-level review.
-- `/prototype-plan` for clickable prototype-first plans with live comments.
-- `/visual-questions` for visual intake before a plan.
+The command installs both commands: `/visual-plan` and `/visual-recap`.
 
 Use `/visual-plan` for both fresh plans and existing Codex, Claude Code,
 Markdown, or pasted plans; when source plan text already exists, the agent builds
-from that plan instead of starting over.
+from that plan instead of starting over. Use `/visual-recap` to review a change
+that already landed instead of writing one up by hand.
 
 By default the CLI targets Codex. Add `--client claude-code` or `--client all`
 when you want to configure another host:
@@ -58,13 +61,13 @@ connector, so use the Agent-Native CLI path when you want the one-command setup.
 
 After installation, ask your agent for the command that fits the work:
 
-- `/visual-plan` creates a structured plan for architecture, backend, refactor,
-  or mixed product work.
-- `/ui-plan` creates a UI-first plan with wireframes, mockups, states, and
-  implementation notes.
-- `/prototype-plan` creates a clickable prototype above the plan document, with
-  static mocks, comments, and a focused browser popout.
-- `/visual-questions` opens a visual intake questionnaire before planning.
+- `/visual-plan` creates a structured plan **before** implementation — for
+  architecture, backend, refactor, UI, or mixed product work — pulling in
+  diagrams, wireframes, mockups, clickable prototypes, and implementation maps
+  as the work calls for them.
+- `/visual-recap` creates a high-altitude **review** of a change that already
+  happened — a PR, commit, branch, or git diff — as schema, API, file, and
+  before/after blocks instead of a wall of raw diff.
 
 The agent should inspect the codebase first, then create the visual plan when a
 wrong direction would be costly. The returned Plans link opens the review UI so
@@ -100,10 +103,10 @@ it to the agent starts a revision turn against the existing plan.
 ## Useful prompts
 
 - "Use `/visual-plan` before changing the auth flow."
-- "Create a `/ui-plan` for the new onboarding screen with mobile and desktop states."
-- "Create a `/prototype-plan` for the checkout flow so I can click through it."
-- "Use `/visual-questions` to help me choose the dashboard direction first."
+- "Create a `/visual-plan` for the new onboarding screen with mobile and desktop states."
 - "Use `/visual-plan` on the Markdown plan below and make it easier to review."
+- "Run `/visual-recap` on this PR so I can review the shape of the change first."
+- "Use `/visual-recap` on the diff between `main` and this branch."
 
 ## For developers
 
@@ -130,6 +133,7 @@ persistence, or running a fully self-hosted review surface.
 ## What's next
 
 - [**Visual Plans**](/docs/visual-plans) — the full skill flow and auth details
+- [**PR Visual Recap**](/docs/pr-visual-recap) — run `/visual-recap` automatically on every pull request
 - [**Skills**](/docs/skills-guide) — how Agent-Native installs skills
 - [**MCP Clients**](/docs/mcp-clients) — configuring hosted MCP connectors
 - [**Templates**](/docs/cloneable-saas) — the clone-and-own model

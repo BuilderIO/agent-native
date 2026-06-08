@@ -132,6 +132,8 @@ Agent-native apps follow a fork-and-customize model. You start from a **template
 
 Because it's _your_ app, not shared infrastructure, the agent can safely evolve the code. Your app keeps improving as you use it. See [Templates](/docs/cloneable-saas) for the full story.
 
+Not ready to fork a whole template? You can also try agent-native by adding a **skill** to a coding agent you already use — install the Plans skill with `npx @agent-native/core@latest skills add visual-plan`. See [Try it with a skill](/docs/getting-started#try-with-a-skill).
+
 ## Composable agents {#composable-agents}
 
 Agent-native apps can talk to each other. From inside the mail app, you can tag the analytics agent to query data and include the result in a draft email. The agents discover what other agents are available, hand off work between each other, and surface the results in the UI you're already in.

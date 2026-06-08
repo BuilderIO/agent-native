@@ -16,7 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover.js";
-import { CodeSurface } from "./HighlightedCode.js";
+import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 import {
   codeTabsSchema,
   codeTabsMdx,
@@ -232,6 +232,7 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
               <CodeSurface
                 code={active.code}
                 language={codeTabLanguage(active)}
+                maxLines={active.maxLines}
               />
             </>
           )}
@@ -245,6 +246,27 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
 
 const inputClass =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+/** Language options for the per-tab picker; "" is the Auto-detect sentinel. */
+const CODE_TAB_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "", label: "Auto" },
+  { value: "typescript", label: "TypeScript" },
+  { value: "javascript", label: "JavaScript" },
+  { value: "tsx", label: "TSX" },
+  { value: "jsx", label: "JSX" },
+  { value: "json", label: "JSON" },
+  { value: "html", label: "HTML" },
+  { value: "css", label: "CSS" },
+  { value: "bash", label: "Bash" },
+  { value: "python", label: "Python" },
+  { value: "sql", label: "SQL" },
+  { value: "yaml", label: "YAML" },
+  { value: "markdown", label: "Markdown" },
+  { value: "graphql", label: "GraphQL" },
+  { value: "go", label: "Go" },
+  { value: "rust", label: "Rust" },
+  { value: "diff", label: "Diff" },
+];
 
 /** Mint a reasonably-unique code-tab id without pulling a dep into core. */
 function newCodeTabId(): string {
@@ -393,20 +415,15 @@ function CodeTabsEdit({
         )}
       </div>
       {active && (
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
-            Code
-          </span>
-          <HighlightedCodeTextarea
-            value={active.code}
-            editable={editable}
-            label={active.label}
-            language={active.language}
-            onChange={(event) =>
-              updateTab(active.id, { code: event.target.value })
-            }
-          />
-        </label>
+        <HighlightedCodeTextarea
+          value={active.code}
+          editable={editable}
+          label={active.label}
+          language={active.language}
+          onChange={(event) =>
+            updateTab(active.id, { code: event.target.value })
+          }
+        />
       )}
     </div>
   );
@@ -472,8 +489,7 @@ function CodeTabsSettingsPopover({
             <span className="text-xs font-medium text-muted-foreground">
               Language
             </span>
-            <input
-              type="text"
+            <select
               data-plan-interactive
               className={inputClass}
               value={active?.language ?? ""}
@@ -484,7 +500,13 @@ function CodeTabsSettingsPopover({
                   language: event.target.value || undefined,
                 });
               }}
-            />
+            >
+              {CODE_TAB_LANGUAGES.map((option) => (
+                <option key={option.value || "auto"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="grid gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">
@@ -500,6 +522,32 @@ function CodeTabsSettingsPopover({
                 if (!active) return;
                 onUpdate(active.id, {
                   caption: event.target.value || undefined,
+                });
+              }}
+            />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Max lines before expand
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              data-plan-interactive
+              className={inputClass}
+              placeholder={`${DEFAULT_CODE_MAX_LINES} (default) · 0 = no limit`}
+              value={active?.maxLines ?? ""}
+              disabled={!active}
+              onChange={(event) => {
+                if (!active) return;
+                const raw = event.target.value.trim();
+                const parsed = raw === "" ? undefined : Number(raw);
+                onUpdate(active.id, {
+                  maxLines:
+                    parsed === undefined || Number.isNaN(parsed)
+                      ? undefined
+                      : Math.max(0, Math.min(2000, Math.floor(parsed))),
                 });
               }}
             />

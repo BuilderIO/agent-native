@@ -186,7 +186,7 @@ export async function listAlerts(): Promise<unknown> {
   return apiGet("/api/v1/alerts", {});
 }
 
-// --- Panel descriptor (panel `sql` JSON) ---
+// --- Panel descriptor (panel `sql` serialized JSON) ---
 
 const PanelDescriptorSchema = z.object({
   promql: z.string().min(1, "promql is required"),
@@ -198,6 +198,14 @@ const PanelDescriptorSchema = z.object({
 });
 
 export type PanelDescriptor = z.infer<typeof PanelDescriptorSchema>;
+
+export function serializePanelDescriptorInput(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return JSON.stringify(raw);
+  }
+  throw new Error("prometheus panel sql must be a JSON string or object");
+}
 
 export function parsePanelDescriptor(raw: string): PanelDescriptor {
   let parsed: unknown;

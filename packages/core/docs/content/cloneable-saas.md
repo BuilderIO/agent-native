@@ -68,6 +68,16 @@ The result: Claude-Code-level flexibility for each user, with normal SaaS deploy
 
 You don't have to. Every template is also available as a hosted app on `agent-native.com` — `mail.agent-native.com`, `calendar.agent-native.com`, and so on. Use the hosted version for free or paid; fork only when you want to change something the hosted version doesn't expose.
 
+## Try it with a skill {#try-with-a-skill}
+
+Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with a single command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+That one command installs the skill instructions, registers the hosted MCP connector, and signs you in — no marketplace browsing, no manual OAuth. Then run `/visual-plan` in your agent. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills, local/offline installs, and how app-backed skills work.
+
 ## Building on this
 
 - [**Getting Started**](/docs/getting-started) — clone your first template and run it locally

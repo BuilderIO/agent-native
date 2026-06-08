@@ -1,5 +1,108 @@
 # @agent-native/core
 
+## 0.41.0
+
+### Minor Changes
+
+- 520d641: Add global (admin) hide for extensions. The `tools` table gains additive
+  `hidden_at` / `hidden_by` columns (distinct from the existing per-user
+  `tool_hidden_extensions` hide). When set, the extension is hidden from
+  everyone's Extensions list/sidebar without being deleted.
+  - `listExtensions` now excludes globally-hidden extensions by default and
+    accepts `includeGloballyHidden: true` to surface them.
+  - New store helpers `globalHideExtension` / `globalUnhideExtension` (require
+    owner/admin access) and new agent actions `global-hide-extension` /
+    `global-unhide-extension`. `list-extensions` accepts `includeGloballyHidden`
+    and reports `globallyHidden` / `hiddenAt` / `hiddenBy` per extension.
+  - The extensions list endpoint accepts `?includeGloballyHidden=true`.
+  - The Extensions sidebar and list page add a "Hide from everyone" /
+    "Unhide for everyone" affordance for admins plus a "Show hidden" toggle.
+
+- 520d641: Notion-style code blocks for the shared editor and plan surfaces. The rich
+  markdown editor's fenced code blocks now render through a shared
+  `createCodeBlockNode` node view with a language picker header (Auto-detects by
+  default) instead of a bare highlighted `<pre>`, and the editor code surface
+  follows the app's light/dark `--muted`/`--foreground`/`--border` tokens instead
+  of a hardcoded dark navy. The read-side `CodeSurface` (code tabs, API specs,
+  markdown read view) gains a language label and collapses long snippets behind a
+  "Show N more lines" toggle (default 30 lines, configurable per code tab via the
+  new `maxLines` field, `0` to disable) rather than scrolling a fixed-height box.
+  New exports: `createCodeBlockNode`, `DEFAULT_CODE_LANGUAGES`, `CodeSurface`,
+  `HighlightedCode`, `prettyLanguageName`, `DEFAULT_CODE_MAX_LINES`.
+- 520d641: PR Visual Recap is now LLM-driven. Instead of a deterministic diff→MDX
+  generator, the `pr-visual-recap` GitHub Action runs the repo's `visual-recap`
+  skill via a real coding agent (Claude Code by default, or Codex — selected with
+  the `VISUAL_RECAP_AGENT` repo variable), which publishes the plan through the
+  plan MCP tools. The workflow screenshots the published plan in headless Chrome,
+  uploads it to the new signed `recap-image` route, and posts the screenshot
+  inline in the sticky PR comment.
+
+  New CLI surface backing the action:
+  - `agent-native recap <scan|build-prompt|shot|comment>` — the helper commands
+    the workflow calls (no helper scripts are copied into the consuming repo).
+  - `agent-native skills add visual-plan --with-github-action` — installs the PR
+    Visual Recap workflow into a repo and prints the secrets/variables to set.
+
+  The agent-produced plan URL is treated as untrusted throughout: the screenshot
+  CLI only forwards the publish token to requests whose origin matches the plan
+  app (so a poisoned `recap-url.txt` can't exfiltrate it to a third party or via
+  cross-origin subresources), and the workflow passes the URL through the
+  environment rather than `${{ }}` shell interpolation. The workflow runs on PRs
+  into any base branch (not just `main`) so the generated workflow works in repos
+  with a different default branch.
+
+- 520d641: Add a standard `code` dev-doc block: a single syntax-highlighted snippet
+  (Notion-style — one border, hover-revealed language switcher + copy button,
+  collapse-to-N-lines) with an optional filename header. It is the primitive code
+  block; a multi-file "rail" is just a `tabs` block containing `code` blocks, so
+  there is no bespoke container. The legacy `code-tabs` block stays renderable for
+  stored documents but is no longer authored. The pure schema/MDX config lives in
+  `code.config.ts` (React-free, safe for the server MDX adapter and SSR bundle).
+
+### Patch Changes
+
+- 520d641: annotated-code: mute the per-annotation line-range label (`LINES 3–6` / `LINE 8`) to a quiet gray (`text-plan-muted`) instead of bright amber, so the range reads as secondary metadata and the annotation label stays the focus.
+- 520d641: Plans docs now lead with the two-command story — `/visual-plan` (plan before
+  implementation) and `/visual-recap` (review a change that already landed).
+  Documented `/visual-recap` on the Plans (`template-plan`) and Visual Plans pages,
+  cross-linked PR Visual Recap, and stopped documenting the `/ui-plan`,
+  `/prototype-plan`, `/plan-design`, and `/visual-questions` companion commands as
+  separate surfaces (their capabilities are folded into `/visual-plan`). The skills
+  themselves are unchanged.
+- 520d641: Re-add and redesign the `annotated-code` dev-doc block for Plans/Content (block
+  source, client/server registries, schema, slash menu, and skill guidance).
+
+  The read view now renders a standard syntax-highlighted code surface (shared
+  `code-highlight` lowlight palette, matching the `code-tabs` block) with a
+  highlight band + accent rail on annotated line ranges and the notes as
+  always-visible cards to the side (Stripe-docs "explain this code" layout).
+  Code lines render as spans rather than one `<pre>` per line, so they no longer
+  pick up document code/pre chrome, and the surface is theme-aware in light and
+  dark. Restores the block removed in the previous patch while keeping the SSR
+  cold-start smoke test.
+
+- 520d641: Add a signed, content-only recap PNG image route so the PR visual-recap GitHub
+  Action can inline a recap screenshot into a (private-repo) PR comment.
+  - `POST /_agent-native/recap-image` stores a PNG (raw `image/png` bytes or JSON
+    `{ pngBase64 }`, capped at ~5 MB) and returns
+    `{ imageUrl: "<origin>/_agent-native/recap-image/<token>.png" }`. It
+    authenticates with the SAME `agent-native connect` bearer token the MCP /
+    action surface accepts (legacy `sessions` bearer or a connect-minted MCP
+    OAuth access token, audience-bound to this app's MCP resource via the
+    canonical `verifyAuth`), plus normal browser session cookies. Unauthenticated
+    callers get a 401.
+  - `GET /_agent-native/recap-image/<token>.png` serves the opaque bytes
+    anonymously (so GitHub's camo image proxy can fetch them) with a strict
+    `Content-Type: image/png` and a long immutable cache header. Tokens are 32+
+    hex chars (no directory traversal); unknown tokens 404. The interactive plan
+    stays login-gated.
+
+  Storage is a new additive, dialect-agnostic `recap_images` table created via
+  `CREATE TABLE IF NOT EXISTS` (PNG kept as base64 TEXT for portability across
+  SQLite / Neon-Postgres / libSQL / D1). Stored images are pruned on write past a
+  30-day TTL so the table and the set of anonymously-fetchable image URLs stay
+  bounded.
+
 ## 0.40.2
 
 ### Patch Changes

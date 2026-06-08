@@ -4,7 +4,6 @@ import type { PlanContent } from "@shared/plan-content";
 import {
   collectPlanTocItems,
   getActivePlanTocId,
-  type PlanHeadingTocItem,
   type PlanTocItem,
 } from "./PlanTableOfContents.utils";
 
@@ -42,87 +41,75 @@ function findBlockElement(root: HTMLElement, blockId: string) {
   );
 }
 
-function headingElementsForBlock(root: HTMLElement, item: PlanHeadingTocItem) {
-  const blockEl = findBlockElement(root, item.blockId);
-  if (blockEl) {
-    return Array.from(
-      blockEl.querySelectorAll<HTMLElement>(
-        ".an-rich-md-prose > h1, .an-rich-md-prose > h2, .an-rich-md-prose > h3",
-      ),
-    );
-  }
-
+function documentHeadingElements(root: HTMLElement) {
+  // Section headings render as direct children of the document body prose. In
+  // editable mode that body is a single merged Tiptap editor; in read-only mode
+  // each rich-text block renders its own prose. In both cases the headings
+  // appear in document order, and headings nested inside a custom block NodeView
+  // (`.plan-block-node`) are block content, not document sections.
   return Array.from(
     root.querySelectorAll<HTMLElement>(
-      ".plan-document-editor .an-rich-md-prose > h1, .plan-document-editor .an-rich-md-prose > h2, .plan-document-editor .an-rich-md-prose > h3",
+      ".an-rich-md-prose > h1, .an-rich-md-prose > h2, .an-rich-md-prose > h3",
     ),
   ).filter((heading) => !heading.closest(".plan-block-node"));
 }
 
-function resetTocTargets(root: HTMLElement) {
-  root
-    .querySelectorAll<HTMLElement>("[data-plan-toc-target]")
-    .forEach((target) => {
-      target.removeAttribute("id");
-      target.removeAttribute("data-plan-toc-target");
-    });
-}
-
-function assignPlanTocTargets(root: HTMLElement, items: PlanTocItem[]) {
-  resetTocTargets(root);
-  let fallbackHeadingIndex = 0;
-  const fallbackHeadings = Array.from(
-    root.querySelectorAll<HTMLElement>(
-      ".plan-document-editor .an-rich-md-prose > h1, .plan-document-editor .an-rich-md-prose > h2, .plan-document-editor .an-rich-md-prose > h3",
-    ),
-  ).filter((heading) => !heading.closest(".plan-block-node"));
+function resolvePlanTocElements(root: HTMLElement, items: PlanTocItem[]) {
+  // Map each TOC item to its rendered element WITHOUT mutating the DOM. Heading
+  // items and document headings share document order, so they map positionally;
+  // block items map by their block id. We deliberately avoid writing ids onto
+  // editor-managed nodes — the document editor (Tiptap/ProseMirror) reconciles
+  // its own DOM and would fight any attributes we add, so anchoring is done
+  // against live element references instead.
+  const headings = documentHeadingElements(root);
+  let headingCursor = 0;
+  const map = new Map<string, HTMLElement>();
 
   for (const item of items) {
     let target: HTMLElement | null = null;
     if (item.kind === "block") {
       target = findBlockElement(root, item.blockId);
     } else {
-      const headings = headingElementsForBlock(root, item);
-      target =
-        headings[item.headingIndex ?? 0] ??
-        fallbackHeadings[fallbackHeadingIndex] ??
-        null;
-      fallbackHeadingIndex += 1;
+      target = headings[headingCursor] ?? null;
+      headingCursor += 1;
     }
-    if (!target) continue;
-    target.id = item.id;
-    target.setAttribute("data-plan-toc-target", "");
+    if (target) map.set(item.id, target);
   }
+  return map;
 }
 
 export function PlanTableOfContents({ content }: { content: PlanContent }) {
   const navRef = useRef<HTMLElement>(null);
+  const elementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const [activeId, setActiveId] = useState("");
   const items = useMemo(
     () => collectPlanTocItems(content.blocks),
     [content.blocks],
   );
 
+  // Keep the item -> element map and the active section in sync with the
+  // asynchronously-mounted document editor, reading the DOM only.
   useEffect(() => {
     const ids = items.map((item) => item.id);
     if (ids.length === 0) {
+      elementsRef.current = new Map();
       setActiveId("");
       return;
     }
 
-    const OFFSET = 180;
-    const MAX_BIND_ATTEMPTS = 8;
+    const OFFSET = 140;
+    const MAX_ROOT_ATTEMPTS = 30;
     let scrollTarget: HTMLElement | Window | null = null;
     let mutationObserver: MutationObserver | null = null;
-    let raf = 0;
-    let retryTimer = 0;
+    let rootTimer = 0;
+    let syncTimer = 0;
     let scrollRaf = 0;
-    let bindAttempts = 0;
+    let rootAttempts = 0;
 
     const getActiveId = () =>
       getActivePlanTocId(
         ids,
-        (id) => document.getElementById(id),
+        (id) => elementsRef.current.get(id) ?? null,
         OFFSET,
         scrollTarget instanceof HTMLElement ? scrollTarget : null,
       );
@@ -140,45 +127,56 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
       });
     };
 
-    const syncTargets = () => {
-      const root = findDocumentFlow(navRef.current);
-      if (!root) return false;
-      assignPlanTocTargets(root, items);
+    // Resolve element references, then bind the scroll listener once a target
+    // exists. The editor mounts asynchronously, so this re-resolves on every
+    // document mutation until the headings appear.
+    const sync = (root: HTMLElement) => {
+      elementsRef.current = resolvePlanTocElements(root, items);
+      if (!scrollTarget) {
+        const firstEl = elementsRef.current.get(ids[0]);
+        if (firstEl) {
+          scrollTarget = findScrollParent(firstEl);
+          scrollTarget.addEventListener("scroll", scheduleUpdateActiveId, {
+            passive: true,
+          });
+        }
+      }
       updateActiveId();
-      return true;
     };
 
-    const bindScrollTarget = () => {
-      const synced = syncTargets();
-      const firstEl = document.getElementById(ids[0]);
-      if ((!synced || !firstEl) && bindAttempts < MAX_BIND_ATTEMPTS) {
-        bindAttempts += 1;
-        retryTimer = window.setTimeout(bindScrollTarget, 80);
+    // Debounce with setTimeout (not requestAnimationFrame, which is paused in
+    // background tabs) to coalesce the editor's mutation bursts. Because sync
+    // never writes to the editor DOM, this cannot feed back into the observer.
+    const scheduleSync = (root: HTMLElement) => {
+      if (syncTimer) return;
+      syncTimer = window.setTimeout(() => {
+        syncTimer = 0;
+        sync(root);
+      }, 120);
+    };
+
+    const start = () => {
+      const root = findDocumentFlow(navRef.current);
+      if (!root) {
+        // The document flow shares this render, so it is normally present
+        // immediately; retry briefly in case of an SSR/hydration gap.
+        if (rootAttempts < MAX_ROOT_ATTEMPTS) {
+          rootAttempts += 1;
+          rootTimer = window.setTimeout(start, 50);
+        }
         return;
       }
-
-      if (!firstEl) return;
-      scrollTarget = findScrollParent(firstEl);
-      scrollTarget.addEventListener("scroll", scheduleUpdateActiveId, {
-        passive: true,
-      });
-
-      const root = findDocumentFlow(navRef.current);
-      if (root) {
-        mutationObserver = new MutationObserver(() => {
-          window.cancelAnimationFrame(raf);
-          raf = window.requestAnimationFrame(syncTargets);
-        });
-        mutationObserver.observe(root, { childList: true, subtree: true });
-      }
+      mutationObserver = new MutationObserver(() => scheduleSync(root));
+      mutationObserver.observe(root, { childList: true, subtree: true });
+      sync(root);
     };
 
-    raf = window.requestAnimationFrame(bindScrollTarget);
+    start();
 
     return () => {
-      window.cancelAnimationFrame(raf);
+      window.clearTimeout(rootTimer);
+      window.clearTimeout(syncTimer);
       window.cancelAnimationFrame(scrollRaf);
-      window.clearTimeout(retryTimer);
       mutationObserver?.disconnect();
       scrollTarget?.removeEventListener("scroll", scheduleUpdateActiveId);
     };
@@ -202,7 +200,7 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
                   item.level > 0 && "is-nested",
                 )}
                 onClick={(event) => {
-                  const target = document.getElementById(item.id);
+                  const target = elementsRef.current.get(item.id);
                   if (!target) return;
                   event.preventDefault();
                   target.scrollIntoView({
@@ -213,7 +211,6 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
                       : "smooth",
                     block: "start",
                   });
-                  window.history.replaceState(null, "", `#${item.id}`);
                   setActiveId(item.id);
                 }}
               >

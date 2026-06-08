@@ -799,6 +799,19 @@ export function createCoreRoutesPlugin(
         );
       }
 
+      // Signed, content-only recap PNG images. POST (authenticated with the
+      // same `agent-native connect` bearer token the action surface accepts)
+      // stores a PNG and returns a public image URL; GET <token>.png serves
+      // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
+      // screenshot into a private-repo PR comment. Mounted as a prefix so it
+      // owns both `/_agent-native/recap-image` (POST) and
+      // `/_agent-native/recap-image/<token>.png` (GET).
+      {
+        const { createRecapImageHandler } =
+          await import("./recap-image-route.js");
+        getH3App(nitroApp).use(`${P}/recap-image`, createRecapImageHandler());
+      }
+
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 
       // Dev-mode DB admin (Supabase-Studio-like). Mounted unconditionally; every
