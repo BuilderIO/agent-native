@@ -85,9 +85,6 @@ function assignPlanTocTargets(root: HTMLElement, items: PlanTocItem[]) {
 }
 
 export function PlanTableOfContents({ content }: { content: PlanContent }) {
-  if (typeof window !== "undefined") {
-    (window as unknown as { __planTocBuild?: number }).__planTocBuild = 7;
-  }
   const navRef = useRef<HTMLElement>(null);
   const [activeId, setActiveId] = useState("");
   const items = useMemo(
@@ -107,8 +104,7 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
     const MAX_ROOT_ATTEMPTS = 30;
     let scrollTarget: HTMLElement | Window | null = null;
     let mutationObserver: MutationObserver | null = null;
-    let rootRaf = 0;
-    let syncRaf = 0;
+    let rootTimer = 0;
     let scrollRaf = 0;
     let rootAttempts = 0;
 
@@ -135,7 +131,7 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
 
     // Assign ids to the rendered headings/blocks, then bind the scroll listener
     // once a target exists. The document editor (Tiptap) mounts asynchronously,
-    // so this can run several times before the headings appear in the DOM.
+    // so this runs again on every mutation until the headings appear.
     const sync = (root: HTMLElement) => {
       assignPlanTocTargets(root, items);
       if (!scrollTarget) {
@@ -150,35 +146,30 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
       updateActiveId();
     };
 
-    const scheduleSync = (root: HTMLElement) => {
-      if (syncRaf) return;
-      syncRaf = window.requestAnimationFrame(() => {
-        syncRaf = 0;
-        sync(root);
-      });
-    };
-
     const start = () => {
       const root = findDocumentFlow(navRef.current);
       if (!root) {
+        // The document flow shares this render, so it is normally present
+        // immediately; retry briefly in case of an SSR/hydration gap.
         if (rootAttempts < MAX_ROOT_ATTEMPTS) {
           rootAttempts += 1;
-          rootRaf = window.requestAnimationFrame(start);
+          rootTimer = window.setTimeout(start, 50);
         }
         return;
       }
       // Re-sync whenever the document subtree changes (editor mount, block
       // inserts, async rendering) so targets and the active item stay correct.
-      mutationObserver = new MutationObserver(() => scheduleSync(root));
+      // MutationObserver callbacks fire even while the tab is backgrounded,
+      // unlike requestAnimationFrame, so the initial bind cannot be missed.
+      mutationObserver = new MutationObserver(() => sync(root));
       mutationObserver.observe(root, { childList: true, subtree: true });
       sync(root);
     };
 
-    rootRaf = window.requestAnimationFrame(start);
+    start();
 
     return () => {
-      window.cancelAnimationFrame(rootRaf);
-      window.cancelAnimationFrame(syncRaf);
+      window.clearTimeout(rootTimer);
       window.cancelAnimationFrame(scrollRaf);
       mutationObserver?.disconnect();
       scrollTarget?.removeEventListener("scroll", scheduleUpdateActiveId);

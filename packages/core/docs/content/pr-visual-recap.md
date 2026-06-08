@@ -45,6 +45,15 @@ Choose which coding agent runs the skill with the `VISUAL_RECAP_AGENT` repositor
 
 If the variable is unset, the action uses `claude`.
 
+## Model and reasoning
+
+Beyond the backend, two repository variables tune _how_ the agent runs:
+
+- **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.5` for Codex, or a Claude model id. Leave it unset to use the CLI's own default model.
+- **`VISUAL_RECAP_REASONING`** sets the reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. It applies to the Codex backend; Claude's reasoning is model-driven, so this variable is ignored there.
+
+For example, to run the recap on Codex with GPT-5.5 at high reasoning, set the repository variables `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5`, and `VISUAL_RECAP_REASONING=high`.
+
 ## Secrets and variables
 
 Set these in your repository's **Settings → Secrets and variables → Actions**.
@@ -60,11 +69,13 @@ Mint `PLAN_RECAP_TOKEN` with `agent-native connect` against your Plans app, then
 
 ### Optional (only if you change defaults)
 
-| Secret / variable    | Default                         | When you need it                                                                          |
-| -------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`     | —                               | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead. |
-| `VISUAL_RECAP_AGENT` | `claude`                        | Variable. Selects the coding-agent backend (`claude` or `codex`).                         |
-| `PLAN_RECAP_APP_URL` | `https://plan.agent-native.com` | Secret. Only when self-hosting the Plans app at a different origin.                       |
+| Secret / variable        | Default                         | When you need it                                                                                                 |
+| ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                               | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead.                        |
+| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Selects the coding-agent backend (`claude` or `codex`).                                                |
+| `VISUAL_RECAP_MODEL`     | each CLI's default              | Variable. Pins the model — e.g. `gpt-5.5` for Codex, or a Claude model id. Unset uses the CLI's own default.     |
+| `VISUAL_RECAP_REASONING` | each model's default            | Variable. Reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Applies to the Codex backend. |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Secret. Only when self-hosting the Plans app at a different origin.                                              |
 
 The workflow auto-detects how to invoke its helper CLI (local source inside this monorepo, the published `@agent-native/core` elsewhere), so there is no `RECAP_CLI` variable to set.
 

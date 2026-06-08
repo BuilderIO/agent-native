@@ -17,9 +17,11 @@ name: PR Visual Recap
 #  - The recap is INFORMATIONAL ONLY. It is not a required check and failures
 #    surface as an explanatory sticky comment, never a red X on unrelated code.
 #  - Backend is selectable with the `VISUAL_RECAP_AGENT` repo variable
-#    (claude | codex; default claude). The CLI invocation is auto-detected:
-#    local source inside this monorepo, the published @agent-native/core
-#    elsewhere — no repo variable needed.
+#    (claude | codex; default claude). Model and reasoning depth are tunable with
+#    `VISUAL_RECAP_MODEL` (e.g. gpt-5.5) and `VISUAL_RECAP_REASONING`
+#    (none|minimal|low|medium|high|xhigh; Codex only). The CLI invocation is
+#    auto-detected: local source inside this monorepo, the published
+#    @agent-native/core elsewhere — no repo variable needed.
 #  - Only two secrets are required: PLAN_RECAP_TOKEN (publish) and the chosen
 #    backend's API key. PLAN_RECAP_APP_URL defaults to the hosted plan app.
 #  - Nothing here is deterministic: the skill's instructions drive the recap.
@@ -114,6 +116,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+      VISUAL_RECAP_REASONING: ${{ vars.VISUAL_RECAP_REASONING }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -251,10 +255,11 @@ jobs:
           set -uo pipefail
           MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
           node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({mcpServers:{plan:{type:"http",url:process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp",headers:{Authorization:"Bearer "+process.env.PLAN_RECAP_TOKEN}}}}))' "$MCP_CONFIG"
-          npx -y @anthropic-ai/claude-code@2 -p "$(cat recap-prompt.md)" \
-            --mcp-config "$MCP_CONFIG" \
-            --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" \
-            --permission-mode dontAsk || true
+          # VISUAL_RECAP_MODEL picks the Claude model; reasoning depth is model-driven
+          # for Claude Code, so VISUAL_RECAP_REASONING only applies to the Codex backend.
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk)
+          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" || true
           rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
@@ -267,7 +272,12 @@ jobs:
           set -uo pipefail
           mkdir -p "$HOME/.codex"
           node -e 'const fs=require("fs");const url=process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp";fs.writeFileSync(process.env.HOME+"/.codex/config.toml","[mcp_servers.plan]\nurl = \""+url+"\"\nbearer_token_env_var = \"PLAN_RECAP_TOKEN\"\n")'
-          npx -y @openai/codex@0 exec --sandbox workspace-write --skip-git-repo-check "$(cat recap-prompt.md)" || true
+          # VISUAL_RECAP_MODEL (e.g. gpt-5.5) and VISUAL_RECAP_REASONING
+          # (none|minimal|low|medium|high|xhigh) tune the Codex run.
+          CODEX_ARGS=(exec --sandbox workspace-write --skip-git-repo-check)
+          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          if [ -n "${VISUAL_RECAP_REASONING:-}" ]; then CODEX_ARGS+=(-c "model_reasoning_effort=\"$VISUAL_RECAP_REASONING\""); fi
+          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" "$(cat recap-prompt.md)" || true
 
       # The agent's only hand-off: recap-url.txt with the published plan URL.
       - name: Read plan URL
