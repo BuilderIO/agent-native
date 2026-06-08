@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.41.0",
+  "version": "0.41.1",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -131,7 +131,7 @@
     "@anthropic-ai/tokenizer": "0.0.4",
     "@assistant-ui/react": "^0.12.19",
     "@assistant-ui/react-markdown": "^0.12.6",
-    "@assistant-ui/store": "0.2.13",
+    "@assistant-ui/store": ">=0.2.9 <0.2.14",
     "@assistant-ui/tap": "^0.5.14",
     "@clack/prompts": "^1.4.0",
     "@codemirror/lang-sql": "^6.10.0",
@@ -332,6 +332,8 @@
     "@ai-sdk/openai": "^3.0.53",
     "@assistant-ui/react": "^0.12.19",
     "@assistant-ui/react-markdown": "^0.12.6",
+    "@assistant-ui/store": ">=0.2.9 <0.2.14",
+    "@assistant-ui/tap": "^0.5.14",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
     "@react-router/dev": "^7.16.0",

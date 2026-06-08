@@ -149,7 +149,7 @@ importers:
         specifier: ^0.12.6
         version: 0.12.8(@assistant-ui/react@0.12.22(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@11.1.4)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@assistant-ui/store':
-        specifier: 0.2.13
+        specifier: '>=0.2.9 <0.2.14'
         version: 0.2.13(@assistant-ui/tap@0.5.14(@types/react@19.2.14)(react@19.2.7))(@types/react@19.2.14)(react@19.2.7)
       '@assistant-ui/tap':
         specifier: ^0.5.14
