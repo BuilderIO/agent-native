@@ -72,7 +72,7 @@ export default function SettingsPage() {
   return (
     <PageShell
       title="Settings"
-      description="Asset generation, storage, and library access."
+      description="Asset generation, storage, and brand kit access."
       className="max-w-4xl space-y-6"
     >
       <div className="max-w-2xl">
@@ -281,9 +281,9 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
 
         <SettingsRow
           icon={<IconLibraryPhoto className="size-4" />}
-          title="Libraries"
+          title="Brand Kits"
           description={`${libraryCount} accessible ${
-            libraryCount === 1 ? "library" : "libraries"
+            libraryCount === 1 ? "brand kit" : "brand kits"
           }.`}
           status={<StatusPill tone="neutral">Available</StatusPill>}
         />
