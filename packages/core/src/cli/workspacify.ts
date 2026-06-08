@@ -89,6 +89,13 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
           delete pkg.pnpm;
         }
       }
+      // Pin @assistant-ui/store and @assistant-ui/tap so pre-existing workspaces
+      // whose root pnpm-workspace.yaml pre-dates this fix are still protected.
+      // The constraints exclude the breaking store@0.2.14/tap@0.6.0 combination
+      // that causes Vite pre-bundling failures via a missing ./react-shim export.
+      pkg.devDependencies = pkg.devDependencies ?? {};
+      pkg.devDependencies["@assistant-ui/store"] ??= ">=0.2.9 <0.2.14";
+      pkg.devDependencies["@assistant-ui/tap"] ??= "^0.5.14";
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {
       // Non-fatal: leave package.json unchanged.
