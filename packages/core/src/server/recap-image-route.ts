@@ -105,9 +105,19 @@ async function resolveUploadSession(
  * `{ pngBase64 }`. Returns `null` on a malformed/oversized/non-PNG payload.
  */
 async function readPngFromRequest(event: H3Event): Promise<Buffer | null> {
-  const raw = await readRawBody(event, false).catch(() => undefined);
-  if (!raw || raw.byteLength === 0) return null;
-  if (raw.byteLength > RECAP_IMAGE_MAX_BYTES) return null;
+  const rawBody = await readRawBody(event, false).catch(() => undefined);
+  if (!rawBody || rawBody.byteLength === 0) return null;
+  if (rawBody.byteLength > RECAP_IMAGE_MAX_BYTES) return null;
+
+  // h3 v2's `readRawBody(event, false)` resolves a bare `Uint8Array`, not a Node
+  // `Buffer`. Normalize once so the downstream Buffer-only operations behave:
+  // `isPngBuffer`'s `Buffer#equals` THROWS on a Uint8Array (no such method), and
+  // `saveRecapImage`'s `png.toString("base64")` SILENTLY mis-encodes it (a bare
+  // Uint8Array ignores the encoding arg and returns comma-joined digits). Either
+  // sinks the upload — the thrown TypeError surfaced as a 500, so the recap CLI
+  // saw `!res.ok`, returned a null imageUrl, and the PR comment lost its inline
+  // thumbnail. Copying into a Buffer is cheap for a ~5 MB-capped screenshot.
+  const raw = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody);
 
   const contentType = (getHeader(event, "content-type") || "").toLowerCase();
 
