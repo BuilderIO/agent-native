@@ -305,7 +305,7 @@ export interface BlockSpec<TData = unknown> {
    * per-app sets. Set it on registry-atom blocks with an NFM counterpart
    * (checklist, table); leave it `false`/undefined on dev-doc blocks
    * (api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer,
-   * annotated-code, mermaid, custom-html, tabs, code-tabs) and visual/plan-only
+   * mermaid, custom-html, tabs, code-tabs) and visual/plan-only
    * blocks (wireframe, diagram). Prose blocks that aren't registry atoms
    * (rich-text, callout) carry their NFM analog through the prose path, not this
    * flag.

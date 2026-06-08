@@ -47,7 +47,6 @@ export type PlanBlockType =
   | "diff"
   | "file-tree"
   | "json-explorer"
-  | "annotated-code"
   // Deprecated: region-based wireframe kept for old/imported plans only.
   | "legacy-wireframe";
 
@@ -575,16 +574,6 @@ export type PlanJsonExplorerBlock = PlanBlockBase & {
   };
 };
 
-export type PlanAnnotatedCodeBlock = PlanBlockBase & {
-  type: "annotated-code";
-  data: {
-    filename?: string;
-    language?: string;
-    code: string;
-    annotations?: Array<{ lines: string; label?: string; note: string }>;
-  };
-};
-
 export type PlanBlock =
   | PlanRichTextBlock
   | PlanCalloutBlock
@@ -608,8 +597,7 @@ export type PlanBlock =
   | PlanDataModelBlock
   | PlanDiffBlock
   | PlanFileTreeBlock
-  | PlanJsonExplorerBlock
-  | PlanAnnotatedCodeBlock;
+  | PlanJsonExplorerBlock;
 
 /* -------------------------------------------------------------------------- */
 /* Board / canvas — SPATIAL; geometry KEPT here on purpose                    */
@@ -1671,30 +1659,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         title: z.string().trim().max(200).optional(),
         json: z.string().max(200_000),
         collapsedDepth: z.number().int().min(0).max(20).optional(),
-      }),
-    }),
-    baseBlockSchema.extend({
-      type: z.literal("annotated-code"),
-      data: z.object({
-        filename: z.string().trim().max(400).optional(),
-        language: z.string().trim().max(40).optional(),
-        code: z.string().max(100_000),
-        annotations: z
-          .array(
-            z.object({
-              lines: z
-                .string()
-                .trim()
-                .regex(/^\d+(\s*-\s*\d+)?$/, {
-                  message: 'lines must be a 1-based line ref like "3" or "3-5"',
-                })
-                .max(40),
-              label: z.string().trim().max(160).optional(),
-              note: z.string().trim().min(1).max(4_000),
-            }),
-          )
-          .max(80)
-          .optional(),
       }),
     }),
   ]),

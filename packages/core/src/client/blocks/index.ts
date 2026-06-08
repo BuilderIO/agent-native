@@ -201,16 +201,6 @@ export {
   type JsonExplorerData,
 } from "./library/json-explorer.config.js";
 export {
-  AnnotatedCodeRead,
-  AnnotatedCodeEdit,
-} from "./library/AnnotatedCodeBlock.js";
-export {
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
-  type AnnotatedCodeAnnotation,
-} from "./library/annotated-code.config.js";
-export {
   OpenApiSpecRead,
   OpenApiSpecEdit,
 } from "./library/OpenApiSpecBlock.js";

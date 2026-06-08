@@ -29,7 +29,6 @@ const REGISTRY_TYPES = [
   "diff",
   "file-tree",
   "json-explorer",
-  "annotated-code",
 ] as const;
 
 function stubRegistry(): BlockRegistry {
@@ -53,7 +52,6 @@ function stubRegistry(): BlockRegistry {
     diff: "Diff",
     "file-tree": "File tree",
     "json-explorer": "JSON explorer",
-    "annotated-code": "Annotated code",
   };
   const descriptions: Partial<Record<(typeof REGISTRY_TYPES)[number], string>> =
     {
