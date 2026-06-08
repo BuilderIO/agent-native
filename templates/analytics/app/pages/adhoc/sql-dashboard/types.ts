@@ -60,21 +60,6 @@ export interface PivotConfig {
   valueKey: string;
 }
 
-export type MetricHealthStatus = "neutral" | "good" | "warning" | "critical";
-
-export interface MetricHealthThreshold {
-  status: MetricHealthStatus;
-  min?: number;
-  max?: number;
-  label?: string;
-}
-
-export interface MetricHealthConfig {
-  thresholds: MetricHealthThreshold[];
-  fallbackStatus?: MetricHealthStatus;
-  fallbackLabel?: string;
-}
-
 export interface SqlPanelConfig {
   xKey?: string;
   yKey?: string;
@@ -88,8 +73,6 @@ export interface SqlPanelConfig {
   stacked?: boolean;
   /** Show the chart legend. Defaults to true for chart renderers. */
   legend?: boolean;
-  /** Optional numeric threshold styling for metric cards. */
-  metricHealth?: MetricHealthConfig;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;

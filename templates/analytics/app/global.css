@@ -215,7 +215,7 @@
   display: grid;
   grid-auto-rows: auto;
   align-items: stretch;
-  gap: 1.25rem;
+  gap: 1rem;
   grid-template-columns: minmax(0, 1fr);
 }
 
