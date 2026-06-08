@@ -1,11 +1,28 @@
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { CodeSurface } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
 
 type PlanMarkdownReaderProps = {
   markdown: string;
   className?: string;
 };
+
+/** Flatten react-markdown's code-element children into the raw code string. */
+function extractText(node: ReactNode): string {
+  if (node == null || node === false) return "";
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (isValidElement(node)) {
+    return extractText(
+      (node.props as { children?: ReactNode }).children ?? null,
+    );
+  }
+  return "";
+}
 
 /**
  * Read-only renderer for a plan `rich-text` block.
@@ -19,6 +36,10 @@ type PlanMarkdownReaderProps = {
  * Markdown stays the single source of truth (GFM, same dialect the editor emits)
  * and the output reuses the existing `.plan-rich-markdown-editor`
  * `.an-rich-md-prose` styling so the read view matches the edit view exactly.
+ * Fenced code blocks render through the shared {@link CodeSurface} so the read
+ * view gets the same syntax-highlighted, light/dark, collapse-to-N-lines
+ * treatment as the editor and code tabs (Shiki is client-only with a plain
+ * `<pre>` SSR fallback, so this stays SSR-safe).
  */
 export function PlanMarkdownReader({
   markdown,
@@ -49,6 +70,26 @@ export function PlanMarkdownReader({
                 className={cn("an-rich-md-table", tableClassName)}
               />
             ),
+            pre: ({ children }: ComponentPropsWithoutRef<"pre">) => {
+              const codeEl = Array.isArray(children) ? children[0] : children;
+              const codeProps = isValidElement(codeEl)
+                ? (codeEl.props as { className?: string; children?: ReactNode })
+                : null;
+              const match = /language-([\w-]+)/.exec(
+                codeProps?.className ?? "",
+              );
+              const code = extractText(codeProps?.children ?? null).replace(
+                /\n$/,
+                "",
+              );
+              return (
+                <CodeSurface
+                  code={code}
+                  language={match?.[1]}
+                  className="plan-code-surface--read"
+                />
+              );
+            },
           }}
         >
           {markdown}

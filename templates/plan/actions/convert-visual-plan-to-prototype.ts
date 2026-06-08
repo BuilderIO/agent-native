@@ -54,8 +54,8 @@ export default defineAction({
     resource: embedApp({
       title: "Prototype Plan",
       description:
-        "Open the converted Agent-Native Plans prototype review surface.",
-      iframeTitle: "Agent-Native Plans",
+        "Open the converted Agent-Native Plan prototype review surface.",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open Prototype Plan",
       height: 860,
     }),

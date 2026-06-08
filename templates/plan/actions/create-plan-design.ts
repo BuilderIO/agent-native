@@ -104,7 +104,12 @@ export default defineAction({
   schema: z
     .object({
       title: z.string().optional().describe("Short design plan title"),
-      brief: z.string().optional().describe("Plain-language design brief"),
+      brief: z
+        .string()
+        .optional()
+        .describe(
+          "One short sentence summarizing the design direction, shown as the lede under the title. Keep it to a single tight line.",
+        ),
       goal: z
         .string()
         .optional()
@@ -193,8 +198,8 @@ export default defineAction({
     resource: embedApp({
       title: "Plan Design",
       description:
-        "Open the Agent-Native Plans design review surface for full-fidelity screens, prototype behavior, comments, and implementation notes.",
-      iframeTitle: "Agent-Native Plans",
+        "Open the Agent-Native Plan design review surface for full-fidelity screens, prototype behavior, comments, and implementation notes.",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan Design",
       height: 860,
     }),
@@ -361,7 +366,7 @@ export default defineAction({
       url: planPath(id),
       ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
-        "Open the Agent-Native Plans link, review the full-fidelity Design tab first, click through the Prototype tab when present, add comments or targeted style edits, then I will call get-plan-feedback before continuing.",
+        "Open the Agent-Native Plan link, review the full-fidelity Design tab first, click through the Prototype tab when present, add comments or targeted style edits, then I will call get-plan-feedback before continuing.",
     };
   },
   link: ({ result }) => {

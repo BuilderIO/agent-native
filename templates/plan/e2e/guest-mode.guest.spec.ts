@@ -201,7 +201,7 @@ test.describe("guest mode + claim", () => {
     // And the plan page renders for the anonymous viewer (CSR shell at minimum).
     await page.goto(`/plans/${planId}`);
     await page.waitForLoadState("domcontentloaded");
-    await expect(page).toHaveTitle(/Plans|Agent-Native/i, { timeout: 15_000 });
+    await expect(page).toHaveTitle(/Plan|Agent-Native/i, { timeout: 15_000 });
     // Viewing a specific plan, the guest banner must NOT cover the reader.
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
   });
@@ -415,7 +415,7 @@ test.describe("guest mode + claim", () => {
 
     await anonPage.goto(`/plans/${planId}`);
     await anonPage.waitForLoadState("domcontentloaded");
-    await expect(anonPage).toHaveTitle(/Plans|Agent-Native/i, {
+    await expect(anonPage).toHaveTitle(/Plan|Agent-Native/i, {
       timeout: 15_000,
     });
     await anonCtx.close();

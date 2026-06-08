@@ -30,7 +30,7 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/", "/plans", "/plans/plan_"],
   publicPaths: [...PUBLIC_PLAN_ACTION_PATHS, ...LOCAL_MODE_ACTION_PATHS],
   marketing: {
-    appName: "Agent-Native Plans",
+    appName: "Agent-Native Plan",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [

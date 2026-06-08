@@ -8,4 +8,4 @@ export const APP_NAME =
   rawAppName === APP_NAME_PLACEHOLDER ? "plan" : rawAppName;
 
 export const APP_TITLE =
-  rawAppTitle === APP_TITLE_PLACEHOLDER ? "Agent-Native Plans" : rawAppTitle;
+  rawAppTitle === APP_TITLE_PLACEHOLDER ? "Agent-Native Plan" : rawAppTitle;

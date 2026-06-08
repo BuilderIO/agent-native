@@ -88,6 +88,7 @@ plan needs a richer review surface.
    migration, or code plans, usually omit `content.canvas` and
    `content.prototype`; put `diagram`, `mermaid`, `api-endpoint`,
    `openapi-spec`, `data-model`, `diff`, `file-tree`, `json-explorer`,
+   `annotated-code`,
    `implementation-map` and `code-tabs` blocks directly next
    to the relevant prose. Skip the top visual surface for non-visual work.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
@@ -502,7 +503,7 @@ so you never emit a block the editor cannot render or round-trip:
   `.diagram-pill`, `.diagram-muted`, and `[data-rough]`; they map to the plan's
   Tailwind theme variables through `--wf-ink`, `--wf-muted`, `--wf-line`,
   `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
-  `--wf-ok`, and switch to Virgil plus rough.js outlines in sketchy mode. Do not
+  `--wf-ok`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set `font-family` and do not hard-code hex, rgb, or hsl colors in diagram HTML
   or CSS. Use legacy `nodes` / `edges` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
@@ -521,7 +522,10 @@ block titled "Open Questions" so the renderer presents it as a distinct section.
 Use `single` or `multi` for clear choices, `freeform` for constraints,
 `recommended: true` for the default you would pick, and option `wireframe` /
 `diagram` previews only when the options are not already visible in the top
-canvas. Keep non-answerable assumptions or risks as concise `callout` blocks in
+canvas. `single` and `multi` questions always render a write-in field so a
+reviewer can answer with a custom option — never add an explicit "Other" option
+yourself; set `allowOther: false` only when a free-text answer makes no sense.
+Keep non-answerable assumptions or risks as concise `callout` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
 narrative, and never ask the same question in both a `decision` block and a
 `question-form`.

@@ -33,7 +33,7 @@
   --wf-ok: var(--wf-accent);
   --wf-radius: 9px;
 
-  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;
+  --wf-font-hand: "Excalifont", "Comic Sans MS", "Bradley Hand", cursive;
   --wf-font-clean:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
   --wf-font: var(--wf-font-hand);
@@ -267,7 +267,7 @@
   --wf-warn: hsl(var(--destructive));
   --wf-ok: var(--wf-accent);
   --wf-radius: 8px;
-  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;
+  --wf-font-hand: "Excalifont", "Comic Sans MS", "Bradley Hand", cursive;
   --wf-font-clean:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
   --wf-font: var(--wf-font-clean);

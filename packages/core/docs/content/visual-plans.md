@@ -34,6 +34,12 @@ Pass `--no-connect` to register the connector without authenticating, then run `
 agent-native skills add visual-plan --no-connect
 ```
 
+To auto-generate a recap on **every pull request**, pass `--with-github-action`. This writes a GitHub Action that runs the `visual-recap` skill on each PR and posts an interactive recap plan with an inline screenshot as a sticky comment — see [PR Visual Recap](/docs/pr-visual-recap).
+
+```bash
+agent-native skills add visual-plan --with-github-action
+```
+
 ## Invoking the skill {#invoke}
 
 Once installed, use the slash command that fits the work:

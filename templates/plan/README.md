@@ -1,6 +1,6 @@
-# Agent-Native Plans
+# Agent-Native Plan
 
-Agent-Native Plans is structured visual plan mode for coding agents. It turns a
+Agent-Native Plan is structured visual plan mode for coding agents. It turns a
 normal Markdown/Codex/Claude Code plan into a visual review surface with
 editable rich blocks, diagrams, wireframes, prototype options, file/symbol
 implementation maps, code previews, annotations, share links, feedback, and
@@ -9,7 +9,7 @@ HTML export.
 ## Install
 
 Use the Agent-Native CLI. This is the recommended setup because it installs the
-Plans skill instructions, registers the hosted Plans MCP connector, and runs the
+Plan skill instructions, registers the hosted Plan MCP connector, and runs the
 client-specific auth/setup flow in one step:
 
 ```sh
@@ -130,10 +130,10 @@ The local template remains useful for development and self-hosting.
 
 ## PR Visual Recaps
 
-PR automation can publish org-gated recap plans to the hosted Plans app when the
+PR automation can publish org-gated recap plans to the hosted Plan app when the
 repository configures both secrets:
 
-- `PLAN_RECAP_APP_URL` — the hosted Plans app base URL.
+- `PLAN_RECAP_APP_URL` — the hosted Plan app base URL.
 - `PLAN_RECAP_TOKEN` — a publish token for creating and replacing private recap
   plans.
 

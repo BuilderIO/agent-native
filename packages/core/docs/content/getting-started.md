@@ -13,6 +13,7 @@ There are two ways to use agent-native, depending on how hands-on you want to be
 
 - **You want to use a hosted version.** Try a template right now at [agent-native.com/templates](/templates). Each template is a live, hosted app — you sign in, start using it, and the agent is already there. No install, no setup. You can stop reading this page and head straight to the [template gallery](/templates).
 - **You want to run locally or customize it.** You'll clone a template, run it on your machine, and shape it however you want — branding, features, integrations. The rest of this page is for you. You'll need [Node.js 22 or newer (LTS recommended)](https://nodejs.org) and [pnpm](https://pnpm.io) installed.
+- **You just want to add agent-native to your existing coding agent.** Skip the scaffold entirely — install a skill into Claude Code, Codex, or Cursor with one command. Jump to [Try it with a skill](#try-with-a-skill).
 
 Not sure which path? If you've never written code, the hosted version is for you. If you have a developer or AI coding tool ready, the local path gives you total control.
 
@@ -52,6 +53,16 @@ the root script:
 pnpm dev:cli --help
 pnpm dev:cli code goals
 ```
+
+## Try it with a skill {#try-with-a-skill}
+
+Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with a single command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+That one command installs the skill instructions, registers the hosted MCP connector, and signs you in — no marketplace browsing, no manual OAuth. Then run `/visual-plan` in your agent. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills, local/offline installs, and how app-backed skills work.
 
 ## Creating vs adding apps {#creating-vs-adding-apps}
 

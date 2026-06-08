@@ -50,7 +50,7 @@ Generate and pick brand media without leaving Codex, Claude Code, Claude, or Cha
 1. **Install once.** This adds the skill instructions and registers the hosted MCP connector together:
 
    ```bash
-   npx @agent-native/core@latest skills add assets   # aliases: images, image-generation
+   npx @agent-native/core@latest skills add assets   # alias: image-generation
    ```
 
    Default client is `codex`; add `--client claude-code` or `--client all` for others.
@@ -177,9 +177,6 @@ The Assets app skill has app id `assets` and hosted MCP URL
 ```bash
 # Easiest hosted install: exported skill instructions plus MCP connector.
 npx @agent-native/core@latest skills add assets
-
-# Image-generation alias for demos and tutorials.
-npx @agent-native/core@latest skills add images
 
 # Vercel/open Skills CLI install: exported instructions only, no MCP config.
 npx skills add BuilderIO/agent-native --skill assets

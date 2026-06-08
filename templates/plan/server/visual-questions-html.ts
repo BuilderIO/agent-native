@@ -308,11 +308,20 @@ function renderQuestionControl(question: VisualQuestion): string {
   return renderChipChoices(question);
 }
 
+// Multiple-choice questions always offer a write-in answer unless an author
+// explicitly opts out with `allowOther: false`, so a reviewer can give a custom
+// response instead of the listed options.
+function renderWriteIn(question: VisualQuestion): string {
+  if (question.allowOther === false) return "";
+  const placeholder = escapeHtml(
+    question.placeholder ?? "Other — type your own answer…",
+  );
+  return `<input class="vq-other" data-other-input placeholder="${placeholder}" />`;
+}
+
 function renderChipChoices(question: VisualQuestion): string {
   const options = question.options ?? [];
-  const other = question.allowOther
-    ? `<input class="vq-other" data-other-input placeholder="Other..." />`
-    : "";
+  const other = renderWriteIn(question);
   return `<div class="vq-chip-cloud">
     ${options
       .map((option) => {
@@ -345,6 +354,7 @@ function renderVisualChoice(question: VisualQuestion): string {
         </div>`;
       })
       .join("\n")}
+    ${renderWriteIn(question)}
   </div>`;
 }
 
@@ -381,7 +391,7 @@ function renderPreview(option: VisualQuestionsOption, index: number): string {
 }
 
 const VISUAL_QUESTIONS_CSS = `
-@font-face { font-family: "Virgil"; src: url("/fonts/Virgil-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Excalifont"; src: url("/fonts/Excalifont-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 :root { color-scheme: light dark; --bg: #faf9f7; --paper: #ffffff; --paper-soft: #f3f2ef; --canvas: #f3f2ef; --ink: #181817; --muted: #6f6e68; --line: #dfded9; --line-strong: #c9c8c2; --accent: #2f6fed; --accent-soft: rgba(47,111,237,.1); --sketch: #20201e; --wire-surface: #ffffff; --wire-soft: #f4f4f5; --wire-mark: #d4d4d8; --wire-line: #20201e; --wire-line-soft: #c9c8c2; --shadow: none; }
 :root[data-agent-native-theme="dark"] { color-scheme: dark; --bg: #1f1e1d; --paper: #242423; --paper-soft: #2b2a2a; --canvas: #1d1c1b; --ink: #f4f3ef; --muted: #aaa8a4; --line: #444341; --line-strong: #5a5955; --accent: #4d86ff; --accent-soft: rgba(77,134,255,.18); --sketch: #f0eee8; --wire-surface: #202020; --wire-soft: #2a2a2a; --wire-mark: #686868; --wire-line: rgba(244,244,242,.78); --wire-line-soft: rgba(244,244,242,.26); --shadow: none; }
 * { box-sizing: border-box; }
@@ -436,7 +446,7 @@ h1 { margin: 0; font-size: clamp(30px, 4vw, 52px); line-height: 1.05; letter-spa
 .vq-preview-mobile b { left: 18%; right: 18%; }
 .vq-preview-mobile em { position: absolute; right: 18px; bottom: 18px; width: 42px; height: 42px; border-radius: 99px; background: var(--accent); }
 .vq-preview-flow { display: flex; min-height: 128px; align-items: center; justify-content: center; gap: 14px; background: var(--wire-surface); border-style: solid; }
-.vq-preview-flow b { position: relative; display: inline-flex; width: 54px; height: 54px; align-items: center; justify-content: center; border-radius: 7px; background: var(--wire-surface); border: 1.5px solid var(--wire-line); color: var(--accent); font: 400 24px/1 Virgil, ui-sans-serif, system-ui; filter: url(#visual-questions-roughen); }
+.vq-preview-flow b { position: relative; display: inline-flex; width: 54px; height: 54px; align-items: center; justify-content: center; border-radius: 7px; background: var(--wire-surface); border: 1.5px solid var(--wire-line); color: var(--accent); font: 400 24px/1 Excalifont, ui-sans-serif, system-ui; filter: url(#visual-questions-roughen); }
 .vq-preview-flow i { width: 54px; border-top: 2px solid var(--accent); filter: url(#visual-questions-roughen); }
 .vq-preview-diagram b { position: absolute; width: 118px; height: 56px; border: 1.5px solid var(--wire-line); border-radius: 7px; background: var(--wire-surface); filter: url(#visual-questions-roughen); }
 .vq-preview-diagram b:nth-of-type(1) { left: 32px; top: 32px; }

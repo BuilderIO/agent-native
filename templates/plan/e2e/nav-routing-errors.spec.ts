@@ -7,7 +7,7 @@ function makeE2ePassword(label: string): string {
 /*
  * NAVIGATION / ROUTING / ERROR + LOADING STATES (authed).
  *
- * Adversarial coverage of the Plans app shell routing:
+ * Adversarial coverage of the Plan app shell routing:
  *  - home lists plans in the LEFT sidebar and in the grid
  *  - clicking a sidebar item and a grid card navigates to /plans/<id> as an SPA
  *    nav (the app shell must NOT do a full document reload)
@@ -124,7 +124,7 @@ async function waitForOverview(page: Page) {
   // The overview route is never the immersive reader, so the global nav sidebar
   // must be present here.
   await waitForNavSidebar(page);
-  // The overview heading "Plans" plus the New Plan button; tolerate empty state.
+  // The overview heading "Plan" plus the New Plan button; tolerate empty state.
   await expect
     .poll(async () => (await page.locator("body").innerText()).length, {
       timeout: 25_000,

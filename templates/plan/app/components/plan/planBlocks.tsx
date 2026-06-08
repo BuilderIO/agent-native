@@ -486,21 +486,6 @@ function QuestionFormEdit({
 
   return (
     <div className="grid gap-6" data-plan-interactive>
-      <label className="grid max-w-sm gap-1.5">
-        <span className={inlineLabelClass}>Submit button</span>
-        <input
-          className={inlineInputClass}
-          value={data.submitLabel ?? ""}
-          disabled={!editable}
-          placeholder="Send to agent"
-          onChange={(event) =>
-            onChange({
-              ...data,
-              submitLabel: event.target.value || undefined,
-            })
-          }
-        />
-      </label>
       <div className="grid gap-4">
         {data.questions.map((question, index) => {
           const options = question.options ?? [];
@@ -604,15 +589,15 @@ function QuestionFormEdit({
                     <input
                       type="checkbox"
                       className="mb-2 size-4"
-                      checked={Boolean(question.allowOther)}
+                      checked={question.allowOther !== false}
                       disabled={!editable}
                       onChange={(event) =>
                         updateQuestion(question.id, {
-                          allowOther: event.target.checked || undefined,
+                          allowOther: event.target.checked ? undefined : false,
                         })
                       }
                     />
-                    Allow other
+                    Allow write-in
                   </label>
                 )}
               </div>

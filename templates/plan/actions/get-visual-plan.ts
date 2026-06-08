@@ -10,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Get an Agent-Native Plans bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Use this before targeted contentPatches, source patches, or resolving feedback.",
+    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Use this before targeted contentPatches, source patches, or resolving feedback.",
   schema: z.object({
     id: z.string().describe("Plan ID"),
   }),

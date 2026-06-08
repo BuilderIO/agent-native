@@ -138,7 +138,7 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen={false}
-          emptyStateText="Ask the Plans agent to revise this visual plan, apply comments, add diagrams, or update document blocks."
+          emptyStateText="Ask the Plan agent to revise this visual plan, apply comments, add diagrams, or update document blocks."
           suggestions={[
             "Patch this plan based on the open comments",
             "Add a concrete diagram and higher-fidelity wireframe",

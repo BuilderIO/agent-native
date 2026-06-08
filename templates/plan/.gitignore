@@ -14,6 +14,7 @@ templates/starter/.env
 
 # Local Playwright run artifacts
 /e2e/.auth/
+/e2e/.artifacts/
 /e2e/.report.json
 /e2e/smoke.spec.ts
 /e2e/zzprobe*.spec.ts

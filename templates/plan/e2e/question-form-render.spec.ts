@@ -154,7 +154,7 @@ test.describe("question blocks render answer UI in the plan editor", () => {
       ).toBeVisible();
       await expect(node.getByRole("button", { name: /Tables/ })).toBeVisible();
       await expect(
-        node.getByRole("button", { name: "Choose direction" }),
+        node.getByRole("button", { name: "Send to agent" }),
       ).toBeVisible();
 
       // The inline body must not be the admin/config editor.
@@ -174,7 +174,6 @@ test.describe("question blocks render answer UI in the plan editor", () => {
         .click({ force: true });
       const popover = page.locator(".an-block-edit-popover").last();
       await expect(popover).toBeVisible({ timeout: 10_000 });
-      await expect(popover.getByText("Submit button")).toBeVisible();
       await expect(popover.getByText("Question 1")).toBeVisible();
       await expect(popover.getByText("Mode")).toBeVisible();
     });

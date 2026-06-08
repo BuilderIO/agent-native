@@ -82,13 +82,11 @@ offline work, or privacy-sensitive use.
 
 ```bash
 # Happy path: exported instructions plus hosted MCP connector.
+npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add assets
-npx @agent-native/core@latest skills add images
-npx @agent-native/core@latest skills add design-exploration
 
 # Vercel/open Skills CLI: exported instructions only, no MCP config.
 npx skills add BuilderIO/agent-native --skill assets
-npx skills add BuilderIO/agent-native --skill design-exploration
 
 # Register a hosted MCP connector for local agent clients.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json

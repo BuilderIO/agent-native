@@ -125,7 +125,7 @@ export function ChecklistEditor({
   return (
     <div className="grid gap-2">
       {items.map((item) => (
-        <div key={item.id} className="flex items-start gap-2">
+        <div key={item.id} className="group flex items-start gap-2">
           <button
             type="button"
             data-plan-interactive
@@ -143,7 +143,7 @@ export function ChecklistEditor({
           <input
             type="text"
             data-plan-interactive
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-9 w-full rounded-md bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             placeholder="Checklist item"
             value={item.label}
             disabled={!editable}
@@ -153,7 +153,7 @@ export function ChecklistEditor({
             type="button"
             data-plan-interactive
             aria-label="Remove item"
-            className="mt-1 flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+            className="mt-1 flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-50"
             disabled={!editable}
             onClick={() => remove(item.id)}
           >

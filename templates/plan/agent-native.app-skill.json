@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "plans",
-  "displayName": "Agent-Native Plans",
+  "displayName": "Agent-Native Plan",
   "description": "Generate and review coding-agent plans as structured visual documents with diagrams, wireframes, prototypes, annotations, share links, feedback, and HTML export.",
   "hosted": {
     "url": "https://plan.agent-native.com",
@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plans MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {

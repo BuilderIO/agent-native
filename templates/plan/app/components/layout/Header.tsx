@@ -5,8 +5,8 @@ import { AgentToggleButton } from "@agent-native/core/client";
 import { APP_TITLE } from "@/lib/app-config";
 
 const pageTitles: Record<string, string> = {
-  "/": "Plans",
-  "/plans": "Plans",
+  "/": "Plan",
+  "/plans": "Plan",
   "/settings": "Settings",
   "/team": "Team",
 };

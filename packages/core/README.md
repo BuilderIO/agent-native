@@ -185,6 +185,16 @@ Want a single app, no monorepo? Use `--standalone`:
 npx @agent-native/core create my-app --standalone --template mail
 ```
 
+### Try it with a skill
+
+Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with one command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+It installs the skill, registers the hosted MCP connector, and signs you in in one step — then run `/visual-plan`. See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-skills)** for more skills and local installs.
+
 Need a coding agent workspace? `agent-native` or `agent-native code` opens an open-source Claude Code/Codex-like Code workspace with no prompt required. From there, type a task, run slash goals interactively, or call them directly from your shell:
 
 ```bash

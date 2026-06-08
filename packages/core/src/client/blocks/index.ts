@@ -112,6 +112,12 @@ export {
   type CodeTabsData,
   type CodeTabsTab,
 } from "./library/code-tabs.config.js";
+export {
+  CodeSurface,
+  HighlightedCode,
+  prettyLanguageName,
+  DEFAULT_CODE_MAX_LINES,
+} from "./library/HighlightedCode.js";
 export { htmlBlock, HtmlReadBlock, HtmlEditBlock } from "./library/html.js";
 export {
   htmlSchema,
@@ -200,6 +206,16 @@ export {
   jsonExplorerMdx,
   type JsonExplorerData,
 } from "./library/json-explorer.config.js";
+export {
+  AnnotatedCodeRead,
+  AnnotatedCodeEdit,
+} from "./library/AnnotatedCodeBlock.js";
+export {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+  type AnnotatedCodeAnnotation,
+} from "./library/annotated-code.config.js";
 export {
   OpenApiSpecRead,
   OpenApiSpecEdit,

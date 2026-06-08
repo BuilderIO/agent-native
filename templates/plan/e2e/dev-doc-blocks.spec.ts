@@ -1,10 +1,11 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
 /*
- * DEV-DOC BLOCKS — render + persist E2E for the 6 developer-documentation blocks.
+ * DEV-DOC BLOCKS — render + persist E2E for the 7 developer-documentation blocks.
  *
- * Area under test: the six "dev-doc" plan block types — `mermaid`,
- * `api-endpoint`, `data-model`, `diff`, `file-tree`, and `json-explorer` —
+ * Area under test: the seven "dev-doc" plan block types — `mermaid`,
+ * `api-endpoint`, `data-model`, `diff`, `file-tree`, `json-explorer`, and
+ * `annotated-code` —
  * rendered inside the single-document plan editor (PlanDocumentEditor /
  * SharedRichEditor). Each
  * registered block is an inline `planBlock` NodeView wrapped in
@@ -17,7 +18,7 @@ import { test, expect, type Page, type APIResponse } from "@playwright/test";
  *      block's recognizable rendered content is visible (e.g. api-endpoint → the
  *      "GET" method pill + path; data-model → the "User" entity name; diff → an
  *      added/removed code token; json-explorer → a JSON key; file-tree → a path
- *      segment;
+ *      segment; annotated-code → a filename/code token/annotation label;
  *      mermaid → an <svg> OR the graceful
  *      source / parse-error fallback — never a thrown render).
  *   2. PERSIST (no wipe) — the persisted block list still contains exactly the
@@ -361,6 +362,36 @@ test.describe("dev-doc blocks render + persist", () => {
         await expect(node).toContainText("id", { timeout: 15_000 });
         await expect(node).toContainText("active");
         await expect(node).toContainText("abc123");
+      },
+    });
+  });
+
+  // annotated-code → line-numbered walkthrough: code token + annotation label.
+  test("annotated-code renders a code token and persists", async ({ page }) => {
+    await expectRendersAndPersists(page, {
+      label: "annotated-code",
+      block: {
+        id: "blk-annotated",
+        type: "annotated-code",
+        data: {
+          filename: "src/server/auth.ts",
+          language: "ts",
+          code: "export function resolveAuth(provider: string) {\n  const cfg = providers[provider];\n  return cfg.token;\n}",
+          annotations: [
+            {
+              lines: "2",
+              label: "Lookup",
+              note: "Resolves the provider config by key.",
+            },
+          ],
+        },
+      },
+      assertRendered: async (node) => {
+        await expect(node).toContainText("src/server/auth.ts", {
+          timeout: 15_000,
+        });
+        await expect(node).toContainText("resolveAuth");
+        await expect(node).toContainText("Lookup");
       },
     });
   });

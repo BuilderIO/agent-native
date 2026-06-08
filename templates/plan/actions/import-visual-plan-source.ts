@@ -67,8 +67,8 @@ export default defineAction({
     compactCatalog: true,
     resource: embedApp({
       title: "Plan",
-      description: "Open an imported Agent-Native Plans review surface.",
-      iframeTitle: "Agent-Native Plans",
+      description: "Open an imported Agent-Native Plan review surface.",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan",
       height: 860,
     }),

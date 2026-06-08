@@ -798,6 +798,18 @@ User request:
 ${input.prompt}`;
 }
 
+// A content-only reference is an image the user attached as subject/content for
+// a single request (not a reusable brand/style reference). It should never count
+// as a brand-kit style reference.
+function isContentOnlyReferenceAsset(asset: {
+  role: string;
+  metadata: string;
+}): boolean {
+  if (asset.role === "subject_reference") return true;
+  const metadata = parseJson<{ intent?: string }>(asset.metadata, {});
+  return metadata.intent === "subject";
+}
+
 export async function selectReferences(input: {
   libraryId: string;
   collectionId?: string | null;
@@ -809,7 +821,8 @@ export async function selectReferences(input: {
   limit?: number;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
-  let explicitIds = [...new Set(input.referenceAssetIds ?? [])];
+  const requestedExplicitIds = new Set(input.referenceAssetIds ?? []);
+  let explicitIds = [...requestedExplicitIds];
   if (explicitIds.length) {
     explicitIds = [
       input.subjectAssetId,
@@ -830,16 +843,17 @@ export async function selectReferences(input: {
         ),
       );
     const byId = new Map(rows.map((row) => [row.id, row]));
-    return loadReferenceData(
-      explicitIds
-        .map((id) => byId.get(id))
-        .filter(
-          (asset): asset is NonNullable<typeof asset> =>
-            Boolean(asset) &&
-            asset.mimeType.startsWith("image/") &&
-            asset.status !== "archived" &&
-            asset.status !== "failed",
-        ),
+    const explicitAssets = explicitIds
+      .map((id) => byId.get(id))
+      .filter(
+        (asset): asset is NonNullable<typeof asset> =>
+          Boolean(asset) &&
+          asset.mimeType.startsWith("image/") &&
+          asset.status !== "archived" &&
+          asset.status !== "failed",
+      );
+    const explicitRefs = await loadReferenceData(
+      explicitAssets,
       (asset) =>
         asset.id === input.subjectAssetId
           ? input.intent === "edit"
@@ -848,6 +862,34 @@ export async function selectReferences(input: {
           : undefined,
       () => "explicit",
     );
+    // When every caller-requested reference is a content-only attachment (a
+    // subject/content image dropped in for this one request), it should ADD to —
+    // not replace — the library's curated brand style. Otherwise attaching a
+    // content image silently strips every style/anchor reference and the
+    // generation ignores the brand kit entirely. `edit` keeps exact control
+    // because the edit target must stand alone.
+    const requestedContentAssets = explicitAssets.filter((asset) =>
+      requestedExplicitIds.has(asset.id),
+    );
+    const allRequestedAreContentOnly =
+      input.intent !== "edit" &&
+      requestedContentAssets.length > 0 &&
+      requestedContentAssets.every(isContentOnlyReferenceAsset);
+    if (!allRequestedAreContentOnly) return explicitRefs;
+    const styleLimit = Math.max(
+      0,
+      (input.limit ?? DEFAULT_GENERATION_REFERENCE_LIMIT) - explicitRefs.length,
+    );
+    if (styleLimit === 0) return explicitRefs;
+    const styleRefs = await selectReferences({
+      libraryId: input.libraryId,
+      collectionId: input.collectionId,
+      categories: input.categories,
+      intent: input.intent,
+      limit: styleLimit,
+    });
+    const seen = new Set(explicitRefs.map((ref) => ref.id));
+    return [...explicitRefs, ...styleRefs.filter((ref) => !seen.has(ref.id))];
   }
   const [library] = await db
     .select({ settings: schema.assetLibraries.settings })

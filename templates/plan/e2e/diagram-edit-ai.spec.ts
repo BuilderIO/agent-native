@@ -586,7 +586,7 @@ test.describe("diagram block: sketchy / clean toggle", () => {
     });
     await expect
       .poll(() => frame.evaluate((el) => getComputedStyle(el).fontFamily))
-      .toContain("Virgil");
+      .toContain("Excalifont");
     await expect(node.locator("svg.plan-rough-overlay")).toHaveCount(1, {
       timeout: 12_000,
     });

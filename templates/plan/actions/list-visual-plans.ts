@@ -7,7 +7,8 @@ import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import { planStatusSchema, summarizePlans } from "../server/plans.js";
 
 export default defineAction({
-  description: "List Agent-Native Plans with section and comment summaries.",
+  description:
+    "List Agent-Native Plan documents with section and comment summaries.",
   schema: z.object({
     status: planStatusSchema.optional(),
   }),

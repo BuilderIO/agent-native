@@ -389,7 +389,7 @@ export default function LibraryPage() {
       .includes(normalized);
   });
   const references = visibleAssets.filter(
-    (asset) => asset.status === "reference",
+    (asset) => asset.status === "reference" && !isContentOnlyReference(asset),
   );
   const generated = visibleAssets.filter((asset) => asset.role === "generated");
   const saved = generated.filter((asset) => asset.status === "saved");
@@ -1591,11 +1591,17 @@ function assetDisplayTitle(asset: any): string {
   );
 }
 
+// Content-only references are images attached as subject/content for a single
+// request. They are not part of the curated brand kit, so they are kept out of
+// the References grid (matching how list-libraries excludes them from counts).
+function isContentOnlyReference(asset: any): boolean {
+  return (
+    asset?.role === "subject_reference" || asset?.metadata?.intent === "subject"
+  );
+}
+
 function assetCategoryLabel(asset: any): string | null {
-  if (
-    asset?.metadata?.intent === "subject" ||
-    asset?.role === "subject_reference"
-  ) {
+  if (isContentOnlyReference(asset)) {
     return "content only";
   }
   const category = asset?.metadata?.category;
