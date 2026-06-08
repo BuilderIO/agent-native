@@ -14,3 +14,12 @@ onlyBuiltDependencies:
   - esbuild
   - lightningcss
   - node-pty
+
+allowBuilds:
+  "@swc/core": true
+  better-sqlite3: true
+  canvas: true
+  electron: true
+  esbuild: true
+  lightningcss: true
+  node-pty: true
