@@ -4,7 +4,6 @@ import type { PlanContent } from "@shared/plan-content";
 import {
   collectPlanTocItems,
   getActivePlanTocId,
-  type PlanHeadingTocItem,
   type PlanTocItem,
 } from "./PlanTableOfContents.utils";
 
@@ -42,19 +41,15 @@ function findBlockElement(root: HTMLElement, blockId: string) {
   );
 }
 
-function headingElementsForBlock(root: HTMLElement, item: PlanHeadingTocItem) {
-  const blockEl = findBlockElement(root, item.blockId);
-  if (blockEl) {
-    return Array.from(
-      blockEl.querySelectorAll<HTMLElement>(
-        ".an-rich-md-prose > h1, .an-rich-md-prose > h2, .an-rich-md-prose > h3",
-      ),
-    );
-  }
-
+function documentHeadingElements(root: HTMLElement) {
+  // Section headings render as direct children of the document body prose. In
+  // editable mode that body is a single merged Tiptap editor; in read-only mode
+  // each rich-text block renders its own prose. In both cases the headings
+  // appear in document order, and headings nested inside a custom block NodeView
+  // (`.plan-block-node`) are block content, not document sections.
   return Array.from(
     root.querySelectorAll<HTMLElement>(
-      ".plan-document-editor .an-rich-md-prose > h1, .plan-document-editor .an-rich-md-prose > h2, .plan-document-editor .an-rich-md-prose > h3",
+      ".an-rich-md-prose > h1, .an-rich-md-prose > h2, .an-rich-md-prose > h3",
     ),
   ).filter((heading) => !heading.closest(".plan-block-node"));
 }
@@ -70,24 +65,18 @@ function resetTocTargets(root: HTMLElement) {
 
 function assignPlanTocTargets(root: HTMLElement, items: PlanTocItem[]) {
   resetTocTargets(root);
-  let fallbackHeadingIndex = 0;
-  const fallbackHeadings = Array.from(
-    root.querySelectorAll<HTMLElement>(
-      ".plan-document-editor .an-rich-md-prose > h1, .plan-document-editor .an-rich-md-prose > h2, .plan-document-editor .an-rich-md-prose > h3",
-    ),
-  ).filter((heading) => !heading.closest(".plan-block-node"));
+  // TOC items and rendered elements share document order, so heading items map
+  // to document headings positionally and block items map by their block id.
+  const headings = documentHeadingElements(root);
+  let headingCursor = 0;
 
   for (const item of items) {
     let target: HTMLElement | null = null;
     if (item.kind === "block") {
       target = findBlockElement(root, item.blockId);
     } else {
-      const headings = headingElementsForBlock(root, item);
-      target =
-        headings[item.headingIndex ?? 0] ??
-        fallbackHeadings[fallbackHeadingIndex] ??
-        null;
-      fallbackHeadingIndex += 1;
+      target = headings[headingCursor] ?? null;
+      headingCursor += 1;
     }
     if (!target) continue;
     target.id = item.id;
@@ -110,7 +99,7 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
       return;
     }
 
-    const OFFSET = 180;
+    const OFFSET = 140;
     const MAX_BIND_ATTEMPTS = 8;
     let scrollTarget: HTMLElement | Window | null = null;
     let mutationObserver: MutationObserver | null = null;
