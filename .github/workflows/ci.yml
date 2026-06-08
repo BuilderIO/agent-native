@@ -213,7 +213,9 @@ jobs:
         run: NITRO_PRESET=netlify pnpm --filter plan build
 
       - name: Import SSR handler — must not crash at cold-start
-        run: node scripts/ssr-boot-smoke.mjs plan
+        # External timeout is a backstop against a pathological synchronous hang;
+        # the script itself races module eval against a 30s window and force-exits.
+        run: timeout 120 node scripts/ssr-boot-smoke.mjs plan
 
   guards:
     name: Security guards
