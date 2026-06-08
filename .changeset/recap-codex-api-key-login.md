@@ -9,7 +9,7 @@ PR Visual Recap: make the Codex backend actually work in CI. Two fixes:
    `codex exec`, instead of relying on the bare environment variable. On the
    `gpt-5.5` WebSocket transport Codex was dropping the `Authorization` header on
    the `wss` path and its HTTPS fallback, so every recap failed with `401 Missing
-   bearer or basic authentication in header` and the PR comment reported
+bearer or basic authentication in header` and the PR comment reported
    "generation failed".
 
 2. **Sandbox + approvals.** `codex exec` now runs with
