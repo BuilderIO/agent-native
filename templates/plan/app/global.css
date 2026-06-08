@@ -237,7 +237,10 @@
   border-top: 0;
 }
 
-[data-plan-toc-target] {
+.plan-document-flow .an-rich-md-prose > h1,
+.plan-document-flow .an-rich-md-prose > h2,
+.plan-document-flow .an-rich-md-prose > h3,
+.plan-document-flow [data-block-id] {
   scroll-margin-top: 2rem;
 }
 
