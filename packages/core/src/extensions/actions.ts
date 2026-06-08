@@ -6,6 +6,8 @@ import {
   getHiddenExtensionIdsForCurrentUser,
   getExtension,
   getExtensionHistoryVersion,
+  globalHideExtension,
+  globalUnhideExtension,
   hideExtension,
   listExtensionHistory,
   listExtensions,
@@ -48,6 +50,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               description:
                 "Include extensions the current user has hidden from their list. Defaults to false.",
             },
+            includeGloballyHidden: {
+              type: "boolean",
+              description:
+                "Include extensions an admin/owner has globally hidden from everyone (via global-hide-extension). Defaults to false. Use this to find ids to unhide for everyone.",
+            },
             includeContent: {
               type: "boolean",
               description:
@@ -62,6 +69,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       },
       run: async (args) => {
         const includeHidden = coerceBoolean(args?.includeHidden);
+        const includeGloballyHidden = coerceBoolean(
+          args?.includeGloballyHidden,
+        );
         const includeContent = coerceBoolean(args?.includeContent);
         const search = String(args?.search ?? "")
           .trim()
@@ -69,7 +79,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const limit = coerceLimit(args?.limit);
         const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
 
-        let rows = await listExtensions({ includeHidden });
+        let rows = await listExtensions({
+          includeHidden,
+          includeGloballyHidden,
+        });
         if (search) {
           rows = rows.filter((row) =>
             [row.id, row.name, row.description, row.ownerEmail]
@@ -509,6 +522,59 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       },
     },
 
+    "global-hide-extension": {
+      tool: {
+        description:
+          "Globally hide an extension from EVERYONE's Extensions list/sidebar (not just the current user) by stamping it hidden. Requires owner/admin access. Use this for an admin takedown of a shared/org extension. The extension is not deleted and stays accessible by id; use global-unhide-extension to reverse. For removing an extension only from your own view, use hide-extension instead.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description:
+                "Extension id to hide for everyone. Use list-extensions first if you only know the display name.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const extension = await getExtension(id);
+        if (!extension) return `Error: extension not found: ${id}`;
+
+        await globalHideExtension(id);
+        return {
+          ok: true,
+          globallyHidden: summarizeDeletedExtension(extension),
+        };
+      },
+    },
+
+    "global-unhide-extension": {
+      tool: {
+        description:
+          "Reverse a global hide so the extension reappears in everyone's Extensions list/sidebar again. Requires owner/admin access. Use list-extensions with includeGloballyHidden=true to find globally-hidden ids.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id to unhide for everyone.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        await globalUnhideExtension(id);
+        return { ok: true, id };
+      },
+    },
+
     "add-extension-slot-target": {
       tool: {
         description:
@@ -677,6 +743,9 @@ async function summarizeExtension(
       : false,
     canDelete: access ? ["owner", "admin"].includes(access.role) : false,
     hidden: hiddenIds.has(row.id),
+    globallyHidden: row.hiddenAt != null,
+    hiddenAt: row.hiddenAt,
+    hiddenBy: row.hiddenBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(includeContent ? { content: row.content } : {}),

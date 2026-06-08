@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
@@ -33,6 +33,9 @@ import {
   EXTENSIONS_OWNER_INDEX_SQL,
   EXTENSIONS_ORG_INDEX_SQL,
   EXTENSIONS_UPDATED_INDEX_SQL,
+  EXTENSIONS_HIDDEN_AT_COLUMN_SQL,
+  EXTENSIONS_HIDDEN_BY_COLUMN_SQL,
+  EXTENSIONS_HIDDEN_AT_INDEX_SQL,
   EXTENSION_SHARES_RESOURCE_INDEX_SQL,
   EXTENSION_HIDES_CREATE_SQL,
   EXTENSION_HIDES_CREATE_SQL_PG,
@@ -101,6 +104,10 @@ export async function ensureExtensionsTables(): Promise<void> {
       await retryOnDdlRace(() => client.execute(EXTENSIONS_OWNER_INDEX_SQL));
       await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
       await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
+      await ensureExtensionsGlobalHideColumns(client, pg);
+      await retryOnDdlRace(() =>
+        client.execute(EXTENSIONS_HIDDEN_AT_INDEX_SQL),
+      );
       await retryOnDdlRace(() =>
         client.execute(EXTENSION_SHARES_RESOURCE_INDEX_SQL),
       );
@@ -236,6 +243,33 @@ async function ensureExtensionDataScope(
   );
 }
 
+async function ensureExtensionsGlobalHideColumns(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+): Promise<void> {
+  // Global (admin) hide columns on the `tools` row, distinct from the
+  // per-user `tool_hidden_extensions` table. Additive — keep this idempotent
+  // for both dialects. Postgres supports `ADD COLUMN IF NOT EXISTS`; SQLite
+  // does not, so we drop the clause and swallow the duplicate-column error.
+  const addCol = (pgSql: string, name: string, def: string) => {
+    if (pg) {
+      return retryOnDdlRace(() => client.execute(pgSql));
+    }
+    return client
+      .execute(`ALTER TABLE tools ADD COLUMN ${name} ${def}`)
+      .catch((err: any) => {
+        if (
+          !String(err?.message ?? err)
+            .toLowerCase()
+            .includes("duplicate")
+        )
+          throw err;
+      });
+  };
+  await addCol(EXTENSIONS_HIDDEN_AT_COLUMN_SQL, "hidden_at", "TEXT");
+  await addCol(EXTENSIONS_HIDDEN_BY_COLUMN_SQL, "hidden_by", "TEXT");
+}
+
 export function registerExtensionsShareable() {
   registerShareableResource({
     type: "extension",
@@ -263,6 +297,8 @@ export interface ExtensionRow {
   icon: string | null;
   createdAt: string;
   updatedAt: string;
+  hiddenAt: string | null;
+  hiddenBy: string | null;
   ownerEmail: string;
   orgId: string | null;
   visibility: "private" | "org" | "public";
@@ -753,6 +789,11 @@ function diffStats(diff: ExtensionHistoryDiffLine[]): {
 
 export interface ListExtensionsOptions {
   includeHidden?: boolean;
+  /**
+   * Include extensions an admin/owner has globally hidden via `hidden_at`.
+   * Off by default so globally-hidden extensions disappear for everyone.
+   */
+  includeGloballyHidden?: boolean;
 }
 
 export async function listExtensions(
@@ -760,10 +801,17 @@ export async function listExtensions(
 ): Promise<ExtensionRow[]> {
   await ensureExtensionsTables();
   const db = getDb();
+  // Build the WHERE with a single `and()` — drizzle replaces (not ANDs)
+  // on repeated `.where()` calls, so combine the access filter and the
+  // global-hidden filter into one condition.
+  const base = accessFilter(extensions, extensionShares);
+  const where = options.includeGloballyHidden
+    ? base
+    : and(base, isNull(extensions.hiddenAt));
   const rows = (await db
     .select()
     .from(extensions)
-    .where(accessFilter(extensions, extensionShares))) as ExtensionRow[];
+    .where(where)) as ExtensionRow[];
 
   if (options.includeHidden) return rows;
 
@@ -921,6 +969,8 @@ export async function createExtension(
     icon: data.icon ?? null,
     createdAt: now,
     updatedAt: now,
+    hiddenAt: null,
+    hiddenBy: null,
     ownerEmail: userEmail,
     orgId: orgId ?? null,
     visibility: "private",
@@ -1113,5 +1163,54 @@ export async function unhideExtension(id: string): Promise<boolean> {
     args: [id, userEmail],
   });
   await notifyExtensionChanged([{ owner: userEmail }]);
+  return true;
+}
+
+/**
+ * Globally hide an extension from EVERYONE's list by stamping `hidden_at` /
+ * `hidden_by` on the `tools` row. Distinct from the per-user `hideExtension`
+ * (`tool_hidden_extensions`) — this affects all viewers. Requires admin/owner
+ * access. The extension is not deleted and stays accessible by id; pass
+ * `includeGloballyHidden: true` to `listExtensions` to surface it again.
+ */
+export async function globalHideExtension(id: string): Promise<boolean> {
+  await ensureExtensionsTables();
+  await assertAccess("extension", id, "admin");
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
+
+  const beforeTargets = await extensionChangeTargetsForId(id);
+  const now = new Date().toISOString();
+  await getDbExec().execute({
+    sql: `UPDATE tools SET hidden_at = ?, hidden_by = ?, updated_at = ? WHERE id = ?`,
+    args: [now, userEmail, now, id],
+  });
+  await notifyExtensionChanged([
+    ...beforeTargets,
+    ...(await extensionChangeTargetsForId(id)),
+  ]);
+  return true;
+}
+
+/**
+ * Clear a global hide so the extension reappears in everyone's list. Requires
+ * admin/owner access. Mirrors `globalHideExtension`.
+ */
+export async function globalUnhideExtension(id: string): Promise<boolean> {
+  await ensureExtensionsTables();
+  await assertAccess("extension", id, "admin");
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
+
+  const beforeTargets = await extensionChangeTargetsForId(id);
+  const now = new Date().toISOString();
+  await getDbExec().execute({
+    sql: `UPDATE tools SET hidden_at = NULL, hidden_by = NULL, updated_at = ? WHERE id = ?`,
+    args: [now, id],
+  });
+  await notifyExtensionChanged([
+    ...beforeTargets,
+    ...(await extensionChangeTargetsForId(id)),
+  ]);
   return true;
 }

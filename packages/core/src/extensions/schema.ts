@@ -27,6 +27,8 @@ export const extensions = table("tools", {
   icon: text("icon"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  hiddenAt: text("hidden_at"),
+  hiddenBy: text("hidden_by"),
   ...ownableColumns(),
 });
 
@@ -64,6 +66,8 @@ export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tools (
   icon TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  hidden_at TEXT,
+  hidden_by TEXT,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
@@ -77,6 +81,8 @@ export const EXTENSIONS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tools (
   icon TEXT,
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now(),
+  hidden_at TEXT,
+  hidden_by TEXT,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
@@ -156,6 +162,13 @@ export const EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG = `DROP INDEX IF EXISTS tool_d
 export const EXTENSIONS_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_owner_idx ON tools (owner_email)`;
 export const EXTENSIONS_ORG_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_org_idx ON tools (org_id)`;
 export const EXTENSIONS_UPDATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_updated_at_idx ON tools (updated_at)`;
+
+// Global (admin) hide: when set, the extension row is hidden from EVERYONE's
+// list, distinct from the per-user `tool_hidden_extensions` table. Additive
+// columns — see ensureExtensionsTables() for the idempotent ADD COLUMN run.
+export const EXTENSIONS_HIDDEN_AT_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_at TEXT`;
+export const EXTENSIONS_HIDDEN_BY_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_by TEXT`;
+export const EXTENSIONS_HIDDEN_AT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_hidden_at_idx ON tools (hidden_at)`;
 export const EXTENSION_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_shares_resource_idx ON tool_shares (resource_id)`;
 
 export const EXTENSION_HIDES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_hidden_extensions (

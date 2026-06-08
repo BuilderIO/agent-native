@@ -13,6 +13,8 @@ import {
   IconPencil,
   IconGripVertical,
   IconTool,
+  IconEye,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -29,6 +31,7 @@ import {
 } from "../components/ui/hover-card.js";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -64,6 +67,7 @@ interface Extension {
   description?: string;
   icon?: string;
   canDelete?: boolean;
+  globallyHidden?: boolean;
 }
 
 const FAVORITES_KEY = "extensions-favorites";
@@ -137,9 +141,13 @@ function sortByName<T extends { id: string; name: string }>(items: T[]): T[] {
 function ExtensionSortMenu({
   value,
   onChange,
+  showHidden,
+  onShowHiddenChange,
 }: {
   value: ExtensionSortMode;
   onChange: (value: ExtensionSortMode) => void;
+  showHidden: boolean;
+  onShowHiddenChange: (next: boolean) => void;
 }) {
   return (
     <DropdownMenu>
@@ -182,6 +190,13 @@ function ExtensionSortMenu({
             Manual order
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem
+          checked={showHidden}
+          onCheckedChange={(checked) => onShowHiddenChange(Boolean(checked))}
+        >
+          Show hidden
+        </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -210,11 +225,18 @@ export function ExtensionsSidebarSection() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [showAllExtensions, setShowAllExtensions] = useState(false);
+  const [showGloballyHidden, setShowGloballyHidden] = useState(false);
 
   const { data: extensions, isLoading } = useQuery<Extension[]>({
-    queryKey: ["extensions"],
+    queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
-      const res = await fetch(agentNativePath("/_agent-native/extensions"));
+      const res = await fetch(
+        agentNativePath(
+          showGloballyHidden
+            ? "/_agent-native/extensions?includeGloballyHidden=true"
+            : "/_agent-native/extensions",
+        ),
+      );
       if (!res.ok) return [];
       return res.json();
     },
@@ -276,6 +298,40 @@ export function ExtensionsSidebarSection() {
       }
     },
     [location.pathname, navigate, queryClient],
+  );
+
+  const handleGlobalHide = useCallback(
+    async (extension: Extension) => {
+      setMenuOpenId(null);
+      try {
+        await fetch(
+          agentNativePath(
+            `/_agent-native/extensions/${extension.id}/global-hide`,
+          ),
+          { method: "POST" },
+        );
+      } finally {
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      }
+    },
+    [queryClient],
+  );
+
+  const handleGlobalUnhide = useCallback(
+    async (extension: Extension) => {
+      setMenuOpenId(null);
+      try {
+        await fetch(
+          agentNativePath(
+            `/_agent-native/extensions/${extension.id}/global-unhide`,
+          ),
+          { method: "POST" },
+        );
+      } finally {
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      }
+    },
+    [queryClient],
   );
 
   const startRename = useCallback((extension: Extension) => {
@@ -468,6 +524,8 @@ export function ExtensionsSidebarSection() {
             <ExtensionSortMenu
               value={sortModeState}
               onChange={setExtensionSortMode}
+              showHidden={showGloballyHidden}
+              onShowHiddenChange={setShowGloballyHidden}
             />
             <Popover open={showCreate} onOpenChange={setShowCreate}>
               <PopoverTrigger asChild>
@@ -621,7 +679,17 @@ export function ExtensionsSidebarSection() {
                           className="min-w-0 flex-1 truncate border-b border-primary bg-transparent px-0 py-0 text-xs outline-none"
                         />
                       ) : (
-                        <span className="block truncate">{extension.name}</span>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          {extension.globallyHidden && (
+                            <IconEyeOff
+                              className="h-3 w-3 shrink-0 text-muted-foreground/60"
+                              aria-label="Hidden from everyone"
+                            />
+                          )}
+                          <span className="block truncate">
+                            {extension.name}
+                          </span>
+                        </span>
                       )}
                     </Link>
 
@@ -679,6 +747,22 @@ export function ExtensionsSidebarSection() {
                             <IconPencil className="h-3.5 w-3.5" />
                             Rename
                           </DropdownMenuItem>
+                          {extension.canDelete !== false &&
+                            (extension.globallyHidden ? (
+                              <DropdownMenuItem
+                                onSelect={() => handleGlobalUnhide(extension)}
+                              >
+                                <IconEye className="h-3.5 w-3.5" />
+                                Unhide for everyone
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                onSelect={() => handleGlobalHide(extension)}
+                              >
+                                <IconEyeOff className="h-3.5 w-3.5" />
+                                Hide from everyone
+                              </DropdownMenuItem>
+                            ))}
                           <DropdownMenuItem
                             onSelect={() => handleDelete(extension)}
                             className="text-destructive focus:text-destructive"
