@@ -60,25 +60,29 @@ The dispatcher returns one row per (timestamp, series) with shape `{timestamp, s
 
 When a query fans out into many series, the `series` column will hold a `metric_name{k1="v1",k2="v2"}` label per row — that's the natural grouping for a line chart with multiple series.
 
-## Node Exporter dashboard
+## Node Exporter dashboards
 
-A pre-built Node Exporter dashboard is bundled at `seeds/dashboards/node-exporter.json`. It **auto-creates** the first time `PROMETHEUS_URL` is saved — users see it in the sidebar immediately after finishing the Prometheus walkthrough, no prompting needed.
+Node Exporter dashboards are installed from the dashboard catalog:
 
-The dashboard has 11 panels on a 3-column grid with a time-range filter (15 min / 1 h / 6 h / 24 h):
+```bash
+pnpm action list-dashboard-templates
+pnpm action install-dashboard-template --templateId=node-exporter-essentials
+pnpm action install-dashboard-template --templateId=node-exporter-full
+```
+
+`node-exporter-essentials` is the compact first dashboard for host health. `node-exporter-full` is converted from Grafana dashboard 1860 revision 45 and lives at `seeds/dashboards/node-exporter-full.json`; it contains 124 Prometheus query panels, 16 section dividers, and native tabs for Overview, CPU & Memory, System, Storage, Network, and Exporter. The Full dashboard is Linux-focused because Grafana 1860 expects Linux collectors such as `node_memory_MemAvailable_bytes`, pressure stall information, `node_sockstat_*`, `node_netstat_*`, `node_timex_*`, `node_systemd_*`, and `node_hwmon_*`; Homebrew/macOS node_exporter omits many of those, so empty panels on macOS are expected. Both templates use `job`, `instance`, and `range` filters; set `instance` to the Prometheus `instance` label from `node_uname_info`.
+
+The Essentials dashboard covers:
 
 | Panel | PromQL |
 | ----- | ------ |
-| CPU Usage % | `100 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100` |
-| Memory Used % | `(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100` |
-| Load Average (1m) | `node_load1` |
-| CPU Usage % Over Time | same as above, range query |
-| Memory Used (GB) | `(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 1073741824` |
-| Load Average Trend | `node_load1` range query |
-| Disk Read (MB/s) | `sum(rate(node_disk_read_bytes_total[5m])) / 1048576` |
-| Disk Write (MB/s) | `sum(rate(node_disk_written_bytes_total[5m])) / 1048576` |
-| Uptime | `(time() - node_boot_time_seconds) / 86400` |
-| Network Receive (MB/s) | `sum(rate(node_network_receive_bytes_total[5m])) / 1048576` |
-| Network Transmit (MB/s) | `sum(rate(node_network_transmit_bytes_total[5m])) / 1048576` |
+| Hosts Reporting | `count(node_uname_info)` |
+| CPU Used | `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))` |
+| Memory Used | `1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))` |
+| Disk Used | `1 - (sum(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}) / sum(node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}))` |
+| CPU Usage by Instance | `1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))` |
+| Memory Usage by Instance | `1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)` |
+| Network Receive | `sum by (instance) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[5m]))` |
 
 ### Local setup via Homebrew (macOS)
 
@@ -103,7 +107,7 @@ scrape_configs:
 brew services restart prometheus    # Prometheus UI at http://localhost:9090
 ```
 
-Paste `http://localhost:9090` as the Prometheus URL in Data Sources → the Node Exporter dashboard will appear automatically.
+Paste `http://localhost:9090` as the Prometheus URL in Data Sources, then install the desired Node Exporter dashboard from Catalog.
 
 ## Gotchas
 

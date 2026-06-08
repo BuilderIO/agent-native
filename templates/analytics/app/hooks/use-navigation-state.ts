@@ -57,6 +57,8 @@ export function useNavigationState() {
       state.view = "data-sources";
     } else if (path === "/data-dictionary") {
       state.view = "data-dictionary";
+    } else if (path === "/catalog") {
+      state.view = "catalog";
     } else if (path === "/settings") {
       state.view = "settings";
     } else if (path === "/about") {
@@ -121,6 +123,8 @@ export function useNavigationState() {
       path = "/data-sources";
     } else if (cmd.view === "data-dictionary") {
       path = "/data-dictionary";
+    } else if (cmd.view === "catalog") {
+      path = "/catalog";
     } else if (cmd.view === "ask") {
       path = "/ask";
     } else if (cmd.view === "settings") {

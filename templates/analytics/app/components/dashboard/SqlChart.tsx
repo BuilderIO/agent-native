@@ -15,7 +15,6 @@ import {
   Cell,
   Line,
   LineChart,
-  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -72,19 +71,9 @@ const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
-const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
-  fontSize: 11,
-  paddingTop: 8,
-};
-
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
-} as const;
-
-const CHART_LEGEND_PROPS = {
-  iconSize: 8,
-  wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
 
 function formatYValue(
@@ -98,6 +87,78 @@ function formatYValue(
     return `${pct.toFixed(2)}%`;
   }
   return value.toLocaleString();
+}
+
+function parsePrometheusSeriesLabel(label: string): {
+  metric: string;
+  labels: Record<string, string>;
+} {
+  const trimmed = label.trim();
+  const match = /^(.*?)\{(.*)\}$/.exec(trimmed);
+  if (!match) return { metric: trimmed, labels: {} };
+
+  const labels: Record<string, string> = {};
+  const body = match[2];
+  const re = /([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) {
+    labels[m[1]] = m[2].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return { metric: match[1], labels };
+}
+
+function compactGrafanaTarget(value: string): string {
+  const withoutDevicePrefix = value.replace(/^device\s+-\s+/i, "");
+  const beforeExplanation = withoutDevicePrefix.split(/\s+[–-]\s+/)[0];
+  return beforeExplanation.trim() || value;
+}
+
+function truncateLabel(value: string, max = 48): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 3)}...`;
+}
+
+function formatSeriesLabel(value: string): string {
+  const { metric, labels } = parsePrometheusSeriesLabel(value);
+  const target =
+    typeof labels.grafana_target === "string"
+      ? compactGrafanaTarget(labels.grafana_target)
+      : "";
+
+  if (target) {
+    if (labels.device) return truncateLabel(`${labels.device} ${target}`);
+    if (labels.mountpoint)
+      return truncateLabel(`${labels.mountpoint} ${target}`);
+    if (labels.cpu) return truncateLabel(`cpu ${labels.cpu} ${target}`);
+    if (labels.state) return truncateLabel(`${labels.state} ${target}`);
+    if (labels.chip_name) return truncateLabel(`${labels.chip_name} ${target}`);
+    if (labels.sensor) return truncateLabel(`${labels.sensor} ${target}`);
+    return truncateLabel(target);
+  }
+
+  const preferred = [
+    "device",
+    "mountpoint",
+    "fstype",
+    "cpu",
+    "mode",
+    "state",
+    "collector",
+    "name",
+    "type",
+    "quantile",
+    "le",
+  ];
+  const parts = preferred
+    .filter((key) => labels[key])
+    .map((key) => `${key}=${labels[key]}`);
+
+  if (parts.length) {
+    const prefix = metric ? `${metric} ` : "";
+    return truncateLabel(`${prefix}${parts.slice(0, 2).join(" ")}`);
+  }
+
+  return truncateLabel(metric || value);
 }
 
 function csvEscape(value: string): string {
@@ -118,11 +179,43 @@ function formatXLabel(value: string): string {
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
   } catch {}
-  return String(value);
+  return formatSeriesLabel(String(value));
 }
 
 function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
   return panel.config?.legend !== false && seriesCount > 0;
+}
+
+function SeriesLegend({
+  keys,
+  colors,
+  panel,
+}: {
+  keys: string[];
+  colors: string[];
+  panel: SqlPanel;
+}) {
+  if (!shouldShowLegend(panel, keys.length)) return null;
+
+  return (
+    <div className="mt-2 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {keys.map((key, i) => (
+          <span
+            key={key}
+            className="inline-flex max-w-[14rem] items-center gap-1.5"
+            title={key}
+          >
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: colors[i % colors.length] }}
+            />
+            <span className="truncate">{formatSeriesLabel(key)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ChartTooltip({
@@ -181,7 +274,7 @@ function ChartTooltip({
                 style={{ backgroundColor: item.color ?? "currentColor" }}
               />
               <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {name}
+                {formatSeriesLabel(name)}
               </span>
               <span className="font-medium tabular-nums text-foreground">
                 {value}
@@ -791,40 +884,44 @@ function PieRenderer({
   panel: SqlPanel;
 }) {
   return (
-    <div className="h-[250px] w-full overflow-visible">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={rows}
-            dataKey={yKey}
-            nameKey={xKey}
-            cx="50%"
-            cy="50%"
-            outerRadius={80}
-            label={({ name, percent }) =>
-              `${name} ${(percent * 100).toFixed(0)}%`
-            }
-            labelLine={false}
-          >
-            {rows.map((_, i) => (
-              <Cell key={i} fill={colors[i % colors.length]} />
-            ))}
-          </Pie>
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            content={
-              <ChartTooltip
-                valueFormatter={(v) =>
-                  formatYValue(v, panel.config?.yFormatter)
-                }
-              />
-            }
-          />
-          {shouldShowLegend(panel, rows.length) && (
-            <Legend {...CHART_LEGEND_PROPS} />
-          )}
-        </PieChart>
-      </ResponsiveContainer>
+    <div className="w-full overflow-hidden">
+      <div className="h-[250px] w-full overflow-visible">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={rows}
+              dataKey={yKey}
+              nameKey={xKey}
+              cx="50%"
+              cy="50%"
+              outerRadius={80}
+              label={({ name, percent }) =>
+                `${formatSeriesLabel(String(name))} ${(percent * 100).toFixed(0)}%`
+              }
+              labelLine={false}
+            >
+              {rows.map((_, i) => (
+                <Cell key={i} fill={colors[i % colors.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              content={
+                <ChartTooltip
+                  valueFormatter={(v) =>
+                    formatYValue(v, panel.config?.yFormatter)
+                  }
+                />
+              }
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <SeriesLegend
+        keys={rows.map((row) => String(row[xKey] ?? ""))}
+        colors={colors}
+        panel={panel}
+      />
     </div>
   );
 }
@@ -847,84 +944,10 @@ function BarRenderer({
   panel: SqlPanel;
 }) {
   return (
-    <div className="h-[250px] w-full overflow-visible">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={formatXLabel}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            labelFormatter={formatXLabel}
-            content={
-              <ChartTooltip
-                labelFormatter={formatXLabel}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {shouldShowLegend(panel, yKeys.length) && (
-            <Legend {...CHART_LEGEND_PROPS} />
-          )}
-          {yKeys.map((key, i) => (
-            <Bar
-              key={key}
-              dataKey={key}
-              fill={colors[i % colors.length]}
-              radius={
-                stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
-              }
-              stackId={stacked ? "stack" : undefined}
-            />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function TimeSeriesRenderer({
-  rows,
-  xKey,
-  yKeys,
-  colors,
-  yFormatter,
-  chartType,
-  stacked,
-  panel,
-}: {
-  rows: Record<string, unknown>[];
-  xKey: string;
-  yKeys: string[];
-  colors: string[];
-  yFormatter?: "number" | "currency" | "percent";
-  chartType: "line" | "area";
-  stacked?: boolean;
-  panel: SqlPanel;
-}) {
-  if (chartType === "line") {
-    return (
+    <div className="w-full overflow-hidden">
       <div className="h-[250px] w-full overflow-visible">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows}>
+          <BarChart data={rows}>
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -956,21 +979,97 @@ function TimeSeriesRenderer({
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
-            {shouldShowLegend(panel, yKeys.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
             {yKeys.map((key, i) => (
-              <Line
+              <Bar
                 key={key}
-                type="monotone"
                 dataKey={key}
-                stroke={colors[i % colors.length]}
-                strokeWidth={2}
-                dot={false}
+                name={formatSeriesLabel(key)}
+                fill={colors[i % colors.length]}
+                radius={
+                  stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
+                }
+                stackId={stacked ? "stack" : undefined}
               />
             ))}
-          </LineChart>
+          </BarChart>
         </ResponsiveContainer>
+      </div>
+      <SeriesLegend keys={yKeys} colors={colors} panel={panel} />
+    </div>
+  );
+}
+
+function TimeSeriesRenderer({
+  rows,
+  xKey,
+  yKeys,
+  colors,
+  yFormatter,
+  chartType,
+  stacked,
+  panel,
+}: {
+  rows: Record<string, unknown>[];
+  xKey: string;
+  yKeys: string[];
+  colors: string[];
+  yFormatter?: "number" | "currency" | "percent";
+  chartType: "line" | "area";
+  stacked?: boolean;
+  panel: SqlPanel;
+}) {
+  if (chartType === "line") {
+    return (
+      <div className="w-full overflow-hidden">
+        <div className="h-[250px] w-full overflow-visible">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={rows}>
+              <XAxis
+                dataKey={xKey}
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={formatXLabel}
+              />
+              <YAxis
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => formatYValue(v, yFormatter)}
+              />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(var(--border))"
+                vertical={false}
+              />
+              <Tooltip
+                {...CHART_TOOLTIP_PROPS}
+                labelFormatter={formatXLabel}
+                content={
+                  <ChartTooltip
+                    labelFormatter={formatXLabel}
+                    valueFormatter={(v) => formatYValue(v, yFormatter)}
+                  />
+                }
+                itemSorter={(item) => -(Number(item.value) || 0)}
+              />
+              {yKeys.map((key, i) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  name={formatSeriesLabel(key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <SeriesLegend keys={yKeys} colors={colors} panel={panel} />
       </div>
     );
   }
@@ -981,82 +1080,83 @@ function TimeSeriesRenderer({
   const showFill = yKeys.length === 1 || stacked;
 
   return (
-    <div className="h-[250px] w-full overflow-visible">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows}>
-          {showFill && (
-            <defs>
-              {yKeys.map((key, i) => (
-                <linearGradient
-                  key={key}
-                  id={`sql-gradient-${key}`}
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop
-                    offset="5%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0.3}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-              ))}
-            </defs>
-          )}
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={formatXLabel}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            labelFormatter={formatXLabel}
-            content={
-              <ChartTooltip
-                labelFormatter={formatXLabel}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {shouldShowLegend(panel, yKeys.length) && (
-            <Legend {...CHART_LEGEND_PROPS} />
-          )}
-          {yKeys.map((key, i) => (
-            <Area
-              key={key}
-              type="monotone"
-              dataKey={key}
-              stroke={colors[i % colors.length]}
-              strokeWidth={2}
-              fillOpacity={showFill ? 1 : 0}
-              fill={showFill ? `url(#sql-gradient-${key})` : "none"}
-              stackId={stacked ? "stack" : undefined}
+    <div className="w-full overflow-hidden">
+      <div className="h-[250px] w-full overflow-visible">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={rows}>
+            {showFill && (
+              <defs>
+                {yKeys.map((key, i) => (
+                  <linearGradient
+                    key={key}
+                    id={`sql-gradient-${key}`}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                ))}
+              </defs>
+            )}
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatXLabel}
             />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
+            <YAxis
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => formatYValue(v, yFormatter)}
+            />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              vertical={false}
+            />
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              labelFormatter={formatXLabel}
+              content={
+                <ChartTooltip
+                  labelFormatter={formatXLabel}
+                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                />
+              }
+              itemSorter={(item) => -(Number(item.value) || 0)}
+            />
+            {yKeys.map((key, i) => (
+              <Area
+                key={key}
+                type="monotone"
+                dataKey={key}
+                name={formatSeriesLabel(key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                fillOpacity={showFill ? 1 : 0}
+                fill={showFill ? `url(#sql-gradient-${key})` : "none"}
+                stackId={stacked ? "stack" : undefined}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      <SeriesLegend keys={yKeys} colors={colors} panel={panel} />
     </div>
   );
 }
