@@ -21,4 +21,6 @@ Action can inline a recap screenshot into a (private-repo) PR comment.
 
 Storage is a new additive, dialect-agnostic `recap_images` table created via
 `CREATE TABLE IF NOT EXISTS` (PNG kept as base64 TEXT for portability across
-SQLite / Neon-Postgres / libSQL / D1).
+SQLite / Neon-Postgres / libSQL / D1). Stored images are pruned on write past a
+30-day TTL so the table and the set of anonymously-fetchable image URLs stay
+bounded.

@@ -27,8 +27,10 @@ name: PR Visual Recap
 #  - Nothing here is deterministic: the skill's instructions drive the recap.
 
 on:
+  # Run on PRs into any base branch — the generated workflow ships to repos whose
+  # default branch may not be `main`. The gate job below still no-ops drafts,
+  # forks, bots, and the missing-secret case, so this stays cheap.
   pull_request:
-    branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
@@ -271,12 +273,22 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p "$HOME/.codex"
-          node -e 'const fs=require("fs");const url=process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp";fs.writeFileSync(process.env.HOME+"/.codex/config.toml","[mcp_servers.plan]\nurl = \""+url+"\"\nbearer_token_env_var = \"PLAN_RECAP_TOKEN\"\n")'
+          # JSON.stringify the URL into the TOML value so a stray quote/newline
+          # in PLAN_RECAP_APP_URL can't break out of the string (TOML basic
+          # strings share JSON's escaping); the key/env name stay literal.
+          node -e 'const fs=require("fs");const url=process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp";fs.writeFileSync(process.env.HOME+"/.codex/config.toml","[mcp_servers.plan]\nurl = "+JSON.stringify(url)+"\nbearer_token_env_var = \"PLAN_RECAP_TOKEN\"\n")'
           # VISUAL_RECAP_MODEL (e.g. gpt-5.5) and VISUAL_RECAP_REASONING
           # (none|minimal|low|medium|high|xhigh) tune the Codex run.
           CODEX_ARGS=(exec --sandbox workspace-write --skip-git-repo-check)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          if [ -n "${VISUAL_RECAP_REASONING:-}" ]; then CODEX_ARGS+=(-c "model_reasoning_effort=\"$VISUAL_RECAP_REASONING\""); fi
+          # Validate reasoning against the known enum before embedding it in the
+          # codex `-c` TOML override, so an unexpected value can't alter the config.
+          case "${VISUAL_RECAP_REASONING:-}" in
+            none|minimal|low|medium|high|xhigh)
+              CODEX_ARGS+=(-c "model_reasoning_effort=\"$VISUAL_RECAP_REASONING\"") ;;
+            "") ;;
+            *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
+          esac
           npx -y @openai/codex@0 "${CODEX_ARGS[@]}" "$(cat recap-prompt.md)" || true
 
       # The agent's only hand-off: recap-url.txt with the published plan URL.
@@ -296,10 +308,15 @@ jobs:
         id: shot
         if: steps.url.outputs.ok == 'true'
         continue-on-error: true
+        env:
+          # Pass the agent-produced plan URL through the environment, never via
+          # ${{ }} interpolation into the run script: recap-url.txt is untrusted
+          # agent output, so inlining it would be a shell-injection vector.
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
         run: |
           set -uo pipefail
           pnpm exec playwright install --with-deps chromium 2>/dev/null || npx -y playwright@1 install --with-deps chromium || true
-          SHOT_JSON="$($RECAP_CLI recap shot --url "${{ steps.url.outputs.plan_url }}" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap.png || echo '{}')"
+          SHOT_JSON="$($RECAP_CLI recap shot --url "$PLAN_URL" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap.png || echo '{}')"
           IMAGE_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).imageUrl||"")}catch{process.stdout.write("")}' "$SHOT_JSON")
           echo "image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
           if [ -f recap.png ]; then echo "captured=true" >> "$GITHUB_OUTPUT"; else echo "captured=false" >> "$GITHUB_OUTPUT"; fi

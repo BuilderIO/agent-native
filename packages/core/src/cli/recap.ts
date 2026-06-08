@@ -522,10 +522,24 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
     const context = await browser.newContext({
       viewport: { width: 1280, height: 900 },
       deviceScaleFactor: 2,
-      ...(attachToken
-        ? { extraHTTPHeaders: { authorization: `Bearer ${token}` } }
-        : {}),
     });
+    if (attachToken) {
+      // Attach the bearer ONLY to same-origin requests. Context-wide
+      // extraHTTPHeaders would also send it to every cross-origin subresource
+      // the plan page loads (CDN images/fonts/scripts), leaking the publish
+      // token; routing scopes it to the trusted app origin.
+      const appOrigin = new URL(appUrl as string).origin;
+      await context.route("**/*", async (route) => {
+        const request = route.request();
+        if (new URL(request.url()).origin === appOrigin) {
+          await route.continue({
+            headers: { ...request.headers(), authorization: `Bearer ${token}` },
+          });
+        } else {
+          await route.continue();
+        }
+      });
+    }
     const page = await context.newPage();
     await page.goto(url, { waitUntil: "networkidle", timeout: 45_000 });
     const selectors = [

@@ -35,6 +35,17 @@ function createMemoryDb() {
         const row = rows.get(token);
         return { rows: row ? [row] : [], rowsAffected: 0 };
       }
+      if (/^\s*DELETE\s+FROM\s+recap_images/i.test(rawSql)) {
+        const cutoff = Number(args[0]);
+        let removed = 0;
+        for (const [key, row] of rows) {
+          if (Number(row.created_at) < cutoff) {
+            rows.delete(key);
+            removed += 1;
+          }
+        }
+        return { rows: [], rowsAffected: removed };
+      }
       // CREATE TABLE and anything else just succeeds.
       return { rows: [], rowsAffected: 0 };
     }),
@@ -57,6 +68,8 @@ const {
   generateRecapImageToken,
   RECAP_IMAGE_MAX_BYTES,
   RECAP_IMAGE_CONTENT_TYPE,
+  RECAP_IMAGE_TTL_MS,
+  pruneExpiredRecapImages,
 } = await import("./recap-image-store.js");
 
 const PNG = Buffer.from([
@@ -109,5 +122,37 @@ describe("recap-image store", () => {
   it("enforces the size cap on write", async () => {
     const tooBig = Buffer.alloc(RECAP_IMAGE_MAX_BYTES + 1, 1);
     await expect(saveRecapImage(tooBig)).rejects.toThrow(/maximum size/i);
+  });
+
+  it("prunes images older than the TTL on the next write", async () => {
+    // A leftover image from a previous PR cycle, past the retention window.
+    rows.set("staleimagetoken", {
+      token: "staleimagetoken",
+      png_base64: PNG.toString("base64"),
+      content_type: RECAP_IMAGE_CONTENT_TYPE,
+      byte_length: PNG.byteLength,
+      owner_email: null,
+      created_at: Date.now() - RECAP_IMAGE_TTL_MS - 60_000,
+    });
+
+    const { token } = await saveRecapImage(PNG);
+
+    expect(rows.has("staleimagetoken")).toBe(false); // expired → pruned
+    expect(rows.has(token)).toBe(true); // fresh upload kept
+  });
+
+  it("pruneExpiredRecapImages removes only rows past the TTL", async () => {
+    const now = Date.now();
+    rows.set("fresh", { token: "fresh", created_at: now - 1000 });
+    rows.set("expired", {
+      token: "expired",
+      created_at: now - RECAP_IMAGE_TTL_MS - 1000,
+    });
+
+    const removed = await pruneExpiredRecapImages(now);
+
+    expect(removed).toBe(1);
+    expect(rows.has("fresh")).toBe(true);
+    expect(rows.has("expired")).toBe(false);
   });
 });

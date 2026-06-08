@@ -16,3 +16,11 @@ New CLI surface backing the action:
   the workflow calls (no helper scripts are copied into the consuming repo).
 - `agent-native skills add visual-plan --with-github-action` — installs the PR
   Visual Recap workflow into a repo and prints the secrets/variables to set.
+
+The agent-produced plan URL is treated as untrusted throughout: the screenshot
+CLI only forwards the publish token to requests whose origin matches the plan
+app (so a poisoned `recap-url.txt` can't exfiltrate it to a third party or via
+cross-origin subresources), and the workflow passes the URL through the
+environment rather than `${{ }}` shell interpolation. The workflow runs on PRs
+into any base branch (not just `main`) so the generated workflow works in repos
+with a different default branch.
