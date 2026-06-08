@@ -37,6 +37,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 import type { SqlPanel } from "./types";
+import { cn } from "@/lib/utils";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
@@ -196,9 +197,21 @@ export function SqlChartCard({
       style={style}
       className="group relative h-full hover:z-20 focus-within:z-20"
     >
-      <Card className="flex h-full flex-col overflow-visible">
+      <Card
+        className={cn(
+          "flex h-full flex-col overflow-visible",
+          panel.chartType === "metric" && "min-h-[13rem]",
+        )}
+      >
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
-          <CardTitle className="text-sm font-medium flex-1 truncate">
+          <CardTitle
+            className={cn(
+              "text-sm font-medium flex-1",
+              panel.chartType === "metric"
+                ? "whitespace-normal break-words leading-snug"
+                : "truncate",
+            )}
+          >
             {panel.title}
           </CardTitle>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">

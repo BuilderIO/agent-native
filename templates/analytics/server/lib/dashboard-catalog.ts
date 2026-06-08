@@ -1,4 +1,7 @@
-import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
+import type {
+  MetricHealthConfig,
+  SqlDashboardConfig,
+} from "../../app/pages/adhoc/sql-dashboard/types";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { listDashboards, type DashboardRecord } from "./dashboards-store";
 
@@ -328,18 +331,68 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     `label_replace(${metric}${S}, "grafana_target", "${target}", "__name__", ".*")`;
 
   const panels: Array<Record<string, unknown>> = [];
+  const higherIsBad = (
+    warning: number,
+    critical: number,
+    labels = { good: "Healthy", warning: "Watch", critical: "High" },
+  ): MetricHealthConfig => ({
+    thresholds: [
+      { status: "good", max: warning, label: labels.good },
+      {
+        status: "warning",
+        min: warning,
+        max: critical,
+        label: labels.warning,
+      },
+      { status: "critical", min: critical, label: labels.critical },
+    ],
+    fallbackStatus: "neutral",
+  });
+  const lowerIsBad = (
+    warning: number,
+    critical: number,
+    labels = { good: "Healthy", warning: "Low", critical: "Critical" },
+  ): MetricHealthConfig => ({
+    thresholds: [
+      { status: "critical", max: critical, label: labels.critical },
+      {
+        status: "warning",
+        min: critical,
+        max: warning,
+        label: labels.warning,
+      },
+      { status: "good", min: warning, label: labels.good },
+    ],
+    fallbackStatus: "neutral",
+  });
+  const binaryUp: MetricHealthConfig = {
+    thresholds: [
+      { status: "critical", max: 0.5, label: "Down" },
+      { status: "good", min: 0.5, label: "Up" },
+    ],
+    fallbackStatus: "neutral",
+  };
+  const failureCount = (warning = 1, critical = 2): MetricHealthConfig => ({
+    thresholds: [
+      { status: "good", max: warning, label: "Healthy" },
+      { status: "warning", min: warning, max: critical, label: "Watch" },
+      { status: "critical", min: critical, label: "Failing" },
+    ],
+    fallbackStatus: "neutral",
+  });
   const section = (
     id: string,
     title: string,
     tab: string,
     description?: string,
+    columns = 6,
   ) => {
     panels.push({
       id,
       title,
       chartType: "section",
       width: 1,
-      columns: 6,
+      columns,
       tab,
       ...(description ? { config: { description } } : {}),
     });
@@ -352,6 +405,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     width = 1,
     yFormatter,
     description,
+    metricHealth,
   }: {
     id: string;
     title: string;
@@ -360,6 +414,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     width?: number;
     yFormatter?: "number" | "percent";
     description?: string;
+    metricHealth?: MetricHealthConfig;
   }) => {
     panels.push(
       prometheusMetricPanel({
@@ -370,8 +425,14 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
         yFormatter,
       }),
     );
-    panels[panels.length - 1].tab = tab;
-    panels[panels.length - 1].width = width;
+    const panel = panels[panels.length - 1] as Record<string, unknown> & {
+      config?: Record<string, unknown>;
+    };
+    panel.tab = tab;
+    panel.width = width;
+    if (metricHealth) {
+      panel.config = { ...(panel.config ?? {}), metricHealth };
+    }
   };
   const chart = (panel: PrometheusChartPanelOptions) => {
     panels.push(prometheusChartPanel(panel));
@@ -385,6 +446,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     "macOS Host Overview",
     "Overview",
     "High-signal health checks from the Darwin node_exporter scrape.",
+    4,
   );
   metric({
     id: "node-up",
@@ -392,6 +454,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `up${S}`,
     tab: "Overview",
     description: "Prometheus scrape target health.",
+    metricHealth: binaryUp,
   });
   metric({
     id: "uptime-days",
@@ -405,6 +468,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `1 - avg(rate(node_cpu_seconds_total${selector('mode="idle"')}[{{rateInterval}}]))`,
     tab: "Overview",
     yFormatter: "percent",
+    metricHealth: higherIsBad(0.7, 0.9),
   });
   metric({
     id: "load-core",
@@ -412,6 +476,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `node_load1${S} / ${cores}`,
     tab: "Overview",
     yFormatter: "percent",
+    metricHealth: higherIsBad(0.7, 1),
   });
   metric({
     id: "memory-used",
@@ -419,6 +484,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `1 - ((node_memory_free_bytes${S} + node_memory_inactive_bytes${S} + node_memory_purgeable_bytes${S}) / node_memory_total_bytes${S})`,
     tab: "Overview",
     yFormatter: "percent",
+    metricHealth: higherIsBad(0.75, 0.9),
   });
   metric({
     id: "swap-used",
@@ -426,6 +492,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `node_memory_swap_used_bytes${S} / clamp_min(node_memory_swap_total_bytes${S}, 1)`,
     tab: "Overview",
     yFormatter: "percent",
+    metricHealth: higherIsBad(0.5, 0.85),
   });
   metric({
     id: "data-volume-used",
@@ -433,6 +500,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `1 - node_filesystem_avail_bytes${selector('mountpoint="/System/Volumes/Data"')} / node_filesystem_size_bytes${selector('mountpoint="/System/Volumes/Data"')}`,
     tab: "Overview",
     yFormatter: "percent",
+    metricHealth: higherIsBad(0.75, 0.9),
   });
   metric({
     id: "battery-charge",
@@ -440,12 +508,14 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `node_power_supply_current_capacity${S} / clamp_min(node_power_supply_max_capacity${S}, 1)`,
     tab: "Overview",
     yFormatter: "percent",
+    metricHealth: lowerIsBad(0.4, 0.2),
   });
   metric({
     id: "collector-failures",
     title: "Collector Failures",
     promql: `sum(1 - node_scrape_collector_success${S})`,
     tab: "Overview",
+    metricHealth: failureCount(),
   });
   metric({
     id: "scrape-samples",
@@ -485,6 +555,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     title: "Clock Drift (seconds)",
     promql: `abs(node_time_seconds${S} - time())`,
     tab: "Host",
+    metricHealth: higherIsBad(1, 5),
   });
   chart({
     id: "target-up",

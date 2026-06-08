@@ -15,7 +15,8 @@ const DASHBOARD_CONTEXT =
   "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'prometheus'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
-  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
+  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description, metricHealth? }. " +
+  "Metric health config shape: { thresholds: [{ status: 'good'|'warning'|'critical'|'neutral', min?, max?, label? }], fallbackStatus?, fallbackLabel? }. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
   "Call `data-source-status` if you need to see which data sources are connected. " +
   "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +

@@ -47,11 +47,14 @@ import {
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
 import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
+import { cn } from "@/lib/utils";
 import type {
   SqlPanel,
   ChartType,
   TableColumnConfig,
   ColumnFormat,
+  MetricHealthStatus,
+  MetricHealthConfig,
 } from "@/pages/adhoc/sql-dashboard/types";
 import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 
@@ -75,6 +78,46 @@ const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
 } as const;
+
+const METRIC_HEALTH_STYLES: Record<
+  MetricHealthStatus,
+  {
+    surface: string;
+    accent: string;
+    value: string;
+    badge: string;
+    rail: string;
+  }
+> = {
+  neutral: {
+    surface: "bg-transparent",
+    accent: "bg-muted-foreground/25",
+    value: "text-foreground",
+    badge: "border-border bg-muted text-muted-foreground",
+    rail: "bg-muted-foreground/30",
+  },
+  good: {
+    surface: "bg-emerald-500/10",
+    accent: "bg-emerald-400",
+    value: "text-emerald-300",
+    badge: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200",
+    rail: "bg-emerald-400",
+  },
+  warning: {
+    surface: "bg-amber-500/10",
+    accent: "bg-amber-400",
+    value: "text-amber-200",
+    badge: "border-amber-400/30 bg-amber-500/10 text-amber-200",
+    rail: "bg-amber-400",
+  },
+  critical: {
+    surface: "bg-red-500/10",
+    accent: "bg-red-400",
+    value: "text-red-200",
+    badge: "border-red-400/30 bg-red-500/10 text-red-200",
+    rail: "bg-red-400",
+  },
+};
 
 function formatYValue(
   value: number,
@@ -562,17 +605,86 @@ function MetricRenderer({
     typeof raw === "number"
       ? formatYValue(raw, panel.config?.yFormatter)
       : String(raw ?? "-");
+  const health = resolveMetricHealth(raw, panel.config?.metricHealth);
+  const healthStyles = METRIC_HEALTH_STYLES[health.status];
+  const percentRail =
+    typeof raw === "number" &&
+    Number.isFinite(raw) &&
+    panel.config?.yFormatter === "percent"
+      ? Math.max(0, Math.min(100, raw <= 1 && raw >= -1 ? raw * 100 : raw))
+      : null;
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
-      <div className="text-3xl font-bold">{value}</div>
+    <div
+      className={cn(
+        "relative flex min-h-[9.5rem] flex-1 flex-col justify-between overflow-hidden rounded-b-md px-4 pb-4 pt-3 text-left",
+        health.enabled && healthStyles.surface,
+      )}
+    >
+      {health.enabled ? (
+        <div
+          className={cn("absolute inset-x-0 top-0 h-1", healthStyles.accent)}
+        />
+      ) : null}
+      <div className="min-h-6">
+        {health.label ? (
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-normal",
+              healthStyles.badge,
+            )}
+          >
+            {health.label}
+          </span>
+        ) : null}
+      </div>
+      <div
+        className={cn(
+          "mt-3 text-4xl font-semibold leading-none tracking-normal tabular-nums",
+          health.enabled && healthStyles.value,
+        )}
+      >
+        {value}
+      </div>
       {panel.config?.description && (
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           {panel.config.description}
         </p>
       )}
+      {percentRail != null ? (
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-border/60">
+          <div
+            className={cn(
+              "h-full rounded-full",
+              health.enabled ? healthStyles.rail : "bg-muted-foreground/30",
+            )}
+            style={{ width: `${percentRail}%` }}
+          />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function resolveMetricHealth(
+  raw: unknown,
+  config?: MetricHealthConfig,
+): { enabled: boolean; status: MetricHealthStatus; label?: string } {
+  if (!config || typeof raw !== "number" || !Number.isFinite(raw)) {
+    return { enabled: false, status: "neutral" };
+  }
+
+  const threshold = config.thresholds.find((item) => {
+    const aboveMin = item.min == null || raw >= item.min;
+    const belowMax = item.max == null || raw < item.max;
+    return aboveMin && belowMax;
+  });
+
+  return {
+    enabled: true,
+    status: threshold?.status ?? config.fallbackStatus ?? "neutral",
+    label: threshold?.label ?? config.fallbackLabel,
+  };
 }
 
 function formatCell(value: unknown, format: ColumnFormat | undefined): string {
