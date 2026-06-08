@@ -70,6 +70,7 @@ import {
   resolveFilterVars,
 } from "./DashboardFilterBar";
 import { interpolate } from "./interpolate";
+import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { ViewsMenu } from "./ViewsMenu";
 import BlankDashboard from "../BlankDashboard";
@@ -1248,7 +1249,10 @@ export default function SqlDashboardPage() {
                       )}
                       <SqlChartCard
                         panel={resolved}
-                        resolvedSql={interpolate(panel.sql, vars)}
+                        resolvedSql={interpolate(
+                          serializePanelSql(panel.sql),
+                          vars,
+                        )}
                         gridColumns={group.columns}
                         onRemove={() => removePanel(panel.id)}
                         onToggleWidth={() =>

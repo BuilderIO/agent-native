@@ -55,6 +55,7 @@ import type {
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
 import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
+import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -307,7 +308,7 @@ export function SqlChart({
     );
   }
 
-  const sql = resolvedSql ?? panel.sql;
+  const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const { data: result, isLoading } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
