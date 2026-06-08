@@ -690,6 +690,20 @@ function stableJson(value: unknown): string {
   }
 }
 
+// Bounded signature of an in-flight tool call's input, used by the stall guard
+// to tell a genuinely-stuck retry (same tool, same payload, connection keeps
+// dropping) apart from a legitimate retry with a CHANGED payload (e.g. the
+// `create-extension` cutoff nudge tells the model to re-send a smaller body).
+// A changed payload yields a different signature, so the guard resets that
+// tool's stall budget instead of aborting the new attempt as a repeat. Bounded
+// to length + head so we never retain a large pasted payload across rounds.
+function inFlightToolInputSignature(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+): string {
+  const raw = part.argsText ?? stableJson(part.args);
+  return `${raw.length} ${raw.slice(0, 256)}`;
+}
+
 function toolContinuationKey(
   part: Extract<ContentPart, { type: "tool-call" }>,
 ): string {
@@ -1177,6 +1191,10 @@ export function createAgentChatAdapter(options?: {
       // never actually completes. After MAX_REPEATED_INFLIGHT_TOOL_STALLS
       // consecutive interruptions of the same tool, bail with a clear message.
       let lastInFlightToolName: string | undefined;
+      // Signature of the stuck tool's input. A retry with a changed payload
+      // (different signature) resets the stall count so the new attempt gets
+      // its own budget rather than inheriting the prior payload's.
+      let lastInFlightToolSignature: string | undefined;
       let repeatedInFlightToolCount = 0;
       const MAX_REPEATED_INFLIGHT_TOOL_STALLS = 3;
       const continuationHistoryFragments: string[] = [];
@@ -1539,13 +1557,23 @@ export function createAgentChatAdapter(options?: {
               p.activity !== true,
           );
           const currentInFlightToolName = currentInFlightToolPart?.toolName;
+          const currentInFlightToolSignature = currentInFlightToolPart
+            ? inFlightToolInputSignature(currentInFlightToolPart)
+            : undefined;
           const isConnectionDrop = signal.reason === "stream_ended";
           if (currentInFlightToolName && isConnectionDrop) {
-            if (currentInFlightToolName === lastInFlightToolName) {
+            if (
+              currentInFlightToolName === lastInFlightToolName &&
+              currentInFlightToolSignature === lastInFlightToolSignature
+            ) {
               repeatedInFlightToolCount += 1;
             } else {
+              // New tool, or the same tool retried with a CHANGED (e.g.
+              // smaller) payload — give the changed input a fresh stall budget
+              // instead of aborting it as a repeat of the prior payload.
               repeatedInFlightToolCount = 0;
               lastInFlightToolName = currentInFlightToolName;
+              lastInFlightToolSignature = currentInFlightToolSignature;
             }
           } else if (!currentInFlightToolName) {
             repeatedInFlightToolCount = 0;

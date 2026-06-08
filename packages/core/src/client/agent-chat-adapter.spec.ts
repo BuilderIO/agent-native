@@ -2610,6 +2610,96 @@ describe("createAgentChatAdapter", () => {
     expect(errorEvent).toBeDefined();
   });
 
+  it("does NOT bail when create-extension is retried with a CHANGED payload after stream_ended", async () => {
+    // The in-flight stall guard keys on tool name + input signature, so a retry
+    // with a different (e.g. smaller) payload — exactly what the cutoff nudge
+    // asks the model to do — resets the stall count instead of accumulating
+    // toward the bail. Here every stalled round sends a DISTINCT, shrinking
+    // create-extension payload, so even past MAX_REPEATED_INFLIGHT_TOOL_STALLS
+    // the run keeps going and the eventual smaller payload succeeds.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount <= 5) {
+        // Distinct narration + a distinct, smaller payload each round, then a
+        // connection drop. 5 stalls is past the 3-stall same-payload bail.
+        return sseResponse([
+          {
+            type: "text",
+            text: `Payload too big, retrying smaller (attempt ${postCount}).`,
+          },
+          {
+            type: "tool_start",
+            tool: "create-extension",
+            input: {
+              name: "Dashboard",
+              content: "x".repeat(900 - postCount * 100),
+            },
+          },
+          { type: "auto_continue", reason: "stream_ended" },
+        ]);
+      }
+      // The shrunk payload finally gets through.
+      return sseResponse([
+        { type: "text", text: "extension created after shrinking the payload" },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-inflight-changed",
+      threadId: "thread-inflight-changed",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "create an extension from this HTML" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const results = await promise;
+
+    // Went past the 3-stall same-payload bail (each payload differed), never
+    // fired the in-flight bail, and completed.
+    expect(postCount).toBeGreaterThanOrEqual(6);
+    const errorEvent = dispatchEvent.mock.calls.find(
+      ([ev]) => ev?.type === "agent-chat:run-error",
+    );
+    expect(errorEvent).toBeUndefined();
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe(
+      "extension created after shrinking the payload",
+    );
+  });
+
   it("does NOT bail on run_timeout in-flight stalls (slow legitimate tool)", async () => {
     // run_timeout with an in-flight tool = server is still executing the
     // action. This must NOT count toward the stream_ended stall counter.

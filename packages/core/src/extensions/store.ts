@@ -983,9 +983,16 @@ export async function createExtension(
 
 /**
  * Returns an extension with the exact same name and content created by the
- * current user in the last 5 minutes, or null if none exists. Used to make
- * create-extension idempotent when a connection drop causes the agent to
- * retry the same tool call.
+ * current user — in the current org/workspace scope — in the last 5 minutes,
+ * or null if none exists. Used to make create-extension idempotent when a
+ * connection drop causes the agent to retry the same tool call.
+ *
+ * Scoped by `orgId` the same way `createExtension` stamps it, so the same
+ * `ownerEmail` working in two different orgs can create identically-named,
+ * identical-content extensions without this lookup cross-matching and skipping
+ * the second insert. Keyed on the tool call's stable inputs (name + content),
+ * not on metadata like description/icon — a connection-retry of one tool call
+ * carries the same name + content, so that pair is the idempotency key.
  */
 export async function findRecentDuplicateExtension(data: {
   name: string;
@@ -995,6 +1002,7 @@ export async function findRecentDuplicateExtension(data: {
   const db = getDb();
   const userEmail = getRequestUserEmail();
   if (!userEmail) return null;
+  const orgId = getRequestOrgId() ?? null;
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const rows = await db
     .select()
@@ -1002,6 +1010,7 @@ export async function findRecentDuplicateExtension(data: {
     .where(
       and(
         eq(extensions.ownerEmail, userEmail),
+        orgId === null ? isNull(extensions.orgId) : eq(extensions.orgId, orgId),
         eq(extensions.name, data.name),
         eq(extensions.content, data.content),
         gte(extensions.createdAt, fiveMinutesAgo),
