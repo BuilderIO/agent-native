@@ -469,48 +469,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     tab: "Overview",
   });
 
-  section("host-section", "Host Identity and Scrape", "Host");
-  table({
-    id: "system-info",
-    title: "System and Exporter Info",
-    promql: `node_uname_info${S} or node_os_info${S} or node_exporter_build_info${S}`,
-    tab: "Host",
-    description: "Darwin, OS, and node_exporter build labels.",
-  });
-  metric({
-    id: "timezone-hours",
-    title: "Time Zone Offset (hours)",
-    promql: `node_time_zone_offset_seconds${S} / 3600`,
-    tab: "Host",
-  });
-  metric({
-    id: "time-drift",
-    title: "Clock Drift (seconds)",
-    promql: `abs(node_time_seconds${S} - time())`,
-    tab: "Host",
-  });
-  chart({
-    id: "target-up",
-    title: "Scrape Target Up",
-    promql: `up${S}`,
-    tab: "Host",
-    width: 3,
-  });
-  table({
-    id: "collector-duration-current",
-    title: "Collector Duration Current",
-    promql: `node_scrape_collector_duration_seconds${S}`,
-    tab: "Host",
-    width: 3,
-  });
-
   section("cpu-section", "CPU and Load", "CPU");
-  metric({
-    id: "cpu-cores",
-    title: "CPU Cores",
-    promql: `count(count(node_cpu_seconds_total${S}) by (cpu))`,
-    tab: "CPU",
-  });
   chart({
     id: "cpu-modes",
     title: "CPU Mode Breakdown",
@@ -539,6 +498,12 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `${label(`node_load1${S} / ${cores}`, "1m/core")} or ${label(`node_load5${S} / ${cores}`, "5m/core")} or ${label(`node_load15${S} / ${cores}`, "15m/core")}`,
     tab: "CPU",
     yFormatter: "percent",
+  });
+  metric({
+    id: "cpu-cores",
+    title: "CPU Cores",
+    promql: `count(count(node_cpu_seconds_total${S}) by (cpu))`,
+    tab: "CPU",
   });
 
   section("memory-section", "Memory and Swap", "Memory");
@@ -696,6 +661,14 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
   });
 
   section("disk-section", "Disk IO", "Disk");
+  chart({
+    id: "disk-throughput",
+    title: "Disk Throughput",
+    promql: `${label(`sum(rate(node_disk_read_bytes_total${S}[{{rateInterval}}])) / 1048576`, "Read MB/s")} or ${label(`sum(rate(node_disk_written_bytes_total${S}[{{rateInterval}}])) / 1048576`, "Write MB/s")}`,
+    tab: "Disk",
+    chartType: "area",
+    width: 3,
+  });
   metric({
     id: "disk-write-mbps",
     title: "Disk Write MB/s",
@@ -713,14 +686,6 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     title: "Write IOPS",
     promql: `sum(rate(node_disk_writes_completed_total${S}[{{rateInterval}}]))`,
     tab: "Disk",
-  });
-  chart({
-    id: "disk-throughput",
-    title: "Disk Throughput",
-    promql: `${label(`sum(rate(node_disk_read_bytes_total${S}[{{rateInterval}}])) / 1048576`, "Read MB/s")} or ${label(`sum(rate(node_disk_written_bytes_total${S}[{{rateInterval}}])) / 1048576`, "Write MB/s")}`,
-    tab: "Disk",
-    chartType: "area",
-    width: 6,
   });
   chart({
     id: "disk-iops",
@@ -759,19 +724,19 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
   });
 
   section("network-section", "Network Interfaces", "Network");
-  metric({
-    id: "network-tx-mbps",
-    title: "Network TX MB/s",
-    promql: `sum(rate(node_network_transmit_bytes_total${selector(physicalNet)}[{{rateInterval}}])) / 1048576`,
-    tab: "Network",
-  });
   chart({
     id: "network-throughput",
     title: "Network Throughput",
     promql: `${label(`sum(rate(node_network_receive_bytes_total${selector(physicalNet)}[{{rateInterval}}])) / 1048576`, "Receive MB/s")} or ${label(`sum(rate(node_network_transmit_bytes_total${selector(physicalNet)}[{{rateInterval}}])) / 1048576`, "Transmit MB/s")}`,
     tab: "Network",
     chartType: "area",
-    width: 6,
+    width: 5,
+  });
+  metric({
+    id: "network-tx-mbps",
+    title: "Network TX MB/s",
+    promql: `sum(rate(node_network_transmit_bytes_total${selector(physicalNet)}[{{rateInterval}}])) / 1048576`,
+    tab: "Network",
   });
   chart({
     id: "network-receive-devices",
@@ -834,22 +799,6 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     tab: "Power",
   });
   chart({
-    id: "battery-health",
-    title: "Battery Health State",
-    promql: `node_power_supply_battery_health${S}`,
-    tab: "Power",
-    chartType: "bar",
-    width: 3,
-  });
-  chart({
-    id: "power-source",
-    title: "Power Source State",
-    promql: `node_power_supply_power_source_state${S}`,
-    tab: "Power",
-    chartType: "bar",
-    width: 3,
-  });
-  chart({
     id: "battery-charge-series",
     title: "Battery Charge",
     promql: `node_power_supply_current_capacity${S} / clamp_min(node_power_supply_max_capacity${S}, 1)`,
@@ -870,6 +819,22 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     promql: `${label(`node_power_supply_time_to_full_seconds${S} / 3600`, "Hours to full")} or ${label(`node_power_supply_time_to_empty_seconds${S} / 3600`, "Hours to empty")}`,
     tab: "Power",
     width: 6,
+  });
+  chart({
+    id: "battery-health",
+    title: "Battery Health State",
+    promql: `node_power_supply_battery_health${S}`,
+    tab: "Power",
+    chartType: "bar",
+    width: 3,
+  });
+  chart({
+    id: "power-source",
+    title: "Power Source State",
+    promql: `node_power_supply_power_source_state${S}`,
+    tab: "Power",
+    chartType: "bar",
+    width: 3,
   });
 
   section("exporter-section", "Exporter Runtime", "Exporter");
@@ -955,6 +920,41 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     description:
       "Every metric family scraped from this node target, including sample count.",
     limit: 150,
+  });
+
+  section("host-section", "Host Identity and Scrape", "Host");
+  table({
+    id: "system-info",
+    title: "System and Exporter Info",
+    promql: `node_uname_info${S} or node_os_info${S} or node_exporter_build_info${S}`,
+    tab: "Host",
+    description: "Darwin, OS, and node_exporter build labels.",
+  });
+  metric({
+    id: "timezone-hours",
+    title: "Time Zone Offset (hours)",
+    promql: `node_time_zone_offset_seconds${S} / 3600`,
+    tab: "Host",
+  });
+  metric({
+    id: "time-drift",
+    title: "Clock Drift (seconds)",
+    promql: `abs(node_time_seconds${S} - time())`,
+    tab: "Host",
+  });
+  chart({
+    id: "target-up",
+    title: "Scrape Target Up",
+    promql: `up${S}`,
+    tab: "Host",
+    width: 3,
+  });
+  table({
+    id: "collector-duration-current",
+    title: "Collector Duration Current",
+    promql: `node_scrape_collector_duration_seconds${S}`,
+    tab: "Host",
+    width: 3,
   });
 
   return {

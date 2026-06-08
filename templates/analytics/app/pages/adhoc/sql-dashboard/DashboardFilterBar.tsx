@@ -17,8 +17,18 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { IconFilterOff, IconDeviceFloppy } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconFilterOff,
+} from "@tabler/icons-react";
 import type { DashboardFilter } from "./types";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -120,6 +130,7 @@ export function DashboardFilterBar({
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
@@ -193,8 +204,12 @@ export function DashboardFilterBar({
 
   return (
     <>
-      <div className="rounded-lg border border-border bg-card p-3 space-y-3">
-        <div className="flex items-center justify-between">
+      <Collapsible
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        className="rounded-lg border border-border bg-card p-3"
+      >
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-baseline gap-2">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Filters
@@ -226,20 +241,38 @@ export function DashboardFilterBar({
                 Clear all
               </Button>
             )}
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                aria-label={filtersOpen ? "Collapse filters" : "Expand filters"}
+              >
+                {filtersOpen ? "Hide" : "Show"}
+                <IconChevronDown
+                  className={cn(
+                    "ml-1 h-3 w-3 transition-transform",
+                    filtersOpen && "rotate-180",
+                  )}
+                />
+              </Button>
+            </CollapsibleTrigger>
           </div>
         </div>
-        <div className="flex flex-wrap gap-3 items-end">
-          {uniqueFilters.map((f) => (
-            <FilterControl
-              key={f.id}
-              filter={f}
-              vars={vars}
-              hasParam={(key) => searchParams.has(FILTER_PARAM_PREFIX + key)}
-              setValue={(updates) => setParam(updates)}
-            />
-          ))}
-        </div>
-      </div>
+        <CollapsibleContent className="pt-3">
+          <div className="flex flex-wrap gap-3 items-end">
+            {uniqueFilters.map((f) => (
+              <FilterControl
+                key={f.id}
+                filter={f}
+                vars={vars}
+                hasParam={(key) => searchParams.has(FILTER_PARAM_PREFIX + key)}
+                setValue={(updates) => setParam(updates)}
+              />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
