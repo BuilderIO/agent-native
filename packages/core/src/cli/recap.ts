@@ -475,6 +475,28 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
     process.stdout.write(`${JSON.stringify(obj)}\n`);
   };
 
+  // recap-url.txt is produced by the (LLM) agent, so the URL is untrusted. Only
+  // forward the reusable publish token to the trusted plan-app origin — never to
+  // an arbitrary URL — so a poisoned recap-url.txt can't exfiltrate the bearer
+  // to an attacker-controlled domain.
+  let attachToken = false;
+  if (token) {
+    try {
+      attachToken = !!appUrl && new URL(url).origin === new URL(appUrl).origin;
+    } catch {
+      attachToken = false;
+    }
+    if (!attachToken) {
+      done({
+        ok: false,
+        reason: appUrl
+          ? `refusing to screenshot ${url}: origin does not match --app-url (${appUrl}); the publish token is only sent to the trusted plan app origin`
+          : `refusing to attach the publish token without --app-url to validate ${url} against`,
+      });
+      return;
+    }
+  }
+
   let chromium: typeof import("playwright").chromium | undefined;
   try {
     ({ chromium } = await import("playwright"));
@@ -499,7 +521,7 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
     const context = await browser.newContext({
       viewport: { width: 1280, height: 900 },
       deviceScaleFactor: 2,
-      ...(token
+      ...(attachToken
         ? { extraHTTPHeaders: { authorization: `Bearer ${token}` } }
         : {}),
     });

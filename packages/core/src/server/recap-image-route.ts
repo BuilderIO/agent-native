@@ -68,8 +68,11 @@ async function resolveUploadSession(
   const session = await getSession(event).catch(() => null);
   if (session?.email) return session;
 
-  const authHeader = getHeader(event, "authorization");
-  if (!authHeader || !/^Bearer\s+.+$/i.test(authHeader.trim())) return null;
+  // Trim once and reuse the trimmed value everywhere: the regex below and
+  // verifyAuth's strict `Bearer ` prefix check must see the same string, or a
+  // whitespace-padded header passes validation here yet fails in verifyAuth.
+  const authHeader = getHeader(event, "authorization")?.trim();
+  if (!authHeader || !/^Bearer\s+.+$/i.test(authHeader)) return null;
 
   try {
     const [{ getMcpOAuthResource }, { verifyAuth, resolveOrgIdFromDomain }] =
