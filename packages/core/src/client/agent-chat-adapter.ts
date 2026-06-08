@@ -89,6 +89,17 @@ const MAX_REPEATED_TRANSIENT_CONTINUATIONS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
+// The attachment submitted with the CURRENT turn gets a much larger cap than
+// prior-history embedding. The server threads this turn's attachments into each
+// action's ActionRunContext, and `create-extension`/`update-extension` host a
+// pasted file verbatim from it via `contentFromAttachment` — a feature whose
+// whole point is large pastes. Truncating the outbound payload to the 60K
+// history cap would silently cut a >60K HTML/Alpine file before the server ever
+// reads it, hosting a broken extension. Mirror the large-input tool-arg cap
+// (MAX_HISTORY_LARGE_TOOL_ARGS_CHARS) so realistic pasted files survive intact;
+// the trailing truncation notice still makes a pathological multi-MB paste
+// visibly (not silently) capped.
+const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 const MAX_HISTORY_MESSAGES = 24;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
@@ -304,9 +315,9 @@ function truncateHistoryAttachment(text: string): string {
 }
 
 function truncateOutboundAttachment(text: string): string {
-  if (text.length <= MAX_HISTORY_ATTACHMENT_CHARS) return text;
-  const omitted = text.length - MAX_HISTORY_ATTACHMENT_CHARS;
-  return `${text.slice(0, MAX_HISTORY_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_HISTORY_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from the submitted attachment.]`;
+  if (text.length <= MAX_OUTBOUND_ATTACHMENT_CHARS) return text;
+  const omitted = text.length - MAX_OUTBOUND_ATTACHMENT_CHARS;
+  return `${text.slice(0, MAX_OUTBOUND_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_OUTBOUND_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from the submitted attachment.]`;
 }
 
 function attachmentHistoryText(

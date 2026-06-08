@@ -521,7 +521,7 @@ describe("createAgentChatAdapter", () => {
     expect(init.headers["x-agent-native-surface"]).toBe("dev-frame");
   });
 
-  it("truncates large outbound text attachments before posting", async () => {
+  function stubLargeAttachmentEnv() {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
       "CustomEvent",
@@ -536,23 +536,25 @@ describe("createAgentChatAdapter", () => {
     );
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
 
+  async function postOutboundAttachment(fetchSpy: any, text: string) {
     const adapter = createAgentChatAdapter({
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-large-attachment",
     });
-
     await drain(
       adapter.run({
         messages: [
           {
             role: "user",
-            content: [{ type: "text", text: "Summarize this" }],
+            content: [{ type: "text", text: "Host this as an extension" }],
             attachments: [
               {
-                name: "gong-transcript.txt",
+                name: "pasted-text-1.txt",
                 contentType: "text/plain",
-                content: [{ type: "text", text: "a".repeat(60_010) }],
+                content: [{ type: "text", text }],
               },
             ],
           },
@@ -560,11 +562,30 @@ describe("createAgentChatAdapter", () => {
         abortSignal: new AbortController().signal,
       } as any),
     );
+    return JSON.parse(fetchSpy.mock.calls[0][1].body);
+  }
 
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+  it("sends a realistic large pasted attachment intact (above the 60K history cap)", async () => {
+    // Regression for the `contentFromAttachment` hosting path: a pasted HTML /
+    // Alpine file the user wants hosted verbatim must reach the server whole.
+    // Capping the OUTBOUND attachment at the 60K history cap silently truncated
+    // exactly the large pastes the feature exists for, so the server hosted a
+    // broken extension. 150K is well above 60K and below the 200K outbound cap.
+    const fetchSpy = stubLargeAttachmentEnv();
+    const big = "a".repeat(150_000);
+    const body = await postOutboundAttachment(fetchSpy, big);
+    expect(body.attachments[0].text).toBe(big);
+    expect(body.attachments[0].text).not.toContain(
+      "omitted from the submitted",
+    );
+  });
+
+  it("caps a pathological multi-hundred-KB outbound attachment at 200K with a visible notice", async () => {
+    const fetchSpy = stubLargeAttachmentEnv();
+    const body = await postOutboundAttachment(fetchSpy, "a".repeat(200_010));
     expect(body.attachments[0].text).toHaveLength(
-      60_000 +
-        "\n\n[Attachment truncated after 60,000 characters; 10 characters omitted from the submitted attachment.]"
+      200_000 +
+        "\n\n[Attachment truncated after 200,000 characters; 10 characters omitted from the submitted attachment.]"
           .length,
     );
     expect(body.attachments[0].text).toContain(
