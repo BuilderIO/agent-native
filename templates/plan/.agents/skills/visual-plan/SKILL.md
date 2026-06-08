@@ -88,8 +88,7 @@ plan needs a richer review surface.
    migration, or code plans, usually omit `content.canvas` and
    `content.prototype`; put `diagram`, `mermaid`, `api-endpoint`,
    `openapi-spec`, `data-model`, `diff`, `file-tree`, `json-explorer`,
-   `annotated-code`,
-   `implementation-map` and `code-tabs` blocks directly next
+   `annotated-code` and `code-tabs` blocks directly next
    to the relevant prose. Skip the top visual surface for non-visual work.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
@@ -482,12 +481,17 @@ machine-checked list of block types and their data schemas, call `get-plan-block
 so you never emit a block the editor cannot render or round-trip:
 
 - `rich-text` for plan prose with real bold/italic/code/links and nested lists.
-- `implementation-map` / `code-tabs` for the file map: file path, the
-  symbols/components to touch, the reason, risk/coordination notes, and a
-  concise syntax-highlighted snippet of the code shape in every file tab —
-  never the whole file, never a prose-only file list. If the exact code is not
-  known yet, include the smallest plausible planned shape or a short comment
-  stub that names what needs to be filled in.
+- `annotated-code` for the file map: show how the few load-bearing files
+  actually change as real, line-anchored code — the new action, the changed
+  schema, the wiring point — each with short `note`s on the lines that matter.
+  Highlight only the files worth reading; never an exhaustive list of every
+  touched file, and never a prose-only description of a file. Group multiple
+  `annotated-code` blocks in a vertical `tabs` block (the standard tab
+  component) rather than a bespoke file-map block; use `code-tabs` for related
+  code shown side by side when line-level notes are not the point. If the exact
+  code is unknown, show the smallest plausible planned shape or a commented stub
+  naming what to fill in. `implementation-map` is legacy: its renderer stays
+  for old plans, but do not author new ones.
 - `decision` for two or three option cards with consequences. These are static
   records; do not style them like clickable tabs or chips unless the renderer
   truly supports changing the selection.
@@ -559,8 +563,9 @@ elements, helper classes, and `--wf-*` tokens, so the renderer applies the
 correct desktop footprint, theme, and one subtle whole-frame wobble. Plain-text
 designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
-done-criteria, an `implementation-map` naming the real components and actions
-with short highlighted snippets, a `decision` card weighing two real approaches,
+done-criteria, a few `annotated-code` blocks (grouped in a vertical `tabs`
+block when more than one) showing the real shape of the load-bearing files with
+line-anchored notes, a `decision` card weighing two real approaches,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with
