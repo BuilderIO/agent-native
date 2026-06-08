@@ -67,7 +67,7 @@ export function CreateLibraryDialog({
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
-          toast.error(error.message || "Could not create preset library.");
+          toast.error(error.message || "Could not create preset brand kit.");
         },
       },
     );
@@ -77,9 +77,9 @@ export function CreateLibraryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>New asset library</DialogTitle>
+          <DialogTitle>New brand kit</DialogTitle>
           <DialogDescription>
-            Start from a built-in style preset or create a blank library for
+            Start from a built-in style preset or create a blank brand kit for
             your own references.
           </DialogDescription>
         </DialogHeader>
@@ -88,7 +88,7 @@ export function CreateLibraryDialog({
             <div>
               <h3 className="text-sm font-medium">Start from a style preset</h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Create an editable library with built-in generation guidance.
+                Create an editable brand kit with built-in generation guidance.
               </p>
             </div>
             <LibraryPresetGrid

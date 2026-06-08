@@ -415,6 +415,24 @@
   margin-bottom: 0;
 }
 
+/* Annotated-code side notes: compact prose so a note matches its small card
+   instead of the 1.0625rem document body. Mirrors the table-cell reset above. */
+.plan-annotation-note > .plan-rich-markdown-editor {
+  margin-top: 0;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: inherit;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose p {
+  margin: 0;
+  color: inherit;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose p + p {
+  margin-top: 0.45rem;
+}
+
 .plan-rich-markdown-editor .an-rich-md-prose h1,
 .plan-rich-markdown-editor .an-rich-md-prose h2,
 .plan-rich-markdown-editor .an-rich-md-prose h3,

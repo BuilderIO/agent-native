@@ -139,7 +139,7 @@ export function LibraryCard({
             variant="secondary"
             size="icon"
             className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-            aria-label="Library actions"
+            aria-label="Brand kit actions"
           >
             <IconDots className="h-4 w-4" />
           </Button>

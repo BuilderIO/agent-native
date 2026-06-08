@@ -49,23 +49,24 @@ If the variable is unset, the action uses `claude`.
 
 Set these in your repository's **Settings → Secrets and variables → Actions**.
 
-### Secrets (required)
+### Secrets (only two required)
 
-| Secret               | Purpose                                                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_APP_URL` | Base URL of the hosted Plans app the recap publishes to (e.g. `https://plan.agent-native.com`).                             |
-| `PLAN_RECAP_TOKEN`   | Per-user, revocable token minted by `agent-native connect`. Authorizes publishing the recap plan and the screenshot upload. |
-| `ANTHROPIC_API_KEY`  | Required when `VISUAL_RECAP_AGENT` is `claude` (the default).                                                               |
-| `OPENAI_API_KEY`     | Required instead when `VISUAL_RECAP_AGENT` is `codex`.                                                                      |
+| Secret              | Purpose                                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`  | Per-user, revocable token minted by `agent-native connect`. Authorizes publishing the recap plan and the screenshot upload. |
+| `ANTHROPIC_API_KEY` | The LLM key for the default Claude Code backend.                                                                            |
 
 Mint `PLAN_RECAP_TOKEN` with `agent-native connect` against your Plans app, then paste the printed token into the secret. Use a placeholder like `plan_recap_xxxxxxxxxxxxxxxx` only for examples — never commit a real token.
 
-### Variables (optional)
+### Optional (only if you change defaults)
 
-| Variable             | Default                            | Purpose                                                             |
-| -------------------- | ---------------------------------- | ------------------------------------------------------------------- |
-| `VISUAL_RECAP_AGENT` | `claude`                           | Selects the coding-agent backend (`claude` or `codex`).             |
-| `RECAP_CLI`          | `npx -y @agent-native/core@latest` | Overrides how the workflow invokes the CLI (e.g. to pin a version). |
+| Secret / variable    | Default                         | When you need it                                                                          |
+| -------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`     | —                               | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead. |
+| `VISUAL_RECAP_AGENT` | `claude`                        | Variable. Selects the coding-agent backend (`claude` or `codex`).                         |
+| `PLAN_RECAP_APP_URL` | `https://plan.agent-native.com` | Secret. Only when self-hosting the Plans app at a different origin.                       |
+
+The workflow auto-detects how to invoke its helper CLI (local source inside this monorepo, the published `@agent-native/core` elsewhere), so there is no `RECAP_CLI` variable to set.
 
 ## Inline screenshot in the comment
 

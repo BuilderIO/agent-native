@@ -58,7 +58,7 @@ export default function BrandKitsIndexPage() {
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
-          toast.error(error.message || "Could not create preset library.");
+          toast.error(error.message || "Could not create preset brand kit.");
         },
       },
     );
@@ -129,8 +129,8 @@ export default function BrandKitsIndexPage() {
                 No brand kits yet
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Start with a default style library or create your own references
-                and style guidance.
+                Start with a default style brand kit or create your own
+                references and style guidance.
               </p>
             </div>
             <div className="mx-auto mt-6 max-w-4xl">

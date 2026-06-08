@@ -56,7 +56,7 @@ export function Layout({ children }: LayoutProps) {
         position="right"
         emptyStateText="Describe the asset you want to make"
         suggestions={[
-          "Generate 3 blog heroes from this library",
+          "Generate 3 blog heroes from this brand kit",
           "Make an 8-second product reveal video",
           "Match the style of my reference assets",
         ]}

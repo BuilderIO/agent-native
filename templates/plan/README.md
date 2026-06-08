@@ -28,13 +28,13 @@ Supported aliases include:
 
 - `npx @agent-native/core@latest skills add visual-plan`
 - `npx @agent-native/core@latest skills add visual-recap`
-- `npx @agent-native/core@latest skills add visual-questions`
-- `npx @agent-native/core@latest skills add ui-plan`
-- `npx @agent-native/core@latest skills add prototype-plan`
 
 Restart or reload the host if the tools are not visible immediately.
 
 ## Use
+
+It comes down to two commands: `/visual-plan` to plan before the agent builds,
+and `/visual-recap` to review a change after it lands.
 
 Type `/visual-plan` when you want a fresh plan before the agent builds, or when
 you already have a Codex, Claude Code, Markdown, or pasted plan and want the
@@ -44,34 +44,17 @@ Type `/visual-recap` when you want a high-level visual code-review recap from a
 PR, commit, branch, or git diff. A recap is an aid for review, not a replacement
 for reading the actual diff.
 
-Type `/visual-questions` when you explicitly want visual intake before a plan.
-
-Type `/ui-plan` when UI direction is the center of the work and you want
-high-fidelity mockups and states reviewed before implementation details.
-
-Type `/prototype-plan` when interaction feel matters and you want a clickable
-prototype above the plan document.
-
 Command behavior:
 
 - `/visual-plan` creates a new rich visual plan with docs-level detail, diagrams,
-  detailed wireframes/mockups when UI is involved, tradeoffs, open questions,
-  file/symbol implementation details, code previews, and feedback prompts. When
-  an existing plan is provided, it builds from that plan instead of starting
-  over.
+  detailed wireframes/mockups when UI is involved, clickable prototypes when the
+  interaction feel matters, tradeoffs, open questions, file/symbol implementation
+  details, code previews, and feedback prompts. It can open with a short visual
+  intake step when the direction is still open. When an existing plan is
+  provided, it builds from that plan instead of starting over.
 - `/visual-recap` creates a reverse plan from code that already changed:
   file-tree, diff, data-model, API, and columns blocks that let a
   reviewer scan the shape of a PR before reading line-by-line.
-- `/visual-questions` creates a visual intake questionnaire with chip choices,
-  freeform answers, mockup option tabs, sketch diagrams, and a generated answer
-  summary that can feed `/visual-plan`, `/ui-plan`, or an existing plan update.
-- `/ui-plan` creates a UI-first visual plan with an optional top pan/zoom
-  wireframe or diagram canvas, then a refined Notion-like document with rich
-  tabs, tables, sketchy diagrams, code tabs, comments, and handoff notes. When
-  visual states are not useful, it stays document-only.
-- `/prototype-plan` creates a prototype-first plan with a clickable live
-  prototype, rough/clean and dark/light toggles, comment pins, a focused popout,
-  static mocks, and implementation notes below.
 
 ## Normal Planning Flow
 
@@ -82,8 +65,8 @@ create the visual plan.
 
 The document should stay close to the Markdown plan a coding agent would
 normally produce. Diagrams, wireframes, mockups, and annotations are additive
-review aids. `/visual-questions` is the explicit command when a user wants
-visual intake first.
+review aids, and `/visual-plan` can open with a short visual intake step when the
+direction is still open.
 
 Plans should be visual by default:
 

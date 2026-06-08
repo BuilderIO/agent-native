@@ -670,7 +670,7 @@ export default function LibraryPage() {
         description:
           uploadChunks.length > 1
             ? `Processing in ${uploadChunks.length} batches.`
-            : "Processing previews and saving them to the library.",
+            : "Processing previews and saving them to the brand kit.",
       },
     );
     try {
@@ -734,7 +734,7 @@ export default function LibraryPage() {
           }.`,
           {
             id: toastId,
-            description: "Already in this library.",
+            description: "Already in this brand kit.",
           },
         );
       } else {
@@ -758,7 +758,7 @@ export default function LibraryPage() {
         toast.warning("Upload is taking longer than expected.", {
           id: toastId,
           description:
-            "The server may still finish saving these assets. We will keep checking this library.",
+            "The server may still finish saving these assets. We will keep checking this brand kit.",
         });
         void refreshLibrary();
         window.setTimeout(() => void refreshLibrary(), 4_000);
@@ -780,11 +780,11 @@ export default function LibraryPage() {
     if (!library || archiveLibrary.isPending) return;
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
-      toast.success("Library archived.");
+      toast.success("Brand kit archived.");
       navigate("/brand-kits");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not archive library.",
+        error instanceof Error ? error.message : "Could not archive brand kit.",
       );
     }
   }
@@ -894,7 +894,7 @@ export default function LibraryPage() {
   if (!library) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Loading library...
+        Loading brand kit...
       </div>
     );
   }
@@ -915,7 +915,7 @@ export default function LibraryPage() {
                 size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 onClick={() => setEditOpen(true)}
-                aria-label="Edit library name and description"
+                aria-label="Edit brand kit name and description"
               >
                 <IconPencil className="h-4 w-4" />
               </Button>
@@ -964,7 +964,7 @@ export default function LibraryPage() {
                 <Button
                   variant="outline"
                   size="icon"
-                  aria-label="Library actions"
+                  aria-label="Brand kit actions"
                   disabled={archiveLibrary.isPending}
                 >
                   <IconDotsVertical className="h-4 w-4" />
@@ -989,7 +989,7 @@ export default function LibraryPage() {
                   }}
                 >
                   <IconArchive className="mr-2 h-4 w-4 shrink-0" />
-                  Archive library
+                  Archive brand kit
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1014,10 +1014,10 @@ export default function LibraryPage() {
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive this library?</AlertDialogTitle>
+            <AlertDialogTitle>Archive this brand kit?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the library from the main Libraries list. Its assets
-              and generation history stay stored.
+              This removes the brand kit from the main Brand Kits list. Its
+              assets and generation history stay stored.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1248,7 +1248,7 @@ export default function LibraryPage() {
                 <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
                 <h3 className="mt-4 text-base font-semibold">No runs yet</h3>
                 <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                  Generate from this library to capture prompt, output,
+                  Generate from this brand kit to capture prompt, output,
                   references, and settings.
                 </p>
               </div>
@@ -1288,7 +1288,7 @@ export default function LibraryPage() {
                       customInstructions: customInstructionsDraft,
                     })
                   }
-                  placeholder="Preferences the agent should apply whenever it uses this library."
+                  placeholder="Preferences the agent should apply whenever it uses this brand kit."
                   className="min-h-28"
                 />
                 <Separator />
@@ -1340,7 +1340,8 @@ export default function LibraryPage() {
                 <div className="rounded-lg border border-border p-4">
                   <h3 className="text-sm font-semibold">Agent usage</h3>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Other agents can call Assets over A2A with this library ID.
+                    Other agents can call Assets over A2A with this brand kit
+                    ID.
                   </p>
                   <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
                     {library.id}
@@ -2519,8 +2520,8 @@ function AssetGrid({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDeleteIds.length > 1
-                ? "This removes the selected assets from the library. Existing exports that already use these URLs may stop rendering."
-                : "This removes the asset from the library. Existing exports that already use this URL may stop rendering."}
+                ? "This removes the selected assets from the brand kit. Existing exports that already use these URLs may stop rendering."
+                : "This removes the asset from the brand kit. Existing exports that already use this URL may stop rendering."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2804,7 +2805,7 @@ function VariantCard({
             <AlertDialogDescription>
               {isFailed
                 ? "Removes this failed slot from the live candidates panel."
-                : "Removes this candidate from the library and clears its slot."}
+                : "Removes this candidate from the brand kit and clears its slot."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

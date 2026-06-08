@@ -56,12 +56,12 @@ export function EditLibraryDialog({
       },
       {
         onSuccess: () => {
-          toast.success("Library updated");
+          toast.success("Brand kit updated");
           onOpenChange(false);
         },
         onError: (err: unknown) => {
           toast.error(
-            err instanceof Error ? err.message : "Failed to update library",
+            err instanceof Error ? err.message : "Failed to update brand kit",
           );
         },
       },
@@ -72,7 +72,7 @@ export function EditLibraryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit library</DialogTitle>
+          <DialogTitle>Edit brand kit</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
@@ -81,7 +81,7 @@ export function EditLibraryDialog({
               id="edit-library-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Library name"
+              placeholder="Brand kit name"
               autoFocus
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -97,7 +97,7 @@ export function EditLibraryDialog({
               id="edit-library-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="Describe the visual direction or contents of this library."
+              placeholder="Describe the visual direction or contents of this brand kit."
             />
           </div>
         </div>

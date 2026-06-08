@@ -225,7 +225,7 @@ function AnnotatedCodeRead({
                   )}
                 >
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
                       {rangeLabel(item)}
                     </span>
                     {item.annotation.label && (
