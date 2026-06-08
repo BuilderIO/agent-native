@@ -158,7 +158,34 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   const registryValue = useOptionalBlockRegistry();
   const sideMap = useRegistryBlockData();
 
-  const block = sideMap?.getBlock(blockId);
+  // Optimistic edit override. `onBlockDataChange` commits into the host's own
+  // store (a ref the side-map context can't observe), so an edit does NOT
+  // re-render this node — the new data only reaches the view on the next full
+  // document reconcile, which lands after the autosave round-trip (seconds
+  // later) and is skipped entirely when the host treats the save as its own
+  // echo. That left quick toggles like the callout tone buttons visually frozen
+  // until reload. Holding the just-edited data locally re-renders this one node
+  // immediately, then releases once the authoritative block catches up to (or
+  // moves past) the value the edit was based on.
+  const [pendingEdit, setPendingEdit] = useState<{
+    data: unknown;
+    base: unknown;
+  } | null>(null);
+  const liveBlock = sideMap?.getBlock(blockId);
+  const liveData = liveBlock?.data;
+  useEffect(() => {
+    if (pendingEdit && !Object.is(liveData, pendingEdit.base)) {
+      setPendingEdit(null);
+    }
+  }, [liveData, pendingEdit]);
+  const block =
+    liveBlock && pendingEdit && Object.is(liveData, pendingEdit.base)
+      ? { ...liveBlock, data: pendingEdit.data }
+      : liveBlock;
+  const commitBlockData = (nextData: unknown, meta?: BlockDataChangeMeta) => {
+    setPendingEdit({ data: nextData, base: liveData });
+    sideMap?.onBlockDataChange(blockId, nextData, meta);
+  };
   const editable = sideMap?.editable ?? false;
   // In Notion-sync mode, flag blocks that have no Notion (NFM) analog so the
   // author sees what won't push. Prose blocks aren't registry-block nodes, so
@@ -246,9 +273,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
       const editorNode = Edit ? (
         <Edit
           data={blockData}
-          onChange={(nextData, meta) =>
-            sideMap?.onBlockDataChange(blockId, nextData, meta)
-          }
+          onChange={commitBlockData}
           editable
           blockId={block.id}
           title={block.title}
@@ -258,7 +283,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
       ) : (
         <SchemaBlockEditor
           data={blockData}
-          onChange={(nextData) => sideMap?.onBlockDataChange(blockId, nextData)}
+          onChange={(nextData) => commitBlockData(nextData)}
           schema={spec.schema}
           editable
           blockId={block.id}
@@ -307,9 +332,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
           open={panelOpen}
           onOpenChange={setPanelOpen}
           renderEditSurface={registryValue?.ctx.renderEditSurface}
-          onChange={(nextBlock) =>
-            sideMap.onBlockDataChange(blockId, nextBlock)
-          }
+          onChange={(nextBlock) => commitBlockData(nextBlock)}
           selected={shellHovered}
         />
       );

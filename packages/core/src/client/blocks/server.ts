@@ -149,6 +149,12 @@ export {
   type JsonExplorerData,
 } from "./library/json-explorer.config.js";
 export {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+  type AnnotatedCodeAnnotation,
+} from "./library/annotated-code.config.js";
+export {
   openApiSpecSchema,
   openApiSpecMdx,
   type OpenApiSpecData,

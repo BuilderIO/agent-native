@@ -38,11 +38,27 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
 
 **Then proceed with PR checks:**
 
-1. Check for new review comments and review summaries from humans and bots:
+1. Check for review comments and review summaries from humans and bots — **EVERY tick, with no exceptions.**
+
+   > ⚠️ **Review bots (Builder, Copilot, etc.) RE-REVIEW on every push and post a brand-new round of comments each time.** A PR commonly accumulates several rounds. You MUST re-check on every single tick — including "quiet" ticks where you're only waiting on CI — and you must keep checking right up until the moment you merge.
+   >
+   > **Never filter comments by a "since <timestamp>" window.** A forward-looking timestamp silently skips rounds that were posted *before* your last reply (e.g. a round that landed between the first review and when you replied), and "0 new since X" reads as "all addressed" when it is not. This exact mistake left two whole review rounds unanswered on PR #1097 (2026-06-08).
+
+   Instead, determine coverage by **reply state**: list every top-level review comment that does **not** yet have a reply, across all pages and all rounds. Stream every comment with `--jq '.[]'` (concatenates cleanly across pages), then slurp:
    ```bash
-   gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[] | select(.created_at > "<30min_ago>") | {id, user: .user.login, type: .user.type, path: .path, body: .body[0:300]}'
-   gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews --jq '.[] | select(.submitted_at > "<30min_ago>") | select(.body != null and .body != "") | {id, user: .user.login, type: .user.type, state, body: .body[0:1000]}'
+   gh api --paginate repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[]' \
+     | jq -s '
+       ([ .[] | .in_reply_to_id // empty ]) as $replied
+       | .[]
+       | select((.in_reply_to_id // null) == null)              # top-level comments only
+       | select(.id as $id | ($replied | index($id)) | not)     # …with no reply yet
+       | {id, user: .user.login, path, line: (.line // .original_line), snippet: (.body[0:200])}'
    ```
+   (Bind the id with `.id as $id` first — `index(.id)` would evaluate `.id` against the `$replied` array, not the comment, and error out.) If that command prints anything, there is unaddressed feedback — fix or reply to each (see "Responding to feedback") before you consider the PR clean. Also re-read the latest review **summary** bodies each tick (bots restate their findings here):
+   ```bash
+   gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews --jq '.[] | select(.body != null and .body != "") | {user: .user.login, state, submitted_at, body: .body[0:1000]}'
+   ```
+   Treat the count of unaddressed comments (not a timestamp) as the source of truth for "is there feedback to handle".
 
 2. Check CI status:
    ```bash
@@ -127,3 +143,5 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 
 - No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
 - PR is merged or closed
+
+Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.

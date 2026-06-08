@@ -8,6 +8,8 @@ const extensionRow = {
   icon: null,
   createdAt: "2026-05-06T00:00:00.000Z",
   updatedAt: "2026-05-06T00:00:00.000Z",
+  hiddenAt: null,
+  hiddenBy: null,
   ownerEmail: "thomas@example.com",
   orgId: "org-1",
   visibility: "org" as const,
@@ -31,6 +33,8 @@ describe("extensions/actions", () => {
       getExtension: vi.fn(),
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser,
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension: vi.fn(),
       listExtensionHistory: vi.fn(),
       listExtensions,
@@ -63,7 +67,10 @@ describe("extensions/actions", () => {
     })) as any;
 
     expect(actions["list-extensions"].readOnly).toBe(true);
-    expect(listExtensions).toHaveBeenCalledWith({ includeHidden: false });
+    expect(listExtensions).toHaveBeenCalledWith({
+      includeHidden: false,
+      includeGloballyHidden: false,
+    });
     expect(result).toMatchObject({
       ok: true,
       count: 1,
@@ -93,6 +100,8 @@ describe("extensions/actions", () => {
       getExtension,
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser,
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension: vi.fn(),
       listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
@@ -165,6 +174,8 @@ describe("extensions/actions", () => {
       getExtension: vi.fn(),
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(),
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension: vi.fn(),
       listExtensionHistory,
       listExtensions: vi.fn(),
@@ -218,6 +229,8 @@ describe("extensions/actions", () => {
       getExtension: vi.fn(),
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(async () => new Set<string>()),
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension: vi.fn(),
       listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
@@ -267,6 +280,8 @@ describe("extensions/actions", () => {
       getExtension: vi.fn(async () => extensionRow),
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(),
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension,
       listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
@@ -318,6 +333,8 @@ describe("extensions/actions", () => {
       getExtension: vi.fn(),
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(async () => new Set<string>()),
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension: vi.fn(),
       listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
@@ -380,6 +397,8 @@ describe("extensions/actions", () => {
       getExtension: vi.fn(),
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(async () => new Set<string>()),
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension: vi.fn(),
       listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
@@ -437,6 +456,8 @@ describe("extensions/actions", () => {
       getExtension: vi.fn(async () => extensionRow),
       getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(),
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension: vi.fn(),
       hideExtension: vi.fn(),
       listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
@@ -468,5 +489,99 @@ describe("extensions/actions", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Requires admin role");
     expect(result.next).toContain("hide-extension");
+  });
+
+  it("globally hides an extension from everyone through the store", async () => {
+    const globalHideExtension = vi.fn(async () => true);
+
+    vi.doMock("./store.js", () => ({
+      createExtension: vi.fn(),
+      deleteExtension: vi.fn(),
+      getExtension: vi.fn(async () => extensionRow),
+      getExtensionHistoryVersion: vi.fn(),
+      getHiddenExtensionIdsForCurrentUser: vi.fn(),
+      globalHideExtension,
+      globalUnhideExtension: vi.fn(),
+      hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
+      listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
+      unhideExtension: vi.fn(),
+      updateExtension: vi.fn(),
+      updateExtensionContent: vi.fn(),
+    }));
+    vi.doMock("./slots/store.js", () => ({
+      addExtensionSlotTarget: vi.fn(),
+      installExtensionSlot: vi.fn(),
+      uninstallExtensionSlot: vi.fn(),
+      listExtensionsForSlot: vi.fn(),
+      listSlotsForExtension: vi.fn(),
+    }));
+    vi.doMock("../application-state/script-helpers.js", () => ({
+      writeAppState: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      resolveAccess: vi.fn(),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["global-hide-extension"].run({
+      id: "ext-zoom",
+    })) as any;
+
+    expect(globalHideExtension).toHaveBeenCalledWith("ext-zoom");
+    expect(result).toEqual({
+      ok: true,
+      globallyHidden: {
+        id: "ext-zoom",
+        name: "Connect Zoom",
+        ownerEmail: "thomas@example.com",
+        visibility: "org",
+      },
+    });
+  });
+
+  it("globally unhides an extension for everyone through the store", async () => {
+    const globalUnhideExtension = vi.fn(async () => true);
+
+    vi.doMock("./store.js", () => ({
+      createExtension: vi.fn(),
+      deleteExtension: vi.fn(),
+      getExtension: vi.fn(),
+      getExtensionHistoryVersion: vi.fn(),
+      getHiddenExtensionIdsForCurrentUser: vi.fn(),
+      globalHideExtension: vi.fn(),
+      globalUnhideExtension,
+      hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
+      listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
+      unhideExtension: vi.fn(),
+      updateExtension: vi.fn(),
+      updateExtensionContent: vi.fn(),
+    }));
+    vi.doMock("./slots/store.js", () => ({
+      addExtensionSlotTarget: vi.fn(),
+      installExtensionSlot: vi.fn(),
+      uninstallExtensionSlot: vi.fn(),
+      listExtensionsForSlot: vi.fn(),
+      listSlotsForExtension: vi.fn(),
+    }));
+    vi.doMock("../application-state/script-helpers.js", () => ({
+      writeAppState: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      resolveAccess: vi.fn(),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = await actions["global-unhide-extension"].run({
+      id: "ext-zoom",
+    });
+
+    expect(globalUnhideExtension).toHaveBeenCalledWith("ext-zoom");
+    expect(result).toEqual({ ok: true, id: "ext-zoom" });
   });
 });

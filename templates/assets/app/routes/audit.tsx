@@ -368,7 +368,7 @@ function RunTable({
           <tr>
             <th className="px-3 py-2">When</th>
             <th className="px-3 py-2">Owner</th>
-            <th className="px-3 py-2">Library</th>
+            <th className="px-3 py-2">Brand Kit</th>
             <th className="px-3 py-2">Source</th>
             <th className="px-3 py-2">Model</th>
             <th className="px-3 py-2">Prompt</th>

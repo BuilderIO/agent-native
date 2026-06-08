@@ -29,6 +29,7 @@ export type PlanBlockType =
   | "callout"
   | "checklist"
   | "table"
+  | "code"
   | "code-tabs"
   | "implementation-map"
   | "wireframe"
@@ -47,6 +48,7 @@ export type PlanBlockType =
   | "diff"
   | "file-tree"
   | "json-explorer"
+  | "annotated-code"
   // Deprecated: region-based wireframe kept for old/imported plans only.
   | "legacy-wireframe";
 
@@ -104,6 +106,17 @@ export type PlanCodeTabsBlock = PlanBlockBase & {
       code: string;
       caption?: string;
     }>;
+  };
+};
+
+export type PlanCodeBlock = PlanBlockBase & {
+  type: "code";
+  data: {
+    code: string;
+    language?: string;
+    filename?: string;
+    caption?: string;
+    maxLines?: number;
   };
 };
 
@@ -574,11 +587,22 @@ export type PlanJsonExplorerBlock = PlanBlockBase & {
   };
 };
 
+export type PlanAnnotatedCodeBlock = PlanBlockBase & {
+  type: "annotated-code";
+  data: {
+    filename?: string;
+    language?: string;
+    code: string;
+    annotations?: Array<{ lines: string; label?: string; note: string }>;
+  };
+};
+
 export type PlanBlock =
   | PlanRichTextBlock
   | PlanCalloutBlock
   | PlanChecklistBlock
   | PlanTableBlock
+  | PlanCodeBlock
   | PlanCodeTabsBlock
   | PlanImplementationMapBlock
   | PlanWireframeBlock
@@ -597,7 +621,8 @@ export type PlanBlock =
   | PlanDataModelBlock
   | PlanDiffBlock
   | PlanFileTreeBlock
-  | PlanJsonExplorerBlock;
+  | PlanJsonExplorerBlock
+  | PlanAnnotatedCodeBlock;
 
 /* -------------------------------------------------------------------------- */
 /* Board / canvas — SPATIAL; geometry KEPT here on purpose                    */
@@ -964,7 +989,15 @@ const idSchema = z.string().trim().min(1).max(120);
 
 const baseBlockSchema = z.object({
   id: idSchema,
-  title: z.string().trim().min(1).max(180).optional(),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(180)
+    .optional()
+    .describe(
+      "Legacy block label — do not set on new blocks. To give a block a heading, put a `rich-text` block whose markdown is a `###` heading directly above this block; those headings are inline-editable and join the document outline. A block `title` still renders (as a small muted label) for older plans, but new plans express block headings as standard markdown headings, not this field.",
+    ),
   summary: z.string().trim().max(600).optional(),
   editable: z.boolean().optional(),
 });
@@ -1428,6 +1461,16 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       }),
     }),
     baseBlockSchema.extend({
+      type: z.literal("code"),
+      data: z.object({
+        code: z.string().max(100_000),
+        language: z.string().trim().max(40).optional(),
+        filename: z.string().trim().max(400).optional(),
+        caption: z.string().trim().max(400).optional(),
+        maxLines: z.number().int().min(0).max(2000).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
       type: z.literal("implementation-map"),
       data: z.object({
         files: z
@@ -1659,6 +1702,30 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         title: z.string().trim().max(200).optional(),
         json: z.string().max(200_000),
         collapsedDepth: z.number().int().min(0).max(20).optional(),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("annotated-code"),
+      data: z.object({
+        filename: z.string().trim().max(400).optional(),
+        language: z.string().trim().max(40).optional(),
+        code: z.string().max(100_000),
+        annotations: z
+          .array(
+            z.object({
+              lines: z
+                .string()
+                .trim()
+                .regex(/^\d+(\s*-\s*\d+)?$/, {
+                  message: 'lines must be a 1-based line ref like "3" or "3-5"',
+                })
+                .max(40),
+              label: z.string().trim().max(160).optional(),
+              note: z.string().trim().min(1).max(4_000),
+            }),
+          )
+          .max(80)
+          .optional(),
       }),
     }),
   ]),

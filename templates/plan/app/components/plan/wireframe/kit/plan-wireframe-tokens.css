@@ -12,7 +12,7 @@
  * or colors.
  */
 
-/* Hand-drawn fonts. Virgil is served by the app; no remote font dependency. */
+/* Hand-drawn fonts. Excalifont is served by the app; no remote font dependency. */
 
 .plan-wf {
   /* ---- Theme palette ----------------------------------------------------- */
@@ -36,9 +36,9 @@
 
   /* ---- Fonts ------------------------------------------------------------- */
   --font-hand:
-    "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+    "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
   --font-script:
-    "Virgil", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+    "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
   --font-clean:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
 

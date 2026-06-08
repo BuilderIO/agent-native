@@ -19,6 +19,7 @@ const COMPACT_REGISTRY_BLOCK_DESCRIPTIONS: Record<string, string> = {
   diff: "Code diff",
   "file-tree": "File/change tree",
   "json-explorer": "JSON tree",
+  "annotated-code": "Code walkthrough",
 };
 
 /**

@@ -461,24 +461,26 @@ function ImplementationMapBlock({
 }: {
   block: Extract<PlanBlock, { type: "implementation-map" }>;
 }) {
-  const [activePath, setActivePath] = useState(block.data.files[0]?.path ?? "");
-  const active =
-    block.data.files.find((file) => file.path === activePath) ??
-    block.data.files[0];
+  // Track the active file by INDEX, not by path. A single file legitimately
+  // appears in multiple rows (e.g. one workflow file touched three different
+  // ways), so keying selection AND the React list key on `file.path` made every
+  // row sharing a path highlight together and select as one. Index is unique.
+  const [activeIndex, setActiveIndex] = useState(0);
+  const active = block.data.files[activeIndex] ?? block.data.files[0];
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
       <div className="grid overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className="border-plan-line lg:border-r">
-          {block.data.files.map((file) => (
+          {block.data.files.map((file, index) => (
             <button
-              key={file.path}
+              key={index}
               type="button"
               data-plan-interactive
-              onClick={() => setActivePath(file.path)}
+              onClick={() => setActiveIndex(index)}
               className={cn(
                 "grid w-full gap-1 border-b border-plan-line px-4 py-5 text-left",
-                file.path === active?.path
+                index === activeIndex
                   ? "bg-primary/10 text-plan-text dark:bg-primary/20"
                   : "text-plan-muted hover:bg-accent/30",
               )}
@@ -494,10 +496,10 @@ function ImplementationMapBlock({
           {active && (
             <>
               <p className="font-mono text-sm text-plan-muted">{active.path}</p>
-              <h3 className="mt-3 text-3xl font-semibold tracking-tight">
+              <h3 className="mt-3 text-xl font-semibold tracking-tight">
                 {active.title || active.path.split("/").pop()}
               </h3>
-              <p className="mt-4 max-w-3xl text-xl leading-8 text-plan-muted">
+              <p className="mt-4 max-w-3xl plan-doc-body text-plan-muted">
                 {active.note}
               </p>
               {active.snippet && (
@@ -762,10 +764,6 @@ export function QuestionFormBlock({
   ).length;
   const buildSummary = () =>
     summarizeQuestionForm(block.id, block.title, questions, answers);
-  const chooseDirectionLabel =
-    block.data.submitLabel && block.data.submitLabel !== "Send to agent"
-      ? block.data.submitLabel
-      : "Choose direction";
 
   return (
     <section className="plan-questions-block" data-block-id={block.id}>
@@ -793,7 +791,7 @@ export function QuestionFormBlock({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" className="shrink-0 gap-1.5">
-                {chooseDirectionLabel}
+                Send to agent
                 <IconChevronDown className="size-3.5 opacity-70" />
               </Button>
             </DropdownMenuTrigger>
@@ -981,15 +979,23 @@ function VisualQuestionView({
                 </button>
               );
             })}
-            {question.allowOther && (
+            {/* Multiple-choice questions always offer a write-in answer so a
+                reviewer can give a custom response instead of the listed
+                options. Authors opt out only by setting allowOther: false. */}
+            {question.allowOther !== false && (
               <Input
                 value={answer?.text ?? ""}
                 onChange={(event) =>
                   onAnswer({ ...answer, text: event.target.value })
                 }
-                className="h-10 w-full rounded-lg border-plan-line bg-plan-block px-4 sm:w-64"
+                className={cn(
+                  "h-10 w-full rounded-lg border-plan-line bg-plan-block px-4",
+                  hasVisualOptions ? "md:col-span-2" : "sm:w-80",
+                )}
                 data-plan-interactive
-                placeholder={question.placeholder || "Other..."}
+                placeholder={
+                  question.placeholder || "Other — type your own answer…"
+                }
               />
             )}
           </div>

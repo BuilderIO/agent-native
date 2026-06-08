@@ -1,9 +1,15 @@
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  getRouterParam,
+  setResponseStatus,
+} from "h3";
 import { getOrgContext } from "@agent-native/core/org";
 import {
   getAnalysis as loadAnalysis,
   listAnalyses as loadAnalyses,
   removeAnalysis,
+  type DashboardHiddenFilter,
 } from "../lib/dashboards-store";
 
 async function ctxFromEvent(event: any) {
@@ -11,10 +17,19 @@ async function ctxFromEvent(event: any) {
   return { email: ctx.email, orgId: ctx.orgId ?? null };
 }
 
+function parseHiddenFilter(raw: unknown): DashboardHiddenFilter {
+  if (raw === "1" || raw === "true" || raw === "only" || raw === "hidden")
+    return "hidden";
+  if (raw === "all") return "all";
+  return "visible";
+}
+
 export const listAnalyses = defineEventHandler(async (event) => {
   try {
     const ctx = await ctxFromEvent(event);
-    const rows = await loadAnalyses(ctx);
+    const query = getQuery(event);
+    const hidden = parseHiddenFilter(query.hidden);
+    const rows = await loadAnalyses(ctx, { hidden });
     const analyses = rows
       .map((a) => ({
         id: a.id,
@@ -26,6 +41,8 @@ export const listAnalyses = defineEventHandler(async (event) => {
         author: a.author,
         ownerEmail: a.ownerEmail,
         visibility: a.visibility,
+        hiddenAt: a.hiddenAt,
+        hiddenBy: a.hiddenBy,
       }))
       .sort(
         (a, b) =>
@@ -66,6 +83,8 @@ export const getAnalysis = defineEventHandler(async (event) => {
       ownerEmail: a.ownerEmail,
       orgId: a.orgId,
       visibility: a.visibility,
+      hiddenAt: a.hiddenAt,
+      hiddenBy: a.hiddenBy,
       role: a.role,
       canEdit: a.canEdit,
       canManage: a.canManage,

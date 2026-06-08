@@ -128,10 +128,12 @@
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.86em;
-  /* Fixed dark code surface (theme-independent) so the github-dark token palette
-     below stays legible — matches the read-side Shiki convention. */
-  background: hsl(220 13% 11%);
-  color: hsl(220 14% 90%);
+  /* Theme-aware code surface: follows the app's muted/foreground/border tokens
+     so block code respects light and dark mode (the token palette below is
+     tuned to read on a muted surface in both). */
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
   border-radius: 6px;
   padding: 0.8em 1em;
   margin: 0.55em 0;
@@ -147,59 +149,106 @@
   color: inherit;
 }
 
-/* highlight.js (lowlight) token palette — github-dark. Scoped to block code so
-   inline `code` keeps its own background. No highlight.js base theme is imported;
-   these rules are the entire theme, so the dark `pre` surface above is safe. */
+/* highlight.js (lowlight) token palette. Scoped to block code so inline `code`
+   keeps its own background. No highlight.js base theme is imported; these rules
+   are the entire theme, tuned (mid-lightness HSL) to read on the muted surface
+   above in both light and dark mode. */
 .an-rich-md-prose pre code .hljs-comment,
 .an-rich-md-prose pre code .hljs-quote {
-  color: #8b949e;
+  color: hsl(var(--muted-foreground));
   font-style: italic;
 }
 .an-rich-md-prose pre code .hljs-keyword,
 .an-rich-md-prose pre code .hljs-selector-tag,
 .an-rich-md-prose pre code .hljs-literal,
-.an-rich-md-prose pre code .hljs-doctag,
-.an-rich-md-prose pre code .hljs-deletion {
-  color: #ff7b72;
+.an-rich-md-prose pre code .hljs-doctag {
+  color: hsl(280 60% 58%);
 }
 .an-rich-md-prose pre code .hljs-string,
 .an-rich-md-prose pre code .hljs-regexp,
 .an-rich-md-prose pre code .hljs-addition {
-  color: #a5d6ff;
+  color: hsl(140 52% 40%);
 }
 .an-rich-md-prose pre code .hljs-number,
 .an-rich-md-prose pre code .hljs-symbol,
+.an-rich-md-prose pre code .hljs-literal {
+  color: hsl(28 78% 48%);
+}
 .an-rich-md-prose pre code .hljs-meta {
-  color: #79c0ff;
+  color: hsl(var(--muted-foreground));
 }
 .an-rich-md-prose pre code .hljs-title,
 .an-rich-md-prose pre code .hljs-title.function_,
 .an-rich-md-prose pre code .hljs-section {
-  color: #d2a8ff;
+  color: hsl(210 72% 52%);
 }
 .an-rich-md-prose pre code .hljs-built_in,
 .an-rich-md-prose pre code .hljs-type,
 .an-rich-md-prose pre code .hljs-title.class_,
 .an-rich-md-prose pre code .hljs-variable.language_ {
-  color: #ffa657;
+  color: hsl(190 64% 40%);
 }
 .an-rich-md-prose pre code .hljs-attr,
 .an-rich-md-prose pre code .hljs-attribute,
 .an-rich-md-prose pre code .hljs-property,
 .an-rich-md-prose pre code .hljs-params {
-  color: #79c0ff;
+  color: hsl(35 68% 46%);
 }
 .an-rich-md-prose pre code .hljs-name,
 .an-rich-md-prose pre code .hljs-tag,
 .an-rich-md-prose pre code .hljs-selector-id,
 .an-rich-md-prose pre code .hljs-selector-class {
-  color: #7ee787;
+  color: hsl(350 62% 52%);
+}
+.an-rich-md-prose pre code .hljs-deletion {
+  color: hsl(0 62% 52%);
 }
 .an-rich-md-prose pre code .hljs-emphasis {
   font-style: italic;
 }
 .an-rich-md-prose pre code .hljs-strong {
   font-weight: 600;
+}
+
+/* In dark mode, lift the token lightness for contrast on the dark muted surface. */
+.dark .an-rich-md-prose pre code .hljs-keyword,
+.dark .an-rich-md-prose pre code .hljs-selector-tag,
+.dark .an-rich-md-prose pre code .hljs-literal,
+.dark .an-rich-md-prose pre code .hljs-doctag {
+  color: hsl(280 72% 72%);
+}
+.dark .an-rich-md-prose pre code .hljs-string,
+.dark .an-rich-md-prose pre code .hljs-regexp,
+.dark .an-rich-md-prose pre code .hljs-addition {
+  color: hsl(140 48% 62%);
+}
+.dark .an-rich-md-prose pre code .hljs-number,
+.dark .an-rich-md-prose pre code .hljs-symbol,
+.dark .an-rich-md-prose pre code .hljs-literal {
+  color: hsl(30 85% 65%);
+}
+.dark .an-rich-md-prose pre code .hljs-title,
+.dark .an-rich-md-prose pre code .hljs-title.function_,
+.dark .an-rich-md-prose pre code .hljs-section {
+  color: hsl(210 80% 70%);
+}
+.dark .an-rich-md-prose pre code .hljs-built_in,
+.dark .an-rich-md-prose pre code .hljs-type,
+.dark .an-rich-md-prose pre code .hljs-title.class_,
+.dark .an-rich-md-prose pre code .hljs-variable.language_ {
+  color: hsl(190 70% 62%);
+}
+.dark .an-rich-md-prose pre code .hljs-attr,
+.dark .an-rich-md-prose pre code .hljs-attribute,
+.dark .an-rich-md-prose pre code .hljs-property,
+.dark .an-rich-md-prose pre code .hljs-params {
+  color: hsl(40 78% 66%);
+}
+.dark .an-rich-md-prose pre code .hljs-name,
+.dark .an-rich-md-prose pre code .hljs-tag,
+.dark .an-rich-md-prose pre code .hljs-selector-id,
+.dark .an-rich-md-prose pre code .hljs-selector-class {
+  color: hsl(350 72% 68%);
 }
 
 .an-rich-md-prose hr {

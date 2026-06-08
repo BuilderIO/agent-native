@@ -88,7 +88,9 @@ export default defineAction({
       brief: z
         .string()
         .optional()
-        .describe("What the questions are trying to clarify"),
+        .describe(
+          "One short line on what the questions clarify, shown as the lede under the title. Keep it tight.",
+        ),
       goal: z
         .string()
         .optional()
@@ -150,7 +152,7 @@ export default defineAction({
       title: "Visual Questions",
       description:
         "Open an interactive visual intake form with chips, mockup options, diagrams, freeform answers, and agent handoff.",
-      iframeTitle: "Agent-Native Plans",
+      iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Questions",
       height: 860,
     }),

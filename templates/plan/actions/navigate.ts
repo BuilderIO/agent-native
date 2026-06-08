@@ -18,7 +18,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
-    "Navigate the Agent-Native Plans UI to the plan list or a specific visual plan.",
+    "Navigate the Agent-Native Plan UI to the plan list or a specific visual plan.",
   schema: z.object({
     view: z
       .enum(["plans", "plan", "extensions", "team"])

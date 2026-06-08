@@ -10,6 +10,7 @@ import {
   type ChecklistData,
 } from "./checklist.config.js";
 import { tableSchema, tableMdx, type TableData } from "./table.config.js";
+import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 import {
   codeTabsSchema,
   codeTabsMdx,
@@ -53,6 +54,11 @@ import {
   jsonExplorerMdx,
   type JsonExplorerData,
 } from "./json-explorer.config.js";
+import {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+} from "./annotated-code.config.js";
 
 /** Render-only stub for server / agent registries (never invoked off-browser). */
 const ServerReadStub = () => null;
@@ -93,6 +99,17 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     label: "Table",
     description:
       "A simple grid with header columns and string rows for comparisons, parameters, or structured lists.",
+  }),
+  defineBlock<CodeData>({
+    type: "code",
+    schema: codeSchema,
+    mdx: codeMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    notionCompatible: true,
+    label: "Code",
+    description:
+      "A single syntax-highlighted code snippet (Notion-style: one border, hover language switcher + copy, collapse-to-N lines). Put several in a `tabs` block for a file rail.",
   }),
   defineBlock<CodeTabsData>({
     type: "code-tabs",
@@ -203,6 +220,16 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     label: "JSON explorer",
     description:
       "A collapsible browser-devtools / Postman-style JSON tree with type-colored values and expand/collapse.",
+  }),
+  defineBlock<AnnotatedCodeData>({
+    type: "annotated-code",
+    schema: annotatedCodeSchema,
+    mdx: annotatedCodeMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    label: "Annotated code",
+    description:
+      "A line-numbered code walkthrough whose line ranges carry anchored explanatory notes.",
   }),
 ];
 

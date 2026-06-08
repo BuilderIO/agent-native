@@ -361,7 +361,7 @@ export function PlanContentRenderer({
                 as="p"
                 value={content.brief || fallbackBrief}
                 editable={metadataEditable}
-                className="mt-4 max-w-2xl text-lg leading-8 text-plan-muted"
+                className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
                 placeholder="Add a short plan summary"
                 onCommit={(brief) => onMetadataChange?.({ brief })}
               />

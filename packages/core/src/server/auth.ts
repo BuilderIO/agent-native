@@ -1645,6 +1645,20 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Recap-image upload (POST /_agent-native/recap-image). The PR visual-recap
+    // GitHub Action uploads a PNG here with the SAME `agent-native connect`
+    // bearer token the MCP / action surface accepts — a connect-minted MCP
+    // OAuth access token that `getSession` only honors on the action surface.
+    // The handler re-runs the canonical `verifyAuth` itself (audience-bound to
+    // this app's MCP resource) and 401s unauthenticated callers, so — exactly
+    // like /_agent-native/a2a and the MCP endpoints above — it must bypass the
+    // guard's blanket 401-for-/_agent-native/*. The anonymous read route
+    // (`/recap-image/<token>.png`) is already public via the `.png` static-asset
+    // branch below; this bypass is for the upload path only.
+    if (p === "/_agent-native/recap-image") {
+      return;
+    }
+
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query — anonymous
     // visitors get the loginHtml, and once they sign in the loginHtml's

@@ -22,6 +22,12 @@ export interface CodeTabsTab {
   language?: string;
   code: string;
   caption?: string;
+  /**
+   * Lines shown before the pane collapses behind a "Show N more lines" toggle.
+   * Omitted ⇒ the default cap (`DEFAULT_CODE_MAX_LINES`, 30). `0` ⇒ never
+   * collapse (always show the whole snippet).
+   */
+  maxLines?: number;
 }
 
 export interface CodeTabsData {
@@ -40,6 +46,7 @@ export const codeTabsSchema = z.object({
         language: z.string().trim().max(40).optional(),
         code: z.string().max(100_000),
         caption: z.string().trim().max(400).optional(),
+        maxLines: z.number().int().min(0).max(2000).optional(),
       }),
     )
     .min(1)

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /*
- * Parallel browser E2E for the Agent-Native Plans app.
+ * Parallel browser E2E for the Agent-Native Plan app.
  *
  * Runs against an already-running dev server (PLAN_BASE_URL, default :8081).
  * fullyParallel + multiple workers => many browser contexts at once (this is the

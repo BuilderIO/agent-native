@@ -62,6 +62,12 @@ Each option can include `label`, `value`, `description`, `recommended`,
 `diagram`. Pick the preview that matches the real footprint — do not offer a
 desktop/mobile pair for a popover, panel, or component.
 
+`single`, `multi`, and `visual` questions always render a write-in field, so a
+reviewer can answer with their own option instead of the listed choices. Do not
+add an explicit "Other" or "Something else" option yourself; set
+`allowOther: false` only on the rare question where a free-text answer makes no
+sense.
+
 ## Quality Bar
 
 - Ask only decision-changing questions. A beautiful form with low-value questions

@@ -27,7 +27,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const navItems = [{ icon: IconClipboardCheck, label: "Plans", href: "/plans" }];
+const navItems = [{ icon: IconClipboardCheck, label: "Plan", href: "/plans" }];
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -83,7 +83,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
     <div className="mt-2 border-l border-sidebar-border/70 pl-3">
       <div className="mb-1 flex h-7 items-center gap-2 pr-1">
         <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          Plans
+          Plan
         </div>
         <Tooltip>
           <TooltipTrigger asChild>

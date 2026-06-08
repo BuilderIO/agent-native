@@ -196,6 +196,104 @@ describe("selectReferences", () => {
     expect(randomSpy).not.toHaveBeenCalled();
   });
 
+  it("blends brand-kit style anchors when explicit refs are content-only attachments", async () => {
+    const assets: AssetRow[] = [
+      {
+        id: "content-1",
+        role: "subject_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        objectKey: "content-1-bytes",
+        metadata: JSON.stringify({ intent: "subject" }),
+      },
+      {
+        id: "anchor-1",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-22T00:00:00.000Z",
+        objectKey: "anchor-1-bytes",
+        metadata: JSON.stringify({ isStyleAnchor: true }),
+      },
+      {
+        id: "style-2",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-21T00:00:00.000Z",
+        objectKey: "style-2-bytes",
+        metadata: "{}",
+      },
+    ];
+    getDbMock.mockReturnValue(
+      createDb({ canonicalStyleAssetIds: ["anchor-1"] }, assets),
+    );
+
+    const refs = await selectReferences({
+      libraryId: "library-1",
+      referenceAssetIds: ["content-1"],
+      intent: "generate",
+      limit: 4,
+    });
+
+    // The attached content image is kept first, but the brand kit's curated
+    // style references are still applied instead of being silently dropped.
+    expect(refs[0]).toEqual(
+      expect.objectContaining({
+        id: "content-1",
+        selectionReason: "explicit",
+      }),
+    );
+    expect(refs.map((ref) => ref.id)).toContain("anchor-1");
+    expect(refs.map((ref) => ref.id)).toContain("style-2");
+  });
+
+  it("keeps exact control when an explicit ref is a real style reference", async () => {
+    const assets: AssetRow[] = [
+      {
+        id: "content-1",
+        role: "subject_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        objectKey: "content-1-bytes",
+        metadata: JSON.stringify({ intent: "subject" }),
+      },
+      {
+        id: "style-picked",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-22T00:00:00.000Z",
+        objectKey: "style-picked-bytes",
+        metadata: "{}",
+      },
+      {
+        id: "anchor-1",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-21T00:00:00.000Z",
+        objectKey: "anchor-1-bytes",
+        metadata: JSON.stringify({ isStyleAnchor: true }),
+      },
+    ];
+    getDbMock.mockReturnValue(
+      createDb({ canonicalStyleAssetIds: ["anchor-1"] }, assets),
+    );
+
+    const refs = await selectReferences({
+      libraryId: "library-1",
+      referenceAssetIds: ["content-1", "style-picked"],
+      intent: "generate",
+      limit: 4,
+    });
+
+    // A deliberately chosen style reference means exact control: no auto anchor blend.
+    expect(refs.map((ref) => ref.id)).toEqual(["content-1", "style-picked"]);
+  });
+
   it("keeps explicit reference IDs in caller order with subject prepended", async () => {
     const assets: AssetRow[] = [
       {

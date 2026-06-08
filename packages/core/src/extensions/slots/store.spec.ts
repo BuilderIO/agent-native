@@ -110,6 +110,8 @@ beforeEach(() => {
       icon TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      hidden_at TEXT,
+      hidden_by TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'

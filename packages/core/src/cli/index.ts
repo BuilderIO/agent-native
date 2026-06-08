@@ -635,6 +635,19 @@ switch (command) {
     break;
   }
 
+  case "recap": {
+    // PR visual recap helpers used by the GitHub Action (scan | build-prompt |
+    // shot | comment). Promoted to the CLI so an installed repo's workflow can
+    // call `agent-native recap …` instead of copying helper scripts.
+    import("./recap.js")
+      .then((m) => m.runRecap(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -740,6 +753,10 @@ Usage:
                                 connector, AND authenticate it in one step.
                                 --no-connect skips auth (run 'connect' later);
                                 non-interactive shells print the connect command.
+                                --with-github-action also writes the PR Visual
+                                Recap workflow into .github/workflows/.
+  agent-native recap <cmd>      PR visual recap helpers used by the GitHub Action.
+                                cmds: scan | build-prompt | shot | comment
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

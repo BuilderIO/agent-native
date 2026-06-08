@@ -20,7 +20,7 @@ Install with the Agent-Native CLI. The command installs the skill instructions, 
 agent-native skills add visual-plan
 ```
 
-Authentication is a one-time browser sign-in at setup — this is intended, and it is what lets the agent persist and share the plans it generates. This also installs the companion commands `/ui-plan`, `/prototype-plan`, `/plan-design`, and `/visual-questions` (see [Invoking the skill](#invoke)).
+Authentication is a one-time browser sign-in at setup — this is intended, and it is what lets the agent persist and share the plans it generates. This also installs the companion `/visual-recap` command for reviewing changes that already landed (see [Invoking the skill](#invoke)).
 
 What the auth step does depends on your client:
 
@@ -34,15 +34,18 @@ Pass `--no-connect` to register the connector without authenticating, then run `
 agent-native skills add visual-plan --no-connect
 ```
 
+To auto-generate a recap on **every pull request**, pass `--with-github-action`. This writes a GitHub Action that runs the `visual-recap` skill on each PR and posts an interactive recap plan with an inline screenshot as a sticky comment — see [PR Visual Recap](/docs/pr-visual-recap).
+
+```bash
+agent-native skills add visual-plan --with-github-action
+```
+
 ## Invoking the skill {#invoke}
 
-Once installed, use the slash command that fits the work:
+Once installed, there are two commands:
 
-- `/visual-plan` — the canonical command for any rich plan (architecture, backend, refactors, UI).
-- `/ui-plan` — UI-first work that should start with the screens.
-- `/prototype-plan` — prototype-first work that should start with a clickable flow.
-- `/plan-design` — full-fidelity branded UI direction before implementation.
-- `/visual-questions` — a short visual intake form before planning.
+- `/visual-plan` — plan **before** implementation. The canonical command for any rich plan: architecture, backend, refactors, or UI. It pulls in diagrams, wireframes, mockups, clickable prototypes, and implementation maps as the work calls for them, and can open with a short visual intake step when the direction is still open.
+- `/visual-recap` — review **after** the change. Turns a PR, commit, branch, or git diff that already landed into a high-altitude recap — schema, API, file, and before/after blocks instead of a wall of raw diff. A recap is a review aid, not a replacement for reading the diff. See [PR Visual Recap](/docs/pr-visual-recap) to run it automatically on every pull request.
 
 The agent gates hard: it only builds a polished visual plan when a wrong direction would be costly, and skips it for trivial, unambiguous work. Each command generates a plan and opens the editor.
 
