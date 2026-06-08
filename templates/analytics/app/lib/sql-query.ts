@@ -34,6 +34,16 @@ export async function executeSqlQuery(
 
   const data = await res.json();
 
+  if (typeof data?.error === "string") {
+    return {
+      rows: [],
+      error:
+        typeof data.message === "string" && data.message
+          ? data.message
+          : data.error,
+    };
+  }
+
   if (data.bytesProcessed) {
     addBytesProcessed(data.bytesProcessed);
   }

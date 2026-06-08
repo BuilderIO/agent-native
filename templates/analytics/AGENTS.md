@@ -57,6 +57,9 @@ details live in `.agents/skills/`.
   say a revised analysis exists unless you include it or save it.
 - Dashboards and charts should be useful, explainable, and scoped to the user's
   question. Avoid decorative metrics.
+- For shipped dashboard templates, call `list-dashboard-templates` first, then
+  `install-dashboard-template` with the selected `templateId`. Do not recreate a
+  catalog template by hand unless the user asks for a custom variant.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
   dashboard, analysis surface, visualization, interaction model, custom layout,
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
@@ -69,8 +72,21 @@ details live in `.agents/skills/`.
 
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
-- `navigate` moves the user to the relevant analytics view.
+- `navigate` moves the user to the relevant analytics view, including
+  `view="catalog"` for the template catalog.
 - Use `view-screen` when the active dashboard/chart context is unclear.
+
+## Dashboard Template Catalog
+
+- `list-dashboard-templates` lists source-controlled dashboard templates with
+  `id`, category, data sources, panel count, and installed dashboard IDs.
+- `install-dashboard-template` installs a catalog template into normal
+  SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
+  `name`, `overwrite`, and `forceNew`.
+- Node Exporter ships as `node-exporter-essentials` for the default compact
+  Prometheus host-health board and `node-exporter-full` for the Linux-focused
+  Grafana 1860 revision 45 full dashboard converted into native Analytics
+  panels.
 
 ## Skills
 

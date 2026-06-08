@@ -7,6 +7,7 @@ import {
 import { readAppState } from "@agent-native/core/application-state";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 
 export default defineAction({
   description:
@@ -126,6 +127,25 @@ export default defineAction({
             lastUsedAt: key.lastUsedAt,
           })),
         };
+      }
+    } else if (nav?.view === "catalog") {
+      screen.page = "catalog";
+      const email = getRequestUserEmail();
+      if (email) {
+        const catalog = await listDashboardCatalog({
+          email,
+          orgId: getRequestOrgId() || null,
+        });
+        screen.dashboardTemplates = catalog.map((template) => ({
+          id: template.id,
+          name: template.name,
+          category: template.category,
+          dataSources: template.dataSources,
+          installed: template.installed,
+          installedDashboardIds: template.installedDashboards.map(
+            (dashboard) => dashboard.id,
+          ),
+        }));
       }
     } else if (nav?.view === "settings") {
       screen.page = "settings";
