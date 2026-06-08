@@ -24,7 +24,7 @@ interface LayoutProps {
  * global Header so they don't double-stack a header bar.
  */
 function routeOwnsToolbar(pathname: string): boolean {
-  return pathname.startsWith("/extensions") || pathname.startsWith("/plans");
+  return pathname.startsWith("/extensions") || isPlanDetailRoute(pathname);
 }
 
 function isPlanDetailRoute(pathname: string): boolean {
@@ -36,7 +36,7 @@ export function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return true;
-    const stored = window.localStorage.getItem("plans.sidebarCollapsed.v2");
+    const stored = window.localStorage.getItem("plans.sidebarCollapsed.v3");
     return stored ? stored === "true" : true;
   });
   const [planReaderImmersive, setPlanReaderImmersive] = useState(() => {
@@ -53,7 +53,7 @@ export function Layout({ children }: LayoutProps) {
 
   useEffect(() => {
     window.localStorage.setItem(
-      "plans.sidebarCollapsed.v2",
+      "plans.sidebarCollapsed.v3",
       String(sidebarCollapsed),
     );
   }, [sidebarCollapsed]);

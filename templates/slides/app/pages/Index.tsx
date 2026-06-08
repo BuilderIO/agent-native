@@ -13,7 +13,12 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import { agentNativePath, useSession } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  askUserQuestion,
+  callAction,
+  useSession,
+} from "@agent-native/core/client";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   AlertDialog,
@@ -308,6 +313,27 @@ export default function Index() {
     if (!deck) return;
     setNewDeckPromptOpen(false);
 
+    // One quick, skippable decision so the agent doesn't guess the deck size.
+    const deckLength = await askUserQuestion({
+      question: "How long should this deck be?",
+      header: "Deck length",
+      options: [
+        { label: "Short (3–5 slides)", value: "3–5 slides" },
+        {
+          label: "Medium (6–10 slides)",
+          value: "6–10 slides",
+          recommended: true,
+        },
+        { label: "Long (11+ slides)", value: "11+ slides" },
+        { label: "Just one visual", value: "a single standalone visual slide" },
+      ],
+      allowFreeText: false,
+    });
+    const deckLengthContext =
+      typeof deckLength === "string" && deckLength
+        ? `Target length: aim for ${deckLength} unless the user's request clearly specifies a different count.`
+        : "";
+
     const trimmedPrompt = prompt.trim();
     const sourceForContext = truncateSourceForContext(trimmedPrompt);
     const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");
@@ -356,6 +382,7 @@ export default function Index() {
       fileContext,
       designSystemContext,
       "",
+      deckLengthContext,
       "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
       "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
@@ -413,18 +440,10 @@ export default function Index() {
       duplicatingRef.current = id;
       setDuplicating(id);
       try {
-        const res = await fetch(
-          agentNativePath("/_agent-native/actions/duplicate-deck"),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deckId: id }),
-          },
-        );
-        if (res.ok) {
-          const { id: newId } = await res.json();
-          navigate(`/deck/${newId}`);
-        }
+        const { id: newId } = await callAction("duplicate-deck", {
+          deckId: id,
+        });
+        navigate(`/deck/${newId}`);
       } finally {
         duplicatingRef.current = null;
         setDuplicating(null);

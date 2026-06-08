@@ -9,7 +9,11 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
-import { appBasePath, isEmbedAuthActive } from "@agent-native/core/client";
+import {
+  appBasePath,
+  callAction,
+  isEmbedAuthActive,
+} from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =
@@ -139,6 +143,38 @@ const MAX_HISTORY = 50;
 const OPEN_DECK_FALLBACK_POLL_MS = 5_000;
 const DECK_LIST_FALLBACK_POLL_MS = 15_000;
 
+type DeckListActionResult = {
+  decks?: unknown[];
+};
+
+type DuplicateDeckActionResult = {
+  id: string;
+  title: string;
+  slideCount: number;
+  url?: string;
+};
+
+function normalizeActionDeck(value: unknown): Deck | null {
+  if (!value || typeof value !== "object") return null;
+  const deck = value as Partial<Deck>;
+  if (typeof deck.id !== "string") return null;
+
+  return {
+    ...deck,
+    id: deck.id,
+    title: typeof deck.title === "string" ? deck.title : "Untitled",
+    createdAt:
+      typeof deck.createdAt === "string"
+        ? deck.createdAt
+        : deck.updatedAt || "",
+    updatedAt:
+      typeof deck.updatedAt === "string"
+        ? deck.updatedAt
+        : deck.createdAt || "",
+    slides: Array.isArray(deck.slides) ? deck.slides : [],
+  } as Deck;
+}
+
 // Debounced save to API + save-state listeners (so the toolbar indicator
 // can show "Saving…" / "Saved"). The map tracks pending debounce timers;
 // `inFlight` tracks active fetches. Combined, they answer "is anything
@@ -217,12 +253,18 @@ function saveDeckToAPI(deck: Deck) {
  */
 async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
-    const res = await fetch(`${appBasePath()}/api/decks`);
-    if (!res.ok) {
-      console.warn(`Failed to fetch decks: HTTP ${res.status}`);
+    const result = await callAction<DeckListActionResult>(
+      "list-decks",
+      { includeSlides: "true" },
+      { method: "GET" },
+    );
+    if (!Array.isArray(result?.decks)) {
+      console.warn("Failed to fetch decks: invalid action response");
       return null;
     }
-    return await res.json();
+    return result.decks
+      .map((deck) => normalizeActionDeck(deck))
+      .filter((deck): deck is Deck => deck !== null);
   } catch (err) {
     console.error("Failed to fetch decks:", err);
     return null;
@@ -231,9 +273,12 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
 
 async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
   try {
-    const res = await fetch(`${appBasePath()}/api/decks/${id}`);
-    if (!res.ok) return null;
-    return await res.json();
+    const result = await callAction<unknown>(
+      "get-deck",
+      { id },
+      { method: "GET" },
+    );
+    return normalizeActionDeck(result);
   } catch (err) {
     console.error(`Failed to fetch deck ${id}:`, err);
     return null;
@@ -552,11 +597,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           !hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current)
         ) {
           try {
-            const res = await fetch(
-              `${appBasePath()}/api/decks/${currentOpenId}`,
-            );
-            if (res.ok) {
-              const serverDeck = (await res.json()) as Deck;
+            const serverDeck = await fetchDeckFromAPI(currentOpenId);
+            if (serverDeck) {
               const clientDeck = decksRef.current.find(
                 (d) => d.id === currentOpenId,
               );
@@ -646,10 +688,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           if (hasUncommittedDeckChanges(data.deckId, dirtyDeckIdsRef.current)) {
             return;
           }
-          // Refetch the changed deck from the API
-          const res = await fetch(`${appBasePath()}/api/decks/${data.deckId}`);
-          if (!res.ok) return;
-          const updated = await res.json();
+          // Refetch the changed deck from the shared action surface.
+          const updated = await fetchDeckFromAPI(data.deckId);
+          if (!updated) return;
           lastExternalUpdateRef.current = Date.now(); // Suppress save-back
           setDecks((prev) => {
             const idx = prev.findIndex((d) => d.id === data.deckId);
@@ -873,15 +914,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
 
       // Fire the action in the background. On error, roll back.
-      fetch(`${appBasePath()}/_agent-native/actions/duplicate-deck`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deckId: sourceDeckId, newId, title }),
+      callAction<DuplicateDeckActionResult>("duplicate-deck", {
+        deckId: sourceDeckId,
+        newId,
+        title,
       })
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        })
         .catch((err) => {
           console.error("Duplicate failed:", err);
           // Roll back: drop the optimistic deck from local state.

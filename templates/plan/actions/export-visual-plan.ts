@@ -26,8 +26,15 @@ export default defineAction({
   run: async (args) => {
     const bundle = await loadPlanBundle(args.planId);
     const path = planPath(bundle.plan.id);
+    const mdx = await exportPlanContentToMdxFolder({
+      content: bundle.plan.content,
+      title: bundle.plan.title,
+      brief: bundle.plan.brief,
+      planId: bundle.plan.id,
+      url: path,
+    });
     const sourceMarkdown =
-      bundle.plan.markdown ||
+      (bundle.plan.content ? mdx["plan.mdx"] : bundle.plan.markdown) ||
       [
         `# ${bundle.plan.title}`,
         "",
@@ -53,13 +60,7 @@ export default defineAction({
       html: buildPlanHtml(bundle),
       markdown,
       json: bundle,
-      mdx: await exportPlanContentToMdxFolder({
-        content: bundle.plan.content,
-        title: bundle.plan.title,
-        brief: bundle.plan.brief,
-        planId: bundle.plan.id,
-        url: path,
-      }),
+      mdx,
       path,
       url: path,
     };

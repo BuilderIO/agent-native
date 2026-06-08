@@ -16,7 +16,6 @@ import {
   useActionMutation,
   sendToAgentChat,
   openAgentSidebar,
-  agentNativePath,
   appApiPath,
 } from "@agent-native/core/client";
 import { toast } from "@/hooks/use-toast";
@@ -112,6 +111,7 @@ export function DesignSystemSetup({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const figInputRef = useRef<HTMLInputElement>(null);
   const createSystemMutation = useActionMutation("create-design-system");
+  const updateSystemMutation = useActionMutation("update-design-system");
 
   const { data: existingDs } = useActionQuery<{
     title?: string;
@@ -310,20 +310,12 @@ export function DesignSystemSetup({
     if (!editingId) return;
     setGenerating(true);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/update-design-system"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: editingId,
-            title: companyName || "My Brand",
-            description: brandNotes || undefined,
-            customInstructions,
-          }),
-        },
-      );
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      await updateSystemMutation.mutateAsync({
+        id: editingId,
+        title: companyName || "My Brand",
+        description: brandNotes || undefined,
+        customInstructions,
+      });
       onComplete();
       toast({ title: "Design system updated" });
     } catch {

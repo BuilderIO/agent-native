@@ -2,7 +2,19 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { discoverActionFiles, parseRouteFile } from "./route-discovery.js";
+import {
+  discoverActionFiles,
+  parseActionHttpConfig,
+  parseRouteFile,
+} from "./route-discovery.js";
+
+const defineActionSource = (httpConfig: string, body = "") =>
+  `import { defineAction } from "@agent-native/core";\n` +
+  `export default defineAction({\n` +
+  `  tool: { description: "ok", parameters: {} },\n` +
+  (httpConfig ? `  http: ${httpConfig},\n` : "") +
+  `  run: async () => {\n${body}\n    return { ok: true };\n  },\n` +
+  `});\n`;
 
 describe("parseRouteFile", () => {
   it("parses a simple GET route", () => {
@@ -92,6 +104,88 @@ describe("parseRouteFile", () => {
   });
 });
 
+describe("parseActionHttpConfig", () => {
+  it("defaults to POST with no path when http is unset", () => {
+    expect(parseActionHttpConfig(defineActionSource(""))).toEqual({
+      method: "post",
+    });
+  });
+
+  it("reads method: GET from the http config", () => {
+    expect(
+      parseActionHttpConfig(defineActionSource(`{ method: "GET" }`)),
+    ).toEqual({ method: "get" });
+  });
+
+  it("supports PUT, PATCH, DELETE, OPTIONS — not just GET", () => {
+    expect(
+      parseActionHttpConfig(defineActionSource(`{ method: "PUT" }`)).method,
+    ).toBe("put");
+    expect(
+      parseActionHttpConfig(defineActionSource(`{ method: "PATCH" }`)).method,
+    ).toBe("patch");
+    expect(
+      parseActionHttpConfig(defineActionSource(`{ method: "DELETE" }`)).method,
+    ).toBe("delete");
+    expect(
+      parseActionHttpConfig(defineActionSource(`{ method: "OPTIONS" }`)).method,
+    ).toBe("options");
+  });
+
+  it("accepts single-quoted method values", () => {
+    expect(
+      parseActionHttpConfig(defineActionSource(`{ method: 'GET' }`)).method,
+    ).toBe("get");
+  });
+
+  it("extracts http.path when present", () => {
+    expect(
+      parseActionHttpConfig(
+        defineActionSource(`{ method: "GET", path: "custom-route" }`),
+      ),
+    ).toEqual({ method: "get", path: "custom-route" });
+  });
+
+  it("reads method and path after a nested object in the http config", () => {
+    expect(
+      parseActionHttpConfig(
+        defineActionSource(
+          `{
+            headers: { "Cache-Control": "no-store" },
+            method: "GET",
+            path: "nested-route"
+          }`,
+        ),
+      ),
+    ).toEqual({ method: "get", path: "nested-route" });
+  });
+
+  it("returns false for http: false (agent-only)", () => {
+    expect(parseActionHttpConfig(defineActionSource("false"))).toBe(false);
+  });
+
+  it("tolerates whitespace in http: false", () => {
+    expect(parseActionHttpConfig(`http:false`)).toBe(false);
+    expect(parseActionHttpConfig(`http :  false`)).toBe(false);
+  });
+
+  it("does NOT flip method on a method: key outside the http config", () => {
+    // Regression: a GET fetch in the action body must not turn a POST action
+    // into a GET route. The old content.includes('method: "GET"') scan did.
+    const src = defineActionSource(
+      "",
+      `    await fetch("https://example.com", { method: "GET" });`,
+    );
+    expect(parseActionHttpConfig(src)).toEqual({ method: "post" });
+  });
+
+  it("ignores an unknown method value and keeps the POST default", () => {
+    expect(
+      parseActionHttpConfig(defineActionSource(`{ method: "TRACE" }`)).method,
+    ).toBe("post");
+  });
+});
+
 describe("discoverActionFiles", () => {
   it("ignores test files in actions/ even if they mention defineAction", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-actions-"));
@@ -118,6 +212,62 @@ describe("discoverActionFiles", () => {
           method: "post",
         },
       ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("discovers method, http.path, and skips agent-only actions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-actions-"));
+    try {
+      const actionsDir = path.join(root, "actions");
+      fs.mkdirSync(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "get-thing.ts"),
+        defineActionSource(`{ method: "GET" }`),
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "custom-path.ts"),
+        defineActionSource(`{ method: "GET", path: "aliased" }`),
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "nested-http.ts"),
+        defineActionSource(
+          `{
+            headers: { "Cache-Control": "no-store" },
+            method: "GET",
+            path: "nested-route"
+          }`,
+        ),
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "agent-only.ts"),
+        defineActionSource("false"),
+      );
+      // POST action whose body does a GET fetch — must stay POST.
+      fs.writeFileSync(
+        path.join(actionsDir, "posts-then-gets.ts"),
+        defineActionSource(
+          "",
+          `    await fetch("https://example.com", { method: "GET" });`,
+        ),
+      );
+
+      const discovered = await discoverActionFiles(root);
+      const byName = Object.fromEntries(discovered.map((a) => [a.name, a]));
+
+      expect(byName["agent-only"]).toBeUndefined();
+      expect(byName["get-thing"]).toMatchObject({ method: "get" });
+      expect(byName["get-thing"].path).toBeUndefined();
+      expect(byName["custom-path"]).toMatchObject({
+        method: "get",
+        path: "aliased",
+      });
+      expect(byName["nested-http"]).toMatchObject({
+        method: "get",
+        path: "nested-route",
+      });
+      expect(byName["posts-then-gets"]).toMatchObject({ method: "post" });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

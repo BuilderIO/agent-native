@@ -1,8 +1,12 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { defineAction } from "../../action.js";
-import { getRequestOrgId } from "../../server/request-context.js";
-import { assertAccess, ForbiddenError } from "../access.js";
+import {
+  assertAccess,
+  currentAccess,
+  ForbiddenError,
+  resolveRegisteredAccessContext,
+} from "../access.js";
 import { requireShareableResource } from "../registry.js";
 import {
   getExtensionShareChangeTargets,
@@ -38,7 +42,10 @@ export default defineAction({
     );
     const db = reg.getDb() as any;
     const update: Record<string, unknown> = { visibility: args.visibility };
-    const currentOrgId = getRequestOrgId();
+    const currentOrgId = resolveRegisteredAccessContext(
+      reg,
+      currentAccess(),
+    ).orgId;
     // Only the resource owner may bind an org to a previously unscoped resource.
     // If a non-owner admin did this, the resource would adopt the admin's org
     // and ownerMatchesActiveScope would then lock the real owner out of their

@@ -3,19 +3,24 @@ import {
   applyPlanContentPatches,
   planContentSchema,
   type PlanContent,
+  type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import {
   buildPlanContentHtml,
+  createPlanDesignContent,
   createPlanContentFromSections,
+  createPrototypeFromPlanContent,
+  createPrototypePlanContent,
   createUiPlanContent,
   createVisualQuestionsContent,
+  normalizePlanDesignContent,
   parsePlanContent,
   sanitizeCustomHtml,
   serializePlanContent,
 } from "./plan-content.js";
 
 describe("structured plan content", () => {
-  it("builds UI plans as native content with a canvas and legacy-wireframe blocks", () => {
+  it("builds UI plans as native content with a canvas and kit-tree wireframes", () => {
     const content = createUiPlanContent({
       title: "Checkout flow",
       brief: "Review the checkout flow before implementation.",
@@ -35,11 +40,10 @@ describe("structured plan content", () => {
     });
 
     expect(content.canvas?.frames).toHaveLength(2);
-    expect(content.canvas?.frames[0]?.legacyWireframe?.viewport).toBe(
-      "desktop",
-    );
-    expect(content.canvas?.frames[1]?.legacyWireframe?.viewport).toBe("phone");
+    expect(content.canvas?.frames[0]?.wireframe?.surface).toBe("desktop");
+    expect(content.canvas?.frames[1]?.wireframe?.surface).toBe("mobile");
     expect(content.canvas?.frames[0]?.label).toBe("Overview");
+    expect(content.canvas?.frames[0]?.legacyWireframe).toBeUndefined();
     expect(content.blocks.some((block) => block.type === "tabs")).toBe(true);
     expect(
       content.blocks.some((block) => block.type === "implementation-map"),
@@ -50,6 +54,24 @@ describe("structured plan content", () => {
         (block) => block.type !== ("sketch-wireframe" as never),
       ),
     ).toBe(true);
+    const desktopSidebar = findWireframeNode(
+      content.canvas?.frames[0]?.wireframe?.screen ?? [],
+      (node) => node.el === "sidebar",
+    );
+    expect(desktopSidebar?.children?.[0]).toMatchObject({
+      el: "col",
+      full: true,
+    });
+    const desktopSidebarChildren = desktopSidebar?.children ?? [];
+    expect(desktopSidebarChildren[desktopSidebarChildren.length - 1]?.el).toBe(
+      "box",
+    );
+    expect(
+      findWireframeNode(
+        desktopSidebar?.children ?? [],
+        (node) => node.el === "navItem" && node.label === "Handoff",
+      ),
+    ).toBeTruthy();
 
     const html = buildPlanContentHtml({
       content,
@@ -61,6 +83,45 @@ describe("structured plan content", () => {
     expect(html).toContain("canvas-export");
     expect(html).toContain("Checkout flow");
     expect(html).toContain("Implementation Map");
+  });
+
+  it("anchors component context sidebar actions after a flexible content stack", () => {
+    const content = createUiPlanContent({
+      title: "Context X-Ray cleanup",
+      brief: "Clean the agent sidebar context popover before implementation.",
+      states: [
+        {
+          name: "Default popover",
+          description: "Context X-Ray opens in the agent sidebar.",
+        },
+      ],
+      components: [
+        {
+          name: "Context X-Ray widget",
+          description: "A compact popover anchored in the agent sidebar.",
+        },
+      ],
+    });
+
+    const contextFrame = content.canvas?.frames.find(
+      (frame) => frame.id === "frame-app-context",
+    );
+    const sidebar = findWireframeNode(
+      contextFrame?.wireframe?.screen ?? [],
+      (node) => node.el === "sidebar",
+    );
+
+    expect(sidebar?.children?.[0]).toMatchObject({
+      el: "col",
+      full: true,
+    });
+    const sidebarChildren = sidebar?.children ?? [];
+    expect(sidebarChildren[sidebarChildren.length - 2]?.el).toBe("divider");
+    expect(sidebarChildren[sidebarChildren.length - 1]).toMatchObject({
+      el: "btn",
+      label: "X-Ray",
+      solid: true,
+    });
   });
 
   it("keeps UI plans document-only when no states or components are supplied", () => {
@@ -111,12 +172,41 @@ describe("structured plan content", () => {
 
     expect(content.blocks.map((block) => block.type)).toEqual([
       "rich-text",
-      "legacy-wireframe",
+      "wireframe",
     ]);
     expect(content.canvas?.frames).toHaveLength(1);
-    expect(
-      content.canvas?.frames[0]?.legacyWireframe?.regions.length ?? 0,
-    ).toBeGreaterThan(0);
+    expect(content.canvas?.frames[0]?.wireframe?.screen.length ?? 0).toBe(1);
+  });
+
+  it("turns questions sections into reusable question-form blocks", () => {
+    const content = createPlanContentFromSections({
+      title: "Handoff review",
+      brief: "Collect open decisions before implementation.",
+      sections: [
+        {
+          id: "open-questions",
+          type: "questions",
+          title: "Open Questions",
+          body: "- Which billing states matter?\n- What should happen offline?",
+          html: null,
+        },
+      ],
+    });
+
+    expect(content.blocks).toHaveLength(1);
+    const block = content.blocks[0];
+    expect(block?.type).toBe("question-form");
+    if (block?.type !== "question-form") return;
+    expect(block.title).toBe("Open Questions");
+    expect(block.data.submitLabel).toBe("Send to agent");
+    expect(block.data.questions.map((question) => question.title)).toEqual([
+      "Which billing states matter?",
+      "What should happen offline?",
+    ]);
+    expect(block.data.questions[0]?.mode).toBe("freeform");
+    expect(block.data.questions[0]?.placeholder).toBe(
+      "Answer to revise the plan...",
+    );
   });
 
   it("creates visual questions with kit-tree previews instead of standalone HTML", () => {
@@ -128,6 +218,8 @@ describe("structured plan content", () => {
           id: "layout",
           type: "visual",
           title: "Which layout direction?",
+          allowOther: true,
+          placeholder: "Describe another layout...",
           options: [
             { label: "Sidebar", preview: "desktop" },
             { label: "Mobile first", preview: "mobile" },
@@ -141,6 +233,10 @@ describe("structured plan content", () => {
     );
     expect(questionsBlock?.type).toBe("visual-questions");
     if (questionsBlock?.type !== "visual-questions") return;
+    expect(questionsBlock.data.questions[0]?.allowOther).toBe(true);
+    expect(questionsBlock.data.questions[0]?.placeholder).toBe(
+      "Describe another layout...",
+    );
     const preview = questionsBlock.data.questions[0]?.options?.[0]?.wireframe;
     expect(preview).toBeTruthy();
     // Preview must be the lean kit tree (surface + screen), never regions.
@@ -224,6 +320,18 @@ describe("structured plan content", () => {
     expect(messages).toContain("Duplicate wireframe node id: inline-cta");
   });
 });
+
+function findWireframeNode(
+  nodes: PlanWireframeNode[],
+  predicate: (node: PlanWireframeNode) => boolean,
+): PlanWireframeNode | null {
+  for (const node of nodes) {
+    if (predicate(node)) return node;
+    const childMatch = findWireframeNode(node.children ?? [], predicate);
+    if (childMatch) return childMatch;
+  }
+  return null;
+}
 
 describe("custom-html safety", () => {
   it("serializes, parses, and rejects full custom HTML documents at validation", () => {
@@ -380,6 +488,21 @@ describe("granular patch ops", () => {
         patch: { text: "Updated annotation only.", y: 220 },
       },
       {
+        op: "append-canvas-annotation",
+        annotation: {
+          id: "ann-callout",
+          type: "callout",
+          text: "Point this at the primary action.",
+          x: 180,
+          y: 260,
+          points: [
+            { x: 180, y: 260 },
+            { x: 420, y: 310 },
+          ],
+          style: { tone: "accent", stroke: "dashed", width: 2 },
+        },
+      },
+      {
         op: "append-block",
         afterBlockId: richText.id,
         block: {
@@ -403,7 +526,44 @@ describe("granular patch ops", () => {
       "Updated annotation only.",
     );
     expect(patched.canvas?.annotations?.[0]?.y).toBe(220);
+    expect(patched.canvas?.annotations?.[1]?.type).toBe("callout");
+    expect(patched.canvas?.annotations?.[1]?.points?.[1]?.x).toBe(420);
     expect(patched.blocks.some((block) => block.id === "new-note")).toBe(true);
+  });
+
+  it("drops any legacy doc on update-rich-text so markdown is the only source of truth", () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Doc drop",
+      brief: "Markdown only.",
+      blocks: [
+        {
+          id: "rt",
+          type: "rich-text",
+          // Simulate a legacy block that carried a stale Tiptap/ProseMirror doc.
+          data: {
+            markdown: "Old copy.",
+            doc: { type: "doc", content: [{ type: "paragraph" }] },
+          } as unknown as { markdown: string },
+        },
+      ],
+    };
+
+    const patched = applyPlanContentPatches(content, [
+      {
+        op: "update-rich-text",
+        blockId: "rt",
+        markdown: "New copy.",
+      },
+    ]);
+
+    const nextRichText = patched.blocks.find((block) => block.id === "rt");
+    expect(nextRichText?.type).toBe("rich-text");
+    if (nextRichText?.type !== "rich-text") return;
+    expect(nextRichText.data.markdown).toBe("New copy.");
+    expect(Object.keys(nextRichText.data)).toEqual(["markdown"]);
+    expect("doc" in nextRichText.data).toBe(false);
+    expect((nextRichText.data as Record<string, unknown>).doc).toBeUndefined();
   });
 
   it("patches and replaces a kit-tree wireframe node by id", () => {
@@ -554,5 +714,393 @@ describe("back-compat parsing and migration", () => {
     expect(parsePlanContent("")).toBeNull();
     expect(parsePlanContent("<!doctype html><html></html>")).toBeNull();
     expect(parsePlanContent("{not json")).toBeNull();
+  });
+});
+
+describe("prototype plan content", () => {
+  it("creates design-mode fallback content when no /plan-design screens are provided", () => {
+    const content = createPlanDesignContent({
+      title: "Billing redesign",
+      brief: "Create a polished billing settings direction.",
+      screens: [],
+    });
+
+    expect(content.canvas?.mode).toBe("design");
+    expect(content.canvas?.frames[0]?.wireframe?.renderMode).toBe("design");
+    expect(content.canvas?.frames[0]?.wireframe?.html).toContain(
+      'data-design-id="primary-action"',
+    );
+    expect(content.prototype?.screens[0]?.renderMode).toBe("design");
+    expect(content.prototype?.screens[0]?.css).toContain(".pd-shell");
+  });
+
+  it("normalizes supplied /plan-design content into design canvas and prototype surfaces", () => {
+    const content = normalizePlanDesignContent(
+      {
+        version: 2,
+        prototype: {
+          initialScreenId: "settings",
+          screens: [
+            {
+              id: "settings",
+              html: '<main><button data-design-id="save">Save</button></main>',
+            },
+          ],
+        },
+        blocks: [
+          { id: "notes", type: "rich-text", data: { markdown: "Keep" } },
+        ],
+      },
+      {
+        title: "Settings redesign",
+        brief: "Make settings feel finished.",
+        screens: [],
+        designMd: "Use the product brand.",
+        brandKit: { colors: { primary: "#0f766e" } },
+        codebaseStyles: { vars: ["--radius"] },
+      },
+    );
+
+    expect(content?.canvas?.mode).toBe("design");
+    expect(content?.canvas?.design?.designMd).toContain("product brand");
+    expect(content?.canvas?.design?.brandKit).toEqual({
+      colors: { primary: "#0f766e" },
+    });
+    expect(content?.canvas?.frames[0]?.wireframe?.renderMode).toBe("design");
+    expect(content?.prototype?.screens[0]?.renderMode).toBe("design");
+    expect(content?.blocks[0]?.id).toBe("notes");
+  });
+
+  it("bounds /plan-design metadata records", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      canvas: {
+        mode: "design",
+        design: {
+          brandKit: { huge: "x".repeat(25_000) },
+        },
+        frames: [],
+      },
+      blocks: [],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts safe Alpine-like prototype directives but still rejects event handlers", () => {
+    const result = planContentSchema.safeParse({
+      version: 2,
+      prototype: {
+        initialScreenId: "todo",
+        screens: [
+          {
+            id: "todo",
+            title: "Todo prototype",
+            html: `<div x-data="{ draft: '', todos: [] }"><input x-model="draft" @keydown.enter="todos.push({ text: draft })"><button x-on:click="draft = ''" :class="{ primary: draft }" x-show="draft">Add</button></div>`,
+          },
+        ],
+      },
+      blocks: [],
+    });
+
+    expect(result.success).toBe(true);
+
+    const unsafe = planContentSchema.safeParse({
+      version: 2,
+      prototype: {
+        initialScreenId: "bad",
+        screens: [
+          {
+            id: "bad",
+            html: `<button onclick="alert(1)">Bad</button>`,
+          },
+        ],
+      },
+      blocks: [],
+    });
+
+    expect(unsafe.success).toBe(false);
+  });
+
+  it("creates prototype-first content with static mocks and export preview", () => {
+    const content = createPrototypePlanContent({
+      title: "Review prototype",
+      brief: "Does the review flow feel right?",
+      screens: [
+        {
+          id: "start",
+          title: "Start",
+          summary: "Reviewer sees the request.",
+          surface: "browser",
+          html: '<div><h1>Request</h1><button data-goto="approved">Approve</button></div>',
+          state: [{ label: "Mode", value: "Review" }],
+        },
+        {
+          id: "approved",
+          title: "Approved",
+          summary: "Approved confirmation.",
+          surface: "browser",
+          html: "<div><h1>Approved</h1></div>",
+        },
+      ],
+      transitions: [
+        {
+          from: "start",
+          to: "approved",
+          label: "Approve",
+          trigger: "Click Approve",
+        },
+      ],
+    });
+
+    expect(content.prototype?.initialScreenId).toBe("start");
+    expect(content.prototype?.screens).toHaveLength(2);
+    expect(content.canvas?.title).toContain("Static Mocks");
+    expect(
+      content.blocks.some(
+        (block) => block.type === "tabs" && block.title === "Static Mocks",
+      ),
+    ).toBe(true);
+
+    const html = buildPlanContentHtml({
+      content,
+      title: "Review prototype",
+      brief: "Does the review flow feel right?",
+    });
+    expect(html).toContain("prototype-export");
+    expect(html).toContain("Approve");
+  });
+
+  it("patches prototype screens without regenerating the plan", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      prototype: {
+        initialScreenId: "start",
+        screens: [
+          {
+            id: "start",
+            title: "Start",
+            html: "<div><h1>Start</h1><button>Next</button></div>",
+          },
+        ],
+      },
+      blocks: [],
+    });
+
+    const patched = applyPlanContentPatches(content, [
+      {
+        op: "patch-prototype-html",
+        screenId: "start",
+        edits: [{ find: ">Next<", replace: ">Continue<" }],
+      },
+      {
+        op: "update-prototype-screen",
+        screenId: "start",
+        patch: {
+          summary: "Updated interaction copy.",
+          state: [{ label: "Copy", value: "Updated" }],
+        },
+      },
+    ]);
+
+    expect(patched.prototype?.screens[0]?.html).toContain(">Continue<");
+    expect(patched.prototype?.screens[0]?.summary).toBe(
+      "Updated interaction copy.",
+    );
+    expect(patched.prototype?.screens[0]?.state?.[0]?.value).toBe("Updated");
+  });
+
+  it("derives a prototype from HTML canvas frames", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      title: "Canvas source",
+      brief: "Convert this visual plan.",
+      canvas: {
+        title: "Flow",
+        frames: [
+          {
+            id: "frame-start",
+            label: "Start",
+            surface: "browser",
+            wireframe: {
+              surface: "browser",
+              html: "<div><h1>Start</h1></div>",
+              caption: "Start state",
+            },
+          },
+          {
+            id: "frame-next",
+            label: "Next",
+            surface: "browser",
+            wireframe: {
+              surface: "browser",
+              html: "<div><h1>Next</h1></div>",
+            },
+          },
+        ],
+        flow: [{ from: "frame-start", to: "frame-next", label: "Continue" }],
+      },
+      blocks: [],
+    });
+
+    const prototype = createPrototypeFromPlanContent(content);
+    expect(prototype?.screens.map((screen) => screen.id)).toEqual([
+      "frame-start",
+      "frame-next",
+    ]);
+    expect(prototype?.transitions?.[0]).toMatchObject({
+      from: "frame-start",
+      to: "frame-next",
+      label: "Continue",
+    });
+  });
+
+  it("rejects prototype transitions that reference missing screens", () => {
+    expect(() =>
+      planContentSchema.parse({
+        version: 2,
+        prototype: {
+          screens: [{ id: "start", html: "<div>Start</div>" }],
+          transitions: [{ from: "start", to: "missing" }],
+        },
+        blocks: [],
+      }),
+    ).toThrow(/Transition target missing/);
+  });
+});
+
+describe("patch-wireframe-html (granular html mockup edits)", () => {
+  const htmlContent = (html: string): PlanContent =>
+    planContentSchema.parse({
+      version: 2,
+      brief: "html wireframe",
+      blocks: [
+        { id: "wf1", type: "wireframe", data: { surface: "browser", html } },
+      ],
+    });
+  const htmlOf = (content: PlanContent): string => {
+    const block = content.blocks[0];
+    if (block?.type !== "wireframe" || typeof block.data.html !== "string") {
+      throw new Error("expected an html wireframe block");
+    }
+    return block.data.html;
+  };
+
+  it("applies a unique find/replace without regenerating the frame", () => {
+    const next = applyPlanContentPatches(
+      htmlContent('<button class="primary">Sign in</button><span>keep</span>'),
+      [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: ">Sign in<", replace: ">Continue<" }],
+        },
+      ],
+    );
+    expect(htmlOf(next)).toBe(
+      '<button class="primary">Continue</button><span>keep</span>',
+    );
+  });
+
+  it("throws when the find snippet is missing", () => {
+    expect(() =>
+      applyPlanContentPatches(htmlContent("<button>Sign in</button>"), [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: "Log out", replace: "Continue" }],
+        },
+      ]),
+    ).toThrow(/not present/i);
+  });
+
+  it("requires all:true when a find matches more than once", () => {
+    const content = htmlContent("<i></i><i></i>");
+    expect(() =>
+      applyPlanContentPatches(content, [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: "<i></i>", replace: "<b></b>" }],
+        },
+      ]),
+    ).toThrow(/matched 2 times/i);
+    const next = applyPlanContentPatches(content, [
+      {
+        op: "patch-wireframe-html",
+        blockId: "wf1",
+        edits: [{ find: "<i></i>", replace: "<b></b>", all: true }],
+      },
+    ]);
+    expect(htmlOf(next)).toBe("<b></b><b></b>");
+  });
+
+  it("rejects a replacement that smuggles a script tag", () => {
+    expect(() =>
+      applyPlanContentPatches(htmlContent("<div>x</div>"), [
+        {
+          op: "patch-wireframe-html",
+          blockId: "wf1",
+          edits: [{ find: "x", replace: "<script>alert(1)</script>" }],
+        },
+      ]),
+    ).toThrow();
+  });
+});
+
+describe("patch-diagram-html (granular diagram edits)", () => {
+  const diagramContent = (html: string): PlanContent =>
+    planContentSchema.parse({
+      version: 2,
+      brief: "diagram",
+      blocks: [{ id: "diagram1", type: "diagram", data: { html } }],
+    });
+  const htmlOf = (content: PlanContent): string => {
+    const block = content.blocks[0];
+    if (block?.type !== "diagram" || typeof block.data.html !== "string") {
+      throw new Error("expected an html diagram block");
+    }
+    return block.data.html;
+  };
+
+  it("applies a unique find/replace without regenerating the diagram", () => {
+    const next = applyPlanContentPatches(
+      diagramContent(
+        '<div class="diagram-panel"><span>Current label</span><svg></svg></div>',
+      ),
+      [
+        {
+          op: "patch-diagram-html",
+          blockId: "diagram1",
+          edits: [{ find: "Current label", replace: "Target label" }],
+        },
+      ],
+    );
+    expect(htmlOf(next)).toContain("Target label");
+    expect(htmlOf(next)).toContain("<svg>");
+  });
+
+  it("throws when the find snippet is missing", () => {
+    expect(() =>
+      applyPlanContentPatches(diagramContent("<div>Label</div>"), [
+        {
+          op: "patch-diagram-html",
+          blockId: "diagram1",
+          edits: [{ find: "Missing", replace: "Updated" }],
+        },
+      ]),
+    ).toThrow(/not present/i);
+  });
+
+  it("rejects a replacement that smuggles active diagram html", () => {
+    expect(() =>
+      applyPlanContentPatches(diagramContent("<div>Label</div>"), [
+        {
+          op: "patch-diagram-html",
+          blockId: "diagram1",
+          edits: [{ find: "Label", replace: '<svg onload="alert(1)" />' }],
+        },
+      ]),
+    ).toThrow();
   });
 });

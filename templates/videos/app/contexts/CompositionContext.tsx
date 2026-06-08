@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { agentNativePath } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client";
 import { compositions, type CompositionEntry } from "@/remotion/registry";
 import type { CompSettings } from "@/components/CompSettingsEditor";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
@@ -312,24 +312,14 @@ export function CompositionProvider({
       // Note: action routes return HTTP 200 even when the action body
       // contains `{ error }`, so we have to check the body too.
       try {
-        const res = await fetch(
-          agentNativePath("/_agent-native/actions/delete-composition"),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id }),
-          },
-        );
-        if (!res.ok) {
-          throw new Error(`delete-composition failed: ${res.status}`);
-        }
-        const data = (await res.json().catch(() => null)) as {
+        const data = await callAction("delete-composition", { id });
+        const result = data as {
           success?: boolean;
           error?: string;
-        } | null;
-        if (!data?.success) {
+        };
+        if (!result.success) {
           throw new Error(
-            data?.error ?? "delete-composition returned no success flag",
+            result.error ?? "delete-composition returned no success flag",
           );
         }
       } catch (err) {
@@ -365,22 +355,15 @@ export function CompositionProvider({
 
       // Persist to DB
       try {
-        const res = await fetch(
-          agentNativePath("/_agent-native/actions/update-composition"),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: selected.id, title }),
-          },
-        );
-        if (!res.ok) {
-          throw new Error(`update-composition failed: ${res.status}`);
-        }
-        const data = (await res.json().catch(() => null)) as {
+        const data = await callAction("update-composition", {
+          id: selected.id,
+          title,
+        });
+        const result = data as {
           error?: string;
-        } | null;
-        if (data?.error) {
-          throw new Error(data.error);
+        };
+        if (result.error) {
+          throw new Error(result.error);
         }
       } catch (err) {
         toast.error("Failed to rename composition");

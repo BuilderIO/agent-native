@@ -76,13 +76,13 @@ The rest of this doc is for anyone forking the Analytics template or extending i
 Create a new Analytics app from the CLI:
 
 ```bash
-pnpm dlx @agent-native/core create my-analytics --template analytics --standalone
+npx @agent-native/core create my-analytics --standalone --template analytics
 ```
 
 Local dev:
 
 ```bash
-cd my-analytics-app
+cd my-analytics
 pnpm install
 pnpm dev
 ```

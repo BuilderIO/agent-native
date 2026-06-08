@@ -1,138 +1,92 @@
-import { Fragment, type CSSProperties, type ReactNode } from "react";
+import {
+  type MouseEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import type {
   PlanDiagramBlock,
   PlanLegacyWireframeBlock,
   PlanWireframeBlock,
-  PlanWireframeNode,
   PlanWireframeSurface,
-  PlanWireframeTone,
 } from "@shared/plan-content";
 import { LegacyRegionWireframe } from "./LegacyRegionWireframe";
+import {
+  HTML_ROUGH_SELECTOR,
+  KitConfigContext,
+  RoughOverlay,
+  Screen,
+  renderNodes,
+} from "./kit";
+import { useWireframeStyle } from "./use-wireframe-style";
+import {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "./sanitize-html";
+import {
+  RUNTIME_SENTINEL_ATTR,
+  mountPrototypeRuntime,
+} from "./prototype-runtime";
+import "./html-artboard.css";
 
 /**
  * Wireframe renderer.
  *
- * PRIMARY PATH — declarative KIT TREE. The model emits a geometry-free tree of
- * semantic primitives (`{ el, ...props, children }`); this renderer maps each
- * node to a flex kit component and lays everything out with flexbox. The whole
- * artboard is wrapped in a single `Screen` that applies ONE coherent wobble
- * filter (`var(--wobble)`) — no per-box rough.js. Quality (fonts, density,
- * accent, spacing, footprint, the wobble) is owned ENTIRELY by the renderer and
- * the `:root` CSS-var token system; the model never emits CSS or coordinates.
+ * PRIMARY PATH — an HTML mockup (`data.html`). The model writes a plain semantic
+ * HTML screen; the renderer owns the surface footprint/aspect, the dark/light
+ * theme, the hand-drawn font, and the rough.js sketch overlay. Everything is
+ * laid out by the model's own (real) HTML/CSS, so there is no geometry to place.
  *
- * LEGACY PATH — region fallback. Old / imported plans carry coordinate regions
- * (`{ viewport, template, regions[] }`). Those are delegated to
- * `LegacyRegionWireframe` so they keep rendering. New generation never emits
- * regions. Do NOT delete the fallback; do NOT lossily migrate old plans.
+ * KIT PATH — declarative kit tree (`data.screen`). Kept for older plans; the
+ * shared kit owns flex layout, fonts, spacing, and the same rough overlay.
  *
- * INTEGRATION NOTE: per the plan the kit primitives also live at
- * `wireframe/kit/*` (built in parallel) and the design tokens / `--wobble`
- * filter belong on `:root` (WS1.2/1.3). This file ships a self-contained kit +
- * an inline `<WobbleFilter>` so the renderer is correct and build-safe even
- * before that CSS lands. When the shared kit + `:root` tokens are in, the inline
- * primitives below can be swapped for imports from `./kit` and the inline filter
- * dropped — the node→component mapping (`renderNode`) is the stable contract.
+ * LEGACY PATH — coordinate region fallback for the oldest imported plans.
+ *
+ * All three paths share one frame shell (surface-locked aspect, theme, rough
+ * overlay, clean-mode crisp frame) via `ArtboardFrame`.
  */
-
-/* -------------------------------------------------------------------------- */
-/* Surface presets — fixed-size static artboards (never scroll regions)       */
-/* -------------------------------------------------------------------------- */
 
 type SurfacePreset = {
   width: number;
   height: number;
   radius: number;
-  /** Outer chrome: a phone gets a rounded slab; browser/desktop a window. */
-  chrome: "phone" | "window" | "plain";
 };
 
 const SURFACE_PRESETS: Record<PlanWireframeSurface, SurfacePreset> = {
-  mobile: { width: 300, height: 624, radius: 30, chrome: "phone" },
-  desktop: { width: 840, height: 520, radius: 12, chrome: "window" },
-  browser: { width: 840, height: 520, radius: 12, chrome: "window" },
-  popover: { width: 360, height: 440, radius: 14, chrome: "plain" },
-  panel: { width: 380, height: 560, radius: 14, chrome: "plain" },
+  mobile: { width: 300, height: 624, radius: 30 },
+  desktop: { width: 840, height: 520, radius: 14 },
+  browser: { width: 900, height: 560, radius: 14 },
+  popover: { width: 360, height: 360, radius: 16 },
+  panel: { width: 420, height: 560, radius: 16 },
 };
-
-/* -------------------------------------------------------------------------- */
-/* CSS-var token bridge                                                        */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Token vars consumed by the kit. These mirror the `:root` token system from
- * WS1.2 (`--ink`, `--paper`, `--accent`, …). Until that lands globally, we seed
- * fallbacks on the artboard so the kit renders correctly. The kit always reads
- * the var (renderer-owned), never a hardcoded color.
- */
-const KIT_VAR_FALLBACKS: CSSProperties = {
-  // intent tokens (semantic; renderer maps to color)
-  ["--wf-ink" as string]: "var(--ink, hsl(28 8% 18%))",
-  ["--wf-soft" as string]: "var(--ink-soft, hsl(28 5% 58%))",
-  ["--wf-line" as string]: "var(--line, hsl(38 12% 84%))",
-  ["--wf-paper" as string]: "var(--paper, hsl(40 30% 98%))",
-  ["--wf-card" as string]: "var(--card-bg, #ffffff)",
-  ["--wf-accent" as string]: "var(--accent, hsl(222 65% 54%))",
-  ["--wf-accent-soft" as string]:
-    "var(--accent-soft, color-mix(in srgb, var(--wf-accent) 15%, #fff))",
-  ["--wf-warn" as string]: "var(--warn, hsl(12 50% 47%))",
-  ["--wf-warn-soft" as string]:
-    "var(--warn-soft, color-mix(in srgb, var(--wf-warn) 15%, #fff))",
-  ["--wf-ok" as string]: "var(--ok, hsl(146 22% 45%))",
-  // density / typography
-  ["--wf-gap" as string]: "var(--wf-density-gap, 11px)",
-  ["--wf-pad" as string]: "var(--wf-density-pad, 12px)",
-  ["--wf-fs" as string]: "var(--wf-density-fs, 14px)",
-  ["--wf-radius" as string]: "var(--wf-density-radius, 7px)",
-  ["--wf-stroke" as string]: "var(--wf-density-stroke, 1.4px)",
-  ["--wf-font-hand" as string]:
-    'var(--wf-hand-font, "Virgil", "Comic Sans MS", "Bradley Hand", cursive)',
-  ["--wf-font-script" as string]:
-    'var(--wf-script-font, "Caveat", "Virgil", cursive)',
-};
-
-const V = {
-  ink: "var(--wf-ink)",
-  soft: "var(--wf-soft)",
-  line: "var(--wf-line)",
-  paper: "var(--wf-paper)",
-  card: "var(--wf-card)",
-  accent: "var(--wf-accent)",
-  accentSoft: "var(--wf-accent-soft)",
-  warn: "var(--wf-warn)",
-  warnSoft: "var(--wf-warn-soft)",
-  ok: "var(--wf-ok)",
-  stroke: "var(--wf-stroke)",
-  radius: "var(--wf-radius)",
-  gap: "var(--wf-gap)",
-  pad: "var(--wf-pad)",
-  fs: "var(--wf-fs)",
-  hand: "var(--wf-font-hand)",
-  script: "var(--wf-font-script)",
-};
-
-function toneColor(tone: PlanWireframeTone | undefined): string {
-  switch (tone) {
-    case "accent":
-      return V.accent;
-    case "warn":
-      return V.warn;
-    case "ok":
-      return V.ok;
-    case "muted":
-      return V.soft;
-    default:
-      return V.ink;
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Public entry — universal renderer (kit tree primary, legacy fallback)      */
-/* -------------------------------------------------------------------------- */
 
 type WireframeData =
   | PlanWireframeBlock["data"]
   | PlanLegacyWireframeBlock["data"];
+
+export type DesignElementSelection = {
+  frameId?: string;
+  blockId?: string;
+  elementId: string;
+  tagName: string;
+  className: string;
+  inlineStyle: string;
+  text: string;
+  computedStyles: Record<string, string>;
+};
+
+function isHtmlData(data: WireframeData): data is PlanWireframeBlock["data"] {
+  const html = (data as PlanWireframeBlock["data"]).html;
+  return typeof html === "string" && html.trim().length > 0;
+}
 
 function isKitTreeData(
   data: WireframeData,
@@ -140,25 +94,50 @@ function isKitTreeData(
   return Array.isArray((data as PlanWireframeBlock["data"]).screen);
 }
 
-/**
- * Universal wireframe entry. Detects the data shape:
- * - kit tree (`{ surface, screen }`) → the new flex renderer (primary).
- * - legacy regions (`{ regions, … }`) → the region fallback.
- *
- * `compact` and `canvasSize` are the stable props the document + canvas pass.
- */
 export function Wireframe({
   data,
   compact,
   canvasSize,
+  canvasWidth,
+  interactive,
+  frameId,
+  blockId,
+  selectedDesignElementKey,
+  onDesignElementSelect,
 }: {
   data: WireframeData;
   compact?: boolean;
   canvasSize?: number;
+  canvasWidth?: number;
+  interactive?: boolean;
+  frameId?: string;
+  blockId?: string;
+  selectedDesignElementKey?: string | null;
+  onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
+  if (isHtmlData(data)) {
+    return (
+      <HtmlArtboard
+        data={data}
+        compact={compact}
+        canvasSize={canvasSize}
+        canvasWidth={canvasWidth}
+        interactive={interactive}
+        frameId={frameId}
+        blockId={blockId}
+        selectedDesignElementKey={selectedDesignElementKey}
+        onDesignElementSelect={onDesignElementSelect}
+      />
+    );
+  }
   if (isKitTreeData(data)) {
     return (
-      <KitWireframe data={data} compact={compact} canvasSize={canvasSize} />
+      <KitWireframe
+        data={data}
+        compact={compact}
+        canvasSize={canvasSize}
+        canvasWidth={canvasWidth}
+      />
     );
   }
   return (
@@ -170,7 +149,318 @@ export function Wireframe({
   );
 }
 
-/** Convenience wrapper used by the document block dispatcher. */
+/* -------------------------------------------------------------------------- */
+/* Shared frame shell: surface-locked aspect + theme + rough overlay.         */
+/* -------------------------------------------------------------------------- */
+
+function ArtboardFrame({
+  surface,
+  compact,
+  canvasSize,
+  canvasWidth,
+  skeleton,
+  renderMode,
+  roughOverlay = true,
+  selector,
+  caption,
+  render,
+}: {
+  surface: PlanWireframeSurface;
+  compact?: boolean;
+  canvasSize?: number;
+  canvasWidth?: number;
+  skeleton?: boolean;
+  renderMode?: "wireframe" | "design";
+  roughOverlay?: boolean;
+  selector: string;
+  caption?: string;
+  render: (ctx: {
+    theme: "light" | "dark";
+    style: "sketchy" | "clean";
+  }) => ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
+  const theme: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
+  const style = useWireframeStyle();
+  const preset = SURFACE_PRESETS[surface] ?? SURFACE_PRESETS.desktop;
+  const height = canvasSize ?? preset.height;
+  const width = canvasWidth ?? preset.width;
+  const baseScale = compact ? Math.min(1, 320 / preset.width) : 1;
+  const maxFrameWidth = compact ? preset.width * baseScale : width;
+  const [fitScale, setFitScale] = useState(baseScale);
+  const designMode = renderMode === "design";
+  const sketchy = !designMode && style === "sketchy" && !skeleton;
+  const roughEnabled = sketchy && roughOverlay;
+  const paper = designMode
+    ? "hsl(var(--background))"
+    : "var(--plan-document, hsl(var(--background)))";
+  // Frame border for clean + skeleton modes (sketchy draws its frame via the
+  // rough overlay). Soft, matching --wf-line — not hard ink. Skeleton uses its
+  // own neutral fill so the loader frame still reads as a frame.
+  const frameBorder = skeleton
+    ? "var(--plan-placeholder-line, var(--plan-line, hsl(var(--border))))"
+    : "var(--plan-line, hsl(var(--border)))";
+
+  useEffect(() => {
+    const element = fitRef.current;
+    if (!element) return;
+    const measure = () => {
+      const availableWidth = element.clientWidth;
+      const nextScale =
+        availableWidth > 0
+          ? Math.min(baseScale, availableWidth / width)
+          : baseScale;
+      setFitScale((current) =>
+        Math.abs(current - nextScale) < 0.001 ? current : nextScale,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [baseScale, width]);
+
+  return (
+    <div
+      ref={fitRef}
+      className="plan-kit-wireframe"
+      style={{
+        width: "100%",
+        maxWidth: maxFrameWidth,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: maxFrameWidth,
+          height: height * fitScale,
+          marginInline: "auto",
+        }}
+      >
+        <div
+          ref={ref}
+          className="plan-kit-artboard relative"
+          style={{
+            width,
+            height,
+            borderRadius: preset.radius,
+            background: paper,
+            boxShadow: "0 10px 34px hsl(var(--foreground) / 0.10)",
+            ...(fitScale !== 1
+              ? {
+                  transform: `scale(${fitScale})`,
+                  transformOrigin: "top left",
+                }
+              : {}),
+          }}
+        >
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ borderRadius: preset.radius }}
+          >
+            {render({ theme, style })}
+          </div>
+          {/* Clean + skeleton draw a crisp rounded frame (un-clipped, so corners
+              are never cut, and a skeleton frame still reads as a frame). Sketchy
+              mode gets its frame from the rough overlay unless the caller needs
+              all borders to stay in the normal scrolling DOM. */}
+          {!roughEnabled && (
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                borderRadius: preset.radius,
+                border: `1.5px solid ${frameBorder}`,
+              }}
+            />
+          )}
+          <RoughOverlay
+            scopeRef={ref}
+            enabled={roughEnabled}
+            frameRadius={preset.radius}
+            selector={selector}
+          />
+        </div>
+      </div>
+      {caption && (
+        <p className="mt-2 text-center text-xs text-plan-muted">{caption}</p>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* HTML artboard — model-authored HTML, themed + roughened by the renderer.   */
+/* -------------------------------------------------------------------------- */
+
+function HtmlArtboard({
+  data,
+  compact,
+  canvasSize,
+  canvasWidth,
+  interactive,
+  frameId,
+  blockId,
+  selectedDesignElementKey,
+  onDesignElementSelect,
+}: {
+  data: PlanWireframeBlock["data"];
+  compact?: boolean;
+  canvasSize?: number;
+  canvasWidth?: number;
+  interactive?: boolean;
+  frameId?: string;
+  blockId?: string;
+  selectedDesignElementKey?: string | null;
+  onDesignElementSelect?: (selection: DesignElementSelection) => void;
+}) {
+  // Sanitize model-authored HTML at the render point (defense-in-depth against
+  // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
+  // html changes, not on every theme/zoom re-render.
+  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const renderMode = data.renderMode ?? "wireframe";
+  const designMode = renderMode === "design";
+  const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const scopeSelector = `[data-plan-design-scope="${scopeId}"]`;
+  const scopedCss = useMemo(() => {
+    const safeCss = sanitizeWireframeCss(data.css);
+    return scopeDesignCss(safeCss, scopeSelector);
+  }, [data.css, scopeSelector]);
+  const htmlRef = useRef<HTMLDivElement>(null);
+  const runtimeCleanupRef = useRef<(() => void) | null>(null);
+  const runtimeTimerRef = useRef<number | null>(null);
+  const cleanupRuntime = useCallback(() => {
+    if (runtimeTimerRef.current !== null) {
+      window.clearTimeout(runtimeTimerRef.current);
+      runtimeTimerRef.current = null;
+    }
+    runtimeCleanupRef.current?.();
+    runtimeCleanupRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const node = htmlRef.current;
+    if (!interactive || !node) {
+      cleanupRuntime();
+      return;
+    }
+    if (node.querySelector(`[${RUNTIME_SENTINEL_ATTR}]`)) return;
+    cleanupRuntime();
+    if (interactive && node) {
+      runtimeTimerRef.current = window.setTimeout(() => {
+        runtimeTimerRef.current = null;
+        if (htmlRef.current === node) {
+          runtimeCleanupRef.current = mountPrototypeRuntime(node);
+        }
+      }, 0);
+    }
+  });
+
+  useEffect(() => cleanupRuntime, [cleanupRuntime]);
+
+  useEffect(() => {
+    if (!designMode) return;
+    const root = htmlRef.current;
+    if (!root) return;
+    root
+      .querySelectorAll("[data-plan-design-selected]")
+      .forEach((node) => node.removeAttribute("data-plan-design-selected"));
+    if (!selectedDesignElementKey) return;
+    const [selectedFrameId, selectedBlockId, selectedElementId] =
+      selectedDesignElementKey.split("::");
+    if (
+      selectedFrameId !== (frameId ?? "") ||
+      selectedBlockId !== (blockId ?? "") ||
+      !selectedElementId
+    ) {
+      return;
+    }
+    const target = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        "[data-design-id], [data-plan-design-id]",
+      ),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-design-id") === selectedElementId ||
+        candidate.getAttribute("data-plan-design-id") === selectedElementId,
+    );
+    target?.setAttribute("data-plan-design-selected", "true");
+  }, [blockId, designMode, frameId, selectedDesignElementKey, safeHtml]);
+
+  const handleDesignClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (!designMode || !onDesignElementSelect) return;
+      const root = htmlRef.current;
+      const rawTarget = event.target;
+      if (!root || !(rawTarget instanceof HTMLElement)) return;
+      const target = rawTarget.closest<HTMLElement>(
+        "[data-design-id], [data-plan-design-id]",
+      );
+      if (!target || !root.contains(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const computed = window.getComputedStyle(target);
+      onDesignElementSelect({
+        frameId,
+        blockId,
+        elementId:
+          target.getAttribute("data-design-id") ??
+          target.getAttribute("data-plan-design-id") ??
+          "",
+        tagName: target.tagName.toLowerCase(),
+        className: target.getAttribute("class") ?? "",
+        inlineStyle: target.getAttribute("style") ?? "",
+        text: (target.textContent ?? "").trim().slice(0, 120),
+        computedStyles: {
+          color: computed.color,
+          backgroundColor: computed.backgroundColor,
+          fontFamily: computed.fontFamily,
+          fontSize: computed.fontSize,
+          fontWeight: computed.fontWeight,
+          borderRadius: computed.borderRadius,
+          padding: computed.padding,
+          margin: computed.margin,
+        },
+      });
+    },
+    [blockId, designMode, frameId, onDesignElementSelect],
+  );
+
+  return (
+    <ArtboardFrame
+      surface={data.surface}
+      compact={compact}
+      canvasSize={canvasSize}
+      canvasWidth={canvasWidth}
+      skeleton={data.skeleton}
+      renderMode={renderMode}
+      roughOverlay={!interactive}
+      selector={HTML_ROUGH_SELECTOR}
+      caption={data.caption}
+      render={({ theme, style }) => (
+        <div
+          ref={htmlRef}
+          className="plan-html-frame"
+          data-theme={theme}
+          data-style={style}
+          data-render-mode={renderMode}
+          data-plan-design-scope={scopeId}
+          data-skeleton={data.skeleton ? "true" : undefined}
+          data-prototype-live={interactive ? "true" : undefined}
+          onClick={handleDesignClick}
+        >
+          {scopedCss && <style>{scopedCss}</style>}
+          <div
+            className="plan-html-frame-content"
+            dangerouslySetInnerHTML={{ __html: safeHtml }}
+          />
+        </div>
+      )}
+    />
+  );
+}
+
 export function KitWireframeBlock({
   block,
   compact,
@@ -181,10 +471,6 @@ export function KitWireframeBlock({
   return <Wireframe data={block.data} compact={compact} />;
 }
 
-/**
- * Inline kit-tree preview used by document blocks / option cards. Renders the
- * kit-tree `data` directly (compact by default) with an optional wrapper class.
- */
 export function KitWireframePreview({
   data,
   compact = true,
@@ -201,1073 +487,56 @@ export function KitWireframePreview({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Kit-tree renderer                                                          */
-/* -------------------------------------------------------------------------- */
-
-let wobbleFilterSeq = 0;
-
 function KitWireframe({
   data,
   compact,
   canvasSize,
+  canvasWidth,
 }: {
   data: PlanWireframeBlock["data"];
   compact?: boolean;
   canvasSize?: number;
+  canvasWidth?: number;
 }) {
-  const preset = SURFACE_PRESETS[data.surface] ?? SURFACE_PRESETS.desktop;
-  const height = canvasSize ?? preset.height;
-  // Compact inline previews scale the artboard down without touching internals.
-  const scale = compact ? Math.min(1, 320 / preset.width) : 1;
-
   return (
-    <div
-      className="plan-kit-wireframe"
-      style={{
-        width: compact ? preset.width * scale : "100%",
-        maxWidth: preset.width,
-      }}
-    >
-      <div
-        style={{
-          width: compact ? preset.width * scale : "100%",
-          maxWidth: preset.width,
-          height: compact ? height * scale : undefined,
-          aspectRatio: compact ? undefined : `${preset.width} / ${height}`,
-          marginInline: "auto",
-        }}
-      >
-        <div
-          className="plan-kit-artboard relative"
-          style={{
-            width: preset.width,
-            height,
-            ...(scale !== 1
-              ? { transform: `scale(${scale})`, transformOrigin: "top left" }
-              : {}),
-            ...(compact ? {} : { width: "100%", height: "100%" }),
-            ...KIT_VAR_FALLBACKS,
-          }}
+    <ArtboardFrame
+      surface={data.surface}
+      compact={compact}
+      canvasSize={canvasSize}
+      canvasWidth={canvasWidth}
+      skeleton={data.skeleton}
+      selector="[data-rough]"
+      caption={data.caption}
+      render={({ theme, style }) => (
+        <KitConfigContext.Provider
+          value={{ skeleton: data.skeleton, theme, style }}
         >
-          <Screen radius={preset.radius} chrome={preset.chrome}>
-            {data.screen.map((node, index) => (
-              <Fragment key={node.id ?? index}>{renderNode(node)}</Fragment>
-            ))}
-          </Screen>
-        </div>
-      </div>
-      {data.caption && (
-        <p className="mt-2 text-center text-xs text-plan-muted">
-          {data.caption}
-        </p>
+          {renderKitScreen(data.screen ?? [])}
+        </KitConfigContext.Provider>
       )}
-    </div>
+    />
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* node -> component registry                                                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Map a single kit-tree node to its flex kit component. This is the stable
- * contract integration relies on: extend here when the schema adds primitives.
- */
-function renderNode(node: PlanWireframeNode): ReactNode {
-  const children = node.children?.map((child, index) => (
-    <Fragment key={child.id ?? index}>{renderNode(child)}</Fragment>
-  ));
-
-  switch (node.el) {
-    case "screen":
-      // Nested screen acts as a plain column wrapper.
-      return <Col>{children}</Col>;
-    case "browserBar":
-      return <BrowserBar title={node.title ?? node.text} />;
-    case "statusBar":
-      return <StatusBar />;
-    case "row":
-      return <Row>{children}</Row>;
-    case "col":
-      return <Col>{children}</Col>;
-    case "sidebar":
-      return <Sidebar items={node.items}>{children}</Sidebar>;
-    case "navItem":
-      return (
-        <NavItem
-          label={node.label ?? node.text ?? ""}
-          count={node.count}
-          active={node.active}
-          dot={node.dot}
-        />
-      );
-    case "main":
-      return <Main>{children}</Main>;
-    case "title":
-      return (
-        <Title script={node.script} tone={node.color ?? node.tone}>
-          {node.text ?? node.value ?? ""}
-        </Title>
-      );
-    case "text":
-      return (
-        <Text tone={node.color ?? node.tone} weight={node.weight}>
-          {node.value ?? node.text ?? ""}
-        </Text>
-      );
-    case "lines":
-      return <Lines n={node.n} widths={node.widths} />;
-    case "section":
-      return (
-        <SectionLabel tone={node.tone}>{node.label ?? node.text}</SectionLabel>
-      );
-    case "taskRow":
-      return (
-        <TaskRow
-          title={node.title ?? node.text ?? ""}
-          note={node.note}
-          due={node.due}
-          dueTone={node.dueTone}
-          prio={node.prio}
-          done={node.done}
-        />
-      );
-    case "chips":
-      return <Chips items={node.items}>{children}</Chips>;
-    case "chip":
-      return <Chip active={node.active}>{node.label ?? node.text}</Chip>;
-    case "pill":
-      return <Pill tone={node.tone}>{node.label ?? node.text}</Pill>;
-    case "check":
-      return <Check done={node.done} shape={node.shape} />;
-    case "field":
-      return (
-        <Field
-          label={node.label}
-          value={node.value}
-          placeholder={node.placeholder}
-          area={node.area}
-        />
-      );
-    case "btn":
-      return (
-        <Btn solid={node.solid} full={node.full}>
-          {node.label ?? node.text}
-        </Btn>
-      );
-    case "fab":
-      return <Fab icon={node.icon} />;
-    case "card":
-      return <Card>{children}</Card>;
-    case "column":
-      return (
-        <Column title={node.title ?? node.text} count={node.count}>
-          {children}
-        </Column>
-      );
-    case "avatar":
-      return <Avatar />;
-    case "iconSquare":
-      return <IconSquare active={node.active} />;
-    case "kv":
-      return <KV rows={node.rows} />;
-    case "searchBar":
-      return <SearchBar placeholder={node.placeholder ?? node.label} />;
-    case "box":
-      return <Box dashed={node.dashed}>{children}</Box>;
-    case "divider":
-      return <Divider />;
-    default:
-      return null;
+function renderKitScreen(
+  nodes: NonNullable<PlanWireframeBlock["data"]["screen"]>,
+): ReactNode {
+  if (nodes.length === 1 && nodes[0]?.el === "screen") {
+    return renderNodes(nodes);
   }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Kit primitives (flex; read CSS vars; zero absolute except Fab)             */
-/* -------------------------------------------------------------------------- */
-
-function Screen({
-  children,
-  radius,
-  chrome,
-}: {
-  children: ReactNode;
-  radius: number;
-  chrome: SurfacePreset["chrome"];
-}) {
-  const filterId = `wf-wobble-${(wobbleFilterSeq += 1)}`;
   return (
-    <div
-      className="relative h-full w-full overflow-hidden"
-      style={{
-        background: V.paper,
-        color: V.ink,
-        fontFamily: V.hand,
-        fontSize: V.fs,
-        lineHeight: 1.3,
-        borderRadius: radius,
-        border:
-          chrome === "plain"
-            ? `${V.stroke} solid ${V.line}`
-            : `${V.stroke} solid ${V.ink}`,
-        // ONE coherent wobble over the whole drawing. SVG filter attributes do
-        // not accept CSS variables reliably, so keep the fallback numeric.
-        filter: `var(--wobble, url(#${filterId}))`,
-        display: "flex",
-        flexDirection: "column",
-        boxSizing: "border-box",
-        boxShadow: "var(--wf-shadow, 0 10px 36px rgba(24,24,27,.12))",
-      }}
-    >
-      <WobbleFilter id={filterId} />
-      {chrome === "phone" && (
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            top: 8,
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: 44,
-            height: 5,
-            borderRadius: 999,
-            background: V.line,
-            zIndex: 5,
-          }}
-        />
-      )}
-      {children}
-    </div>
-  );
-}
-
-/**
- * Inline single-filter wobble. Default scale is small/crisp; integration can
- * promote this to a shared `<WobbleFilter>` driven by a sketchiness slider
- * (`--wobble-scale`) and a global `:root` `--wobble` toggle.
- */
-function WobbleFilter({ id }: { id: string }) {
-  return (
-    <svg
-      aria-hidden
-      width="0"
-      height="0"
-      style={{ position: "absolute", pointerEvents: "none" }}
-    >
-      <filter id={id}>
-        <feTurbulence
-          type="fractalNoise"
-          baseFrequency="0.013"
-          numOctaves={2}
-          seed={7}
-          result="noise"
-        />
-        <feDisplacementMap
-          in="SourceGraphic"
-          in2="noise"
-          scale="1.2"
-          xChannelSelector="R"
-          yChannelSelector="G"
-        />
-      </filter>
-    </svg>
-  );
-}
-
-function Row({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        flex: 1,
-        minHeight: 0,
-        gap: V.gap,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Col({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: V.gap,
-        minHeight: 0,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Sidebar({
-  children,
-  items,
-}: {
-  children?: ReactNode;
-  items?: PlanWireframeNode["items"];
-}) {
-  return (
-    <div
-      style={{
-        width: 196,
-        flex: "0 0 auto",
-        borderRight: `${V.stroke} solid ${V.line}`,
-        background: V.card,
-        padding: V.pad,
-        display: "flex",
-        flexDirection: "column",
-        gap: V.gap,
-        overflow: "hidden",
-      }}
-    >
-      {items?.map((item, index) => (
-        <NavItem
-          key={index}
-          label={item.label}
-          count={item.count}
-          active={item.active}
-          dot={item.dot}
-        />
-      ))}
-      {children}
-    </div>
-  );
-}
-
-function NavItem({
-  label,
-  count,
-  active,
-  dot,
-}: {
-  label: string;
-  count?: number;
-  active?: boolean;
-  dot?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 9,
-        padding: "5px 8px",
-        borderRadius: V.radius,
-        background: active ? V.accentSoft : "transparent",
-      }}
-    >
-      {dot ? (
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            background: active ? V.accent : V.soft,
-            flex: "0 0 auto",
-          }}
-        />
-      ) : (
-        <IconSquare active={active} size={15} />
-      )}
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          color: active ? V.accent : V.ink,
-          fontWeight: active ? 700 : 400,
-        }}
-      >
-        {label}
-      </span>
-      {count != null && (
-        <span style={{ fontSize: "calc(var(--wf-fs) * 0.82)", color: V.soft }}>
-          {count}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function Main({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 0,
-        padding: `calc(${V.pad} * 1.4) calc(${V.pad} * 1.8)`,
-        display: "flex",
-        flexDirection: "column",
-        gap: V.gap,
-        overflow: "hidden",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Title({
-  children,
-  script,
-  tone,
-}: {
-  children: ReactNode;
-  script?: boolean;
-  tone?: PlanWireframeTone;
-}) {
-  return (
-    <span
-      style={{
-        fontFamily: script ? V.script : V.hand,
-        fontSize: script
-          ? "calc(var(--wf-fs) * 2.1)"
-          : "calc(var(--wf-fs) * 1.4)",
-        fontWeight: 700,
-        lineHeight: 1.1,
-        color: toneColor(tone),
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Text({
-  children,
-  tone,
-  weight,
-}: {
-  children: ReactNode;
-  tone?: PlanWireframeTone;
-  weight?: "normal" | "medium" | "bold";
-}) {
-  return (
-    <span
-      style={{
-        color: toneColor(tone),
-        fontWeight: weight === "bold" ? 700 : weight === "medium" ? 600 : 400,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Bar({ w = "80%", h }: { w?: number | string; h?: number | string }) {
-  return (
-    <div
-      style={{
-        width: w,
-        height: h ?? "calc(var(--wf-fs) * 0.72)",
-        background: V.line,
-        borderRadius: 4,
-        flex: "0 0 auto",
-      }}
-    />
-  );
-}
-
-function Lines({ n = 2, widths }: { n?: number; widths?: number[] }) {
-  const ws =
-    widths && widths.length
-      ? widths.map((w) => `${w}%`)
-      : Array.from({ length: n }, (_, i) => (i === n - 1 ? "55%" : "100%"));
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {ws.map((w, i) => (
-        <Bar key={i} w={w} />
-      ))}
-    </div>
-  );
-}
-
-function SectionLabel({
-  children,
-  tone,
-}: {
-  children: ReactNode;
-  tone?: PlanWireframeTone;
-}) {
-  return (
-    <span
-      style={{
-        fontSize: "calc(var(--wf-fs) * 0.86)",
-        fontWeight: 700,
-        letterSpacing: 0.3,
-        color: tone ? toneColor(tone) : V.soft,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function TaskRow({
-  title,
-  note,
-  due,
-  dueTone,
-  prio,
-  done,
-}: {
-  title: string;
-  note?: string;
-  due?: string;
-  dueTone?: PlanWireframeTone;
-  prio?: number;
-  done?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: V.gap,
-        padding: "calc(var(--wf-pad) * 0.5) 0",
-      }}
-    >
-      <div style={{ marginTop: 1 }}>
-        <Check done={done} />
-      </div>
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-        }}
-      >
-        <span
-          style={{
-            color: done ? V.soft : V.ink,
-            textDecoration: done ? "line-through" : "none",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {title}
-        </span>
-        {note && <Bar w="55%" />}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          flex: "0 0 auto",
-        }}
-      >
-        {due && <Pill tone={dueTone}>{due}</Pill>}
-        {prio != null && <Prio level={prio} />}
-      </div>
-    </div>
-  );
-}
-
-function Prio({ level = 2 }: { level?: number }) {
-  const fill = level === 1 ? V.warn : level === 2 ? V.soft : "transparent";
-  const bd = level >= 3 ? V.soft : "transparent";
-  return (
-    <span
-      style={{
-        width: 9,
-        height: 9,
-        borderRadius: "50%",
-        background: fill,
-        border: `${V.stroke} solid ${bd}`,
-        flex: "0 0 auto",
-      }}
-    />
-  );
-}
-
-function Chips({
-  children,
-  items,
-}: {
-  children?: ReactNode;
-  items?: PlanWireframeNode["items"];
-}) {
-  return (
-    <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-      {items?.map((item, index) => (
-        <Chip key={index} active={item.active}>
-          {item.label}
-        </Chip>
-      ))}
-      {children}
-    </div>
-  );
-}
-
-function Chip({ children, active }: { children: ReactNode; active?: boolean }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        border: `${V.stroke} solid ${active ? V.accent : V.ink}`,
-        background: active ? V.accentSoft : "transparent",
-        color: active ? V.accent : V.ink,
-        borderRadius: 999,
-        padding: "4px 12px",
-        fontSize: "calc(var(--wf-fs) * 0.88)",
-        fontWeight: active ? 700 : 400,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Pill({
-  children,
-  tone,
-}: {
-  children: ReactNode;
-  tone?: PlanWireframeTone;
-}) {
-  const map: Record<
-    "default" | "accent" | "warn" | "ok" | "muted",
-    { bd: string; bg: string; fg: string }
-  > = {
-    default: { bd: V.ink, bg: "transparent", fg: V.ink },
-    accent: { bd: V.accent, bg: V.accentSoft, fg: V.accent },
-    warn: { bd: V.warn, bg: V.warnSoft, fg: V.warn },
-    ok: { bd: V.ok, bg: "transparent", fg: V.ok },
-    muted: { bd: V.soft, bg: "transparent", fg: V.soft },
-  };
-  const c = map[tone ?? "default"];
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        border: `${V.stroke} solid ${c.bd}`,
-        background: c.bg,
-        color: c.fg,
-        borderRadius: 999,
-        padding: "2px 9px",
-        fontSize: "calc(var(--wf-fs) * 0.82)",
-        whiteSpace: "nowrap",
-        lineHeight: 1.3,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Check({
-  done,
-  shape = "square",
-  size = 18,
-}: {
-  done?: boolean;
-  shape?: "square" | "circle";
-  size?: number;
-}) {
-  const r = shape === "circle" ? "50%" : "calc(var(--wf-radius) * 0.5)";
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        flex: "0 0 auto",
-        borderRadius: r,
-        border: `${V.stroke} solid ${done ? V.accent : V.ink}`,
-        background: done ? V.accent : "transparent",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      {done && (
-        <svg
-          width={size * 0.6}
-          height={size * 0.6}
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M2 6.5l2.5 2.5L10 3" />
-        </svg>
-      )}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  placeholder,
-  area,
-}: {
-  label?: string;
-  value?: string;
-  placeholder?: string;
-  area?: boolean;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      {label && (
-        <span
-          style={{
-            fontSize: "calc(var(--wf-fs) * 0.86)",
-            color: V.soft,
-            fontWeight: 700,
-          }}
-        >
-          {label}
-        </span>
-      )}
-      <div
-        style={{
-          border: `${V.stroke} solid ${V.ink}`,
-          borderRadius: V.radius,
-          background: V.card,
-          padding: "calc(var(--wf-pad) * 0.8)",
-          minHeight: area ? 64 : undefined,
-          display: "flex",
-          alignItems: area ? "flex-start" : "center",
-          justifyContent: "space-between",
-          gap: 8,
-        }}
-      >
-        {value ? (
-          <span>{value}</span>
-        ) : area ? (
-          <Lines n={2} widths={[85, 60]} />
-        ) : (
-          <Bar w={placeholder ? 140 : 110} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Btn({
-  children,
-  solid,
-  full,
-}: {
-  children: ReactNode;
-  solid?: boolean;
-  full?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: full ? "flex" : "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        border: `${V.stroke} solid ${solid ? V.accent : V.ink}`,
-        background: solid ? V.accent : "transparent",
-        color: solid ? "#fff" : V.ink,
-        borderRadius: V.radius,
-        padding: "7px 14px",
-        fontWeight: 700,
-        width: full ? "100%" : "auto",
-        boxSizing: "border-box",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Fab({ icon = "+" }: { icon?: string }) {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        right: 18,
-        bottom: 22,
-        width: 52,
-        height: 52,
-        borderRadius: "50%",
-        border: `${V.stroke} solid ${V.accent}`,
-        background: V.accent,
-        color: "#fff",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 28,
-        fontWeight: 700,
-        lineHeight: 1,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.16)",
-        zIndex: 4,
-      }}
-    >
-      {icon}
-    </div>
-  );
-}
-
-function BrowserBar({ title = "app" }: { title?: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "9px 14px",
-        borderBottom: `${V.stroke} solid ${V.ink}`,
-        flex: "0 0 auto",
-        background: V.card,
-      }}
-    >
-      <div style={{ display: "flex", gap: 6 }}>
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            style={{
-              width: 11,
-              height: 11,
-              borderRadius: "50%",
-              border: `${V.stroke} solid ${V.ink}`,
-            }}
-          />
-        ))}
-      </div>
-      <div
-        style={{
-          flex: 1,
-          border: `${V.stroke} solid ${V.soft}`,
-          borderRadius: 999,
-          padding: "3px 12px",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        <Bar w={12} h={10} />
-        <span style={{ fontSize: "calc(var(--wf-fs) * 0.82)", color: V.soft }}>
-          {title}.app
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function StatusBar() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "9px 18px 2px",
-        flex: "0 0 auto",
-      }}
-    >
-      <span style={{ fontSize: "calc(var(--wf-fs) * 0.82)", fontWeight: 700 }}>
-        9:41
-      </span>
-      <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-        <Bar w={16} h={8} />
-        <Bar w={12} h={8} />
-        <Bar w={20} h={9} />
-      </div>
-    </div>
-  );
-}
-
-function Avatar({ size = 26 }: { size?: number }) {
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        border: `${V.stroke} solid ${V.ink}`,
-        background: V.accentSoft,
-        flex: "0 0 auto",
-      }}
-    />
-  );
-}
-
-function IconSquare({
-  active,
-  size = 18,
-}: {
-  active?: boolean;
-  size?: number;
-}) {
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        flex: "0 0 auto",
-        borderRadius: "calc(var(--wf-radius) * 0.5)",
-        border: `${V.stroke} solid ${active ? V.accent : V.soft}`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div
-        style={{
-          width: "55%",
-          height: "55%",
-          borderRadius: 2,
-          background: active ? V.accent : V.line,
-        }}
-      />
-    </div>
-  );
-}
-
-function SearchBar({ placeholder }: { placeholder?: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        border: `${V.stroke} solid ${V.soft}`,
-        borderRadius: 999,
-        padding: "5px 11px",
-        background: V.card,
-      }}
-    >
-      <Bar w={11} h={11} />
-      <span style={{ fontSize: "calc(var(--wf-fs) * 0.85)", color: V.soft }}>
-        {placeholder ?? "Search"}
-      </span>
-    </div>
-  );
-}
-
-function Box({ children, dashed }: { children?: ReactNode; dashed?: boolean }) {
-  return (
-    <div
-      style={{
-        border: `${V.stroke} ${dashed ? "dashed" : "solid"} ${V.ink}`,
-        borderRadius: V.radius,
-        background: V.card,
-        padding: V.pad,
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: "column",
-        gap: V.gap,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Card({ children }: { children?: ReactNode }) {
-  return <Box>{children}</Box>;
-}
-
-function Column({
-  children,
-  title,
-  count,
-}: {
-  children?: ReactNode;
-  title?: string;
-  count?: number;
-}) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 0,
-        display: "flex",
-        flexDirection: "column",
-        gap: V.gap,
-        background: V.card,
-        border: `${V.stroke} solid ${V.line}`,
-        borderRadius: V.radius,
-        padding: V.pad,
-      }}
-    >
-      {(title || count != null) && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            gap: 8,
-          }}
-        >
-          {title && <span style={{ fontWeight: 700 }}>{title}</span>}
-          {count != null && (
-            <span
-              style={{ fontSize: "calc(var(--wf-fs) * 0.82)", color: V.soft }}
-            >
-              {count}
-            </span>
-          )}
-        </div>
-      )}
-      {children}
-    </div>
-  );
-}
-
-function KV({ rows }: { rows?: Array<{ k: string; v: string }> }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {rows?.map((row, index) => (
-        <div
-          key={index}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <span style={{ color: V.soft }}>{row.k}</span>
-          <span style={{ fontWeight: 600 }}>{row.v}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Divider() {
-  return (
-    <div
-      style={{
-        height: V.stroke,
-        background: V.line,
-        margin: "3px 0",
-        flex: "0 0 auto",
-      }}
-    />
+    <Screen pad="calc(var(--pad) * 1.35)" style={{ height: "100%" }}>
+      {renderNodes(nodes)}
+    </Screen>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* SketchDiagram — kept here; document + canvas import it from this module     */
+/* SketchDiagram — document + canvas import it from this module               */
 /* -------------------------------------------------------------------------- */
+
+const DIAGRAM_ROUGH_SELECTOR =
+  "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr";
 
 export function SketchDiagram({
   data,
@@ -1276,7 +545,30 @@ export function SketchDiagram({
   data: PlanDiagramBlock["data"];
   compact?: boolean;
 }) {
-  const nodes = orderDiagramNodes(data.nodes, data.edges);
+  if (data.html?.trim()) {
+    return <HtmlDiagram data={data} compact={compact} />;
+  }
+
+  const markerId = useId().replace(/:/g, "");
+  if (hasPositionedDiagramNodes(data)) {
+    return (
+      <PositionedSketchDiagram
+        data={data}
+        compact={compact}
+        markerId={markerId}
+      />
+    );
+  }
+
+  const edges = data.edges ?? [];
+  const nodes = orderDiagramNodes(data.nodes ?? [], edges);
+  if (nodes.length === 0) {
+    return (
+      <div className="rounded-[12px] border border-plan-line bg-plan-block p-4 text-sm text-plan-muted">
+        Diagram content is empty.
+      </div>
+    );
+  }
   return (
     <div className="plan-sketch rounded-[16px] border border-plan-line bg-plan-wireframe p-5">
       <div
@@ -1288,7 +580,7 @@ export function SketchDiagram({
         {nodes.map((node, index) => {
           const next = nodes[index + 1];
           const edge = next
-            ? data.edges.find(
+            ? edges.find(
                 (candidate) =>
                   candidate.from === node.id && candidate.to === next.id,
               )
@@ -1338,10 +630,199 @@ export function SketchDiagram({
   );
 }
 
+function HtmlDiagram({
+  data,
+  compact,
+}: {
+  data: PlanDiagramBlock["data"];
+  compact?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
+  const theme: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
+  const style = useWireframeStyle();
+  const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const scopeSelector = `[data-plan-diagram-scope="${scopeId}"]`;
+  const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
+  const scopedCss = useMemo(() => {
+    const safeCss = sanitizeWireframeCss(data.css);
+    return scopeDesignCss(safeCss, scopeSelector);
+  }, [data.css, scopeSelector]);
+
+  return (
+    <div
+      ref={ref}
+      className={cn("plan-diagram-shell", compact && "plan-diagram-compact")}
+    >
+      <div
+        className="plan-diagram-frame"
+        data-theme={theme}
+        data-style={style}
+        data-plan-diagram-scope={scopeId}
+      >
+        {scopedCss && <style>{scopedCss}</style>}
+        <div
+          className="plan-diagram-frame-content"
+          dangerouslySetInnerHTML={{ __html: safeHtml }}
+        />
+      </div>
+      <RoughOverlay
+        scopeRef={ref}
+        enabled={style === "sketchy"}
+        drawFrame={false}
+        selector={DIAGRAM_ROUGH_SELECTOR}
+      />
+      {data.caption && !compact && (
+        <p className="mt-3 text-sm leading-6 text-plan-muted">{data.caption}</p>
+      )}
+    </div>
+  );
+}
+
+function PositionedSketchDiagram({
+  data,
+  compact,
+  markerId,
+}: {
+  data: PlanDiagramBlock["data"];
+  compact?: boolean;
+  markerId: string;
+}) {
+  const nodes = (data.nodes ?? []).map((node) => ({
+    ...node,
+    x: clampDiagramPercent(node.x ?? 50),
+    y: clampDiagramPercent(node.y ?? 50),
+  }));
+  const edges = data.edges ?? [];
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const arrowId = `${markerId}-diagram-arrow`;
+  const nodeWidth = compact ? 150 : 190;
+  const canvasHeight = compact ? 280 : 430;
+
+  return (
+    <div className="plan-sketch rounded-[16px] border border-plan-line bg-plan-wireframe p-5">
+      <div
+        className="relative overflow-hidden rounded-xl border border-plan-line bg-plan-document"
+        style={{ minHeight: canvasHeight }}
+      >
+        <svg
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <defs>
+            <marker
+              id={arrowId}
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-plan-muted" />
+            </marker>
+          </defs>
+          {edges.map((edge, index) => {
+            const from = nodeById.get(edge.from);
+            const to = nodeById.get(edge.to);
+            if (!from || !to) return null;
+            return (
+              <line
+                key={`${edge.from}-${edge.to}-${index}`}
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                markerEnd={`url(#${arrowId})`}
+                vectorEffect="non-scaling-stroke"
+                className="stroke-plan-muted-line"
+                strokeWidth={2}
+                strokeDasharray={edge.label ? "0" : "6 5"}
+              />
+            );
+          })}
+        </svg>
+
+        {!compact &&
+          edges.map((edge, index) => {
+            const from = nodeById.get(edge.from);
+            const to = nodeById.get(edge.to);
+            if (!edge.label || !from || !to) return null;
+            return (
+              <span
+                key={`${edge.from}-${edge.to}-${index}-label`}
+                className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-plan-line bg-plan-document px-2 py-0.5 text-center text-[11px] font-semibold text-plan-muted shadow-sm"
+                style={{
+                  left: `${(from.x + to.x) / 2}%`,
+                  top: `${(from.y + to.y) / 2}%`,
+                }}
+              >
+                {edge.label}
+              </span>
+            );
+          })}
+
+        {nodes.map((node, index) => (
+          <article
+            key={node.id}
+            className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-plan-sketch-line bg-plan-document p-3 text-plan-text shadow-sm"
+            style={{
+              left: `${node.x}%`,
+              top: `${node.y}%`,
+              width: nodeWidth,
+            }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-plan-muted">
+              {index + 1}
+            </p>
+            <h3 className="mt-2 text-base font-semibold leading-tight">
+              {node.label}
+            </h3>
+            {node.detail && !compact && (
+              <p className="mt-2 text-xs leading-5 text-plan-muted">
+                {node.detail}
+              </p>
+            )}
+          </article>
+        ))}
+      </div>
+      {data.notes && data.notes.length > 0 && !compact && (
+        <div className="mt-4 grid gap-2 border-t border-plan-line pt-4 text-sm text-plan-muted md:grid-cols-2">
+          {data.notes.map((note) => (
+            <p key={note.id}>{note.text}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function hasPositionedDiagramNodes(data: PlanDiagramBlock["data"]) {
+  const nodes = data.nodes ?? [];
+  return (
+    nodes.length > 0 &&
+    nodes.every(
+      (node) =>
+        typeof node.x === "number" &&
+        Number.isFinite(node.x) &&
+        typeof node.y === "number" &&
+        Number.isFinite(node.y),
+    )
+  );
+}
+
+function clampDiagramPercent(value: number) {
+  return Math.min(88, Math.max(12, value));
+}
+
 function orderDiagramNodes(
   nodes: PlanDiagramBlock["data"]["nodes"],
   edges: PlanDiagramBlock["data"]["edges"],
 ) {
+  nodes = nodes ?? [];
+  edges = edges ?? [];
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const targets = new Set(edges.map((edge) => edge.to));
   const first = nodes.find((node) => !targets.has(node.id)) ?? nodes[0];

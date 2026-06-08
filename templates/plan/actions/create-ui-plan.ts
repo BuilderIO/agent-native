@@ -2,6 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -11,8 +12,16 @@ import {
   serializePlanContent,
 } from "../server/plan-content.js";
 import {
+  isLocalPlanRuntime,
+  resolvePlanOrgIdForWrite,
+  requirePlanOwnerEmailForWrite,
+} from "../server/lib/local-identity.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
   buildPlanHtml,
   commentInputSchema,
+  insertInitialPlanComments,
   loadPlanBundle,
   newId,
   nowIso,
@@ -65,7 +74,7 @@ export default defineAction({
       content: planContentSchema
         .optional()
         .describe(
-          "Structured editable UI plan content. Prefer this for app-owned top canvas wireframes, sketch diagrams, rich text, code tabs, implementation maps, validation checklists, and bounded custom HTML fragments. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes.",
+          "Structured editable UI plan content. Prefer this for app-owned top canvas wireframes (HTML mockups: set the wireframe's data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex), sketch diagrams, rich text, code tabs, implementation maps, validation checklists, and bounded custom HTML fragments. Diagram data.html/data.css should use renderer-owned .diagram-* primitives plus --wf-* tokens, not custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Virgil/rough.js modes remain correct. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes. The renderer owns all visual styling; emit lean content, not pixels.",
         ),
       markdown: z
         .string()
@@ -132,10 +141,17 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) {
-      throw new Error("Creating a UI plan requires an authenticated user.");
-    }
+    const requesterEmail = getRequestUserEmail();
+    const requesterName = getRequestUserName();
+    const ownerEmail = requirePlanOwnerEmailForWrite(
+      requesterEmail,
+      "Creating a UI plan",
+    );
+    const ownerOrgId = resolvePlanOrgIdForWrite(
+      requesterEmail,
+      getRequestOrgId(),
+    );
+    await assertGuestCreateWithinLimits(ownerEmail);
 
     const id = newId("plan");
     const now = nowIso();
@@ -200,7 +216,7 @@ export default defineAction({
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,
         ownerEmail,
-        orgId: getRequestOrgId(),
+        orgId: ownerOrgId,
         visibility: "private",
       });
 
@@ -221,25 +237,13 @@ export default defineAction({
         })),
       );
 
-    if (args.comments.length > 0) {
-      await getDb()
-        .insert(schema.planComments)
-        .values(
-          args.comments.map((comment) => ({
-            id: comment.id ?? newId("cmt"),
-            planId: id,
-            sectionId: comment.sectionId ?? null,
-            kind: comment.kind,
-            status: comment.status,
-            anchor: comment.anchor ?? null,
-            message: comment.message,
-            createdBy: comment.createdBy,
-            consumedAt: null,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-    }
+    await insertInitialPlanComments({
+      planId: id,
+      comments: args.comments,
+      requestEmail: requesterEmail,
+      requestName: requesterName,
+      now,
+    });
 
     await writeEvent({
       planId: id,
@@ -254,12 +258,22 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: id,
+          title: bundle.plan.title,
+          brief: bundle.plan.brief,
+          content: bundle.plan.content,
+          url: planPath(id),
+        })
+      : null;
     return {
       ...bundle,
       planId: id,
       html: buildPlanHtml(bundle),
       path: planPath(id),
       url: planPath(id),
+      ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
         "Open the Agent-Native UI plan, review the top pan/zoom sketch canvas when present, continue through the implementation-focused document blocks, add comments or drawings directly on the plan, then I will call get-plan-feedback before implementing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };

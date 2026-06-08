@@ -1,0 +1,568 @@
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { emit, listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { normalizeServerUrl } from "../lib/url";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type TranscriptSource = "mic" | "system";
+
+interface TranscriptSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+  source: "mic" | "system";
+}
+
+export interface MeetingTranscriptionPayload {
+  meetingId: string;
+  joinUrl?: string | null;
+  reason?: "user" | "calendar-auto" | string;
+}
+
+interface MeetingTranscriptionSession {
+  meetingId: string;
+  recordingId: string;
+  lines: string[];
+  segments: TranscriptSegment[];
+  unlisten: Array<() => void>;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+  stopping: boolean;
+  paused: boolean;
+  audioMode: "mic-system" | "mic-only";
+}
+
+type CallClipsAction = <T>(
+  name: string,
+  body: Record<string, unknown>,
+  opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
+) => Promise<T>;
+
+interface Props {
+  callClipsAction: CallClipsAction;
+  serverUrl: string;
+  selectedMicId: string | null;
+  selectedMicLabel: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
+export function useMeetingTranscription({
+  callClipsAction,
+  serverUrl,
+  selectedMicId,
+  selectedMicLabel,
+}: Props): void {
+  const sessionRef = useRef<MeetingTranscriptionSession | null>(null);
+  const pendingPillInitRef = useRef<{
+    meetingId: string;
+    initialNotes: string;
+  } | null>(null);
+
+  const normalizedServerUrl = useMemo(
+    () => normalizeServerUrl(serverUrl),
+    [serverUrl],
+  );
+
+  // -------------------------------------------------------------------------
+  // Transcript flush
+  // -------------------------------------------------------------------------
+
+  const flushTranscript = useCallback(async () => {
+    const session = sessionRef.current;
+    if (!session || !session.lines.length) return;
+    await callClipsAction("save-browser-transcript", {
+      recordingId: session.recordingId,
+      fullText: session.lines.join("\n\n"),
+      segments: session.segments,
+      source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
+      overwriteReady: true,
+    });
+    emit("clips:meeting-saved", {
+      meetingId: session.meetingId,
+      ts: Date.now(),
+    }).catch(() => {});
+  }, [callClipsAction]);
+
+  // -------------------------------------------------------------------------
+  // Stop
+  // -------------------------------------------------------------------------
+
+  const stopTranscription = useCallback(
+    async (reason: string = "manual") => {
+      const session = sessionRef.current;
+      if (!session || session.stopping) return;
+      session.stopping = true;
+      if (session.flushTimer) {
+        window.clearTimeout(session.flushTimer);
+        session.flushTimer = null;
+      }
+      try {
+        if (session.audioMode === "mic-system") {
+          await invoke("meeting_audio_stop");
+        } else {
+          await invoke("native_speech_stop");
+        }
+      } catch (err) {
+        console.warn("[clips-popover] meeting audio stop failed:", err);
+      }
+      session.unlisten.splice(0).forEach((unlisten) => {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      });
+      await invoke("silence_detector_stop").catch(() => {});
+      await flushTranscript().catch((err) => {
+        console.warn("[clips-popover] meeting transcript save failed:", err);
+      });
+      await callClipsAction("stop-meeting-recording", {
+        meetingId: session.meetingId,
+      }).catch((err) => {
+        console.warn("[clips-popover] stop meeting action failed:", err);
+      });
+      if (session.lines.length) {
+        await callClipsAction("finalize-meeting", {
+          meetingId: session.meetingId,
+        }).catch((err) => {
+          console.warn("[clips-popover] finalize meeting failed:", err);
+        });
+      }
+      openExternal(
+        `${normalizedServerUrl}/meetings/${session.meetingId}`,
+      ).catch((err) => {
+        console.warn("[clips-popover] open meeting in web failed:", err);
+      });
+      await invoke("recording_pill_hide").catch(() => {});
+      await invoke("set_recording_state", { active: false }).catch(() => {});
+      emit("meetings:transcription-stopped", {
+        meetingId: session.meetingId,
+        reason,
+      }).catch(() => {});
+      sessionRef.current = null;
+    },
+    [callClipsAction, flushTranscript, normalizedServerUrl],
+  );
+
+  // -------------------------------------------------------------------------
+  // Start
+  // -------------------------------------------------------------------------
+
+  const startTranscription = useCallback(
+    async (payload: MeetingTranscriptionPayload) => {
+      const meetingId = payload.meetingId;
+      if (!meetingId) return;
+
+      const existing = sessionRef.current;
+      if (existing && !existing.stopping) {
+        if (existing.meetingId === meetingId) {
+          emit("meetings:hide-notification", { meetingId }).catch(() => {});
+          return;
+        }
+        await stopTranscription("replaced");
+      }
+
+      try {
+        const result = await callClipsAction<{
+          meetingId?: string;
+          recording?: { id?: string | null } | null;
+        }>("start-meeting-recording", { meetingId });
+        const resolvedMeetingId = result.meetingId ?? meetingId;
+        const recordingId = result.recording?.id;
+        if (!recordingId) {
+          throw new Error("Could not create a transcript session.");
+        }
+
+        const session: MeetingTranscriptionSession = {
+          meetingId: resolvedMeetingId,
+          recordingId,
+          lines: [],
+          segments: [],
+          unlisten: [],
+          flushTimer: null,
+          stopping: false,
+          paused: false,
+          audioMode: "mic-system",
+        };
+        sessionRef.current = session;
+        await invoke("set_recording_state", { active: true }).catch(() => {});
+
+        const scheduleFlush = () => {
+          if (session.flushTimer) window.clearTimeout(session.flushTimer);
+          session.flushTimer = window.setTimeout(() => {
+            session.flushTimer = null;
+            flushTranscript().catch((err) => {
+              console.warn("[clips-popover] transcript flush failed:", err);
+            });
+          }, 1500);
+        };
+
+        const addUnlisten = (promise: Promise<() => void>) => {
+          promise
+            .then((unlisten) => {
+              if (sessionRef.current !== session || session.stopping) {
+                unlisten();
+                return;
+              }
+              session.unlisten.push(unlisten);
+            })
+            .catch(() => {});
+        };
+
+        addUnlisten(
+          listen<{
+            text?: string;
+            source?: TranscriptSource;
+            segments?: Array<{ startMs: number; endMs: number; text: string }>;
+          }>("voice:final-transcript", (event) => {
+            if (sessionRef.current !== session) return;
+            const text = event.payload?.text?.trim();
+            if (!text) return;
+            const source: "mic" | "system" =
+              event.payload?.source === "system" ? "system" : "mic";
+            const speaker = source === "system" ? "Them" : "Me";
+            session.lines.push(`${speaker}: ${text}`);
+            for (const seg of event.payload?.segments ?? []) {
+              const segText = seg.text?.trim();
+              if (!segText) continue;
+              session.segments.push({
+                startMs: seg.startMs,
+                endMs: seg.endMs,
+                text: segText,
+                source,
+              });
+            }
+            scheduleFlush();
+          }),
+        );
+        addUnlisten(
+          listen<{ meetingId?: string | null }>("clips:pill-stop", (event) => {
+            const stoppedMeetingId = event.payload?.meetingId;
+            if (stoppedMeetingId && stoppedMeetingId !== resolvedMeetingId)
+              return;
+            stopTranscription("manual").catch(() => {});
+          }),
+        );
+        addUnlisten(
+          listen("meetings:silence-stop", () => {
+            stopTranscription("silence").catch(() => {});
+          }),
+        );
+        addUnlisten(
+          listen("meetings:sleep-stop", () => {
+            stopTranscription("sleep").catch(() => {});
+          }),
+        );
+        addUnlisten(
+          listen("meetings:call-ended", () => {
+            stopTranscription("call-ended").catch(() => {});
+          }),
+        );
+
+        const silenceDetectorConfig = {
+          silenceThreshold: 0.05,
+          silenceMs: 15 * 60 * 1000,
+          callEndedMs: 2 * 60 * 1000,
+          watchSleep: true,
+          watchCallEnded: true,
+        };
+
+        const startAudio = async () => {
+          if (session.audioMode === "mic-system") {
+            await invoke("meeting_audio_start", {
+              meetingId: resolvedMeetingId,
+              locale: navigator.language || "en-US",
+              micDeviceId: selectedMicId || null,
+              micDeviceLabel: selectedMicLabel || null,
+            });
+          } else {
+            await invoke("native_speech_start", {
+              locale: navigator.language || "en-US",
+              micDeviceId: selectedMicId || null,
+              micDeviceLabel: selectedMicLabel || null,
+            });
+          }
+        };
+
+        // Pause/resume state machine — see app.tsx for full explanation.
+        let desiredPaused = false;
+        let applyingTransition = false;
+
+        const applyAudioState = async () => {
+          if (applyingTransition) return;
+          if (sessionRef.current !== session || session.stopping) return;
+          if (desiredPaused === session.paused) return;
+          applyingTransition = true;
+          try {
+            if (desiredPaused) {
+              if (session.flushTimer) {
+                window.clearTimeout(session.flushTimer);
+                session.flushTimer = null;
+              }
+              await invoke("silence_detector_stop").catch(() => {});
+              try {
+                if (session.audioMode === "mic-system") {
+                  await invoke("meeting_audio_stop");
+                } else {
+                  await invoke("native_speech_stop");
+                }
+              } catch (err) {
+                console.warn(
+                  "[clips-popover] meeting audio pause failed; staying live:",
+                  err,
+                );
+                desiredPaused = false;
+                session.paused = false;
+                await invoke("silence_detector_start", {
+                  config: silenceDetectorConfig,
+                }).catch(() => {});
+                return;
+              }
+              await flushTranscript().catch(() => {});
+              session.paused = true;
+            } else {
+              try {
+                await startAudio();
+              } catch (err) {
+                console.warn(
+                  "[clips-popover] meeting audio resume failed; staying paused:",
+                  err,
+                );
+                desiredPaused = true;
+                session.paused = true;
+                return;
+              }
+              session.paused = false;
+              await invoke("silence_detector_start", {
+                config: silenceDetectorConfig,
+              }).catch(() => {});
+            }
+          } finally {
+            applyingTransition = false;
+          }
+          void applyAudioState();
+        };
+
+        const requestAudioState = (paused: boolean) => {
+          desiredPaused = paused;
+          void applyAudioState();
+        };
+
+        addUnlisten(
+          listen("clips:recorder-pause", () => {
+            requestAudioState(true);
+          }),
+        );
+        addUnlisten(
+          listen("clips:recorder-resume", () => {
+            requestAudioState(false);
+          }),
+        );
+
+        // Pill init — set synchronously before the pill mounts so pill-ready
+        // re-emit has meetingId available immediately.
+        pendingPillInitRef.current = {
+          meetingId: resolvedMeetingId,
+          initialNotes: "",
+        };
+
+        await invoke("recording_pill_show", {
+          meetingId: resolvedMeetingId,
+          mode: "meeting",
+        });
+
+        // Immediate emit covers the reused-window case (pill already mounted).
+        emit("clips:pill-context", {
+          meetingId: resolvedMeetingId,
+          mode: "meeting",
+        }).catch(() => {});
+
+        callClipsAction<{ meeting?: { userNotesMd?: string } }>(
+          "get-meeting",
+          { id: resolvedMeetingId },
+          { method: "GET" },
+        )
+          .then((data) => {
+            // Guard: if the session changed while the fetch was in-flight
+            // (user switched meetings), don't overwrite the new meeting's
+            // pending context with stale data.
+            if (pendingPillInitRef.current?.meetingId !== resolvedMeetingId)
+              return;
+            const initialNotes = data?.meeting?.userNotesMd ?? "";
+            pendingPillInitRef.current = {
+              meetingId: resolvedMeetingId,
+              initialNotes,
+            };
+            emit("clips:meeting-notes-init", {
+              meetingId: resolvedMeetingId,
+              initialNotes,
+            }).catch(() => {});
+          })
+          .catch(() => {});
+
+        try {
+          await startAudio();
+        } catch (err) {
+          console.warn(
+            "[clips-popover] mic + system meeting audio failed, falling back to mic-only:",
+            err,
+          );
+          session.audioMode = "mic-only";
+          await invoke("native_speech_start", {
+            locale: navigator.language || "en-US",
+            micDeviceId: selectedMicId || null,
+            micDeviceLabel: selectedMicLabel || null,
+          });
+        }
+
+        await invoke("silence_detector_start", {
+          config: silenceDetectorConfig,
+        }).catch(() => {});
+
+        if (payload.joinUrl && payload.reason !== "user") {
+          emit("meetings:open-join-url", {
+            joinUrl: payload.joinUrl,
+          }).catch(() => {});
+        }
+
+        emit("meetings:hide-notification", { meetingId }).catch(() => {});
+      } catch (err) {
+        sessionRef.current = null;
+        await invoke("recording_pill_hide").catch(() => {});
+        await invoke("set_recording_state", { active: false }).catch(() => {});
+        const message =
+          err instanceof Error ? err.message : "Could not start notes.";
+        emit("meetings:transcription-error", {
+          meetingId,
+          error: message,
+        }).catch(() => {});
+      }
+    },
+    [
+      callClipsAction,
+      flushTranscript,
+      selectedMicId,
+      selectedMicLabel,
+      stopTranscription,
+    ],
+  );
+
+  // -------------------------------------------------------------------------
+  // Event listeners
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    let stopped = false;
+    const track = (promise: Promise<() => void>) => {
+      promise
+        .then((unlisten) => {
+          if (stopped) {
+            unlisten();
+            return;
+          }
+          unlisteners.push(unlisten);
+        })
+        .catch(() => {});
+    };
+    track(
+      listen<MeetingTranscriptionPayload>(
+        "meetings:start-transcription",
+        (event) => {
+          startTranscription(event.payload).catch((err) => {
+            console.error("[clips-popover] start transcription failed:", err);
+          });
+        },
+      ),
+    );
+    return () => {
+      stopped = true;
+      unlisteners.forEach((unlisten) => {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      });
+      unlisteners.length = 0;
+    };
+  }, [startTranscription]);
+
+  useEffect(() => {
+    let stopped = false;
+    const unlistens: Array<Promise<() => void>> = [];
+
+    let notesSaveController: AbortController | null = null;
+
+    unlistens.push(
+      listen<{ meetingId: string; notes: string }>(
+        "clips:save-meeting-notes",
+        (ev) => {
+          notesSaveController?.abort();
+          notesSaveController = new AbortController();
+          const signal = notesSaveController.signal;
+          callClipsAction(
+            "update-meeting",
+            { id: ev.payload.meetingId, userNotesMd: ev.payload.notes },
+            { signal },
+          )
+            .then(() => {
+              emit("clips:meeting-saved", {
+                meetingId: ev.payload.meetingId,
+                ts: Date.now(),
+              }).catch(() => {});
+            })
+            .catch((err) => {
+              if ((err as Error)?.name === "AbortError") return;
+              console.warn("[clips-popover] save meeting notes failed:", err);
+              emit("clips:meeting-save-failed", {}).catch(() => {});
+            });
+        },
+      ),
+    );
+
+    unlistens.push(
+      listen("clips:pill-ready", () => {
+        const pending = pendingPillInitRef.current;
+        if (!pending) return;
+        emit("clips:pill-context", {
+          meetingId: pending.meetingId,
+          mode: "meeting",
+        }).catch(() => {});
+        emit("clips:meeting-notes-init", {
+          meetingId: pending.meetingId,
+          initialNotes: pending.initialNotes,
+        }).catch(() => {});
+      }),
+    );
+
+    unlistens.push(
+      listen<{ meetingId: string }>("clips:open-meeting", (ev) => {
+        if (!ev.payload?.meetingId) return;
+        openExternal(
+          `${normalizedServerUrl}/meetings/${ev.payload.meetingId}`,
+        ).catch((err) =>
+          console.warn("[clips-popover] open meeting in web failed:", err),
+        );
+      }),
+    );
+
+    return () => {
+      stopped = true;
+      notesSaveController?.abort();
+      unlistens.forEach((p) =>
+        p
+          .then((u) => {
+            if (stopped) u();
+          })
+          .catch(() => {}),
+      );
+    };
+  }, [callClipsAction, normalizedServerUrl]);
+}

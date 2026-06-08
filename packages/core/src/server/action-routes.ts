@@ -89,6 +89,21 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
+/**
+ * True when the request originated from the browser action client
+ * (`useActionQuery` / `useActionMutation` / `callAction`), which tags every
+ * call with `X-Agent-Native-Frontend: 1`. Used to set `ctx.caller` to
+ * `"frontend"` vs a bare programmatic `"http"` POST. The header carries no
+ * auth weight — it only narrows the caller tag for tracking/branching.
+ */
+function isFrontendActionRequest(event: any): boolean {
+  try {
+    return getHeader(event, "x-agent-native-frontend") === "1";
+  } catch {
+    return false;
+  }
+}
+
 type CorsOrigin = {
   origin: string;
   credentials: boolean;
@@ -137,8 +152,8 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,${EMBED_TARGET_HEADER}`
-        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id`,
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,${EMBED_TARGET_HEADER}`
+        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend`,
     );
   }
 
@@ -264,9 +279,20 @@ export function mountActionRoutes(
               params = {};
             }
 
-            // Run the action
+            // Run the action. Tag the caller: browser calls (useActionQuery /
+            // useActionMutation / callAction) send X-Agent-Native-Frontend: 1,
+            // so they become "frontend"; bare programmatic POSTs are "http".
+            // userEmail / orgId mirror the request context resolved above (do
+            // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
-              const result = await entry.run(params);
+              const caller = isFrontendActionRequest(event)
+                ? "frontend"
+                : "http";
+              const result = await entry.run(params, {
+                userEmail,
+                orgId: orgId ?? null,
+                caller,
+              });
 
               // Auto-refresh the UI after a successful mutating action. GET
               // actions and actions explicitly flagged readOnly are skipped.

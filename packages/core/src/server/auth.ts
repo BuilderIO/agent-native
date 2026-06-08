@@ -126,6 +126,7 @@ import {
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
+import { putSetting } from "../settings/store.js";
 // Pure env-read feature switch from a leaf module (no dependency back on
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
@@ -149,6 +150,8 @@ export interface AuthSession {
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
+  /** Profile image from the auth provider, when available. */
+  image?: string;
   /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
@@ -686,6 +689,81 @@ async function getBearerLegacySession(
   if (!bearerToken) return null;
   const email = await getSessionEmail(bearerToken);
   return email ? { email, token: bearerToken } : null;
+}
+
+/**
+ * Verify a connect-minted MCP OAuth access token presented as
+ * `Authorization: Bearer <jwt>` and resolve it to a session.
+ *
+ * `agent-native connect` mints this token for the local Plans publish flow and
+ * POSTs it to the HOSTED action route
+ * `/_agent-native/actions/import-visual-plan-source`. That token is audience-
+ * bound to the app's MCP resource (`{appUrl}/_agent-native/mcp`), not to the
+ * legacy `sessions` table — so the legacy bearer lookup above never matches it.
+ * Reuse the MCP surface's canonical `verifyAuth` here so the HTTP action surface
+ * honors EXACTLY the tokens the MCP endpoint honors: same signature check, same
+ * audience binding to THIS app's resource, same connect-token revocation gate.
+ * It resolves to the same `{ userEmail, orgId }` identity the MCP path uses, so
+ * downstream `accessFilter` / ownable-data scoping is identical.
+ *
+ * `allowDevOpen: false` and the `userEmail` guard ensure an invalid token (or a
+ * bare ACCESS_TOKEN with no owner hint) never escalates to an unauthenticated
+ * or unscoped identity on this path — it strictly adds acceptance of verified,
+ * audience-bound caller tokens, nothing more.
+ */
+async function getMcpOAuthBearerSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  const authHeader = getHeader(event, "authorization");
+  if (!authHeader) return null;
+  const bearerToken = getBearerSessionToken(event);
+  if (!bearerToken) return null;
+
+  try {
+    const [{ getMcpOAuthResource }, { verifyAuth, resolveOrgIdFromDomain }] =
+      await Promise.all([
+        import("../mcp/oauth-route.js"),
+        import("../mcp/build-server.js"),
+      ]);
+    const result = await verifyAuth(authHeader, undefined, {
+      resourceUrl: getMcpOAuthResource(event),
+      allowDevOpen: false,
+    });
+    const identity = result.authed ? result.identity : undefined;
+    if (!identity?.userEmail) return null;
+    const orgId =
+      identity.orgId ?? (await resolveOrgIdFromDomain(identity.orgDomain));
+    return {
+      email: identity.userEmail,
+      token: bearerToken,
+      ...(orgId ? { orgId } : {}),
+    };
+  } catch (e) {
+    console.error("[auth] MCP OAuth bearer verification error:", e);
+    return null;
+  }
+}
+
+function isFrameworkActionRoute(event: H3Event): boolean {
+  const { rawPath } = getRequestPathAndSearch(event);
+  const path = stripAppBasePath(rawPath);
+  return (
+    path === "/_agent-native/actions" ||
+    path.startsWith("/_agent-native/actions/")
+  );
+}
+
+/**
+ * Resolve an `Authorization: Bearer` token to a session: first the legacy
+ * `sessions` table (desktop/native persisted tokens), then, only on the
+ * framework HTTP action surface, a connect-minted MCP OAuth access token (the
+ * local Plans publish credential).
+ */
+async function getBearerSession(event: H3Event): Promise<AuthSession | null> {
+  const legacy = await getBearerLegacySession(event);
+  if (legacy) return legacy;
+  if (!isFrameworkActionRoute(event)) return null;
+  return getMcpOAuthBearerSession(event);
 }
 
 function shouldExposeSessionTokenInBody(event: H3Event): boolean {
@@ -1831,13 +1909,14 @@ async function maybeAutoCreateDevSession(
  * Map a Better Auth session to our AuthSession type.
  */
 function mapBetterAuthSession(baSession: {
-  user: { id: string; email: string; name?: string };
+  user: { id: string; email: string; name?: string; image?: string | null };
   session: { token: string };
 }): AuthSession {
   return {
     email: baSession.user.email,
     userId: baSession.user.id,
     name: baSession.user.name,
+    ...(baSession.user.image ? { image: baSession.user.image } : {}),
     token: baSession.session?.token,
   };
 }
@@ -1920,7 +1999,7 @@ async function resolveSessionUncached(
     const session = await customGetSession(event);
     if (session) return session;
 
-    const bearerSession = await getBearerLegacySession(event);
+    const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
 
     // Desktop SSO broker: even with BYOA auth, fall back to the broker
@@ -1932,9 +2011,11 @@ async function resolveSessionUncached(
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 4. Bearer legacy session. Desktop/native clients can persist a session
+    // 4. Bearer session. Desktop/native clients can persist a legacy session
     // token outside the WebView cookie jar and attach it to all app requests.
-    const bearerSession = await getBearerLegacySession(event);
+    // `agent-native connect` clients may present a connect-minted MCP OAuth
+    // token, but only the framework action route accepts that fallback.
+    const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
 
     // 5. Better Auth session (cookie or Bearer token)
@@ -2460,6 +2541,16 @@ async function mountBetterAuthRoutes(
             throw new Error(
               "Google account email is not verified. Please verify your email with Google and try again.",
             );
+          }
+          if (typeof user.picture === "string" && user.picture.trim()) {
+            await putSetting(`avatar:${email}`, {
+              image: user.picture,
+            }).catch((error) => {
+              console.warn(
+                "[auth] failed to store Google profile image:",
+                error,
+              );
+            });
           }
 
           const { sessionToken } = await createOAuthSession(event, email, {

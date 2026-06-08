@@ -247,6 +247,7 @@ export function CommentsSidebar({
             resolveComment.mutate({
               id: thread.comments[0].id,
               documentId,
+              resolved: true,
             })
           }
           onSendToAI={() => handleSendToAI(thread)}

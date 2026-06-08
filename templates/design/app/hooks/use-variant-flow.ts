@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   sendToAgentChat,
   agentNativePath,
+  callAction,
   isEmbedAuthActive,
 } from "@agent-native/core/client";
 
@@ -151,43 +152,33 @@ export function useVariantFlow(designId: string | undefined) {
       // agent's own action endpoint so every host lands on the same design.
       let persisted = false;
       try {
-        const res = await fetch(
-          agentNativePath("/_agent-native/actions/generate-design"),
+        await callAction(
+          "generate-design" as any,
           {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              designId,
-              prompt: `User picked variant "${chosen.label}"`,
-              files: [
-                {
-                  filename: "index.html",
-                  content: chosen.content,
-                  fileType: "html",
-                },
-              ],
-            }),
-          },
+            designId,
+            prompt: `User picked variant "${chosen.label}"`,
+            files: [
+              {
+                filename: "index.html",
+                content: chosen.content,
+                fileType: "html",
+              },
+            ],
+          } as any,
         );
-        if (res.ok) {
-          await Promise.all([
-            qc.invalidateQueries({
-              queryKey: ["action", "get-design", { id: designId }],
+        await Promise.all([
+          qc.invalidateQueries({
+            queryKey: ["action", "get-design", { id: designId }],
+          }),
+          qc.invalidateQueries({ queryKey: ["action", "get-design"] }),
+          qc.invalidateQueries({ queryKey: ["action", "list-designs"] }),
+        ]);
+        persisted = true;
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(DESIGN_VARIANT_PICKED_EVENT, {
+              detail: { designId, content: chosen.content },
             }),
-            qc.invalidateQueries({ queryKey: ["action", "get-design"] }),
-            qc.invalidateQueries({ queryKey: ["action", "list-designs"] }),
-          ]);
-          persisted = true;
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(
-              new CustomEvent(DESIGN_VARIANT_PICKED_EVENT, {
-                detail: { designId, content: chosen.content },
-              }),
-            );
-          }
-        } else {
-          console.warn(
-            `[use-variant-flow] generate-design returned ${res.status}; variant not persisted`,
           );
         }
       } catch {

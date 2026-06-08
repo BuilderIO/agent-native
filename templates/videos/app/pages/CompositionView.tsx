@@ -10,8 +10,8 @@ import {
   IconAdjustments,
 } from "@tabler/icons-react";
 import {
-  agentNativePath,
   appBasePath,
+  callAction,
   useDevMode,
   ShareButton,
   useSession,
@@ -52,6 +52,23 @@ type CompositionViewProps = {
   agentActive?: boolean;
   agentPresent?: boolean;
 };
+
+function rejectOnAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(new Error("Request timed out"));
+  }
+
+  return new Promise((resolve, reject) => {
+    const handleAbort = () => reject(new Error("Request timed out"));
+    signal.addEventListener("abort", handleAbort, { once: true });
+    promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", handleAbort);
+    });
+  });
+}
 
 export default function CompositionView({
   onCameraKeyframeClick,
@@ -202,35 +219,24 @@ export default function CompositionView({
         };
 
         const saveToDatabase = async (signal: AbortSignal) => {
-          const response = await fetch(
-            agentNativePath("/_agent-native/actions/update-composition"),
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              signal,
-              body: JSON.stringify({
-                id: composition.id,
-                data: JSON.stringify({
-                  description: composition.description,
-                  durationInFrames: composition.durationInFrames,
-                  fps: composition.fps,
-                  width: composition.width,
-                  height: composition.height,
-                  defaultProps: currentProps,
-                  tracks: formattedTracks,
-                }),
+          const result = (await rejectOnAbort(
+            callAction("update-composition", {
+              id: composition.id,
+              data: JSON.stringify({
+                description: composition.description,
+                durationInFrames: composition.durationInFrames,
+                fps: composition.fps,
+                width: composition.width,
+                height: composition.height,
+                defaultProps: currentProps,
+                tracks: formattedTracks,
               }),
-            },
-          );
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server error: ${response.status} - ${errorText}`);
-          }
-
-          const result = (await response.json().catch(() => null)) as {
+            }),
+            signal,
+          )) as {
             error?: string;
           } | null;
+
           if (result?.error) throw new Error(result.error);
         };
 

@@ -171,6 +171,185 @@ export interface DiscoveredAction {
   absPath: string;
   /** HTTP method (from defineAction's http config, default POST) */
   method: string;
+  /**
+   * Custom route segment from defineAction's `http.path`. When unset the
+   * route falls back to `name`, mirroring the runtime mount
+   * (`action-routes.ts`: `path = http?.path ?? name`).
+   */
+  path?: string;
+}
+
+/** HTTP methods an action may expose via `http.method`. */
+const VALID_ACTION_METHODS = new Set([
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "options",
+  "head",
+]);
+
+/**
+ * Statically extract the `http` config from a defineAction source file.
+ *
+ * Deploy discovery cannot import the action module — edge bundlers rewrite
+ * require()/import in ways that crash (see getFs note above), and action
+ * files often pull in Node-only deps — so we parse the source text instead.
+ * The parse is scoped to the `http: { ... }` object literal so unrelated
+ * `method:`/`path:` keys elsewhere in the file (e.g. a
+ * `fetch(url, { method: "GET" })` in the action body) cannot flip the
+ * route's method. A naive `content.includes('method: "GET"')` did exactly
+ * that, and it also missed PUT/PATCH/DELETE and dropped `http.path`.
+ *
+ * The http config may contain nested object literals before `method` or
+ * `path`, so extract the object body with a small balanced-brace scan rather
+ * than a non-greedy regex that stops at the first closing brace.
+ *
+ * Returns `false` when the action opts out of HTTP (`http: false`); otherwise
+ * `{ method, path? }` with method lowercased and defaulting to "post".
+ */
+export function parseActionHttpConfig(
+  content: string,
+): false | { method: string; path?: string } {
+  let method = "post";
+  let path: string | undefined;
+
+  const httpConfig = extractActionHttpConfig(content);
+  if (httpConfig === false) return false;
+
+  if (typeof httpConfig === "string") {
+    const body = httpConfig;
+    const methodMatch = body.match(/\bmethod\s*:\s*['"]([A-Za-z]+)['"]/);
+    if (methodMatch) {
+      const m = methodMatch[1].toLowerCase();
+      if (VALID_ACTION_METHODS.has(m)) method = m;
+    }
+    const pathMatch = body.match(/\bpath\s*:\s*['"]([^'"]+)['"]/);
+    if (pathMatch) path = pathMatch[1];
+  }
+
+  return { method, path };
+}
+
+function extractActionHttpConfig(content: string): false | string | undefined {
+  for (let i = 0; i < content.length; ) {
+    const skipped = skipNonCode(content, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+
+    if (
+      content.startsWith("http", i) &&
+      !isIdentifierChar(content[i - 1]) &&
+      !isIdentifierChar(content[i + 4])
+    ) {
+      let valueStart = skipWhitespaceAndComments(content, i + 4);
+      if (content[valueStart] !== ":") {
+        i += 4;
+        continue;
+      }
+
+      valueStart = skipWhitespaceAndComments(content, valueStart + 1);
+      if (
+        content.startsWith("false", valueStart) &&
+        !isIdentifierChar(content[valueStart + 5])
+      ) {
+        return false;
+      }
+
+      if (content[valueStart] === "{") {
+        return extractBalancedObjectBody(content, valueStart);
+      }
+    }
+
+    i += 1;
+  }
+
+  return undefined;
+}
+
+function extractBalancedObjectBody(
+  content: string,
+  openBraceIndex: number,
+): string | undefined {
+  let depth = 0;
+  for (let i = openBraceIndex; i < content.length; ) {
+    const skipped = skipNonCode(content, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+
+    const ch = content[i];
+    if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return content.slice(openBraceIndex + 1, i);
+    }
+
+    i += 1;
+  }
+
+  return undefined;
+}
+
+function skipWhitespaceAndComments(content: string, start: number): number {
+  let i = start;
+  while (i < content.length) {
+    if (/\s/.test(content[i])) {
+      i += 1;
+      continue;
+    }
+
+    const skipped = skipComment(content, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+
+    break;
+  }
+  return i;
+}
+
+function skipNonCode(content: string, start: number): number {
+  return skipComment(content, skipString(content, start));
+}
+
+function skipComment(content: string, start: number): number {
+  if (content[start] === "/" && content[start + 1] === "/") {
+    const newline = content.indexOf("\n", start + 2);
+    return newline === -1 ? content.length : newline + 1;
+  }
+
+  if (content[start] === "/" && content[start + 1] === "*") {
+    const close = content.indexOf("*/", start + 2);
+    return close === -1 ? content.length : close + 2;
+  }
+
+  return start;
+}
+
+function skipString(content: string, start: number): number {
+  const quote = content[start];
+  if (quote !== "'" && quote !== '"' && quote !== "`") return start;
+
+  for (let i = start + 1; i < content.length; i += 1) {
+    if (content[i] === "\\") {
+      i += 1;
+      continue;
+    }
+    if (content[i] === quote) return i + 1;
+  }
+
+  return content.length;
+}
+
+function isIdentifierChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
 }
 
 /**
@@ -198,22 +377,23 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
     // (export default async function()) often use Node-only APIs
     // (fs, path) that can't run on edge runtimes — they're meant
     // to be invoked via `pnpm action <name>`, not as HTTP endpoints.
-    let method = "post"; // default
+    let content: string;
     try {
-      const content = fs.readFileSync(absPath, "utf-8");
-      if (!content.includes("defineAction")) continue;
-      if (content.includes("http: false")) continue;
-      if (
-        content.includes('method: "GET"') ||
-        content.includes("method: 'GET'")
-      ) {
-        method = "get";
-      }
+      content = fs.readFileSync(absPath, "utf-8");
     } catch {
       continue;
     }
+    if (!content.includes("defineAction")) continue;
 
-    out.push({ name, absPath, method });
+    const http = parseActionHttpConfig(content);
+    if (http === false) continue; // agent-only
+
+    out.push({
+      name,
+      absPath,
+      method: http.method,
+      ...(http.path ? { path: http.path } : {}),
+    });
   }
 
   return out;

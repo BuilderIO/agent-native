@@ -20,6 +20,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Overview", to: "/docs/using-your-agent" as const },
       { label: "Context Awareness", to: "/docs/context-awareness" as const },
+      { label: "Visual Plans", to: "/docs/visual-plans" as const },
       { label: "Agent Mentions", to: "/docs/agent-mentions" as const },
       { label: "Voice Input", to: "/docs/voice-input" as const },
       { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },
@@ -84,6 +85,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Calendar", to: "/docs/template-calendar" as const },
       { label: "Content", to: "/docs/template-content" as const },
+      { label: "Plans", to: "/docs/template-plan" as const },
       { label: "Slides", to: "/docs/template-slides" as const },
       { label: "Video", to: "/docs/template-videos" as const },
       { label: "Analytics", to: "/docs/template-analytics" as const },

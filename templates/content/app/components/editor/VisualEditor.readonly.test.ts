@@ -16,12 +16,36 @@ describe("VisualEditor read-only mode", () => {
   });
 
   it("gates the custom drag handle behind editor editability", () => {
-    const source = readEditorSource("./extensions/DragHandle.tsx");
+    // Content's DragHandle is now a thin re-export of the shared core extension
+    // (configured with Content's wrapper selector); the implementation — and the
+    // editability gate — lives in core, so assert it against the core source.
+    const reexport = readEditorSource("./extensions/DragHandle.tsx");
+    expect(reexport).toContain(
+      'import { DragHandle as CoreDragHandle } from "@agent-native/core/client"',
+    );
+    expect(reexport).toContain('wrapperSelector: ".visual-editor-wrapper"');
+
+    const source = readEditorSource(
+      "../../../../../packages/core/src/client/rich-markdown-editor/DragHandle.ts",
+    );
 
     expect(source).toContain("const editor = this.editor");
     expect(source).toContain("el.draggable = false");
-    expect(source).toMatch(
-      /handle\.addEventListener\("mousedown", \(e\) => \{\s*e\.stopPropagation\(\);\s*if \(!editor\.isEditable\) \{\s*e\.preventDefault\(\);/,
+    const mouseDownHandlerStart = source.indexOf(
+      'handle.addEventListener("mousedown", (e) => {',
+    );
+    const mouseDownHandlerEnd = source.indexOf(
+      'handle.addEventListener("keydown", (e) => {',
+    );
+    expect(mouseDownHandlerStart).toBeGreaterThan(-1);
+    expect(mouseDownHandlerEnd).toBeGreaterThan(mouseDownHandlerStart);
+    const mouseDownHandler = source.slice(
+      mouseDownHandlerStart,
+      mouseDownHandlerEnd,
+    );
+    expect(mouseDownHandler).toContain("e.stopPropagation();");
+    expect(mouseDownHandler).toMatch(
+      /if \(!editor\.isEditable\) \{\s*e\.preventDefault\(\);\s*return;\s*\}/,
     );
     expect(source).not.toMatch(
       /handle\.addEventListener\("mousedown", \(e\) => \{\s*e\.preventDefault\(\);\s*if \(!editor\.isEditable\)/,

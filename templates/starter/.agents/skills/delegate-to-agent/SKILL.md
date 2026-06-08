@@ -2,8 +2,11 @@
 name: delegate-to-agent
 description: >-
   How to delegate all AI work to the agent chat. Use when delegating AI work
-  from UI or scripts to the agent, when tempted to add inline LLM calls, or
-  when sending messages to the agent from application code.
+  from UI or scripts to the agent, when a user asks for agent behavior or
+  LLM-powered features, when tempted to add inline LLM calls, or when sending
+  messages to the agent from application code.
+metadata:
+  internal: true
 ---
 
 # Delegate All AI to the Agent
@@ -14,7 +17,7 @@ The UI and server never call an LLM directly. All AI work is delegated to the ag
 
 ## Why
 
-The agent is the single AI interface. It has context about the full project, can read/write the database, and can run scripts. Inline LLM calls bypass this — they create a shadow AI that doesn't know what the agent knows and can't coordinate with it.
+The agent is the single AI interface. It has context about the full project, can read/write any file, and can run scripts. Inline LLM calls bypass this — they create a shadow AI that doesn't know what the agent knows and can't coordinate with it.
 
 ## How
 
@@ -123,6 +126,55 @@ Buttons that produce new content ("New Design", "Create Dashboard", "Make Deck",
 
 If you find yourself writing `submit: true` with a hardcoded creative verb (`"design a..."`, `"write a..."`, `"build a..."`), stop and add a Popover.
 
+## Delegating to a Sub-Agent (Agent Teams)
+
+`sendToAgentChat()` delegates from app code _to_ the agent. The other axis of
+delegation is the agent handing work _to a sub-agent_ through the Agent Teams
+run-manager. The main chat stays the orchestrator: it spawns sub-agents, then
+reads and integrates their results.
+
+### When to spawn a sub-agent vs do it yourself
+
+- **Do it yourself** when the work is small, on the critical path, or tightly
+  coupled to what you're already doing. Sub-agent overhead and coordination risk
+  outweigh the benefit.
+- **Spawn a sub-agent** for a self-contained unit of work that can run
+  independently — a disjoint investigation, an isolated implementation slice, a
+  long-running search — especially when it frees the main thread to keep
+  orchestrating.
+
+### Briefing contract
+
+Every sub-agent brief must specify four things, or the sub-agent will guess:
+
+- **Objective** — the one concrete outcome it owns, in a sentence.
+- **Context** — the facts it needs (paths, prior findings, constraints) so it
+  doesn't re-derive them.
+- **Output** — the exact shape you want back (a summary, a file edited, a list
+  of paths, a yes/no with rationale).
+- **Boundaries** — what it must NOT touch (files, branches, side effects) and
+  when to stop and report rather than push forward.
+
+### Fan-out discipline
+
+- **Default to a single sub-agent.** Most delegation is one focused task.
+- **Spawn multiple only for genuinely independent units** that don't share state
+  or files. Never parallelize coupled work — if B needs A's output, run them in
+  sequence.
+- **Cap parallel fan-out at ~3.** More sub-agents means more synthesis cost and
+  more chance of conflicting edits to the same area.
+
+### Synthesis discipline
+
+- **Read every result** before concluding — don't act on the first one back.
+- **Reconcile conflicts** between sub-agent findings explicitly; decide which is
+  right rather than averaging or ignoring.
+- **Integrate into one answer.** The main thread produces the single coherent
+  result; it never just forwards raw sub-agent transcripts to the user.
+
+Background sub-agents must use the core run-manager / Agent Teams infrastructure
+rather than ad-hoc LLM calls.
+
 ## Don't
 
 - Don't `import Anthropic from "@anthropic-ai/sdk"` in client or server code
@@ -136,9 +188,27 @@ If you find yourself writing `submit: true` with a hardcoded creative verb (`"de
 
 Scripts may call external APIs (image generation, search, etc.) — but the AI reasoning and orchestration still goes through the agent. A script is a tool the agent uses, not a replacement for the agent.
 
+## When to Use A2A Instead
+
+`sendToAgentChat()` delegates work to the **local** agent — the one running alongside your app. When the work should go to a **different** agent entirely (e.g., asking an analytics agent for data, or a calendar agent for availability), use the A2A (agent-to-agent) protocol instead.
+
+```ts
+import { callAgent } from "@agent-native/core/a2a";
+
+// Call a different agent — not the local agent chat
+const stats = await callAgent(
+  "https://analytics.example.com",
+  "What were last week's signups?",
+  { apiKey: process.env.ANALYTICS_A2A_KEY },
+);
+```
+
+See the **a2a-protocol** skill for the full pattern.
+
 ## Related Skills
 
-- **scripts** — The agent invokes scripts via `pnpm action <name>` to perform complex operations
+- **a2a-protocol** — When the work goes to a different agent, not the local one
+- **actions** — The agent invokes actions via `pnpm action <name>` to perform complex operations
 - **self-modifying-code** — The agent operates through the chat bridge to make code changes
 - **storing-data** — The agent writes results to the database after processing requests
-- **real-time-sync** — The UI updates automatically when the agent writes to the database
+- **real-time-sync** — The UI updates automatically when the agent writes data

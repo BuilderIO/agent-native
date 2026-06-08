@@ -23,7 +23,11 @@ agent should know.
 - Put shared code in `packages/shared` only when multiple apps need it.
 - Keep app-specific screens, actions, state, and skills inside `apps/<app>`.
 - Store shared runtime configuration in the workspace root `.env`; use
-  `apps/<app>/.env` only for app-specific overrides.
+  `apps/<app>/.env` only for app-specific overrides. Never hardcode API keys,
+  tokens, webhook URLs, signing secrets, private Builder/internal data, customer
+  data, or credential-looking literals in source, docs, prompts, fixtures,
+  application state, action responses, or generated app content. Use
+  secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Prefer framework defaults until the workspace has a real custom rule,
   component, plugin, action, or skill to share.
 - Keep the Workspace files view for user-authored or user-requested resources.

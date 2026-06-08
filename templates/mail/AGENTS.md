@@ -8,6 +8,7 @@ Detailed draft, queue, storage, sync, and UI patterns live in `.agents/skills/`.
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for email reads, labels, settings, drafts, queued drafts, filters,
   scheduling, refresh, and CRM context. Do not edit mail SQL directly unless a
   skill/action explicitly calls for it.

@@ -1,0 +1,520 @@
+---
+# Visual plan: open https://plan.agent-native.com/plans/plan-84d594caa0044403 in a browser for the canvas and review UI.
+visualUrl: "https://plan.agent-native.com/plans/plan-84d594caa0044403"
+title: "Visual recap — renderer theming and diff tabs"
+brief: "Updated recap of the plan renderer changes, with UI wireframes and vertical tabbed code diffs."
+version: 3
+---
+
+<FileTree
+  id="tree-9"
+  title="Files touched"
+  title="Files touched"
+  entries={[
+    {
+      path: "packages/core/src/client/blocks/library/HighlightedCode.tsx",
+      change: "added",
+      note: "Added (+134 / -0)",
+    },
+    {
+      path: "packages/core/src/client/blocks/library/ApiEndpointBlock.tsx",
+      change: "modified",
+      note: "Changed (+12 / -19)",
+    },
+    {
+      path: "packages/core/src/client/blocks/library/OpenApiSpecBlock.tsx",
+      change: "modified",
+      note: "Changed (+19 / -10)",
+    },
+    {
+      path: "packages/core/src/client/blocks/library/code-tabs.tsx",
+      change: "modified",
+      note: "Changed (+170 / -237)",
+    },
+    {
+      path: "templates/plan/app/global.css",
+      change: "modified",
+      note: "Changed (+135 / -9)",
+    },
+    {
+      path: "templates/plan/app/components/plan/DocumentArea.tsx",
+      change: "modified",
+      note: "Changed (+114 / -81)",
+    },
+    {
+      path: "templates/plan/app/components/plan/wireframe/Wireframe.tsx",
+      change: "modified",
+      note: "Changed (+16 / -19)",
+    },
+    {
+      path: "templates/plan/app/components/plan/wireframe/html-artboard.css",
+      change: "modified",
+      note: "Changed (+150 / -67)",
+    },
+    {
+      path: "templates/plan/app/components/plan/wireframe/kit/plan-wireframe-tokens.css",
+      change: "modified",
+      note: "Changed (+16 / -37)",
+    },
+    {
+      path: "skills/visual-recap/SKILL.md",
+      change: "added",
+      note: "Skill guidance mirror includes UI wireframes plus vertical diff tabs",
+    },
+    {
+      path: "templates/plan/.agents/skills/visual-recap/SKILL.md",
+      change: "added",
+      note: "Skill guidance mirror includes UI wireframes plus vertical diff tabs",
+    },
+    {
+      path: "packages/core/src/cli/skills.ts",
+      change: "modified",
+      note: "Skill guidance mirror includes UI wireframes plus vertical diff tabs",
+    },
+  ]}
+/>
+
+<RichText id="rt-10" title="Skill guidance check">
+
+The visual-recap skill already has the latest guidance: rendered UI changes require wireframes, and several substantial code diffs should be grouped in a `tabs` block with `orientation: "vertical"`. No skill patch was needed for that rule; this recap updates the artifact to follow it.
+
+</RichText>
+
+<Columns id="c1" title={"UI impact — review map"}>
+<Column id="b" label="Before">
+
+<WireframeBlock id="w1" title="Before: framed review map">
+  <Screen
+    surface="browser"
+    caption="The review map block carried a visible outer frame around the cards and route chips."
+  >
+    <FrameScreen id="node-screen-plan-block-2-c1-b-0-w1-screen-0">
+      <Col id="node-col-plan-block-2-c1-b-0-w1-screen-0-0">
+        <Title
+          id="node-title-plan-block-2-c1-b-0-w1-screen-0-0-0"
+          text="Review map"
+        />
+        <Box id="node-box-plan-block-2-c1-b-0-w1-screen-0-0-1">
+          <Row id="node-row-plan-block-2-c1-b-0-w1-screen-0-0-1-0">
+            <Card id="node-card-plan-block-2-c1-b-0-w1-screen-0-0-1-0-0">
+              <Title
+                id="node-title-plan-block-2-c1-b-0-w1-screen-0-0-1-0-0-0"
+                text="Source change"
+              />
+              <Lines
+                id="node-lines-plan-block-2-c1-b-0-w1-screen-0-0-1-0-0-1"
+                n={3}
+              />
+            </Card>
+            <Card id="node-card-plan-block-2-c1-b-0-w1-screen-0-0-1-0-1">
+              <Title
+                id="node-title-plan-block-2-c1-b-0-w1-screen-0-0-1-0-1-0"
+                text="Review surface"
+              />
+              <Lines
+                id="node-lines-plan-block-2-c1-b-0-w1-screen-0-0-1-0-1-1"
+                n={3}
+              />
+            </Card>
+            <Card id="node-card-plan-block-2-c1-b-0-w1-screen-0-0-1-0-2">
+              <Title
+                id="node-title-plan-block-2-c1-b-0-w1-screen-0-0-1-0-2-0"
+                text="Agent path"
+              />
+              <Lines
+                id="node-lines-plan-block-2-c1-b-0-w1-screen-0-0-1-0-2-1"
+                n={3}
+              />
+            </Card>
+          </Row>
+          <Row id="node-row-plan-block-2-c1-b-0-w1-screen-0-0-1-1">
+            <Pill id="node-pill-plan-block-2-c1-b-0-w1-screen-0-0-1-1-0">
+              <Text
+                id="node-text-plan-block-2-c1-b-0-w1-screen-0-0-1-1-0-0"
+                value="Columns"
+              />
+            </Pill>
+            <Pill id="node-pill-plan-block-2-c1-b-0-w1-screen-0-0-1-1-1">
+              <Text
+                id="node-text-plan-block-2-c1-b-0-w1-screen-0-0-1-1-1-0"
+                value="Nested blocks"
+              />
+            </Pill>
+            <Pill id="node-pill-plan-block-2-c1-b-0-w1-screen-0-0-1-1-2">
+              <Text
+                id="node-text-plan-block-2-c1-b-0-w1-screen-0-0-1-1-2-0"
+                value="API docs"
+              />
+            </Pill>
+          </Row>
+        </Box>
+      </Col>
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+
+</Column>
+
+<Column id="a" label="After">
+
+<WireframeBlock id="w2" title="After: borderless themed surface">
+  <Screen
+    surface="browser"
+    caption="The section keeps its internal cards and route chips, but the enclosing frame is gone and colors inherit the current theme."
+  >
+    <FrameScreen id="node-screen-plan-block-2-c1-a-0-w2-screen-0">
+      <Col id="node-col-plan-block-2-c1-a-0-w2-screen-0-0">
+        <Title
+          id="node-title-plan-block-2-c1-a-0-w2-screen-0-0-0"
+          text="Review map"
+        />
+        <Row id="node-row-plan-block-2-c1-a-0-w2-screen-0-0-1">
+          <Card id="node-card-plan-block-2-c1-a-0-w2-screen-0-0-1-0">
+            <Title
+              id="node-title-plan-block-2-c1-a-0-w2-screen-0-0-1-0-0"
+              text="Source change"
+            />
+            <Lines
+              id="node-lines-plan-block-2-c1-a-0-w2-screen-0-0-1-0-1"
+              n={3}
+            />
+          </Card>
+          <Card id="node-card-plan-block-2-c1-a-0-w2-screen-0-0-1-1">
+            <Title
+              id="node-title-plan-block-2-c1-a-0-w2-screen-0-0-1-1-0"
+              text="Review surface"
+            />
+            <Lines
+              id="node-lines-plan-block-2-c1-a-0-w2-screen-0-0-1-1-1"
+              n={3}
+            />
+          </Card>
+          <Card id="node-card-plan-block-2-c1-a-0-w2-screen-0-0-1-2">
+            <Title
+              id="node-title-plan-block-2-c1-a-0-w2-screen-0-0-1-2-0"
+              text="Agent path"
+            />
+            <Lines
+              id="node-lines-plan-block-2-c1-a-0-w2-screen-0-0-1-2-1"
+              n={3}
+            />
+          </Card>
+        </Row>
+        <Row id="node-row-plan-block-2-c1-a-0-w2-screen-0-0-2">
+          <Pill id="node-pill-plan-block-2-c1-a-0-w2-screen-0-0-2-0">
+            <Text
+              id="node-text-plan-block-2-c1-a-0-w2-screen-0-0-2-0-0"
+              value="Columns"
+            />
+          </Pill>
+          <Pill id="node-pill-plan-block-2-c1-a-0-w2-screen-0-0-2-1">
+            <Text
+              id="node-text-plan-block-2-c1-a-0-w2-screen-0-0-2-1-0"
+              value="Nested blocks"
+            />
+          </Pill>
+          <Pill id="node-pill-plan-block-2-c1-a-0-w2-screen-0-0-2-2">
+            <Text
+              id="node-text-plan-block-2-c1-a-0-w2-screen-0-0-2-2-0"
+              value="API docs"
+            />
+          </Pill>
+        </Row>
+      </Col>
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+
+</Column>
+</Columns>
+
+<Columns id="c2" title={"UI impact — API JSON examples"}>
+<Column id="b" label="Before">
+
+<WireframeBlock id="w3" title="Before: fixed dark code box">
+  <Screen
+    surface="browser"
+    caption="API examples were plain fenced/pre code with a fixed dark surface even on light pages."
+  >
+    <FrameScreen id="node-screen-plan-block-3-c2-b-0-w3-screen-0">
+      <Col id="node-col-plan-block-3-c2-b-0-w3-screen-0-0">
+        <Title
+          id="node-title-plan-block-3-c2-b-0-w3-screen-0-0-0"
+          text="REQUEST BODY application/json"
+        />
+        <Box id="node-box-plan-block-3-c2-b-0-w3-screen-0-0-1">
+          <Text
+            id="node-text-plan-block-3-c2-b-0-w3-screen-0-0-1-0"
+            value={"{"}
+          />
+          <Text
+            id="node-text-plan-block-3-c2-b-0-w3-screen-0-0-1-1"
+            value="title: Visual recap,"
+          />
+          <Text
+            id="node-text-plan-block-3-c2-b-0-w3-screen-0-0-1-2"
+            value="brief: Review shape before code"
+          />
+          <Text
+            id="node-text-plan-block-3-c2-b-0-w3-screen-0-0-1-3"
+            value={"}"}
+          />
+        </Box>
+        <Title
+          id="node-title-plan-block-3-c2-b-0-w3-screen-0-0-2"
+          text="RESPONSES"
+        />
+        <Box id="node-box-plan-block-3-c2-b-0-w3-screen-0-0-3">
+          <Text
+            id="node-text-plan-block-3-c2-b-0-w3-screen-0-0-3-0"
+            value="200  Created plan id and URL"
+          />
+          <Lines id="node-lines-plan-block-3-c2-b-0-w3-screen-0-0-3-1" n={2} />
+        </Box>
+      </Col>
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+
+</Column>
+
+<Column id="a" label="After">
+
+<WireframeBlock id="w4" title="After: highlighted theme-aware JSON">
+  <Screen
+    surface="browser"
+    caption="JSON examples now use CodeSurface and Shiki token colors that switch with light/dark mode."
+  >
+    <FrameScreen id="node-screen-plan-block-3-c2-a-0-w4-screen-0">
+      <Col id="node-col-plan-block-3-c2-a-0-w4-screen-0-0">
+        <Title
+          id="node-title-plan-block-3-c2-a-0-w4-screen-0-0-0"
+          text="REQUEST BODY application/json"
+        />
+        <Box id="node-box-plan-block-3-c2-a-0-w4-screen-0-0-1">
+          <Row id="node-row-plan-block-3-c2-a-0-w4-screen-0-0-1-0">
+            <Pill id="node-pill-plan-block-3-c2-a-0-w4-screen-0-0-1-0-0">
+              <Text
+                id="node-text-plan-block-3-c2-a-0-w4-screen-0-0-1-0-0-0"
+                value="json"
+              />
+            </Pill>
+            <Pill
+              id="node-pill-plan-block-3-c2-a-0-w4-screen-0-0-1-0-1"
+              tone="accent"
+            >
+              <Text
+                id="node-text-plan-block-3-c2-a-0-w4-screen-0-0-1-0-1-0"
+                value="theme aware"
+              />
+            </Pill>
+          </Row>
+          <Text
+            id="node-text-plan-block-3-c2-a-0-w4-screen-0-0-1-1"
+            value={'{  \\"title\\": \\"Visual recap\\" }'}
+          />
+          <Lines id="node-lines-plan-block-3-c2-a-0-w4-screen-0-0-1-2" n={3} />
+        </Box>
+        <Title
+          id="node-title-plan-block-3-c2-a-0-w4-screen-0-0-2"
+          text="RESPONSES"
+        />
+        <Box id="node-box-plan-block-3-c2-a-0-w4-screen-0-0-3">
+          <Text
+            id="node-text-plan-block-3-c2-a-0-w4-screen-0-0-3-0"
+            value="200  Created plan id and URL"
+          />
+          <Lines id="node-lines-plan-block-3-c2-a-0-w4-screen-0-0-3-1" n={2} />
+        </Box>
+      </Col>
+    </FrameScreen>
+  </Screen>
+</WireframeBlock>
+
+</Column>
+</Columns>
+
+<TabsBlock
+  id="tabs-11"
+  title="Tabbed code diffs"
+  tabs={[
+    {
+      id: "t-map",
+      label: "Review map frame",
+      blocks: [
+        {
+          id: "diff-1",
+          title:
+            "Implementation map drops its outer border; tabs can render vertically",
+          type: "diff",
+          data: {
+            filename: "templates/plan/app/components/plan/DocumentArea.tsx",
+            language: "tsx",
+            before:
+              '  return (\n    <section className="plan-block" data-block-id={block.id}>\n      {block.title && <div className="plan-block-label">{block.title}</div>}\n      <div className="grid overflow-hidden border-y border-plan-line lg:grid-cols-[360px_minmax(0,1fr)]">\n        <div className="border-plan-line lg:border-r">\n          {block.data.files.map((file) => (\n            <button\n\n// ...\n\n  const compactTabVisuals = /interaction|component|note/i.test(\n    block.title ?? "",\n  );\n  return (\n    <section className="plan-block" data-block-id={block.id}>\n      {block.title && <div className="plan-block-label">{block.title}</div>}\n      <div\n        className="mb-8 inline-flex max-w-full gap-1 overflow-x-auto"\n        role="tablist"\n        data-plan-interactive\n      >\n        {block.data.tabs.map((tab) => {\n          const selected = tab.id === active?.id;\n          return (\n            <button\n              key={tab.id}\n              type="button"\n              role="tab"\n              aria-selected={selected}\n              onClick={() => setActiveId(tab.id)}\n              className={cn(\n                "rounded-lg px-4 py-2 text-sm font-semibold transition-colors",\n                selected\n                  ? "bg-plan-block text-plan-text shadow-sm"\n                  : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",\n              )}\n            >\n              {tab.label}\n            </button>\n          );\n        })}\n      </div>\n      {active && (\n        <div>\n          {active.blocks.map((child) => (\n            <PlanBlockView\n              key={child.id}\n              block={child}\n              onRichTextChange={onRichTextChange}\n              onVisualQuestionsSubmit={onVisualQuestionsSubmit}\n              compactVisuals={compactTabVisuals}\n              contentUpdatedAt={contentUpdatedAt}\n              editingDisabled={editingDisabled}\n              planId={planId}\n              collabUser={collabUser}\n              onChange={(nextChild) => {\n                onChange?.({\n                  ...block,\n                  data: {\n                    tabs: block.data.tabs.map((tab) =>\n                      tab.id === active.id\n                        ? {\n                            ...tab,\n                            blocks: updateBlocks(\n                              tab.blocks,\n                              child.id,\n                              () => nextChild,\n                            ),\n                          }\n                        : tab,\n                    ),\n                  },\n                });\n              }}\n            />\n          ))}\n        </div>\n      )}\n    </section>\n  );\n}',
+            after:
+              '  return (\n    <section className="plan-block" data-block-id={block.id}>\n      {block.title && <div className="plan-block-label">{block.title}</div>}\n      <div className="grid overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">\n        <div className="border-plan-line lg:border-r">\n          {block.data.files.map((file) => (\n            <button\n\n// ...\n\n  const compactTabVisuals = /interaction|component|note/i.test(\n    block.title ?? "",\n  );\n  const orientation =\n    block.data.orientation === "vertical" ? "vertical" : "horizontal";\n  const vertical = orientation === "vertical";\n  return (\n    <section className="plan-block" data-block-id={block.id}>\n      {block.title && <div className="plan-block-label">{block.title}</div>}\n      <div\n        className={cn(\n          vertical &&\n            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",\n        )}\n      >\n        <div\n          className={cn(\n            vertical\n              ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto md:mb-0 md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"\n              : "mb-8 inline-flex max-w-full gap-1 overflow-x-auto",\n          )}\n          role="tablist"\n          aria-orientation={orientation}\n          data-plan-interactive\n        >\n          {block.data.tabs.map((tab) => {\n            const selected = tab.id === active?.id;\n            return (\n              <button\n                key={tab.id}\n                type="button"\n                role="tab"\n                aria-selected={selected}\n                onClick={() => setActiveId(tab.id)}\n                className={cn(\n                  "rounded-lg border border-transparent text-sm font-semibold transition-colors",\n                  vertical\n                    ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left md:w-full md:max-w-none"\n                    : "shrink-0 whitespace-nowrap px-4 py-2",\n                  selected\n                    ? "border-plan-line bg-plan-block/70 text-plan-text"\n                    : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",\n                )}\n              >\n                <span className={cn(vertical && "block min-w-0 truncate")}>\n                  {tab.label}\n                </span>\n              </button>\n            );\n          })}\n        </div>\n        {active && (\n          <div className={cn(vertical && "min-w-0")}>\n            {active.blocks.map((child) => (\n              <PlanBlockView\n                key={child.id}\n                block={child}\n                onRichTextChange={onRichTextChange}\n                onVisualQuestionsSubmit={onVisualQuestionsSubmit}\n                compactVisuals={compactTabVisuals}\n                contentUpdatedAt={contentUpdatedAt}\n                editingDisabled={editingDisabled}\n                planId={planId}\n                collabUser={collabUser}\n                onChange={(nextChild) => {\n                  onChange?.({\n                    ...block,\n                    data: {\n                      ...block.data,\n                      tabs: block.data.tabs.map((tab) =>\n                        tab.id === active.id\n                          ? {\n                              ...tab,\n                              blocks: updateBlocks(\n                                tab.blocks,\n                                child.id,\n                                () => nextChild,\n                              ),\n                            }\n                          : tab,\n                      ),\n                    },\n                  });\n                }}\n              />\n            ))}\n          </div>\n        )}\n      </div>\n    </section>\n  );\n}',
+            mode: "split",
+          },
+        },
+      ],
+    },
+    {
+      id: "t-diagram",
+      label: "Diagram CSS tokens",
+      blocks: [
+        {
+          id: "diff-2",
+          title:
+            "Diagram and HTML artboards use plan/Tailwind tokens and no frame border",
+          type: "diff",
+          data: {
+            filename:
+              "templates/plan/app/components/plan/wireframe/html-artboard.css",
+            language: "css",
+            before:
+              ' */\n\n.plan-html-frame {\n  /* Light tokens (default). */\n  --wf-ink: #34322e;\n  --wf-muted: #8a857d;\n  --wf-line: #d8d3c9;\n  /* Hand-drawn sketch stroke. Separate from --wf-ink (text) so the rough.js\n     overlay can run a touch softer than the body text — most important in dark\n     mode, where near-white text ink as a stroke makes harsh, eye-straining\n\n/* ... */\n\n  /* Sketch stroke = a soft gray a step more pronounced than the hairline\n     --wf-line, so rough (broken) strokes still read clearly. Gentle, not hard\n     ink; text stays the dark --wf-ink above. */\n  --wf-sketch: #c4beb3;\n  --wf-paper: #fbfaf6;\n  --wf-card: #ffffff;\n  --wf-accent: #3f6cd6;\n  --wf-accent-fg: #ffffff;\n  --wf-accent-soft: #eaf0fb;\n  --wf-warn: #b5503a;\n  --wf-ok: #5b8c6e;\n  --wf-radius: 9px;\n\n  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;\n\n/* ... */\n\n  overscroll-behavior: contain;\n}\n\n.plan-html-frame[data-theme="dark"] {\n  --wf-ink: #ece8e1;\n  --wf-muted: #9a948b;\n  --wf-line: #43403a;\n  /* Softer than the near-white ink so sketched borders read as warm chalk, not\n     harsh white lines on the dark paper. */\n  --wf-sketch: #59554d;\n  --wf-paper: #201f1c;\n  --wf-card: #2a2825;\n  --wf-accent: #6f93e6;\n  --wf-accent-fg: #ffffff;\n  --wf-accent-soft: #2a3550;\n  --wf-warn: #d7745d;\n  --wf-ok: #79a98c;\n}\n\n.plan-html-frame[data-style="clean"] {\n  --wf-font: var(--wf-font-clean);\n}\n\n/* ... */\n\n\n/* Skeleton register: neutral textless geometry. */\n.plan-html-frame[data-skeleton="true"] {\n  --wf-ink: #e2ded5;\n  --wf-muted: #e2ded5;\n  --wf-line: #e7e3db;\n  --wf-card: #ece8e1;\n  --wf-accent: #e2ded5;\n  --wf-accent-soft: #ece8e1;\n}\n.plan-html-frame[data-skeleton="true"][data-theme="dark"] {\n  --wf-ink: #322f2b;\n  --wf-muted: #322f2b;\n  --wf-line: #322f2b;\n  --wf-card: #2a2825;\n  --wf-accent: #322f2b;\n}\n.plan-html-frame[data-skeleton="true"] * {\n  color: transparent !important;\n\n/* ... */\n\n}\n\n.plan-diagram-frame {\n  --wf-ink: #27272a;\n  --wf-muted: #64748b;\n  --wf-line: #dbe3ee;\n  --wf-sketch: #9aa6b2;\n  --wf-paper: #ffffff;\n  --wf-card: #f8fafc;\n  --wf-accent: #2563eb;\n  --wf-accent-fg: #ffffff;\n  --wf-accent-soft: #eff6ff;\n  --wf-warn: #dc2626;\n  --wf-ok: #16a34a;\n  --wf-radius: 8px;\n  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;\n  --wf-font-clean:',
+            after:
+              ' */\n\n.plan-html-frame {\n  --wf-ink: var(--plan-text, hsl(var(--foreground)));\n  --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));\n  --wf-line: var(--plan-line, hsl(var(--border)));\n  /* Hand-drawn sketch stroke. Separate from --wf-ink (text) so the rough.js\n     overlay can run a touch softer than the body text — most important in dark\n     mode, where near-white text ink as a stroke makes harsh, eye-straining\n\n/* ... */\n\n  /* Sketch stroke = a soft gray a step more pronounced than the hairline\n     --wf-line, so rough (broken) strokes still read clearly. Gentle, not hard\n     ink; text stays the dark --wf-ink above. */\n  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));\n  --wf-paper: var(--plan-document, hsl(var(--background)));\n  --wf-card: var(--plan-block, hsl(var(--card)));\n  --wf-accent: hsl(var(--ring));\n  --wf-accent-fg: hsl(var(--primary-foreground));\n  --wf-accent-soft: color-mix(in srgb, var(--wf-accent) 11%, transparent);\n  --wf-warn: hsl(var(--destructive));\n  --wf-ok: var(--wf-accent);\n  --wf-radius: 9px;\n\n  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;\n\n/* ... */\n\n  overscroll-behavior: contain;\n}\n\n.plan-html-frame[data-style="clean"] {\n  --wf-font: var(--wf-font-clean);\n}\n\n/* ... */\n\n\n/* Skeleton register: neutral textless geometry. */\n.plan-html-frame[data-skeleton="true"] {\n  --wf-ink: var(--plan-muted-line, hsl(var(--border)));\n  --wf-muted: var(--plan-muted-line, hsl(var(--border)));\n  --wf-line: var(--plan-placeholder-line, hsl(var(--border)));\n  --wf-card: var(--plan-block, hsl(var(--card)));\n  --wf-accent: var(--plan-muted-line, hsl(var(--border)));\n  --wf-accent-soft: var(--plan-block, hsl(var(--card)));\n}\n.plan-html-frame[data-skeleton="true"] * {\n  color: transparent !important;\n\n/* ... */\n\n}\n\n.plan-diagram-frame {\n  --wf-ink: var(--plan-text, hsl(var(--foreground)));\n  --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));\n  --wf-line: var(--plan-line, hsl(var(--border)));\n  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));\n  --wf-paper: var(--plan-document, hsl(var(--background)));\n  --wf-card: var(--plan-block, hsl(var(--card)));\n  --wf-accent: hsl(var(--ring));\n  --wf-accent-fg: hsl(var(--primary-foreground));\n  --wf-accent-soft: color-mix(in srgb, var(--wf-accent) 11%, transparent);\n  --wf-warn: hsl(var(--destructive));\n  --wf-ok: var(--wf-accent);\n  --wf-radius: 8px;\n  --wf-font-hand: "Virgil", "Comic Sans MS", "Bradley Hand", cursive;\n  --wf-font-clean:',
+            mode: "split",
+          },
+        },
+      ],
+    },
+    {
+      id: "t-tokens",
+      label: "Wireframe tokens",
+      blocks: [
+        {
+          id: "diff-3",
+          title: "Kit wireframe palette now inherits semantic plan variables",
+          type: "diff",
+          data: {
+            filename:
+              "templates/plan/app/components/plan/wireframe/kit/plan-wireframe-tokens.css",
+            language: "css",
+            before:
+              '/* Hand-drawn fonts. Virgil is served by the app; no remote font dependency. */\n\n.plan-wf {\n  /* ---- Light palette (default) ------------------------------------------ */\n  --ink: #34322e;\n  --ink-soft: #97918a;\n  --line: #ddd8ce;\n  /* Sketch stroke = a soft gray a step more pronounced than --line so rough\n     strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */\n  --wf-sketch: #c4beb3;\n  --paper: #fbfaf6;\n  --card: #ffffff;\n  --accent: #3f6cd6;\n  --accent-soft: color-mix(in srgb, var(--accent) 15%, #fff);\n  --warn: #b5503a;\n  --warn-soft: color-mix(in srgb, var(--warn) 14%, #fff);\n  --ok: #5b8c6e;\n  --ok-soft: color-mix(in srgb, var(--ok) 15%, #fff);\n\n  /* Page backdrop behind artboards (board surface, not the screen paper). */\n  --plan-wf-page-bg: #f0eee9;\n\n  /* ---- Fonts ------------------------------------------------------------- */\n  --font-hand:\n\n/* ... */\n\n  --font-script: var(--font-clean);\n}\n\n/* ---- Dark palette -------------------------------------------------------- */\n.plan-wf[data-theme="dark"] {\n  --ink: #ece8e1;\n  --ink-soft: #8d877f;\n  --line: #3a3833;\n  --wf-sketch: #59554d;\n  --paper: #201f1c;\n  --card: #2a2825;\n  --accent: #6f93e6;\n  --accent-soft: color-mix(in srgb, var(--accent) 22%, #201f1c);\n  --warn: #d7745d;\n  --warn-soft: color-mix(in srgb, var(--warn) 20%, #201f1c);\n  --ok: #79a98c;\n  --ok-soft: color-mix(in srgb, var(--ok) 22%, #201f1c);\n  --plan-wf-page-bg: #161513;\n}\n\n/* ---- Rough sketch layer -------------------------------------------------- */\n/* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).\n   Once it has measured + drawn, hide the crisp CSS borders so there is never a\n\n/* ... */\n\n  --ok: var(--skeleton-fill);\n  --ok-soft: var(--skeleton-block);\n  --stroke: 0px;\n  --skeleton-fill: #e2ded5;\n  --skeleton-block: #ece8e1;\n}\n.plan-wf[data-theme="dark"][data-skeleton="true"] {\n  --skeleton-fill: #322f2b;\n  --skeleton-block: #2a2825;\n}\n/* Textless: hide real labels but keep their layout footprint. */\n.plan-wf[data-skeleton="true"] * {',
+            after:
+              '/* Hand-drawn fonts. Virgil is served by the app; no remote font dependency. */\n\n.plan-wf {\n  /* ---- Theme palette ----------------------------------------------------- */\n  --ink: var(--plan-text, hsl(var(--foreground)));\n  --ink-soft: var(--plan-muted, hsl(var(--muted-foreground)));\n  --line: var(--plan-line, hsl(var(--border)));\n  /* Sketch stroke = a soft gray a step more pronounced than --line so rough\n     strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */\n  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));\n  --paper: var(--plan-document, hsl(var(--background)));\n  --card: var(--plan-block, hsl(var(--card)));\n  --accent: hsl(var(--ring));\n  --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);\n  --warn: hsl(var(--destructive));\n  --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);\n  --ok: var(--accent);\n  --ok-soft: color-mix(in srgb, var(--ok) 15%, transparent);\n\n  /* Page backdrop behind artboards (board surface, not the screen paper). */\n  --plan-wf-page-bg: var(--plan-canvas, hsl(var(--background)));\n\n  /* ---- Fonts ------------------------------------------------------------- */\n  --font-hand:\n\n/* ... */\n\n  --font-script: var(--font-clean);\n}\n\n/* ---- Rough sketch layer -------------------------------------------------- */\n/* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).\n   Once it has measured + drawn, hide the crisp CSS borders so there is never a\n\n/* ... */\n\n  --ok: var(--skeleton-fill);\n  --ok-soft: var(--skeleton-block);\n  --stroke: 0px;\n  --skeleton-fill: var(--plan-muted-line, hsl(var(--border)));\n  --skeleton-block: var(--plan-block, hsl(var(--card)));\n}\n/* Textless: hide real labels but keep their layout footprint. */\n.plan-wf[data-skeleton="true"] * {',
+            mode: "split",
+          },
+        },
+      ],
+    },
+    {
+      id: "t-rough",
+      label: "Rough.js coverage",
+      blocks: [
+        {
+          id: "diff-4",
+          title:
+            "Sketchy mode catches generated diagram classes and tokenized frames",
+          type: "diff",
+          data: {
+            filename:
+              "templates/plan/app/components/plan/wireframe/Wireframe.tsx",
+            language: "tsx",
+            before:
+              '/* -------------------------------------------------------------------------- */\n\nconst DIAGRAM_ROUGH_SELECTOR =\n  "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,hr";\n\nexport function SketchDiagram({\n  data,',
+            after:
+              "/* -------------------------------------------------------------------------- */\n\nconst DIAGRAM_ROUGH_SELECTOR =\n  \"[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr\";\n\nexport function SketchDiagram({\n  data,",
+            mode: "split",
+          },
+        },
+      ],
+    },
+    {
+      id: "t-code-css",
+      label: "Code surface CSS",
+      blocks: [
+        {
+          id: "diff-5",
+          title:
+            "Code examples follow Shiki light/dark variables instead of fixed dark styling",
+          type: "diff",
+          data: {
+            filename: "templates/plan/app/global.css",
+            language: "css",
+            before:
+              '  color: var(--plan-muted);\n}\n\n/* ── Code block: dark theme regardless of light/dark page ───────────── */\n.plan-code-surface {\n  border-radius: 12px;\n  overflow: hidden;\n  border: 1px solid hsl(220 13% 22%);\n  background: hsl(220 13% 11%);\n}\n\n.plan-code-surface .plan-shiki,\n\n/* ... */\n\n  max-height: 520px;\n  overflow: auto;\n  padding: 1.1rem 1.25rem;\n  background: hsl(220 13% 11%) !important;\n  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-size: 0.85rem;\n  line-height: 1.65;\n}\n\n.plan-code-surface pre code {\n  color: hsl(210 14% 84%);\n  background: none;\n  padding: 0;\n}\n\n/* Shiki emits inline color styles; pin it to the dark theme. */\n.plan-code-surface .plan-shiki pre,\n.plan-code-surface .plan-shiki code {\n  background: transparent !important;\n}\n\n.plan-callout {',
+            after:
+              '  color: var(--plan-muted);\n}\n\n/* ── Code block: follows the current plan light/dark surface ─────────── */\n.plan-code-surface {\n  border-radius: 12px;\n  overflow: hidden;\n  border: 1px solid var(--plan-line);\n  background: var(--plan-code);\n}\n\n.plan-code-surface .plan-shiki,\n\n/* ... */\n\n  max-height: 520px;\n  overflow: auto;\n  padding: 1.1rem 1.25rem;\n  background: var(--shiki-light-bg, var(--plan-code)) !important;\n  color: var(--shiki-light, var(--plan-code-text));\n  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-size: 0.85rem;\n  line-height: 1.65;\n}\n\n.plan-code-surface pre code {\n  color: inherit;\n  background: none;\n  padding: 0;\n}\n\n.plan-code-surface .plan-shiki pre,\n.plan-code-surface .plan-shiki code {\n  background: var(--shiki-light-bg, transparent) !important;\n}\n\n.plan-code-surface .plan-shiki pre span {\n  color: var(--shiki-light);\n  background: var(--shiki-light-bg);\n}\n\n.dark .plan-code-surface .plan-shiki,\n.dark .plan-code-surface .plan-shiki pre {\n  background: var(--shiki-dark-bg, var(--plan-code)) !important;\n  color: var(--shiki-dark, var(--plan-code-text));\n}\n\n.dark .plan-code-surface .plan-shiki pre span {\n  color: var(--shiki-dark);\n  background: var(--shiki-dark-bg);\n}\n\n.plan-callout {',
+            mode: "split",
+          },
+        },
+      ],
+    },
+    {
+      id: "t-shiki",
+      label: "HighlightedCode.tsx",
+      blocks: [
+        {
+          id: "diff-6",
+          title: "Shared dual-theme Shiki code surface",
+          type: "diff",
+          data: {
+            filename:
+              "packages/core/src/client/blocks/library/HighlightedCode.tsx",
+            language: "tsx",
+            before: "",
+            after:
+              'import { useEffect, useState } from "react";\nimport { cn } from "../../utils.js";\n\ntype ShikiHighlighter = {\n  codeToHtml: (\n    code: string,\n    options: {\n      lang: string;\n      themes: { light: string; dark: string };\n      defaultColor?: false | "light" | "dark";\n    },\n  ) => string | Promise<string>;\n  getLoadedLanguages: () => string[];\n};\n\nlet highlighterLoader: Promise<ShikiHighlighter> | null = null;\nfunction loadHighlighter(): Promise<ShikiHighlighter> {\n  if (!highlighterLoader) {\n    highlighterLoader = (async () => {\n      const [{ createHighlighterCore }, { createOnigurumaEngine }] =\n        await Promise.all([\n          import("shiki/core"),\n          import("shiki/engine/oniguruma"),\n        ]);\n      return createHighlighterCore({\n        themes: [\n          import("shiki/themes/github-light-default.mjs"),\n          import("shiki/themes/github-dark-default.mjs"),\n        ],\n        langs: [\n          import("shiki/langs/javascript.mjs"),\n          import("shiki/langs/typescript.mjs"),\n          import("shiki/langs/jsx.mjs"),\n          import("shiki/langs/tsx.mjs"),\n          import("shiki/langs/json.mjs"),\n          import("shiki/langs/css.mjs"),\n          import("shiki/langs/html.mjs"),\n          import("shiki/langs/markdown.mjs"),\n          import("shiki/langs/bash.mjs"),\n          import("shiki/langs/shellscript.mjs"),\n          import("shiki/langs/python.mjs"),\n          import("shiki/langs/yaml.mjs"),\n          import("shiki/langs/sql.mjs"),\n        ],\n        engine: createOnigurumaEngine(import("shiki/wasm")),\n      }) as unknown as Promise<ShikiHighlighter>;\n    })().catch((error) => {\n      highlighterLoader = null;\n      throw error;\n    });\n  }\n  return highlighterLoader;\n}\n\nconst LANG_ALIASES: Record<string, string> = {\n  js: "javascript",\n  ts: "typescript",\n  sh: "bash",\n  shell: "bash",\n  zsh: "bash",\n  py: "python",\n  yml: "yaml",\n  md: "markdown",\n  bq: "sql",\n  bigquery: "sql",\n};\n\nexport function HighlightedCode({\n  code,\n  language,\n}: {\n  code: string;\n  language?: string;\n}) {\n  const [html, setHtml] = useState<string | null>(null);\n\n  useEffect(() => {\n    let cancelled = false;\n    loadHighlighter()\n      .then((highlighter) => {\n        const requested = (language || "text").toLowerCase();\n        const resolved = LANG_ALIASES[requested] ?? requested;\n        const loaded = highlighter.getLoadedLanguages();\n        const lang = loaded.includes(resolved) ? resolved : "text";\n        return highlighter.codeToHtml(code, {\n          lang,\n          themes: {\n            light: "github-light-default",\n            dark: "github-dark-default",\n          },\n          defaultColor: false,\n        });\n      })\n      .then((out) => {\n        if (!cancelled) setHtml(out as string);\n      })\n      .catch(() => {\n        if (!cancelled) setHtml(null);\n      });\n    return () => {\n      cancelled = true;\n    };\n  }, [code, language]);\n\n  if (html) {\n    return (\n      <div className="plan-shiki" dangerouslySetInnerHTML={{ __html: html }} />\n    );\n  }\n  return (\n    <pre>\n      <code className={language ? `language-${language}` : undefined}>\n        {code}\n      </code>\n    </pre>\n  );\n}\n\nexport function CodeSurface({\n  code,\n  language,\n  className,\n}: {\n  code: string;\n  language?: string;\n  className?: string;\n}) {\n  return (\n    <div className={cn("plan-code-surface", className ?? "mt-5")}>\n      <HighlightedCode code={code} language={language} />\n    </div>\n  );\n}',
+            mode: "split",
+          },
+        },
+      ],
+    },
+    {
+      id: "t-api",
+      label: "API endpoint JSON",
+      blocks: [
+        {
+          id: "diff-7",
+          title:
+            "API request/response examples render through syntax-highlighted CodeSurface",
+          type: "diff",
+          data: {
+            filename:
+              "packages/core/src/client/blocks/library/ApiEndpointBlock.tsx",
+            language: "tsx",
+            before:
+              '  DevTextarea,\n  DevSelect,\n} from "./dev-doc-ui.js";\n\n/**\n * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style\n\n// ...\n\n  return "json";\n}\n\n/** Wrap a raw example string in a fenced code block for `ctx.renderMarkdown`. */\nfunction fence(example: string, lang: string): string {\n  // Never let the example\'s own content break out of the fence.\n  const safe = example.replace(/```/g, "ʼʼʼ");\n  return `\\`\\`\\`${lang}\\n${safe.trim()}\\n\\`\\`\\``;\n}\n\n/* ── Read (collapsed-by-default swagger row) ───────────────────────────────── */\n\n/**\n\n// ...\n\n                  )}\n                </div>\n                {data.request?.example && (\n                  <div className="mt-2 an-api-endpoint-example">\n                    {ctx.renderMarkdown?.(\n                      fence(\n                        data.request.example,\n                        fenceLangForContentType(data.request.contentType),\n                      ),\n                    )}\n                  </div>\n                )}\n              </div>\n            )}\n\n// ...\n\n                        )}\n                      </div>\n                      {response.example && (\n                        <div className="border-t border-plan-line px-3 pb-3 pt-1 an-api-endpoint-example">\n                          {ctx.renderMarkdown?.(\n                            fence(response.example, "json"),\n                          )}\n                        </div>\n                      )}\n                    </div>',
+            after:
+              '  DevTextarea,\n  DevSelect,\n} from "./dev-doc-ui.js";\nimport { CodeSurface } from "./HighlightedCode.js";\n\n/**\n * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style\n\n// ...\n\n  return "json";\n}\n\n/* ── Read (collapsed-by-default swagger row) ───────────────────────────────── */\n\n/**\n\n// ...\n\n                  )}\n                </div>\n                {data.request?.example && (\n                  <CodeSurface\n                    code={data.request.example}\n                    language={fenceLangForContentType(data.request.contentType)}\n                    className="mt-2 an-api-endpoint-example"\n                  />\n                )}\n              </div>\n            )}\n\n// ...\n\n                        )}\n                      </div>\n                      {response.example && (\n                        <div className="border-t border-plan-line px-3 pb-3 pt-3 an-api-endpoint-example">\n                          <CodeSurface\n                            code={response.example}\n                            language="json"\n                            className="mt-0"\n                          />\n                        </div>\n                      )}\n                    </div>',
+            mode: "split",
+          },
+        },
+      ],
+    },
+    {
+      id: "t-openapi",
+      label: "OpenAPI JSON",
+      blocks: [
+        {
+          id: "diff-8",
+          title:
+            "OpenAPI examples and parse fallback use the same highlighted JSON surface",
+          type: "diff",
+          data: {
+            filename:
+              "packages/core/src/client/blocks/library/OpenApiSpecBlock.tsx",
+            language: "tsx",
+            before:
+              'import type { BlockEditProps, BlockReadProps } from "../types.js";\nimport type { OpenApiSpecData } from "./openapi-spec.config.js";\nimport { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";\n\n/**\n * Read + Edit renderers for an `openapi-spec` block — a Redoc / Swagger-UI-style\n\n// ...\n\n                )}\n              </div>\n              {operation.requestExample && (\n                <pre className="mt-2 overflow-auto rounded-lg border border-plan-line bg-plan-code px-3 py-2 font-mono text-xs text-plan-code-text">\n                  {operation.requestExample}\n                </pre>\n              )}\n            </div>\n          )}\n\n// ...\n\n                      )}\n                    </div>\n                    {response.example && (\n                      <pre className="overflow-auto border-t border-plan-line bg-plan-code px-3 py-2 font-mono text-xs text-plan-code-text">\n                        {response.example}\n                      </pre>\n                    )}\n                  </div>\n                ))}\n\n// ...\n\n            <p className="text-xs text-red-600 dark:text-red-300">\n              Could not parse spec: {parsed.error}\n            </p>\n            <pre className="overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-plan-code-text">\n              {data.spec || "—"}\n            </pre>\n          </div>\n        </div>\n      )}',
+            after:
+              'import type { BlockEditProps, BlockReadProps } from "../types.js";\nimport type { OpenApiSpecData } from "./openapi-spec.config.js";\nimport { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";\nimport { CodeSurface } from "./HighlightedCode.js";\n\n/**\n * Read + Edit renderers for an `openapi-spec` block — a Redoc / Swagger-UI-style\n\n// ...\n\n                )}\n              </div>\n              {operation.requestExample && (\n                <CodeSurface\n                  code={operation.requestExample}\n                  language="json"\n                  className="mt-2"\n                />\n              )}\n            </div>\n          )}\n\n// ...\n\n                      )}\n                    </div>\n                    {response.example && (\n                      <div className="border-t border-plan-line px-3 pb-3 pt-3">\n                        <CodeSurface\n                          code={response.example}\n                          language="json"\n                          className="mt-0"\n                        />\n                      </div>\n                    )}\n                  </div>\n                ))}\n\n// ...\n\n            <p className="text-xs text-red-600 dark:text-red-300">\n              Could not parse spec: {parsed.error}\n            </p>\n            <CodeSurface\n              code={data.spec || "—"}\n              language="json"\n              className="mt-0"\n            />\n          </div>\n        </div>\n      )}',
+            mode: "split",
+          },
+        },
+      ],
+    },
+  ]}
+  orientation="vertical"
+/>
+
+<RichText id="rt-12" title="Verification notes">
+
+Verification from this thread: core and plan typechecks passed, workspace skill guard passed, and browser checks confirmed the review-map frame border is gone, diagram colors switch with theme, rough.js paths render in sketchy mode, and API JSON examples contain Shiki-highlighted spans. The only failing check was an existing visual-plan/ui-plan shared-skill drift in `pnpm --filter @agent-native/core exec vitest --run src/cli/skills.sync.spec.ts`, unrelated to these renderer changes.
+
+</RichText>

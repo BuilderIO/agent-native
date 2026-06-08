@@ -1,14 +1,64 @@
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import type { RichMarkdownCollabUser } from "@agent-native/core/client";
+import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import type { PlanBlock, PlanContent } from "@shared/plan-content";
-import { CanvasArea } from "./CanvasArea";
+import type {
+  PlanAnnotation,
+  PlanBlock,
+  PlanContent,
+  PlanContentPatch,
+} from "@shared/plan-content";
+import {
+  type CanvasMarkupCreateContext,
+  type CanvasMarkupMode,
+  type DesignElementSelection,
+} from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
+import {
+  PlanVisualSurface,
+  type PlanVisualSurfaceMode,
+} from "./PlanVisualSurface";
+import { PlanTableOfContents } from "./PlanTableOfContents";
+import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
+import {
+  NestedPlanBlocksEditor,
+  PlanDocumentEditor,
+} from "../editor/PlanDocumentEditor";
 
 type PlanContentRendererProps = {
   content: PlanContent;
   fallbackTitle: string;
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
+  onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
+  onMetadataChange?: (patch: {
+    title?: string;
+    brief?: string;
+  }) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
+  canvasMarkupMode?: CanvasMarkupMode;
+  onCanvasMarkupCreate?: (
+    annotation: Omit<PlanAnnotation, "id">,
+    context: CanvasMarkupCreateContext,
+  ) => Promise<void> | void;
+  /** Plan id used to key per-block collaborative editing docs. */
+  planId?: string | null;
+  /** Current user for collaborative cursor labels. */
+  collabUser?: RichMarkdownCollabUser | null;
+  /** Focus the reader on the live prototype only, for popout windows. */
+  prototypeOnly?: boolean;
+  visualSurfaceMode?: PlanVisualSurfaceMode;
+  onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
 
 /**
@@ -22,60 +72,414 @@ export function PlanContentRenderer({
   fallbackTitle,
   fallbackBrief,
   onContentChange,
+  onContentPatch,
+  onMetadataChange,
   onVisualQuestionsSubmit,
+  contentUpdatedAt,
+  editingDisabled = false,
+  canvasMarkupMode,
+  onCanvasMarkupCreate,
+  planId,
+  collabUser,
+  prototypeOnly = false,
+  visualSurfaceMode,
+  onVisualSurfaceModeChange,
 }: PlanContentRendererProps) {
-  const planLabel =
-    content.canvas?.title === "UI Flow" ? "UI Plan" : "Visual Plan";
-  const updateBlock = (id: string, nextBlock: PlanBlock) => {
+  const planLabel = content.prototype
+    ? "Prototype Plan"
+    : content.canvas?.title === "UI Flow"
+      ? "UI Plan"
+      : "Visual Plan";
+  const updateBlock = async (id: string, nextBlock: PlanBlock) => {
+    if (
+      onContentPatch &&
+      nextBlock.type === "rich-text" &&
+      findBlock(content.blocks, id)?.type === "rich-text"
+    ) {
+      await onContentPatch({
+        op: "update-rich-text",
+        blockId: id,
+        markdown: nextBlock.data.markdown,
+      });
+      return;
+    }
+    // Registered blocks (e.g. the callout auto-editor) autosave their `data`
+    // through the existing generic `update-block` patch (shallow data merge,
+    // re-validated by `planBlockSchema`) — no new persistence channel.
+    if (onContentPatch && planBlockRegistry.has(nextBlock.type)) {
+      await onContentPatch({
+        op: "update-block",
+        blockId: id,
+        patch: {
+          title: nextBlock.title ?? null,
+          summary: nextBlock.summary ?? null,
+          data: (nextBlock as { data: Record<string, unknown> }).data,
+        },
+      });
+      return;
+    }
     const next = {
       ...content,
       blocks: updateBlocks(content.blocks, id, () => nextBlock),
     };
-    void onContentChange?.(next);
+    await onContentChange?.(next);
   };
 
-  return (
-    <article className="plan-content-surface min-h-full bg-plan-document text-plan-text">
-      {content.canvas && (
-        <CanvasArea
-          canvas={content.canvas}
-          blockLookup={
-            new Map(content.blocks.map((block) => [block.id, block]))
-          }
-        />
-      )}
-      <div className="mx-auto w-full max-w-[1160px] px-8 py-16 sm:px-12 lg:px-16 lg:py-20">
-        <header className="border-b border-plan-line pb-10">
-          <p className="mb-7 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
-            {planLabel}
-          </p>
-          <h1
-            className={cn(
-              "max-w-5xl font-semibold leading-[0.98] tracking-[-0.03em]",
-              content.blocks.some((block) => block.type === "visual-questions")
-                ? "text-4xl sm:text-5xl lg:text-6xl"
-                : "text-5xl sm:text-6xl lg:text-7xl",
-            )}
-          >
-            {content.title || fallbackTitle}
-          </h1>
-          <p className="mt-8 max-w-4xl text-xl leading-8 text-plan-muted sm:text-2xl sm:leading-9">
-            {content.brief || fallbackBrief}
-          </p>
-        </header>
+  const updateRichTextBlock = async (blockId: string, markdown: string) => {
+    const block = findBlock(content.blocks, blockId);
+    if (!block || block.type !== "rich-text") return;
+    if (onContentPatch) {
+      await onContentPatch({
+        op: "update-rich-text",
+        blockId,
+        markdown,
+      });
+      return;
+    }
+    await updateBlock(blockId, {
+      ...block,
+      data: { ...block.data, markdown },
+    });
+  };
 
-        <div className="plan-document-flow">
-          {content.blocks.map((block) => (
-            <PlanBlockView
-              key={block.id}
-              block={block}
-              onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
-              onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-            />
-          ))}
-        </div>
-      </div>
-    </article>
+  const updateDesignElementStyle = async (
+    selection: DesignElementSelection,
+    styles: Record<string, string | null>,
+  ) => {
+    if (!onContentPatch || editingDisabled) return;
+    await onContentPatch({
+      op: "update-design-element-style",
+      elementId: selection.elementId,
+      frameId: selection.frameId,
+      blockId: selection.blockId,
+      styles,
+    });
+  };
+
+  // The single-document editor is CLIENT-ONLY: Tiptap can't render on the server,
+  // so SSR + the first client paint render the read-only per-block view, and the
+  // editor swaps in after hydration. This avoids a hydration mismatch (which would
+  // force React to regenerate the tree and drop editor state). It also gates on
+  // real editability (not review/annotation mode, and a persistence channel).
+  // The single-document editor is ON (non-collab seed path, which materializes the
+  // inline custom-block nodes). A hard guard in PlanDocumentEditor refuses to
+  // persist an empty/catastrophically-smaller doc over real content, so a seed
+  // race can never wipe `blocks[]`. Single-doc multi-user collab is a fast-follow.
+  const SINGLE_DOC_EDITOR_ENABLED = true;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const documentEditable =
+    SINGLE_DOC_EDITOR_ENABLED &&
+    mounted &&
+    !editingDisabled &&
+    !!(onContentPatch || onContentChange);
+  const metadataEditable = documentEditable && !!onMetadataChange;
+  const notionCompatibleOnly = Boolean(
+    (content as { notionSync?: boolean }).notionSync,
+  );
+
+  // Persist a whole-document edit (prose, reorder, insert/delete, block data),
+  // DEBOUNCED + SERIALIZED. The single-doc editor fires `onBlocksChange` on every
+  // keystroke; saving per keystroke produced overlapping `replace-blocks` POSTs
+  // that raced the server optimistic lock (`WHERE updatedAt = versionAtLoad`) — a
+  // later save had loaded a pre-bump version, matched 0 rows, threw "Plan changed",
+  // 500'd, and dropped the trailing characters. We coalesce keystrokes into one
+  // save per ~600ms pause AND keep only one save in-flight (the latest pending
+  // blocks are re-saved after it settles), so a single author's rapid edits can
+  // never overlap. The unmount flush below keeps the last edit when the reader
+  // closes / the user navigates away.
+  const AUTOSAVE_DEBOUNCE_MS = 600;
+  const pendingBlocksRef = useRef<PlanBlock[] | null>(null);
+  const savingRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+  const persistBlocksRef = useRef<
+    (blocks: PlanBlock[]) => void | Promise<void>
+  >(() => {});
+  persistBlocksRef.current = (nextBlocks: PlanBlock[]) =>
+    onContentPatch
+      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks })
+      : onContentChange?.({ ...content, blocks: nextBlocks });
+  const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});
+  scheduleSaveRef.current = (delayMs = AUTOSAVE_DEBOUNCE_MS) => {
+    if (saveTimerRef.current !== null)
+      window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      flushSaveRef.current();
+    }, delayMs);
+  };
+  const flushSaveRef = useRef<() => void>(() => {});
+  flushSaveRef.current = () => {
+    if (savingRef.current) return; // serialize: the in-flight save re-flushes below
+    const next = pendingBlocksRef.current;
+    if (next === null) return;
+    pendingBlocksRef.current = null;
+    savingRef.current = true;
+    let failed = false;
+    void Promise.resolve(persistBlocksRef.current(next))
+      .catch((error) => {
+        failed = true;
+        // Keep the last unsaved snapshot live. If the user typed a newer edit
+        // while this save was in-flight, that newer pending snapshot wins.
+        if (pendingBlocksRef.current === null) {
+          pendingBlocksRef.current = next;
+        }
+        // eslint-disable-next-line no-console
+        console.error("Failed to autosave plan document:", error);
+      })
+      .finally(() => {
+        savingRef.current = false;
+        if (pendingBlocksRef.current !== null) {
+          if (failed) {
+            scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
+          } else {
+            // A newer edit landed while saving → save it now (with the bumped version).
+            flushSaveRef.current();
+          }
+        }
+      });
+  };
+  const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
+    pendingBlocksRef.current = nextBlocks;
+    scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
+  };
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      flushSaveRef.current();
+    },
+    [],
+  );
+
+  // Keep the latest document-level handlers in a ref so the memoized render
+  // context stays stable (no markdown-editor remounts) while `renderBlock` for
+  // nested tab children always invokes the current handlers — mirroring how the
+  // legacy `TabsBlock` received fresh `onRichTextChange`/`onVisualQuestionsSubmit`
+  // each render.
+  const handlersRef = useRef({
+    updateRichTextBlock,
+    onVisualQuestionsSubmit,
+    editingDisabled,
+  });
+  handlersRef.current = {
+    updateRichTextBlock,
+    onVisualQuestionsSubmit,
+    editingDisabled,
+  };
+
+  const blockRenderContext = useMemo(
+    () =>
+      createPlanBlockRenderContext({
+        contentUpdatedAt,
+        planId,
+        collabUser,
+        onRichTextChange: (blockId, markdown) =>
+          handlersRef.current.updateRichTextBlock(blockId, markdown),
+        onVisualQuestionsSubmit: (summary) =>
+          handlersRef.current.onVisualQuestionsSubmit?.(summary),
+        renderBlocksEditor: ({
+          blocks,
+          onChange,
+          editable,
+          containerBlockId,
+          regionId,
+          regionLabel,
+          compactVisuals,
+        }) => (
+          <NestedPlanBlocksEditor
+            blocks={blocks as PlanBlock[]}
+            contentUpdatedAt={contentUpdatedAt}
+            planId={planId}
+            collabUser={collabUser}
+            editable={editable && !handlersRef.current.editingDisabled}
+            onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
+            onVisualQuestionsSubmit={(summary) =>
+              handlersRef.current.onVisualQuestionsSubmit?.(summary)
+            }
+            notionCompatibleOnly={notionCompatibleOnly}
+            containerBlockId={containerBlockId}
+            regionId={regionId}
+            regionLabel={regionLabel}
+            compactVisuals={compactVisuals}
+          />
+        ),
+        editingDisabled,
+      }),
+    [
+      contentUpdatedAt,
+      planId,
+      collabUser,
+      editingDisabled,
+      notionCompatibleOnly,
+    ],
+  );
+
+  return (
+    <BlockRegistryProvider
+      registry={planBlockRegistry}
+      ctx={blockRenderContext}
+    >
+      <article className="plan-content-surface min-h-full bg-plan-document text-plan-text">
+        {(content.canvas || content.prototype) && (
+          <PlanVisualSurface
+            canvas={content.canvas}
+            prototype={content.prototype}
+            blockLookup={
+              new Map(content.blocks.map((block) => [block.id, block]))
+            }
+            canvasMarkupMode={canvasMarkupMode}
+            onCanvasMarkupCreate={onCanvasMarkupCreate}
+            prototypeOnly={prototypeOnly}
+            visualMode={visualSurfaceMode}
+            onVisualModeChange={onVisualSurfaceModeChange}
+            onDesignElementStyleChange={
+              editingDisabled || !onContentPatch
+                ? undefined
+                : updateDesignElementStyle
+            }
+          />
+        )}
+        {!prototypeOnly && (
+          <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
+            <PlanTableOfContents content={content} />
+            <header className="border-b border-plan-line pb-8">
+              <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
+                {planLabel}
+              </p>
+              <EditableHeaderText
+                as="h1"
+                value={content.title || fallbackTitle}
+                editable={metadataEditable}
+                className="max-w-3xl text-[2rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.5rem]"
+                placeholder="Untitled plan"
+                onCommit={(title) => onMetadataChange?.({ title })}
+              />
+              <EditableHeaderText
+                as="p"
+                value={content.brief || fallbackBrief}
+                editable={metadataEditable}
+                className="mt-4 max-w-2xl text-lg leading-8 text-plan-muted"
+                placeholder="Add a short plan summary"
+                onCommit={(brief) => onMetadataChange?.({ brief })}
+              />
+            </header>
+
+            <div className="plan-document-flow">
+              {documentEditable ? (
+                // The whole body is ONE editable rich-markdown document; custom
+                // blocks are inline `planBlock` NodeViews. Read-only / review / SSR
+                // keeps the per-block render below (no Tiptap mounts server-side).
+                <PlanDocumentEditor
+                  content={content}
+                  contentUpdatedAt={contentUpdatedAt}
+                  planId={planId}
+                  collabUser={collabUser}
+                  editable
+                  onBlocksChange={replaceBlocks}
+                  onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                />
+              ) : (
+                content.blocks.map((block) => (
+                  <PlanBlockView
+                    key={block.id}
+                    block={block}
+                    onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
+                    onRichTextChange={updateRichTextBlock}
+                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                    contentUpdatedAt={contentUpdatedAt}
+                    editingDisabled={editingDisabled}
+                    planId={planId}
+                    collabUser={collabUser}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </article>
+    </BlockRegistryProvider>
+  );
+}
+
+function EditableHeaderText({
+  as,
+  value,
+  editable,
+  className,
+  placeholder,
+  onCommit,
+}: {
+  as: "h1" | "p";
+  value: string;
+  editable: boolean;
+  className: string;
+  placeholder: string;
+  onCommit: (next: string) => void | Promise<void>;
+}) {
+  const ref = useRef<HTMLElement | null>(null);
+  const draftRef = useRef(value);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || document.activeElement === node) return;
+    node.textContent = value;
+    draftRef.current = value;
+  }, [value]);
+
+  const commonProps = {
+    ref: (node: HTMLElement | null) => {
+      ref.current = node;
+    },
+    contentEditable: editable,
+    suppressContentEditableWarning: true,
+    role: editable ? "textbox" : undefined,
+    "aria-label": as === "h1" ? "Plan title" : "Plan summary",
+    "aria-multiline": false,
+    spellCheck: true,
+    "data-plan-interactive": editable ? true : undefined,
+    "data-placeholder": placeholder,
+    className: cn(className, editable && "plan-header-editable"),
+    onInput: (event: FormEvent<HTMLElement>) => {
+      draftRef.current = event.currentTarget.textContent ?? "";
+    },
+    onPaste: (event: ClipboardEvent<HTMLElement>) => {
+      if (!editable) return;
+      event.preventDefault();
+      document.execCommand(
+        "insertText",
+        false,
+        event.clipboardData.getData("text/plain"),
+      );
+    },
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (!editable) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.currentTarget.blur();
+      }
+    },
+    onBlur: () => {
+      if (!editable) return;
+      const node = ref.current;
+      const next = (draftRef.current || "").trim().replace(/\s+/g, " ");
+      if (!next && as === "h1") {
+        if (node) node.textContent = value;
+        draftRef.current = value;
+        return;
+      }
+      if (node) node.textContent = next;
+      draftRef.current = next;
+      if (next !== value) void onCommit(next);
+    },
+  };
+
+  return as === "h1" ? (
+    <h1 {...commonProps}>{value}</h1>
+  ) : (
+    <p {...commonProps}>{value}</p>
   );
 }
 
@@ -86,15 +490,47 @@ function updateBlocks(
 ): PlanBlock[] {
   return blocks.map((block) => {
     if (block.id === id) return updater(block);
-    if (block.type !== "tabs") return block;
-    return {
-      ...block,
-      data: {
-        tabs: block.data.tabs.map((tab) => ({
-          ...tab,
-          blocks: updateBlocks(tab.blocks, id, updater),
-        })),
-      },
-    };
+    if (block.type === "tabs") {
+      return {
+        ...block,
+        data: {
+          tabs: block.data.tabs.map((tab) => ({
+            ...tab,
+            blocks: updateBlocks(tab.blocks, id, updater),
+          })),
+        },
+      };
+    }
+    if (block.type === "columns") {
+      return {
+        ...block,
+        data: {
+          columns: block.data.columns.map((column) => ({
+            ...column,
+            blocks: updateBlocks(column.blocks, id, updater),
+          })),
+        },
+      };
+    }
+    return block;
   });
+}
+
+function findBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
+  for (const block of blocks) {
+    if (block.id === id) return block;
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        const match = findBlock(tab.blocks, id);
+        if (match) return match;
+      }
+    }
+    if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        const match = findBlock(column.blocks, id);
+        if (match) return match;
+      }
+    }
+  }
+  return null;
 }

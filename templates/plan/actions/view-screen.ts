@@ -9,10 +9,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import { loadPlanBundle, summarizePlans } from "../server/plans.js";
 
 export default defineAction({
@@ -35,6 +36,23 @@ export default defineAction({
           plan: bundle.plan,
           summary: bundle.summary,
           contentBlockCount: bundle.plan.content?.blocks.length ?? 0,
+          prototype: bundle.plan.content?.prototype
+            ? {
+                title: bundle.plan.content.prototype.title,
+                initialScreenId: bundle.plan.content.prototype.initialScreenId,
+                screenCount: bundle.plan.content.prototype.screens.length,
+                screens: bundle.plan.content.prototype.screens.map(
+                  (screen) => ({
+                    id: screen.id,
+                    title: screen.title,
+                    surface: screen.surface,
+                    summary: screen.summary,
+                  }),
+                ),
+                transitionCount:
+                  bundle.plan.content.prototype.transitions?.length ?? 0,
+              }
+            : null,
           htmlLength: bundle.plan.html?.length ?? 0,
           sections: bundle.sections.map((section) => ({
             id: section.id,
@@ -46,7 +64,7 @@ export default defineAction({
             (comment) => comment.status === "open",
           ),
           agentWorkflow:
-            "For fast visual-plan iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId/regionId; use full content only for broad restructuring, and html only for legacy imported artifacts.",
+            "For fast visual/prototype plan iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId, prototype screenId, or canvas id; use full content only for broad restructuring, and html only for legacy imported artifacts. For rollback, list-plan-versions and get-plan-version inspect saved snapshots; restore-plan-version only when the user asks to restore.",
         };
       } catch {
         screen.visualPlanError = `Could not load visual plan ${nav.planId}`;
@@ -58,7 +76,13 @@ export default defineAction({
         const rows = await getDb()
           .select()
           .from(schema.plans)
-          .where(accessFilter(schema.plans, schema.planShares))
+          .where(
+            accessFilter(
+              schema.plans,
+              schema.planShares,
+              resolvePlanAccessContext(currentAccess()),
+            ),
+          )
           .orderBy(desc(schema.plans.updatedAt))
           .limit(12);
         screen.visualPlansList = await summarizePlans(rows);

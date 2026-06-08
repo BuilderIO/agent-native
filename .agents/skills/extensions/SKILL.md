@@ -344,6 +344,20 @@ end up rendering nonsense like the literal text `true`.
 If you're not sure a key is configured, ask the user before generating an
 extension whose primary value is the AI step.
 
+## Secrets and sensitive data in extensions
+
+Never put a real API key, token, webhook URL, signing secret, private
+Builder/internal data, customer data, or credential-looking literal into
+extension HTML, inline scripts, docs, examples, or extension seed content.
+Extensions are stored in SQL and rendered in the browser; anything written into
+the extension body should be treated as visible.
+
+For external API calls, use `extensionFetch()` with `${keys.NAME}` placeholders
+inside single-quoted strings, for example
+`Authorization: 'Bearer ${keys.GITHUB_TOKEN}'`. The proxy resolves the value
+server-side. If the user has not configured the key, surface a setup error
+instead of substituting a copied key or demo value.
+
 ## Guidelines
 
 - **Rely on the default canvas padding.** The iframe shell adds modest body padding so simple extensions do not hug the edge. Do not add outer `p-4` / `p-6` unless the design needs extra breathing room. For full-bleed extensions such as maps, canvases, or custom editors, put `data-tool-layout="full-bleed"` or `data-tool-padding="none"` on the outermost element. (The `data-tool-*` attribute names are kept for back-compat with the iframe runtime.)
@@ -353,6 +367,8 @@ extension whose primary value is the AI step.
 - **All functions referenced in Alpine expressions must be defined in `x-data`.** If you use `@click="add()"`, there must be an `add()` method in the component's `x-data` object. Undefined references cause runtime errors.
 - **For non-trivial components, use a `<script>` + `Alpine.data('name', () => ({...}))` block and reference it with `x-data="name"`.** Inline `x-data="{ ...big object... }"` is brittle: stuffing many methods, branching logic, or any backtick template literal into an HTML attribute leads to half-parsed expressions and `ReferenceError` failures. See the "Component shape" section above.
 - **Don't ship a stubbed AI step.** If the extension's value is "AI analysis" and no LLM key is configured, either route the work to the agent chat or tell the user which key to add — never render a placeholder/boolean as the result.
+- **Never hardcode secrets or private data.** Use `${keys.NAME}` placeholders
+  for external credentials and synthetic example data for demos.
 - **Use the right fetch helper.** `appAction()` for app actions and app data, `appFetch()` for allowed framework `/_agent-native/*` endpoints, and `extensionFetch()` for external APIs. Never call template `/api/*` routes from an extension and never use raw `fetch()` -- secrets won't be injected and CORS will block external APIs.
 - **Single quotes around `${keys.*}`** to prevent browser-side template literal evaluation.
 - **Prefer patches over full rewrites** when editing existing extensions. Smaller diffs are less error-prone.

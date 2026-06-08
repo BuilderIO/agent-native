@@ -9,9 +9,11 @@ import { addAgentNativeSkill, parseSkillsArgs, runSkills } from "./skills.js";
 const tmpRoots: string[] = [];
 const PLANS_SKILL_NAMES = [
   "visual-plan",
+  "visual-recap",
   "visual-questions",
   "ui-plan",
-  "visualize-plan",
+  "prototype-plan",
+  "plan-design",
 ];
 
 afterEach(() => {
@@ -57,6 +59,70 @@ describe("agent-native skills", () => {
       client: "claude-code",
       clientExplicit: true,
     });
+  });
+
+  it("authenticates by default and opts out with --no-connect", () => {
+    expect(parseSkillsArgs(["add", "assets"]).connect).toBe(true);
+    expect(parseSkillsArgs(["add", "assets", "--no-connect"]).connect).toBe(
+      false,
+    );
+    expect(parseSkillsArgs(["add", "assets", "--skip-connect"]).connect).toBe(
+      false,
+    );
+  });
+
+  it("skips the auth flow when --no-connect is passed", async () => {
+    const root = tmpDir();
+    const runConnect = vi.fn(async () => {});
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--no-connect",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        runConnect,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(runConnect).not.toHaveBeenCalled();
+    expect(result.connected).toBe(false);
+  });
+
+  it("prints the connect command instead of auth in a non-interactive shell", async () => {
+    const root = tmpDir();
+    const runConnect = vi.fn(async () => {});
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => false,
+        runConnect,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(runConnect).not.toHaveBeenCalled();
+    expect(result.connected).toBe(false);
+    expect(result.connectCommand).toBe(
+      "agent-native connect https://assets.agent-native.com --client claude-code --scope project",
+    );
   });
 
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
@@ -170,11 +236,15 @@ describe("agent-native skills", () => {
           "--skill",
           "visual-plan",
           "--skill",
+          "visual-recap",
+          "--skill",
           "visual-questions",
           "--skill",
           "ui-plan",
           "--skill",
-          "visualize-plan",
+          "prototype-plan",
+          "--skill",
+          "plan-design",
           "-a",
           "codex",
           "-y",
@@ -186,54 +256,13 @@ describe("agent-native skills", () => {
       expect(
         fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
       ).toContain('url = "https://plan.agent-native.com/_agent-native/mcp"');
-      expect(materializedVisualPlan).toContain("structured `content`");
+      expect(materializedVisualPlan).toContain("pass it as `planText`");
       expect(materializedVisualPlan).toContain("contentPatches");
       expect(materializedVisualPlan).not.toContain("data-plan-tabs");
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
     }
-  });
-
-  it("accepts visualize-plan as a Plans companion alias", async () => {
-    const root = tmpDir();
-    const commands: { cmd: string; args: string[] }[] = [];
-
-    const result = await addAgentNativeSkill(
-      parseSkillsArgs([
-        "add",
-        "visualize-plan",
-        "--client",
-        "codex",
-        "--scope",
-        "project",
-      ]),
-      {
-        baseDir: root,
-        runCommand: async (cmd, args) => {
-          commands.push({ cmd, args });
-          return 0;
-        },
-      },
-    );
-
-    expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining([
-        "--skill",
-        "visual-plan",
-        "--skill",
-        "visual-questions",
-        "--skill",
-        "ui-plan",
-        "--skill",
-        "visualize-plan",
-      ]),
-    );
-    expect(result.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
   });
 
   it("accepts ui-plan as a Plans UI-first alias", async () => {
@@ -265,11 +294,60 @@ describe("agent-native skills", () => {
         "--skill",
         "visual-plan",
         "--skill",
+        "visual-recap",
+        "--skill",
         "visual-questions",
         "--skill",
         "ui-plan",
         "--skill",
-        "visualize-plan",
+        "prototype-plan",
+        "--skill",
+        "plan-design",
+      ]),
+    );
+    expect(result.mcpUrl).toBe(
+      "https://plan.agent-native.com/_agent-native/mcp",
+    );
+  });
+
+  it("accepts plan-design as a Plans full-fidelity design alias", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "plan-design",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("visual-plans");
+    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "--skill",
+        "visual-plan",
+        "--skill",
+        "visual-recap",
+        "--skill",
+        "visual-questions",
+        "--skill",
+        "ui-plan",
+        "--skill",
+        "prototype-plan",
+        "--skill",
+        "plan-design",
       ]),
     );
     expect(result.mcpUrl).toBe(
@@ -306,11 +384,15 @@ describe("agent-native skills", () => {
         "--skill",
         "visual-plan",
         "--skill",
+        "visual-recap",
+        "--skill",
         "visual-questions",
         "--skill",
         "ui-plan",
         "--skill",
-        "visualize-plan",
+        "prototype-plan",
+        "--skill",
+        "plan-design",
       ]),
     );
     expect(result.mcpUrl).toBe(
@@ -322,9 +404,11 @@ describe("agent-native skills", () => {
     const root = workspaceRoot();
     const pairs = [
       ["visual-plan", "visual-plans"],
+      ["visual-recap", "visual-recap"],
       ["visual-questions", "visual-questions"],
       ["ui-plan", "ui-plan"],
-      ["visualize-plan", "visualize-plan"],
+      ["prototype-plan", "prototype-plan"],
+      ["plan-design", "plan-design"],
     ];
 
     for (const [templateName, exportedName] of pairs) {
@@ -655,6 +739,7 @@ describe("agent-native skills", () => {
       "codex" as const,
       "claude-code" as const,
     ]);
+    const runConnect = vi.fn(async () => {});
     vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
       stdout.push(String(chunk));
       return true;
@@ -665,6 +750,7 @@ describe("agent-native skills", () => {
         baseDir: root,
         isInteractive: () => true,
         promptClients,
+        runConnect,
         runCommand: async (cmd, args, options) => {
           commands.push({ cmd, args, stdio: options?.stdio });
           return 0;
@@ -683,7 +769,13 @@ describe("agent-native skills", () => {
         JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf-8"))
           .mcpServers["agent-native-assets"].url,
       ).toBe("https://assets.agent-native.com/_agent-native/mcp");
+      // Install also authenticates the hosted connector in one step.
+      expect(runConnect).toHaveBeenCalledTimes(1);
+      expect(runConnect.mock.calls[0][0]).toEqual(
+        expect.arrayContaining(["https://assets.agent-native.com"]),
+      );
       expect(stdout.join("")).toContain("MCP config: codex, claude-code.");
+      expect(stdout.join("")).toContain("Authentication: completed.");
       expect(stdout.join("")).toContain("rerun with --client <client>");
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
@@ -704,6 +796,7 @@ describe("agent-native skills", () => {
         baseDir: root,
         isInteractive: () => true,
         promptClients,
+        runConnect: async () => {},
         runCommand: async () => 0,
       },
     );
@@ -731,6 +824,7 @@ describe("agent-native skills", () => {
         isInteractive: () => true,
         promptClients: async () => ["codex"],
         promptSkills,
+        runConnect: async () => {},
         runCommand: async (_cmd, args) => {
           commands.push({ args });
           return 0;

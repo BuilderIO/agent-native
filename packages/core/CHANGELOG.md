@@ -1,5 +1,410 @@
 # @agent-native/core
 
+## 0.40.2
+
+### Patch Changes
+
+- 8ea7f6d: Remove the annotated-code dev-doc block from Plans/Content (block source,
+  client/server registries, schema, slash menu, and skill guidance).
+
+## 0.40.1
+
+### Patch Changes
+
+- 38dff5b: Fix production 502s on SSR apps (docs, slides, content, assets) caused by the
+  browser-only Excalidraw/Mermaid renderers leaking into the Nitro server bundle.
+  Nitro re-bundles the server from node_modules and Rolldown merged
+  `@excalidraw/excalidraw` into a shared vendor chunk that the SSR render path
+  (tiptap, radix-ui, recharts) imported statically, so its top-level `window`
+  access ran at function cold-start and crashed every request with
+  `ReferenceError: window is not defined`. The Vite SSR build already stubbed these
+  libs for `build/server`, but that plugin didn't run during Nitro's separate
+  bundle. The deploy build now mirrors the same stub as a Rolldown plugin, replacing
+  `@excalidraw/excalidraw`, `@excalidraw/mermaid-to-excalidraw`, and `mermaid` with
+  an inert proxy in the server bundle (they only ever render client-side).
+
+## 0.40.0
+
+### Minor Changes
+
+- 2ce5471: Add a reusable `columns` container block for side-by-side (before/after) layouts in visual plans.
+- 2ce5471: Promote `/visual-recap` into the Agent-Native Plans skill bundle with CLI
+  installer aliases and synced skill copies.
+
+### Patch Changes
+
+- 2ce5471: Scope block edit hover to the directly hovered block and keep generated API reference blocks in a single-column document flow.
+- 2ce5471: Expose block metadata to host edit popover renderers so apps can provide
+  contextual block-level AI edit actions.
+- 2ce5471: Harden shared block renderers against malformed legacy JSON edits, oversized diff inputs, and JsonExplorer expand-state updates.
+- 2ce5471: Bound the Neon pooled-connection acquire with a timeout, not just the query. A cold or exhausted Neon pooler can stall on `pool.connect()`, which happens before the query-level `withDbTimeout` can fire — so authenticated requests (which run a session/org lookup on every navigation via `getSession` → `backfillSessionOrg`) hung until the platform killed the function, surfacing as "the app won't load" with lists, org switcher, and team pages stuck loading. The acquire now races the same `DB_OP_TIMEOUT_MS` budget and degrades into a retryable `CONNECT_TIMEOUT`, releasing the connection if it resolves after the timeout so the pool slot isn't leaked.
+- 2ce5471: Improve visual plan canvas source formatting guidance and document targeted diagram HTML patching.
+- 2ce5471: Highlight code-tab block editors while preserving textarea editing, and infer
+  syntax languages from file-like tab labels such as `content.ts`.
+- 2ce5471: Limit diff blocks to 15 visible lines by default with a slimmer inline expand
+  control, quieter file metadata, and hover-revealed layout controls.
+- 2ce5471: Compact single-child folder chains in FileTree blocks, cap the default visible tree rows, and use muted folder icons.
+- 2ce5471: Use standard UI label typography for FileTree block paths instead of monospace file text.
+- 2ce5471: Fix `zodDefToJsonSchema` to handle Zod v4 `"pipe"` type produced by `z.preprocess()`, `.superRefine()`, and `.transform()`. Previously these fell through to the `{ type: "string" }` fallback, causing action parameters whose schemas use `z.preprocess` (such as `content` in `create-visual-plan`) to be registered as strings in the MCP tool schema. Claude Code and other MCP clients would then JSON-encode object values as strings before sending, breaking validation.
+- 2ce5471: Keep shared block tab rails on one horizontally scrollable row when many tabs are present.
+- 2ce5471: Improve registry block editing with panel artifacts, inline table editing,
+  container edit surfaces, and a drag-handle block action menu.
+- 2ce5471: Default JSON explorer blocks to two auto-expanded container levels and add auto-expand presets to the edit popover.
+- 2ce5471: Fix Mermaid block runtime loading so Vite rewrites the browser-only Mermaid and
+  Excalidraw imports instead of leaving unresolved bare module specifiers in the
+  browser.
+- 2ce5471: Single-source the shared plan-skill cores (wireframe/canvas/document/exemplar) and share one wireframe-quality core across /visual-plan, /ui-plan, and /visual-recap. The wireframe-quality bar is now identical for forward plans and recaps, and the before/after layout rule is stated once (pick columns vs. vertical stack by geometry), removing the prior /visual-recap contradiction.
+- 2ce5471: Keep the full structured block library discoverable in Plans and Content slash
+  menus outside Notion-sync mode, including Mermaid, Swagger-style endpoints,
+  OpenAPI specs, schema/data models, diffs, file trees, JSON explorers, and
+  annotated code. Also let shareable resources normalize access context so local
+  Plan ownership stays consistent across generic sharing actions.
+- 2ce5471: Polish structured block slash menus with compact descriptions, hidden search
+  keywords, one-line ellipsized rows, and keyboard navigation that keeps the active
+  item visible while scrolling.
+- 2ce5471: Soften the active tab background for shared tabs blocks.
+- 2ce5471: Reduce table editing chrome by scoping row and column remove controls to the
+  hovered row or header, remove the footer padding control, and edit table text
+  through inline rich-markdown cells.
+- 2ce5471: Add an optional vertical orientation for the reusable tabs block.
+- 2ce5471: Stop generated visual recap plans from adding boilerplate disclaimer and provenance prose blocks.
+- 2ce5471: Clarify that visual recaps for UI changes should include wireframes, with before/after used when it helps review the change.
+
+## 0.39.2
+
+### Patch Changes
+
+- fa107db: Clarify generated app guidance so normal app data is action-first, and keep shared framework skills synchronized across generated workspaces and first-party templates.
+- fa107db: Fix deploy-time action route discovery so worker/edge builds mount actions with their declared HTTP method and `http.path`.
+
+  The deploy scan previously detected only `method: "GET"` via a plain source-text `includes`, so actions declaring `PUT`/`PATCH`/`DELETE`/`OPTIONS` were silently registered as `POST` (`app.on("POST", …)`) in deployed builds — a method mismatch against the client's actual request that 404s on edge/worker hosts (affected `calendar`'s `update-external-calendars`/`update-overlay-people` PUTs and `brain`'s `delete-source` DELETE). The same naive scan could also be tripped by an unrelated `method: "GET"` elsewhere in the file (e.g. a `fetch(…, { method: "GET" })` in the action body), and it dropped `http.path` entirely.
+
+  Discovery now parses the `http` config block specifically (all verbs, `http.path`, whitespace-tolerant `http: false`), and the generated worker mounts each action at `${prefix}/${http.path ?? name}` — matching the runtime mount in `action-routes.ts`.
+
+- fa107db: Guide architecture and code visual plans toward flexible inline HTML/SVG
+  document diagrams instead of top-level UI canvases, custom HTML escapes, or
+  default linear node flows.
+- fa107db: Expose auth provider profile images on client sessions and seed Google profile pictures into the shared avatar store.
+- fa107db: Fold existing-plan import guidance into `/visual-plan` and stop distributing the separate `/visualize-plan` skill.
+
+## 0.39.1
+
+### Patch Changes
+
+- 24a3a14: Add `/plan-design` to the built-in Plans skill bundle and CLI aliases.
+
+## 0.39.0
+
+### Minor Changes
+
+- d82d5f7: Add a "panel" edit surface for config-driven blocks. A block spec can set
+  `editSurface: "panel"` (the default when it ships no custom `Edit`) to render its
+  `Read` view with a hover corner edit button that opens its editor — the custom
+  `Edit` or the schema-driven auto-form — in an app-provided panel
+  (`ctx.renderEditSurface`, e.g. a popover), instead of always-inline fields.
+  Direct-manipulation blocks (prose, checklist, table, tabs) stay inline. The core
+  `custom-html` block opts into the panel.
+
+  Also completes the schema auto-editor (`SchemaBlockEditor`): array fields now
+  render as add/remove repeating rows (object elements → nested field groups,
+  scalar elements → per-item inputs) and object fields render as nested fieldsets,
+  instead of falling back to a "needs custom Edit" hint.
+
+- d82d5f7: Move the eight "dev-doc" structured blocks into the core block library so any app can register them, mirroring how `checklist` / `code-tabs` / `html` / `table` / `tabs` already live in core.
+  - **New shared blocks** — `mermaid` (hand-drawn Mermaid diagram), `api-endpoint` (Swagger / Stripe-style endpoint reference), `openapi-spec` (whole-document OpenAPI / Swagger reference), `data-model` (interactive dbdiagram-style ERD), `diff` (GitHub-style before/after with unified + split views), `file-tree` (VS Code / GitHub explorer with change badges), `json-explorer` (collapsible devtools JSON tree), and `annotated-code` (Stripe-docs "explain this code" walkthrough). Their React-free schema + MDX round-trip config export from `@agent-native/core/blocks/server`; their `Read` / `Edit` React renderers export from `@agent-native/core/blocks`.
+  - **App-agnostic** — the renderers no longer depend on a host app's shadcn/ui components or `next-themes`. Form controls use minimal inline primitives styled with the same Tailwind tokens, dark mode is detected from the document root's `.dark` class, and the diff line-differ is inlined so core carries no extra runtime dependency. Rendered output (dark/light, collapse, FK-highlight interactivity, panel editing) is unchanged.
+
+- d82d5f7: Export shared registry-block Tiptap node utilities so app editors can render registered block specs through a common NodeView, side-map provider, and duplicate-id reminting plugin.
+- d82d5f7: Add single-document editor primitives to the shared rich-markdown editor so the
+  plan app can render its whole document as one editable Notion-style ProseMirror
+  doc (custom blocks as inline NodeViews) while keeping its `blocks[]` format:
+  `gfmToProseJSON`/`proseJSONToGfm` (GFM↔ProseMirror via a headless editor), a
+  `RunId` extension (stable per-block prose ids), the shared `DragHandle` extension
+  (block grip + drag-reorder, moved from the content app and parameterized via
+  `wrapperSelector`), and serializer-injection props on `SharedRichEditor`
+  (`getMarkdown`/`setContent`/`normalizeValue`/`shouldSeed`/`wrapperClassName`).
+
+  The `DragHandle` grip now attaches lazily on first hover (re-homing to the
+  wrapper once it exists) instead of only at plugin init, so the grip reliably
+  appears even when the editor DOM mounts into its wrapper after the ProseMirror
+  view is constructed (the React mount order in `SharedRichEditor`).
+
+### Patch Changes
+
+- d82d5f7: Expose shared library block spec registration for template editors.
+- d82d5f7: Add a `notionCompatible` block-spec flag and registry helper so apps can derive Notion-sync block allowlists from registered block metadata.
+- d82d5f7: Add a shared registry-block slash-command builder for template editors.
+- d82d5f7: Fix rich-text editing data loss in the shared collab reconcile. The reconcile now
+  remembers a small bounded ring of recent local emissions, so a stale-but-recent
+  poll echo — e.g. a debounced autosave that persisted only a partial burst, then
+  re-supplied by the next poll with a newer timestamp — can no longer clobber the
+  freshly-typed tail. Previously only the single latest emission was recognized as
+  an echo, so the trailing characters typed during the save→poll window were
+  reverted. External (agent/peer) edits never byte-match a local emission, so
+  agent resync is unaffected.
+- d82d5f7: Make the unified editor's block library "add a block in ONE place" by sharing the two pieces that were still duplicated between the plan and content editors.
+  - **`buildRegistryBlockSlashItems(registry, options)`** (exported from `@agent-native/core/client`) — the shared builder for the registry-derived block slash commands both editors offer. It owns the `registry.list("block")` source, the Notion-compatibility filter, and the one-item-per-spec mapping; each app injects only the parts that legitimately differ (its item shape, its Notion-compat predicate, and how it inserts the block node). Plan's `buildPlanSlashCommands` and content's `buildRegistrySlashItems` are now thin adapters over it.
+  - **`registerLibraryBlocks(registry, { overrides? })` + `libraryBlockSpecs`** (from `@agent-native/core/blocks`) — register the whole standard browser library (checklist, table, code-tabs, html, tabs + the eight dev-doc blocks: mermaid, api-endpoint, openapi-spec, data-model, diff, file-tree, json-explorer, annotated-code) in one call. Apps register it, then add only their app-specific blocks on top, passing small per-block `overrides` (e.g. content re-types `table` → `table-block`).
+  - **`registerLibraryBlockConfigs(registry, { overrides? })` + `libraryBlockConfigs`** (from `@agent-native/core/blocks/server`) — the React-free twin for server / shared registries, registering the same library as `Read: () => null` config stubs so the agent schema export and MDX round-trip share one source too.
+
+  Adding a 14th standard library block now means editing one core list instead of four app files. The set of registered blocks and the Notion-gating behavior in each app are unchanged.
+
+- d82d5f7: Update bundled Visual Plans skill guidance to use bottom Open Questions form blocks.
+
+## 0.38.0
+
+### Minor Changes
+
+- 5f51768: Give actions and skills tighter control over what the agent sees, and make the clarifying-question UI a first-class building block.
+  - **`agentTool: false` on `defineAction`** — expose an action to the frontend / HTTP (`useActionMutation`, `callAction`, `/_agent-native/actions/<name>`) while hiding it from every agent tool surface (in-app assistant, MCP, A2A, job/trigger runners). Frontend/programmatic actions no longer have to spend a slot in the model's tool list. Distinct from `toolCallable`, which only governs the sandboxed extension iframe bridge.
+  - **`ask-question` / `askUserQuestion()`** — the built-in clarifying-question tool now accepts a short `header` chip and per-option `preview` content, aligning with Claude Code's `AskUserQuestion`. A new `askUserQuestion()` client helper (exported from `@agent-native/core/client`) lets app code raise the same inline multiple-choice prompt and `await` the user's selected value(s) — so the UI can gate an action on one quick decision. Documented in `client.md` and the `client-methods` skill.
+  - **Skill scoping** — SKILL.md frontmatter now supports `scope: runtime | dev | both` (default `both`). The runtime agent excludes `scope: dev` skills from both the system-prompt skills block and `docs-search`, so development-only skills stay invisible to the running app's agent.
+  - **Action-surface guidance + advisory audit** — the `actions` skill and docs now teach keeping the action surface small and orthogonal (prefer one CRUD `update` over per-field actions; reach for the generic query/escape-hatch actions instead of minting read actions). Added `pnpm actions:audit`, an advisory scanner that flags likely UI-dead mutating actions and redundant action clusters (never fails CI).
+  - **`run(args, ctx)` context** — an action's `run` now receives an optional second argument with the resolved request identity (`userEmail`, `orgId`) and the invocation source (`caller`: `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`), wired at every dispatch site. Read `ctx.userEmail` / `ctx.caller` instead of calling `getRequestUserEmail()` by hand. Backward compatible (1-arg `run(args)` still valid); `userEmail` is never defaulted to a dev identity.
+  - **Client-side `track()`** — analytics tracking now works from the browser. A new `track()` client helper (exported from `@agent-native/core/client`) POSTs to `/_agent-native/track`, which forwards the event to the same registered server-side providers (PostHog/Mixpanel/etc) with server-resolved attribution. No analytics SDK or provider keys ship to the client.
+
+- 510f15d: Add a first-party block registry (`@agent-native/core/blocks`). A `BlockSpec`
+  describes one document block end to end — a zod `schema` for its data, an `mdx`
+  config for byte-stable MDX round-trip, a `Read` renderer, an optional `Edit`
+  (auto-generated from the schema when omitted), and `placement` (top-level
+  and/or inline). Apps create a `BlockRegistry`, register their specs, and render
+  through `BlockView` inside a `BlockRegistryProvider`.
+  - `defineBlock` / `BlockRegistry` / `registerBlocks` — author and register blocks.
+  - `BlockRegistryProvider` / `useBlockRegistry` — thread the registry + runtime
+    render context (asset resolver, action caller, inline markdown editor) into React.
+  - `SchemaBlockEditor` + the `markdown()` zod helper — a schema-driven auto-editor
+    that renders shadcn-style controls per field, with `markdown()`-tagged string
+    fields editing inline via the app's rich-markdown editor.
+  - `serializeSpecBlock` / `parseSpecBlock` + the shared `prop()` encoder and
+    estree attribute reader (exported from the React-free
+    `@agent-native/core/blocks/server` entry) — registry-driven MDX round-trip that
+    reproduces the existing component/attribute encoding for backward compatibility.
+  - `describeBlocksForAgent` / `renderBlockVocabularyReference` — generate the
+    agent's block vocabulary (per-block JSON schemas and a compact markdown
+    reference of types, MDX tags, placement, and key fields) directly from the
+    registry so the agent never drifts from what the app can render and serialize.
+  - A standard block library (`@agent-native/core/blocks` + the React-free
+    `/blocks/server` entry): `checklistBlock`, `tableBlock`, `codeTabsBlock`,
+    `htmlBlock`, and `tabsBlock`, each with its pure schema + MDX config so apps
+    can register the shared specs (plan registers all of them; tabs is also
+    inline-placeable).
+
+  The registry is designed to run alongside existing per-block code: renderers and
+  the MDX adapter check the registry first and fall back to legacy paths for
+  unregistered block types, so existing documents keep working unchanged.
+
+- 510f15d: Add a standard `tabs` block to the core block library
+  (`@agent-native/core/blocks`): a horizontal pill-tab container whose tabs each
+  hold their own list of child blocks. It exports `tabsBlock` (the full React
+  spec), `TabsBlockReader`/`TabsBlockEditor`, and the React-free
+  `tabsSchema`/`tabsMdx` config (from `@agent-native/core/blocks/server`). The MDX
+  encoding matches the legacy `<TabsBlock … tabs={[…]} />` form — labels and
+  nested child blocks are one JSON `tabs` prop (not nested MDX) — so stored
+  documents round-trip byte-compatibly.
+
+  Container blocks render their children through a new optional
+  `BlockRenderContext.renderBlock` capability (with a `NestedBlock` shape): the app
+  wires it to its own block dispatcher so registered children render via their spec
+  and unconverted children fall through the app's legacy path. This is the
+  coexistence seam that lets a core container block render app-specific child
+  blocks without importing them.
+
+- 510f15d: Syntax-highlight code blocks in the shared rich markdown editor. When an embedder
+  enables `features.codeBlock` (Plans today), the editor now uses
+  `CodeBlockLowlight` with a curated lowlight grammar set (js/ts/tsx, json, css,
+  html, bash, python, yaml, sql, markdown) and a github-dark token theme, instead
+  of a plain monospace block. Inline code keeps its own background; block code no
+  longer leaks the inline-code background over the dark surface. Apps that ship
+  their own code node (Content's NFM editor disables `features.codeBlock`) are
+  unaffected.
+- 510f15d: Add optional real-time multi-user editing to the shared `RichMarkdownEditor`.
+
+  `RichMarkdownEditor` (and the `createRichMarkdownExtensions` factory) now accept
+  optional `ydoc`, `awareness`, and `user` props. When a `ydoc` is supplied the
+  editor binds the framework's existing collaboration stack — `Collaboration` over
+  the shared `Y.Doc`, plus a `CollaborationCaret` for live cursors when an
+  `Awareness` is present — and disables StarterKit's built-in undo/redo so Yjs owns
+  history. The lead client (elected via `isReconcileLeadClient`) seeds the empty
+  shared doc once from the markdown `value`, `onChange` skips remote-origin
+  transactions before serializing, and external markdown is reconciled only by the
+  lead client when it is genuinely newer. Markdown (GFM) stays the canonical
+  emitted/saved representation — the `Y.Doc` is transient live state and is never
+  written into stored content.
+
+  With no `ydoc`, the editor is byte-for-byte the same controlled `value`/`onChange`
+  single-user editor as before, so existing embedders are unaffected. This lets a
+  template wire per-block collaborative prose editing by pairing the editor with
+  `useCollaborativeDoc` and a `createCollabPlugin` mount, reusing the shared collab
+  backend instead of reimplementing CRDT sync. New exports:
+  `createRichMarkdownExtensions`, `RichMarkdownCollabUser`, and
+  `CreateRichMarkdownExtensionsOptions` from `@agent-native/core/client`.
+
+- 510f15d: Add a shared block-level image node to the rich markdown editor core so every
+  embedder gets an uploading image block — improve it once, both apps improve.
+  - **`features.image` + `onImageUpload`** on `createSharedEditorExtensions` /
+    `SharedRichEditor`. When enabled, the editor mounts a block-level image node
+    (`@tiptap/extension-image`) that serializes to standard markdown image syntax
+    `![alt](src)` for the `gfm` dialect — byte-stable and source-syncable (no
+    `<img width>` HTML, so the GFM `html:false` contract and the plan round-trip
+    corpus are preserved). The node ships a block-aware markdown serializer so an
+    image followed by prose keeps its blank-line separator.
+  - **Injectable upload contract** `ImageUploadFn = (file: File) => Promise<{ src;
+alt? }>`. A self-contained ProseMirror plugin wires paste-image and
+    drag-drop-image to the injected uploader (insert placeholder → upload → patch
+    `src`), and `createImageSlashCommand(upload)` adds a `/image` file-picker
+    command. With no uploader the block still renders and round-trips pasted image
+    URLs / `![](url)` markdown.
+  - **`uploadEditorImage`** (exported from `@agent-native/core/client`): the
+    default uploader. Reads the File as a data URL and calls the framework
+    `upload-image` action, returning the hosted CDN URL — so any consumer gets a
+    real uploading image block with no per-app upload code.
+
+  Plans now support inserting images via `/image`, paste, and drag-drop; each
+  image autosaves as `![alt](url)` markdown through the existing
+  `update-rich-text` path. The Content editor keeps its own richer image block
+  (Assets picker, AI alt-text, resize, NFM serialization) unchanged — it leaves
+  `features.image` off and injects its own image node, so the two never collide
+  and Content's NFM image round-trip stays byte-identical.
+
+- 510f15d: Extract the rich markdown editor into ONE shared, configurable core so the plan
+  and content editors can build on a single surface instead of duplicating the
+  base Tiptap setup, markdown wiring, collab seed/reconcile logic, and the slash /
+  bubble menus.
+
+  New exports from `@agent-native/core/client`:
+  - `createSharedEditorExtensions(opts)` — the single extension factory. Assembles
+    StarterKit + Placeholder + Link + tasks + tables + a dialect-keyed
+    `tiptap-markdown` serializer (`MARKDOWN_DIALECT_CONFIG` for `gfm`/`nfm`), then
+    optional Collaboration/CollaborationCaret, then app-injected `extraExtensions`.
+    Accepts `{ dialect, preset, placeholder, features, extraExtensions, collab }`,
+    plus a `starterKit` override (disable replaced nodes / swap the dropcursor), a
+    `markdown` config override, and `features.placeholder` / `features.markdown`
+    toggles so an app with a bespoke placeholder resolver or its own serializer
+    (Content's NFM converter) can reuse just the StarterKit base + collab wiring.
+  - `useCollabReconcile(...)` — the seed / reconcile / lead-client / change-origin
+    logic extracted into a reusable hook, so the subtle collab behavior is never
+    duplicated again. Returns the `onUpdate` guards (`shouldIgnoreUpdate`,
+    `registerEmitted`) plus the `isSettingContent` ref. Accepts `getMarkdown`,
+    `setContent`, `normalizeValue`, `shouldSeed`, and `initialAppliedUpdatedAt`
+    overrides so a non-`tiptap-markdown` serializer (Content's
+    `docToNfm`/`nfmToDoc`/`canonicalizeNfm`, sentinel-`<empty-block/>` seed, and
+    stale-Y.Doc-on-open reconcile) round-trips byte-identically through the hook.
+  - `SlashCommandMenu` + `DEFAULT_SLASH_COMMANDS` and `BubbleToolbar` +
+    `buildDefaultBubbleItems` — the inline menus promoted to standalone,
+    extendable components (apps pass their own `items` / `buildItems`).
+  - `SharedRichEditor` — the editor component (props: `value`, `onChange`,
+    `onBlur`, `contentUpdatedAt`, `editable`, `interactive`, `placeholder`,
+    `className`, `editorClassName`, `dialect`, `preset`, `features`,
+    `extraExtensions`, `ydoc`, `awareness`, `user`, plus optional `slashItems` /
+    `buildBubbleItems` overrides).
+
+  `RichMarkdownEditor` and `createRichMarkdownExtensions` remain exported as
+  back-compat aliases over the shared core, preserving today's GFM/plan behavior
+  exactly — the round-trip fidelity and collaboration specs stay green and the
+  plan editor is unchanged. Content-specific Notion/media/comment/database
+  extensions are injected via `extraExtensions`, never forced into the shared
+  core.
+
+  Phase 2: the Content (Documents) editor now builds on this same shared core. Its
+  `createVisualEditorExtensions` routes through `createSharedEditorExtensions`
+  (sharing the StarterKit base + the Collaboration/CollaborationCaret wiring +
+  ordering), and its inline collab seed/reconcile/lead-client/`onUpdate`-guard
+  logic is replaced by `useCollabReconcile` with Content's NFM serializer injected.
+  Content keeps every Notion/media/comment/database/NFM-fidelity behavior as
+  `extraExtensions` and its own slash/bubble menus, and its NFM round-trip
+  (`docToNfm(nfmToDoc(x)) === x`) stays byte-identical — so plan and content now
+  share one editor core.
+
+### Patch Changes
+
+- 510f15d: Show a loading skeleton while the Assets picker iframe is initializing.
+- 5f51768: Show `sendToAgentChat({ newTab: true, background: true })` work in RunsTray and ensure hidden background tabs start their queued chat turn without stealing focus.
+- 510f15d: Fix a content-corrupting reconcile loop in the shared `useCollabReconcile` hook
+  (`RichMarkdownEditor` / `SharedRichEditor` for Plans, and the Content editor that
+  reuses the hook with its NFM overrides).
+
+  Two compounding bugs caused a rich-text block to escalate every poll
+  (`<h1>…</h1>` → `&lt;h1&gt;…` → `&amp;lt;h1&amp;gt;…` …) and fight active typing:
+  - **Trigger:** the default `setContent` passed
+    `parseOptions: { preserveWhitespace: "full" }`. In tiptap v3 that routes the
+    command through `insertContentAt`, which tiptap-markdown ALSO overrides to
+    re-run its markdown parser — double-parsing the already-parsed doc and
+    re-emitting it as escaped HTML. So even a clean heading/list/code block came
+    back non-idempotent and drifted on every reconcile. The default now hands the
+    markdown string straight to tiptap-markdown's `setContent` override (no
+    `parseOptions`); the GFM corpus round-trips byte-stably, code-block and
+    empty-line whitespace included.
+  - **Containment:** the reconcile only skipped re-applying when the editor's raw
+    serialization equalled the incoming value, so a NON-idempotent value
+    (`serialize(parse(value)) !== value`, e.g. raw HTML stored in a block) was
+    re-applied indefinitely. The reconcile now compares by DOC EQUIVALENCE: it
+    tracks the raw value it last applied and the editor's serialized output after
+    that apply, recognizes both a re-supplied raw value and its own autosaved
+    serialized echo as already-applied, and re-checks at apply time. A
+    non-idempotent block is now applied AT MOST ONCE and the editor stabilizes
+    instead of corrupt-looping. External content is also never applied while the
+    user is actively typing.
+
+  The idempotent (normal) path, the lead-client election, the `isChangeOrigin`
+  skip, and Content's NFM `getMarkdown`/`setContent`/`normalizeValue`/`shouldSeed`
+  overrides are unchanged.
+
+- 5f51768: Honor connect-minted MCP OAuth tokens on the HTTP action surface.
+
+  `agent-native connect` mints an MCP-audience OAuth access token and the local
+  Plans publish flow POSTs it (as `Authorization: Bearer`) to the hosted action
+  route `/_agent-native/actions/import-visual-plan-source`. That token is bound to
+  the app's MCP resource, not the legacy `sessions` table, so `getSession` never
+  resolved it on the action surface and `requiresAuth` actions like
+  `import-visual-plan-source` returned 401 — breaking `publish-visual-plan`.
+
+  `getSession`'s bearer path now falls back to the MCP surface's canonical
+  `verifyAuth` for any `Authorization: Bearer` request, so the action surface
+  honors exactly the tokens the MCP endpoint honors: same signature check, same
+  audience binding to this app's resource, same connect-token revocation gate. It
+  resolves to the same `{ email, orgId }` identity, so ownable-data scoping is
+  identical. Cookie/page loads (no bearer header) are unaffected, and tokens bound
+  to a different app's audience are still rejected.
+
+- 5f51768: Reduce Sentry noise from expected browser auth/abort and reconnect 404 events, and keep social OG images from failing when the native resvg runtime is unavailable.
+- 5f51768: Strengthen generated agent instructions to forbid hardcoded API keys, tokens,
+  webhook secrets, credential literals, and private data in source, docs,
+  fixtures, prompts, action responses, and generated content.
+- 510f15d: Improve the hosted Google sign-in warning for Mail by showing it as a popover with a run-local path.
+- 5f51768: Super-easy `/visual-plan` setup: `agent-native skills add visual-plan` now
+  installs the skill, registers the Plans MCP connector, AND authenticates it in
+  one step (reusing the existing `agent-native connect` OAuth / browser
+  device-code flow) so you no longer hit an OAuth wall on the first tool call. Add
+  a `--no-connect` flag to skip auth, and in non-interactive shells / CI the auth
+  step is skipped and the exact `agent-native connect <url>` command is printed
+  instead. The unauthorized MCP response (`401`) now returns an actionable JSON
+  body with a human-readable message plus the exact remediation (the
+  `agent-native connect <url>` command and the authorize / resource-metadata URLs)
+  while keeping the `WWW-Authenticate` header for OAuth-capable clients. Adds a
+  public docs quick-start page for Visual Plans.
+- 5f51768: Correct the `/visual-plan` setup & authentication docs to match the real model.
+  The CLI install (`agent-native skills add visual-plan`) installs the skill,
+  registers the hosted Plans MCP connector, AND authenticates it in one step (a
+  one-time browser sign-in at setup is intended; `--no-connect` skips it) — it does
+  not run "no-login local by default". The no-sign-up experience is the
+  browser/guest path: anyone you share with can create and edit a plan as a guest
+  and only sign in to save or share, at which point their guest plans are claimed
+  into their account. Public/shared plans are viewable by anyone with the link;
+  commenting requires an agent-native account. Local mode (offline, plans synced to
+  your repo as MDX) is documented as a separate advanced path. Updates the shared
+  `PLAN_SETUP_AUTH_MD` block across all Plans skills (`/visual-plan`, `/ui-plan`,
+  `/visual-questions`, `/visualize-plan`) and the public Visual Plans docs page,
+  including its frontmatter description.
+- 510f15d: Keep `/visual-plan` and `/ui-plan` on the host agent's normal planning flow,
+  using visual questions only for explicit `/visual-questions` intake.
+- 5f51768: Add a shared rich markdown editor for inline plan prose editing.
+- 5f51768: Plan editor share + side-chat UX: the agent side chat now offers an inline,
+  account-free way to paste an Anthropic or OpenAI API key (progressive
+  disclosure next to the existing one-click Builder connect) and makes clear the
+  side chat is optional — you can keep editing with your own coding agent. Adds a
+  `saveAgentEngineApiKey` client helper for storing a bring-your-own provider key.
+- 5f51768: Keep generated workspace skills synced from the repository skill source of truth and guard against drift.
+
 ## 0.37.3
 
 ### Patch Changes

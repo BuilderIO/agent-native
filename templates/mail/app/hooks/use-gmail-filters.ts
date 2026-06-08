@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
-import { TAB_ID } from "@/lib/tab-id";
+import { callAction } from "@agent-native/core/client";
 import type {
   ManagedGmailFilter,
   ManagedGmailFiltersAccount,
@@ -45,24 +44,7 @@ export type GmailFilterMutationResponse = {
 async function runManageGmailFilters<T>(
   input: ManageGmailFiltersInput,
 ): Promise<T> {
-  const res = await fetch(
-    agentNativePath("/_agent-native/actions/manage-gmail-filters"),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Source": TAB_ID,
-      },
-      body: JSON.stringify(input),
-    },
-  );
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new Error(
-      body?.error || body?.message || `Request failed (${res.status})`,
-    );
-  }
-  return res.json();
+  return callAction<T>("manage-gmail-filters", input);
 }
 
 export function useGmailFilters() {
@@ -77,7 +59,7 @@ export function useCreateGmailFilter() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: Omit<ManageGmailFiltersInput, "operation">) =>
-      runManageGmailFilters<GmailFilterMutationResponse>({
+      callAction<GmailFilterMutationResponse>("manage-gmail-filters", {
         ...input,
         operation: "create",
       }),
@@ -90,7 +72,7 @@ export function useReplaceGmailFilter() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: Omit<ManageGmailFiltersInput, "operation">) =>
-      runManageGmailFilters<GmailFilterMutationResponse>({
+      callAction<GmailFilterMutationResponse>("manage-gmail-filters", {
         ...input,
         operation: "replace",
       }),
@@ -103,7 +85,7 @@ export function useDeleteGmailFilter() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { id: string; account?: string }) =>
-      runManageGmailFilters<GmailFilterMutationResponse>({
+      callAction<GmailFilterMutationResponse>("manage-gmail-filters", {
         ...input,
         operation: "delete",
       }),

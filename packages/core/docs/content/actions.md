@@ -70,6 +70,46 @@ export default defineAction({
 - **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
 - **`parallelSafe: true`** — allow a mutating action to run concurrently with other same-turn tool calls. Only set this when the action is internally concurrency-safe and order-independent; mutating actions serialize by default.
 
+### Keep the action surface small {#small-surface}
+
+Every action the agent can see is a tool in the model's context window, and a long, overlapping tool list degrades the model's tool-selection quality. Design the action surface like an API you maintain, not one action per UI affordance:
+
+- Prefer **one CRUD-style `update`** that takes a patch of optional fields over N per-field actions (`update-name`, `update-order`, `update-color`, …). The caller sends only what changed.
+- Before adding a new read action per query/filter, reach for a generic escape hatch: the [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
+- Mark UI-only or programmatic actions [`agentTool: false`](#agent-tool) so they stay frontend/HTTP-callable without spending a slot in the model's tool list.
+- Delete or hide actions the UI no longer uses instead of leaving them exposed to the model.
+
+A repo-level advisory helper, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`), statically scans a template's `actions/` and flags likely UI-dead actions and redundant per-field clusters. It is advisory only (always exits 0, never fails CI) and uses conservative heuristics, so review its suggestions rather than treating them as errors.
+
+### Agent tool exposure {#agent-tool}
+
+By default every action is exposed to the agent — the in-app assistant plus the app's MCP / A2A tool surfaces — as a callable tool. For an action that only the frontend (or an HTTP / cron caller) needs, set `agentTool: false` to keep it behind the framework's auth + action surface while removing it from every agent tool list:
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only — not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+| Value       | Behavior                                                                                                                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `true`      | Allow (same as undefined). Useful for documenting intent.                                                                                                                                  |
+| `false`     | **Hidden from the model entirely** — not in the agent's tool list, MCP, or A2A. Still callable from the UI (`useActionMutation` / `callAction`), CLI, and `/_agent-native/actions/<name>`. |
+| `undefined` | **Default-allow.** The action is a normal agent tool.                                                                                                                                      |
+
+`agentTool: false` is **not** the same as [`toolCallable: false`](#tool-callable):
+
+- **`agentTool: false`** removes the action from the **model's** view. The model can no longer see or call it; the UI and HTTP can.
+- **`toolCallable: false`** only blocks the sandboxed **extension iframe bridge** (`appAction(...)`). The action stays fully visible to the model, UI, CLI, MCP, and A2A. It exists for high-blast-radius operations (account/org/auth changes), not for trimming the tool list.
+
+Reach for `agentTool: false` when you find yourself adding a UI-only or purely programmatic action, or when the UI stops using an action you'd otherwise leave exposed to the model.
+
 ### Extension callability {#tool-callable}
 
 Extensions (Alpine.js mini-apps that run inside sandboxed iframes — see [Extensions](/docs/extensions)) call actions via `appAction(name, params)`. Because a shared extension's HTML/JS executes inside the _viewer's_ session, an action invoked from an extension runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
@@ -101,6 +141,53 @@ Set `toolCallable: false` for actions that:
 - change auth state (sign-out-all sessions, rotate tokens),
 - modify org membership (invite/remove members, change roles),
 - change resource visibility or grant share access (the framework's built-in `share-resource`, `unshare-resource`, and `set-resource-visibility` are already opted out).
+
+### Run context (second argument) {#run-context}
+
+`run` receives an optional second argument, `ctx`, carrying the resolved request identity and the surface that invoked the action. Read it instead of calling `getRequestUserEmail()` / `getRequestOrgId()` by hand, and pass the whole `ctx` to tracking:
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+`ActionRunContext` fields:
+
+| Field       | Type                  | Notes                                                                                                                                                           |
+| ----------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail` | `string \| undefined` | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
+| `orgId`     | `string \| null`      | Resolved org id, or `null` when the request has no org.                                                                                                         |
+| `caller`    | `ActionCaller`        | How the action was invoked (see below).                                                                                                                         |
+| `send`      | `(event) => void`     | Optional. Emit an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`); `undefined` elsewhere.                                   |
+
+`caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`:
+
+| `caller`     | Set when…                                                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `"tool"`     | The in-app agent loop, a sub-agent / agent team, or an A2A request (A2A drives the same agent loop, so its tool calls are `"tool"`). |
+| `"frontend"` | A browser call via `useActionMutation` / `useActionQuery` / `callAction` (tagged with the `X-Agent-Native-Frontend: 1` header).      |
+| `"http"`     | A bare programmatic `POST` / `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                   |
+| `"cli"`      | `pnpm action <name>` (the CLI runner).                                                                                               |
+| `"mcp"`      | An external agent over the MCP `tools/call` endpoint.                                                                                |
+| `"a2a"`      | Reserved for a future direct A2A action dispatch. Today A2A runs through the agent loop, so those calls are `"tool"`.                |
+
+`run` stays backward compatible: existing 1-argument handlers and handlers that only destructure `{ send }` continue to work unchanged.
 
 ## Calling it from the UI {#ui}
 

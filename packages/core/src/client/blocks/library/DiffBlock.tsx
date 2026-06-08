@@ -1,0 +1,889 @@
+import { useMemo, useState, type ReactNode } from "react";
+import {
+  IconChevronRight,
+  IconColumns,
+  IconDotsVertical,
+  IconFileDiff,
+  IconList,
+} from "@tabler/icons-react";
+import { common, createLowlight } from "lowlight";
+import { cn } from "../../utils.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
+import type { DiffData, DiffMode } from "./diff.config.js";
+import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
+
+/**
+ * GitHub-style before/after diff block. The read renderer computes a line-level
+ * diff, then renders it either unified (one column, `+`/`−` gutters) or split
+ * (side-by-side). Long unchanged runs collapse into an expandable "N unchanged
+ * lines" row (progressive disclosure). The read surface keeps the GitHub diff
+ * shape while using the framework Tailwind theme tokens, so it follows each
+ * host app's light/dark appearance instead of bringing its own palette.
+ *
+ * Lives in core so any app can register the dev-doc block. The line differ is
+ * inlined (a small LCS-based `diffLines`) rather than pulling the `diff` package
+ * into core; the output shape (`{ value, added, removed }` change records) is
+ * identical to what the read renderer consumed before.
+ *
+ * Editing is panel-driven (config-style, like the HTML block): two monospace
+ * textareas (Before / After) plus filename, language, and mode controls.
+ */
+
+/* ── Inline line differ (LCS) — replaces jsdiff `diffLines` ─────────────────── */
+
+interface Change {
+  value: string;
+  added?: boolean;
+  removed?: boolean;
+}
+
+/**
+ * Split text into lines, each KEEPING its trailing newline (so the change
+ * `value`s concatenate back to the original and `splitLines` below behaves the
+ * same as it did against jsdiff output).
+ */
+function toLineTokens(text: string): string[] {
+  if (text === "") return [];
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "\n") {
+      out.push(text.slice(start, i + 1));
+      start = i + 1;
+    }
+  }
+  if (start < text.length) out.push(text.slice(start));
+  return out;
+}
+
+/**
+ * A minimal line-level diff producing jsdiff-compatible `Change[]` records
+ * (`{ value }` for context, `{ value, added: true }`, `{ value, removed: true }`).
+ * Uses a classic LCS table over line tokens; the inputs here are short code
+ * snippets so the O(n·m) table is fine. Removed lines are emitted before added
+ * lines within a change region, matching jsdiff's ordering.
+ */
+export function diffLines(before: string, after: string): Change[] {
+  const a = toLineTokens(before);
+  const b = toLineTokens(after);
+  const n = a.length;
+  const m = b.length;
+  const cells = (n + 1) * (m + 1);
+
+  if (cells > MAX_DIFF_LCS_CELLS) {
+    return [
+      ...(before ? [{ value: before, removed: true }] : []),
+      ...(after ? [{ value: after, added: true }] : []),
+    ];
+  }
+
+  // LCS length table.
+  const lcs: number[][] = Array.from({ length: n + 1 }, () =>
+    new Array<number>(m + 1).fill(0),
+  );
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      lcs[i][j] =
+        a[i] === b[j]
+          ? lcs[i + 1][j + 1] + 1
+          : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  const changes: Change[] = [];
+  // Push a token onto the last change if same kind, else open a new change.
+  const push = (value: string, kind: "context" | "added" | "removed") => {
+    const last = changes[changes.length - 1];
+    const sameKind =
+      last &&
+      Boolean(last.added) === (kind === "added") &&
+      Boolean(last.removed) === (kind === "removed");
+    if (sameKind) {
+      last.value += value;
+    } else {
+      changes.push({
+        value,
+        added: kind === "added" ? true : undefined,
+        removed: kind === "removed" ? true : undefined,
+      });
+    }
+  };
+
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      push(a[i], "context");
+      i += 1;
+      j += 1;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      push(a[i], "removed");
+      i += 1;
+    } else {
+      push(b[j], "added");
+      j += 1;
+    }
+  }
+  while (i < n) {
+    push(a[i], "removed");
+    i += 1;
+  }
+  while (j < m) {
+    push(b[j], "added");
+    j += 1;
+  }
+  return changes;
+}
+
+/* ── Syntax highlighting ───────────────────────────────────────────────────── */
+
+const lowlight = createLowlight(common);
+
+type LowlightNode = {
+  type: string;
+  value?: string;
+  properties?: {
+    className?: string[] | string;
+  };
+  children?: LowlightNode[];
+};
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  cjs: "javascript",
+  cts: "typescript",
+  htm: "html",
+  js: "javascript",
+  jsonc: "json",
+  jsx: "jsx",
+  md: "markdown",
+  mdx: "markdown",
+  mjs: "javascript",
+  mts: "typescript",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  sh: "bash",
+  shell: "bash",
+  ts: "typescript",
+  tsx: "tsx",
+  yml: "yaml",
+  zsh: "bash",
+};
+
+const TOKEN_CLASS_NAMES: Record<string, string> = {
+  "hljs-addition": "text-emerald-700 dark:text-emerald-300",
+  "hljs-attr": "text-primary",
+  "hljs-attribute": "text-primary",
+  "hljs-built_in": "text-amber-700 dark:text-amber-300",
+  "hljs-bullet": "text-primary",
+  "hljs-comment": "text-muted-foreground italic",
+  "hljs-deletion": "text-destructive",
+  "hljs-doctag": "text-destructive",
+  "hljs-emphasis": "italic",
+  "hljs-formula": "text-destructive",
+  "hljs-keyword": "text-destructive",
+  "hljs-link": "text-primary underline-offset-2",
+  "hljs-literal": "text-primary",
+  "hljs-meta": "text-primary",
+  "hljs-meta-string": "text-emerald-700 dark:text-emerald-300",
+  "hljs-name": "text-emerald-700 dark:text-emerald-300",
+  "hljs-number": "text-primary",
+  "hljs-params": "text-primary",
+  "hljs-property": "text-primary",
+  "hljs-quote": "text-muted-foreground italic",
+  "hljs-regexp": "text-emerald-700 dark:text-emerald-300",
+  "hljs-section": "text-violet-700 dark:text-violet-300",
+  "hljs-selector-attr": "text-primary",
+  "hljs-selector-class": "text-emerald-700 dark:text-emerald-300",
+  "hljs-selector-id": "text-emerald-700 dark:text-emerald-300",
+  "hljs-selector-pseudo": "text-primary",
+  "hljs-selector-tag": "text-emerald-700 dark:text-emerald-300",
+  "hljs-string": "text-emerald-700 dark:text-emerald-300",
+  "hljs-strong": "font-semibold",
+  "hljs-subst": "text-destructive",
+  "hljs-symbol": "text-primary",
+  "hljs-tag": "text-emerald-700 dark:text-emerald-300",
+  "hljs-template-variable": "text-amber-700 dark:text-amber-300",
+  "hljs-title": "text-violet-700 dark:text-violet-300",
+  "hljs-type": "text-amber-700 dark:text-amber-300",
+  "hljs-variable": "text-amber-700 dark:text-amber-300",
+  language_: "text-amber-700 dark:text-amber-300",
+};
+
+function normalizeLanguage(value?: string | null): string | null {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return null;
+  const normalized = LANGUAGE_ALIASES[raw] ?? raw;
+  return lowlight.registered(normalized) ? normalized : null;
+}
+
+function getLanguageFromFilename(filename?: string): string | null {
+  const basename = filename?.split("/").pop()?.toLowerCase();
+  if (!basename) return null;
+  if (basename === "dockerfile") return normalizeLanguage("bash");
+  if (basename === "makefile") return normalizeLanguage("makefile");
+  const ext = basename.includes(".") ? basename.split(".").pop() : basename;
+  return normalizeLanguage(ext);
+}
+
+function resolveDiffLanguage(data: DiffData): string {
+  return (
+    normalizeLanguage(data.language) ??
+    getLanguageFromFilename(data.filename) ??
+    "plaintext"
+  );
+}
+
+function tokenClassName(className?: string[] | string): string | undefined {
+  const classes = Array.isArray(className)
+    ? className
+    : className
+      ? className.split(/\s+/)
+      : [];
+  const mapped = classes
+    .map((name) => TOKEN_CLASS_NAMES[name])
+    .filter(Boolean)
+    .join(" ");
+  return mapped || undefined;
+}
+
+function hastToReact(children: LowlightNode[], keyPrefix: string): ReactNode[] {
+  return children.map((node, index) => {
+    if (node.type === "text") return node.value ?? "";
+    if (node.type === "element") {
+      const key = `${keyPrefix}${index}`;
+      const renderedChildren = node.children?.length
+        ? hastToReact(node.children, `${key}-`)
+        : null;
+      const className = tokenClassName(node.properties?.className);
+      if (className) {
+        return (
+          <span key={key} className={className}>
+            {renderedChildren}
+          </span>
+        );
+      }
+      return <span key={key}>{renderedChildren}</span>;
+    }
+    return null;
+  });
+}
+
+function SyntaxHighlightedLine({
+  code,
+  language,
+}: {
+  code: string;
+  language: string;
+}) {
+  const highlighted = useMemo(() => {
+    if (!code.trim() || language === "plaintext" || language === "text") {
+      return null;
+    }
+    try {
+      const tree = lowlight.highlight(language, code) as LowlightNode;
+      return hastToReact(tree.children ?? [], `${language}-`);
+    } catch {
+      return null;
+    }
+  }, [code, language]);
+
+  return <>{highlighted ?? code}</>;
+}
+
+/* ── Diff model ────────────────────────────────────────────────────────────── */
+
+type DiffRowKind = "context" | "added" | "removed";
+
+interface DiffRow {
+  kind: DiffRowKind;
+  /** Line number in the OLD file (omitted for added rows). */
+  oldNo?: number;
+  /** Line number in the NEW file (omitted for removed rows). */
+  newNo?: number;
+  text: string;
+}
+
+/** A contiguous run of context lines collapsed when longer than the threshold. */
+interface CollapsedRun {
+  collapsed: true;
+  rows: DiffRow[];
+}
+
+type DiffSegment = DiffRow | CollapsedRun;
+
+/** Number of context lines above which an unchanged run is collapsed. */
+const COLLAPSE_THRESHOLD = 6;
+/** Context lines kept visible at each edge of a collapsed run. */
+const CONTEXT_EDGE = 3;
+
+/**
+ * Split a change `value` into individual lines. Most hunks carry a trailing
+ * newline; drop the empty final element it produces so a 2-line change does not
+ * render a phantom 3rd blank line.
+ */
+function splitLines(value: string): string[] {
+  const lines = value.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+/** Flatten change objects into numbered diff rows. */
+function buildRows(changes: Change[]): DiffRow[] {
+  const rows: DiffRow[] = [];
+  let oldNo = 0;
+  let newNo = 0;
+  for (const change of changes) {
+    const lines = splitLines(change.value);
+    for (const text of lines) {
+      if (change.added) {
+        newNo += 1;
+        rows.push({ kind: "added", newNo, text });
+      } else if (change.removed) {
+        oldNo += 1;
+        rows.push({ kind: "removed", oldNo, text });
+      } else {
+        oldNo += 1;
+        newNo += 1;
+        rows.push({ kind: "context", oldNo, newNo, text });
+      }
+    }
+  }
+  return rows;
+}
+
+/**
+ * Group rows into segments, collapsing interior runs of >COLLAPSE_THRESHOLD
+ * context rows (keeping CONTEXT_EDGE visible at each side). Leading/trailing runs
+ * collapse too, but keep only the inner edge visible.
+ */
+function segmentRows(rows: DiffRow[]): DiffSegment[] {
+  const segments: DiffSegment[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].kind !== "context") {
+      segments.push(rows[i]);
+      i += 1;
+      continue;
+    }
+    // Gather the full contiguous context run.
+    let j = i;
+    while (j < rows.length && rows[j].kind === "context") j += 1;
+    const run = rows.slice(i, j);
+    if (run.length <= COLLAPSE_THRESHOLD) {
+      for (const row of run) segments.push(row);
+    } else {
+      const atStart = i === 0;
+      const atEnd = j === rows.length;
+      const head = atStart ? [] : run.slice(0, CONTEXT_EDGE);
+      const tail = atEnd ? [] : run.slice(run.length - CONTEXT_EDGE);
+      const hidden = run.slice(head.length, run.length - tail.length);
+      for (const row of head) segments.push(row);
+      if (hidden.length > 0) segments.push({ collapsed: true, rows: hidden });
+      for (const row of tail) segments.push(row);
+    }
+    i = j;
+  }
+  return segments;
+}
+
+/* ── Theme-aware row styling (light + dark) ────────────────────────────────── */
+
+const ROW_BG: Record<DiffRowKind, string> = {
+  added: "bg-emerald-500/10 dark:bg-emerald-500/15",
+  removed: "bg-destructive/10",
+  context: "bg-background",
+};
+
+const GUTTER_BG: Record<DiffRowKind, string> = {
+  added: "bg-emerald-500/15 dark:bg-emerald-500/20",
+  removed: "bg-destructive/15",
+  context: "bg-muted/60",
+};
+
+const SIGN_COLOR: Record<DiffRowKind, string> = {
+  added: "text-emerald-700 dark:text-emerald-300",
+  removed: "text-destructive",
+  context: "text-muted-foreground",
+};
+
+const SIGN: Record<DiffRowKind, string> = {
+  added: "+",
+  removed: "−",
+  context: " ",
+};
+
+const LINE_NO_CLASS =
+  "select-none px-2 py-0 text-right font-mono text-[12px] leading-5 text-muted-foreground tabular-nums";
+
+const DIFF_LINE_CLASS =
+  "block min-w-max flex-1 whitespace-pre px-2 py-0 font-mono text-[12px] leading-5 text-foreground";
+
+const DEFAULT_VISIBLE_DIFF_LINES = 15;
+const MAX_DIFF_LCS_CELLS = 1_000_000;
+
+function splitDiffFilename(filename?: string): {
+  basename: string;
+  directory: string | null;
+} {
+  const value = filename?.trim() || "diff";
+  const segments = value.split("/").filter(Boolean);
+  const basename = segments[segments.length - 1] ?? value;
+  const directory =
+    segments.length > 1 ? segments.slice(0, -1).join("/") : null;
+  return { basename, directory };
+}
+
+function DiffLineText({ language, text }: { language: string; text: string }) {
+  const code = text || " ";
+  return (
+    <span className={DIFF_LINE_CLASS}>
+      <SyntaxHighlightedLine code={code} language={language} />
+    </span>
+  );
+}
+
+/* ── Read ──────────────────────────────────────────────────────────────────── */
+
+function DiffRead({ data, blockId, title, summary }: BlockReadProps<DiffData>) {
+  const [mode, setMode] = useState<DiffMode>(data.mode ?? "unified");
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [showAllRows, setShowAllRows] = useState(false);
+
+  const rows = useMemo(
+    () => buildRows(diffLines(data.before, data.after)),
+    [data.before, data.after],
+  );
+  const language = useMemo(
+    () => resolveDiffLanguage(data),
+    [data.filename, data.language],
+  );
+  const fileParts = useMemo(
+    () => splitDiffFilename(data.filename),
+    [data.filename],
+  );
+  const splitLineCount = useMemo(() => pairSplitRows(rows).length, [rows]);
+
+  const added = rows.filter((r) => r.kind === "added").length;
+  const removed = rows.filter((r) => r.kind === "removed").length;
+  const unchanged = data.before === data.after;
+  const totalVisibleLineCount = mode === "split" ? splitLineCount : rows.length;
+  const shouldLimitRows = totalVisibleLineCount > DEFAULT_VISIBLE_DIFF_LINES;
+  const rowLimit =
+    !showAllRows && shouldLimitRows ? DEFAULT_VISIBLE_DIFF_LINES : undefined;
+  const displayedRows =
+    mode === "unified" && rowLimit ? rows.slice(0, rowLimit) : rows;
+
+  const toggleRun = (index: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+
+  return (
+    <section className="plan-block group/diff-block" data-block-id={blockId}>
+      {title && <div className="plan-block-label">{title}</div>}
+      <div className="overflow-hidden rounded-md border border-border bg-background">
+        {/* Header: filename, path, +/− counts, mode toggle. */}
+        <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
+          <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
+          <span
+            className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono"
+            title={data.filename || undefined}
+          >
+            <span className="min-w-0 max-w-[16rem] truncate text-[13px] font-semibold leading-5 text-foreground">
+              {fileParts.basename}
+            </span>
+            {fileParts.directory && (
+              <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/70">
+                {fileParts.directory}
+              </span>
+            )}
+          </span>
+          <span className="ml-1 flex shrink-0 items-center gap-2 font-mono text-xs">
+            <span className="text-emerald-700 dark:text-emerald-300">
+              +{added}
+            </span>
+            <span className="text-destructive">−{removed}</span>
+          </span>
+          <div className="pointer-events-none ml-auto flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background opacity-0 transition-opacity group-hover/diff-block:pointer-events-auto group-hover/diff-block:opacity-100 group-focus-within/diff-block:pointer-events-auto group-focus-within/diff-block:opacity-100">
+            <ModeButton
+              active={mode === "unified"}
+              onClick={() => setMode("unified")}
+              icon={<IconList className="size-3.5" />}
+              label="Unified"
+            />
+            <ModeButton
+              active={mode === "split"}
+              onClick={() => setMode("split")}
+              icon={<IconColumns className="size-3.5" />}
+              label="Split"
+            />
+          </div>
+        </div>
+
+        {/* Body. */}
+        {unchanged ? (
+          <div className="px-4 py-6 text-center font-mono text-sm text-muted-foreground">
+            No changes
+          </div>
+        ) : mode === "split" ? (
+          <SplitView rows={rows} language={language} rowLimit={rowLimit} />
+        ) : (
+          <UnifiedView
+            rows={displayedRows}
+            language={language}
+            expanded={expanded}
+            onToggleRun={toggleRun}
+          />
+        )}
+        {!unchanged && shouldLimitRows && (
+          <button
+            type="button"
+            data-plan-interactive
+            aria-expanded={showAllRows}
+            onClick={() => setShowAllRows((current) => !current)}
+            className="flex h-7 w-full items-center justify-center gap-1.5 border-t border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+          >
+            <IconChevronRight
+              className={cn(
+                "size-3 shrink-0 transition-transform",
+                showAllRows ? "-rotate-90" : "rotate-90",
+              )}
+            />
+            {showAllRows
+              ? "Show fewer"
+              : `Show all ${totalVisibleLineCount} lines`}
+          </button>
+        )}
+      </div>
+      {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
+    </section>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-plan-interactive
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex cursor-pointer items-center gap-1 px-2 py-1 text-xs font-medium transition-colors",
+        active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/* ── Unified view ──────────────────────────────────────────────────────────── */
+
+function UnifiedView({
+  rows,
+  language,
+  expanded,
+  onToggleRun,
+}: {
+  rows: DiffRow[];
+  language: string;
+  expanded: Set<number>;
+  onToggleRun: (index: number) => void;
+}) {
+  const segments = useMemo(() => segmentRows(rows), [rows]);
+  let runIndex = 0;
+  return (
+    <div className="overflow-x-auto">
+      <div className="w-max min-w-full font-mono text-[13px] leading-5">
+        {segments.map((segment, idx) => {
+          if ("collapsed" in segment) {
+            const key = runIndex++;
+            const open = expanded.has(key);
+            return (
+              <div key={`run-${key}`}>
+                <CollapsedRow
+                  count={segment.rows.length}
+                  open={open}
+                  onClick={() => onToggleRun(key)}
+                />
+                {open &&
+                  segment.rows.map((row, ri) => (
+                    <UnifiedRow
+                      key={`run-${key}-${ri}`}
+                      row={row}
+                      language={language}
+                    />
+                  ))}
+              </div>
+            );
+          }
+          return <UnifiedRow key={idx} row={segment} language={language} />;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function UnifiedRow({ language, row }: { language: string; row: DiffRow }) {
+  return (
+    <div className={cn("flex min-h-5 min-w-full", ROW_BG[row.kind])}>
+      <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.oldNo ?? ""}</span>
+      <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.newNo ?? ""}</span>
+      <span
+        className={cn(
+          "w-6 shrink-0 select-none py-0 text-center font-semibold leading-5",
+          GUTTER_BG[row.kind],
+          SIGN_COLOR[row.kind],
+        )}
+      >
+        {SIGN[row.kind]}
+      </span>
+      <DiffLineText text={row.text} language={language} />
+    </div>
+  );
+}
+
+function CollapsedRow({
+  count,
+  open,
+  onClick,
+}: {
+  count: number;
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-plan-interactive
+      onClick={onClick}
+      className="flex w-full cursor-pointer items-center gap-2 border-y border-border bg-muted/70 px-3 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <IconDotsVertical className="size-3.5 shrink-0" />
+      <span>
+        {open ? "Hide" : "Show"} {count} unchanged line
+        {count === 1 ? "" : "s"}
+      </span>
+    </button>
+  );
+}
+
+/* ── Split (side-by-side) view ─────────────────────────────────────────────── */
+
+interface SplitRow {
+  left?: DiffRow;
+  right?: DiffRow;
+}
+
+/**
+ * Pair removed lines (left) with added lines (right) so a modification shows the
+ * old and new side by side; context lines mirror on both columns. Leftover adds
+ * or removes fall through as half-empty rows (GitHub split behavior).
+ */
+function pairSplitRows(rows: DiffRow[]): SplitRow[] {
+  const out: SplitRow[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const row = rows[i];
+    if (row.kind === "context") {
+      out.push({ left: row, right: row });
+      i += 1;
+      continue;
+    }
+    // Collect a contiguous block of removed-then-added rows.
+    const removed: DiffRow[] = [];
+    const added: DiffRow[] = [];
+    while (i < rows.length && rows[i].kind === "removed")
+      removed.push(rows[i++]);
+    while (i < rows.length && rows[i].kind === "added") added.push(rows[i++]);
+    const max = Math.max(removed.length, added.length);
+    for (let k = 0; k < max; k += 1) {
+      out.push({ left: removed[k], right: added[k] });
+    }
+  }
+  return out;
+}
+
+function SplitView({
+  language,
+  rowLimit,
+  rows,
+}: {
+  language: string;
+  rowLimit?: number;
+  rows: DiffRow[];
+}) {
+  const pairs = useMemo(() => pairSplitRows(rows), [rows]);
+  const displayedPairs = rowLimit ? pairs.slice(0, rowLimit) : pairs;
+  return (
+    <div className="flex w-full bg-background font-mono text-[12px] leading-5">
+      <div className="min-w-0 flex-1 overflow-x-auto border-r border-border">
+        <div className="inline-block min-w-full">
+          {displayedPairs.map((pair, idx) => (
+            <SplitCell
+              key={`old-${idx}`}
+              row={pair.left}
+              side="old"
+              language={language}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="inline-block min-w-full">
+          {displayedPairs.map((pair, idx) => (
+            <SplitCell
+              key={`new-${idx}`}
+              row={pair.right}
+              side="new"
+              language={language}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SplitCell({
+  language,
+  row,
+  side,
+}: {
+  language: string;
+  row?: DiffRow;
+  side: "old" | "new";
+}) {
+  if (!row) {
+    return (
+      <div className="flex min-h-5 min-w-full bg-muted/40 opacity-70">
+        <span className={cn(LINE_NO_CLASS, "w-[52px]")} />
+        <span className="w-6 shrink-0 bg-muted/60" />
+        <span className={DIFF_LINE_CLASS}> </span>
+      </div>
+    );
+  }
+  const sign = side === "old" ? "−" : "+";
+  const showSign = row.kind !== "context";
+  return (
+    <div className={cn("flex min-h-5 min-w-full", ROW_BG[row.kind])}>
+      <span className={cn(LINE_NO_CLASS, "w-[52px]")}>
+        {side === "old" ? (row.oldNo ?? "") : (row.newNo ?? "")}
+      </span>
+      <span
+        className={cn(
+          "w-6 shrink-0 select-none py-0 text-center font-semibold leading-5",
+          GUTTER_BG[row.kind],
+          SIGN_COLOR[row.kind],
+        )}
+      >
+        {showSign ? sign : " "}
+      </span>
+      <DiffLineText text={row.text} language={language} />
+    </div>
+  );
+}
+
+/* ── Edit (panel) ──────────────────────────────────────────────────────────── */
+
+const codeAreaClass = "min-h-[140px] font-mono text-xs leading-5";
+
+function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
+  const patch = (next: Partial<DiffData>) => onChange({ ...data, ...next });
+  const mode: DiffMode = data.mode ?? "unified";
+
+  return (
+    <div className="flex flex-col gap-3" data-plan-interactive>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <DevLabel htmlFor="diff-filename" className="text-xs">
+            Filename
+          </DevLabel>
+          <DevInput
+            id="diff-filename"
+            value={data.filename ?? ""}
+            placeholder="src/add.ts"
+            disabled={!editable}
+            onChange={(event) =>
+              patch({ filename: event.target.value || undefined })
+            }
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <DevLabel htmlFor="diff-language" className="text-xs">
+            Language
+          </DevLabel>
+          <DevInput
+            id="diff-language"
+            value={data.language ?? ""}
+            placeholder="ts"
+            disabled={!editable}
+            onChange={(event) =>
+              patch({ language: event.target.value || undefined })
+            }
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <DevLabel className="text-xs">Layout</DevLabel>
+        <DevSelect
+          value={mode}
+          disabled={!editable}
+          onValueChange={(value) => patch({ mode: value as DiffMode })}
+          options={[
+            { value: "unified", label: "Unified" },
+            { value: "split", label: "Split (side-by-side)" },
+          ]}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <DevLabel htmlFor="diff-before" className="text-xs">
+          Before
+        </DevLabel>
+        <DevTextarea
+          id="diff-before"
+          spellCheck={false}
+          className={codeAreaClass}
+          value={data.before}
+          disabled={!editable}
+          onChange={(event) => patch({ before: event.target.value })}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <DevLabel htmlFor="diff-after" className="text-xs">
+          After
+        </DevLabel>
+        <DevTextarea
+          id="diff-after"
+          spellCheck={false}
+          className={codeAreaClass}
+          value={data.after}
+          disabled={!editable}
+          onChange={(event) => patch({ after: event.target.value })}
+        />
+      </div>
+    </div>
+  );
+}
+
+export { DiffRead, DiffEdit };

@@ -13,8 +13,9 @@ interface UseSessionResult {
 /**
  * Client-side hook to get the current auth session.
  *
- * - In dev mode: immediately returns { email: "local@localhost" }
- * - In production: fetches /_agent-native/auth/session and returns the result
+ * Fetches the current session from `/_agent-native/auth/session` and returns
+ * it, or `null` when unauthenticated. This behavior is the same in all
+ * environments — there is no dev bypass and no `local@localhost` sentinel.
  *
  * Templates should use this instead of building their own auth context.
  */

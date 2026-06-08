@@ -63,6 +63,13 @@ export function currentAccess(): AccessContext {
   };
 }
 
+export function resolveRegisteredAccessContext(
+  reg: ShareableResourceRegistration | undefined,
+  ctx: AccessContext,
+): AccessContext {
+  return reg?.resolveAccessContext ? reg.resolveAccessContext(ctx) : ctx;
+}
+
 /**
  * Build a Drizzle `WHERE` clause that admits rows the current user can see.
  * Pass the ownable resource table and its shares table; optional min role
@@ -84,16 +91,17 @@ export function currentAccess(): AccessContext {
 export function accessFilter(
   resourceTable: any,
   sharesTable: any,
-  ctx: AccessContext = currentAccess(),
+  rawCtx: AccessContext = currentAccess(),
   minRole: ShareRole = "viewer",
   options: { includePublic?: boolean } = {},
 ): SQL {
-  const { userEmail, orgId } = ctx;
   // Defense in depth — resources registered with `allowPublic: false` must
   // never participate in cross-user "public" discovery, even if a caller
   // accidentally passes `includePublic: true` or if a stale public row sits
   // in the DB.
   const reg = findRegistrationByTable(resourceTable);
+  const ctx = resolveRegisteredAccessContext(reg, rawCtx);
+  const { userEmail, orgId } = ctx;
   const publicAllowed = reg?.allowPublic !== false;
   const includePublic = (options.includePublic ?? false) && publicAllowed;
   const clauses: SQL[] = [];
@@ -211,9 +219,10 @@ export interface ResolvedAccess {
 export async function resolveAccess(
   resourceType: string,
   resourceId: string,
-  ctx: AccessContext = currentAccess(),
+  rawCtx: AccessContext = currentAccess(),
 ): Promise<ResolvedAccess | null> {
   const reg = requireShareableResource(resourceType);
+  const ctx = resolveRegisteredAccessContext(reg, rawCtx);
   const db = reg.getDb() as any;
 
   const [resource] = await db

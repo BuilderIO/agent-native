@@ -151,8 +151,85 @@ describe("mountActionRoutes", () => {
     const result = await mounted[0].handler(event);
 
     expect(result).toEqual({ ok: true, params: { q: "hello" } });
-    expect(actions["list-things"].run).toHaveBeenCalledWith({ q: "hello" });
+    expect(actions["list-things"].run).toHaveBeenCalledWith(
+      { q: "hello" },
+      { userEmail: undefined, orgId: null, caller: "http" },
+    );
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
+  });
+
+  it("passes a run ctx with resolved identity and caller=http", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+      resolveOrgId: async () => "org-a",
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(received).toEqual({
+      userEmail: "alice@example.com",
+      orgId: "org-a",
+      caller: "http",
+    });
+    // No SSE sender on the HTTP surface.
+    expect(received.send).toBeUndefined();
+  });
+
+  it("tags browser-originated calls (x-agent-native-frontend) as caller=frontend", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received).toEqual({
+      userEmail: "alice@example.com",
+      orgId: null,
+      caller: "frontend",
+    });
   });
 
   it("parses bracketed and repeated GET params as arrays", async () => {

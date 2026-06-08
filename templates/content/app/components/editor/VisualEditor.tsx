@@ -6,11 +6,8 @@ import {
   mergeAttributes,
 } from "@tiptap/react";
 import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
-import Collaboration, { isChangeOrigin } from "@tiptap/extension-collaboration";
-import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import type { Doc as YDoc } from "yjs";
 import { Awareness } from "y-protocols/awareness";
-import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Blockquote from "@tiptap/extension-blockquote";
 import Link from "@tiptap/extension-link";
@@ -46,9 +43,18 @@ import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
-  isReconcileLeadClient,
-  AGENT_CLIENT_ID,
+  serializeRegistryBlockToMdx,
+  parseRegistryBlockData,
+} from "@shared/nfm-registry";
+import {
+  createSharedEditorExtensions,
+  useCollabReconcile,
+  RegistryBlockDataProvider,
+  type RegistryBlockSideMapBlock,
+  type UseCollabReconcileResult,
 } from "@agent-native/core/client";
+import { RegistryBlockNode } from "./extensions/registryBlocks";
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import {
   getImageFiles,
   getAudioFiles,
@@ -726,6 +732,13 @@ interface VisualEditorProps {
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
+  /**
+   * The open document's linked Notion page id, when it has one. Drives Notion
+   * gating for the registry-block slash menu (offer only NFM-compatible blocks)
+   * and lights up the "Won't sync to Notion" badge on any already-present block
+   * whose type has no NFM analog (via the shared registry-block side-map).
+   */
+  notionPageId?: string | null;
 }
 
 export type { NotionPageLink };
@@ -1140,89 +1153,343 @@ export function createVisualEditorExtensions({
   resolveNotionPageLink,
   onOpenNotionPageLink,
 }: VisualEditorExtensionOptions = {}): Extensions {
-  return [
-    StarterKit.configure({
-      heading: { levels: [1, 2, 3, 4] },
-      blockquote: false,
-      codeBlock: false,
-      paragraph: false,
+  // Build on the SHARED editor core (StarterKit base + the Collaboration /
+  // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
+  // every Content-specific node/plugin as `extraExtensions`. Content owns its
+  // own NFM serializer, Placeholder resolver, link/task/table nodes, and Notion
+  // schema, so the shared factory's built-in Placeholder / Markdown / link /
+  // tasks / tables / code block are turned off — only the StarterKit base and
+  // the collab stack are reused. The NFM Markdown extension below stays
+  // byte-identical to Content's existing config (html:true) so the
+  // docToNfm/nfmToDoc round-trip is unchanged.
+  return createSharedEditorExtensions({
+    preset: "content",
+    dialect: "nfm",
+    features: {
+      placeholder: false,
+      markdown: false,
       link: false,
+      tasks: false,
+      tables: false,
+      codeBlock: false,
+    },
+    starterKit: {
+      blockquote: false,
+      paragraph: false,
       horizontalRule: {},
       dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
-      // Disable built-in undo/redo when Collaboration is active (Yjs tracks undo)
-      ...(ydoc ? { undoRedo: false } : {}),
-    }),
-    EmptyLineParagraph,
-    NotionBlockquote,
-    CodeBlock,
-    Placeholder.configure({
-      placeholder: getVisualEditorPlaceholder,
-      showOnlyWhenEditable: true,
-      showOnlyCurrent: true,
-      includeChildren: true,
-    }),
-    NotionToggleBodyPlaceholder,
-    Link.configure({
-      openOnClick: false,
-      HTMLAttributes: { class: "notion-link" },
-    }),
-    TaskList.configure({
-      HTMLAttributes: { class: "notion-task-list" },
-    }),
-    TaskItem.configure({
-      nested: true,
-    }),
-    ImageNode.configure({
-      HTMLAttributes: { class: "notion-image" },
-      documentId,
-      onImageComment,
-    }),
-    VideoNode.configure({
-      HTMLAttributes: { class: "notion-video" },
-      documentId,
-      onVideoComment: onImageComment,
-    }),
-    AudioNode.configure({
-      HTMLAttributes: { class: "notion-audio" },
-      documentId,
-      onAudioComment: onImageComment,
-    }),
-    CustomTable.configure({
-      resizable: false,
-      HTMLAttributes: { class: "notion-table" },
-    }),
-    TableRow,
-    NotionTableHeader,
-    TableCell,
-    NormalizeTableHeaders,
-    ...createNotionEditorExtensions({
-      resolvePageLink: resolveNotionPageLink,
-      onOpenPageLink: onOpenNotionPageLink,
-    }),
-    ...notionFidelityExtensions,
-    DragHandle,
-    TypographyReplacements,
-    NotionMarkdownShortcuts,
-    MarkdownPasteDetection,
-    SelectAllDocument,
-    JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
-    Markdown.configure({
-      html: true,
-      transformPastedText: true,
-      transformCopiedText: true,
-    }),
-    // Collaborative editing via Y.XmlFragment
-    ...(ydoc ? [Collaboration.configure({ document: ydoc })] : []),
-    // Multi-user cursor awareness (live cursor positions + names)
-    ...(localAwareness
-      ? [
-          CollaborationCaret.configure({
-            provider: { awareness: localAwareness },
-            user: user ?? { name: "Anonymous", color: "#999" },
-          }),
-        ]
-      : []),
-  ];
+    },
+    collab:
+      ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
+    extraExtensions: [
+      EmptyLineParagraph,
+      NotionBlockquote,
+      CodeBlock,
+      Placeholder.configure({
+        placeholder: getVisualEditorPlaceholder,
+        showOnlyWhenEditable: true,
+        showOnlyCurrent: true,
+        includeChildren: true,
+      }),
+      NotionToggleBodyPlaceholder,
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: { class: "notion-link" },
+      }),
+      TaskList.configure({
+        HTMLAttributes: { class: "notion-task-list" },
+      }),
+      TaskItem.configure({
+        nested: true,
+      }),
+      ImageNode.configure({
+        HTMLAttributes: { class: "notion-image" },
+        documentId,
+        onImageComment,
+      }),
+      VideoNode.configure({
+        HTMLAttributes: { class: "notion-video" },
+        documentId,
+        onVideoComment: onImageComment,
+      }),
+      AudioNode.configure({
+        HTMLAttributes: { class: "notion-audio" },
+        documentId,
+        onAudioComment: onImageComment,
+      }),
+      CustomTable.configure({
+        resizable: false,
+        HTMLAttributes: { class: "notion-table" },
+      }),
+      TableRow,
+      NotionTableHeader,
+      TableCell,
+      NormalizeTableHeaders,
+      ...createNotionEditorExtensions({
+        resolvePageLink: resolveNotionPageLink,
+        onOpenPageLink: onOpenNotionPageLink,
+      }),
+      ...notionFidelityExtensions,
+      // Core's generic registry-block atom node (`registryBlock`). Renders any
+      // registered content block spec via the shared NodeView + side-map; content
+      // sources block `data` lazily from the node's `__raw` NFM in
+      // `VisualEditor` below. Mounted after the Notion nodes and before the
+      // Markdown extension so the NFM <-> doc round-trip recognizes the node.
+      RegistryBlockNode,
+      DragHandle,
+      TypographyReplacements,
+      NotionMarkdownShortcuts,
+      MarkdownPasteDetection,
+      SelectAllDocument,
+      JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
+      // Content's NFM Markdown config — kept exactly as before (html:true) so
+      // tiptap-markdown's paste/copy transforms keep working. The authoritative
+      // serialize/parse for save/load still goes through docToNfm / nfmToDoc.
+      Markdown.configure({
+        html: true,
+        transformPastedText: true,
+        transformCopiedText: true,
+      }),
+    ],
+  });
+}
+
+/**
+ * One cached registry block: its runtime `type` (resolved from the NFM source on
+ * first parse) and its current typed `data`. `edited` marks blocks the author has
+ * changed in this session, so the serializer re-emits them from `data` rather
+ * than the node's stale `__raw`.
+ */
+interface RegistryBlockStoreEntry {
+  type: string;
+  base?: {
+    title?: string;
+    summary?: string;
+    editable?: boolean;
+  };
+  data: unknown;
+  edited: boolean;
+}
+
+function serializeRegistryBlockRaw(
+  type: string,
+  blockId: string,
+  node: ProseMirrorNode,
+  data: unknown,
+  base?: RegistryBlockStoreEntry["base"],
+): string {
+  return serializeRegistryBlockToMdx(type, {
+    id: blockId,
+    title:
+      typeof node.attrs.title === "string" ? node.attrs.title : base?.title,
+    summary:
+      typeof node.attrs.summary === "string"
+        ? node.attrs.summary
+        : base?.summary,
+    editable: base?.editable,
+    data,
+  });
+}
+
+/**
+ * A registry block is Notion-incompatible when its spec does NOT declare
+ * `notionCompatible` — i.e. it is not in the registry's single
+ * `notionCompatibleTypes()` allowlist (T3). The shared registry-block NodeView
+ * consults this (only when the side-map's `notionSync` flag is on) to badge
+ * blocks that won't survive a Notion push. Unknown types are treated as
+ * incompatible so an unrecognized block is flagged rather than silently assumed
+ * to sync.
+ */
+const NOTION_COMPATIBLE_BLOCK_TYPES =
+  contentBlockRegistry.notionCompatibleTypes();
+function isNotionIncompatibleBlockType(blockType: string): boolean {
+  return !NOTION_COMPATIBLE_BLOCK_TYPES.has(blockType);
+}
+
+/**
+ * Side-map store for the editor's `registryBlock` nodes.
+ *
+ * Content has NO sidecar block table — a registry block's authority is the inline
+ * MDX in the single `documents.content` NFM string, preserved verbatim on each
+ * node as `__raw`. The shared NodeView needs typed `data` to render, so this hook
+ * lazily parses `__raw` (via the async `parseRegistryBlockData`) the first time a
+ * block is rendered, caching the result keyed by blockId. An edit updates the
+ * cache AND rewrites the node's `__raw` to the freshly serialized MDX, so the
+ * existing NFM save path persists the change with no extra plumbing — `docToNfm`
+ * emits `__raw` verbatim for every untouched-and-edited block alike, keeping the
+ * single-string round-trip byte-exact.
+ *
+ * A document with no registry blocks never touches this store: `getBlock` is only
+ * called from a mounted `registryBlock` NodeView, so the editor renders and
+ * serializes identically to before.
+ */
+function useRegistryBlockStore(editor: CoreEditor | null) {
+  const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
+  const pendingRef = useRef<Set<string>>(new Set());
+  // Bumping this state forces the NodeViews to re-read the cache once async
+  // hydration (or an edit) lands. The `version` is surfaced to the side-map
+  // value so the context reference changes on each bump — otherwise the Tiptap
+  // NodeView (a separate React subtree reading the side-map through context)
+  // never re-renders after the async `parseRegistryBlockData` resolves, leaving
+  // a freshly-opened block stuck on its "Loading…" placeholder until some other
+  // edit/HMR happens to re-render it.
+  const [version, setVersion] = useState(0);
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
+
+  // Find the live `registryBlock` node (and its position) for a blockId.
+  const findNode = useCallback(
+    (blockId: string) => {
+      if (!editor || editor.isDestroyed) return null;
+      let result: { pos: number; node: ProseMirrorNode } | null = null;
+      editor.state.doc.descendants((node, pos) => {
+        if (result) return false;
+        if (
+          node.type.name === "registryBlock" &&
+          String(node.attrs.blockId ?? "") === blockId
+        ) {
+          result = { pos, node };
+          return false;
+        }
+        return true;
+      });
+      return result;
+    },
+    [editor],
+  );
+
+  const getBlock = useCallback(
+    (blockId: string): RegistryBlockSideMapBlock | undefined => {
+      const found = findNode(blockId);
+      if (!found) return undefined;
+      const { node } = found;
+      const title =
+        typeof node.attrs.title === "string" ? node.attrs.title : undefined;
+      const summary =
+        typeof node.attrs.summary === "string" ? node.attrs.summary : undefined;
+
+      const cached = cacheRef.current.get(blockId);
+      if (cached) {
+        return { id: blockId, title, summary, data: cached.data };
+      }
+
+      // Not hydrated yet: kick off a one-shot async parse of the verbatim MDX.
+      const raw = typeof node.attrs.__raw === "string" ? node.attrs.__raw : "";
+      if (raw && !pendingRef.current.has(blockId)) {
+        pendingRef.current.add(blockId);
+        void parseRegistryBlockData(raw)
+          .then((parsed) => {
+            if (parsed) {
+              const existing = cacheRef.current.get(blockId);
+              // A concurrent edit may have populated the cache first — don't
+              // clobber it with the stale parse.
+              if (!existing) {
+                cacheRef.current.set(blockId, {
+                  type: parsed.type,
+                  base: parsed.base,
+                  data: parsed.data,
+                  edited: false,
+                });
+
+                // The core duplicate-id pass remints the node attr when a block
+                // is pasted/duplicated, but content's persisted source is the
+                // inline MDX stored in `__raw`. If the raw MDX still carries the
+                // source id, refresh it now so the next normal editor update
+                // persists the duplicate with its fresh id instead of writing a
+                // second copy of the original id.
+                if (parsed.base.id && parsed.base.id !== blockId) {
+                  const live = findNode(blockId);
+                  if (
+                    live &&
+                    typeof live.node.attrs.__raw === "string" &&
+                    live.node.attrs.__raw === raw &&
+                    editor &&
+                    !editor.isDestroyed
+                  ) {
+                    try {
+                      const refreshedRaw = serializeRegistryBlockRaw(
+                        parsed.type,
+                        blockId,
+                        live.node,
+                        parsed.data,
+                        parsed.base,
+                      );
+                      const tr = editor.state.tr.setNodeMarkup(
+                        live.pos,
+                        undefined,
+                        {
+                          ...live.node.attrs,
+                          blockType: parsed.type,
+                          __raw: refreshedRaw,
+                        },
+                      );
+                      editor.view.dispatch(tr);
+                    } catch {
+                      /* Keep the parsed cache; leave raw untouched if invalid. */
+                    }
+                  }
+                }
+                bump();
+              }
+            }
+          })
+          .catch(() => {
+            /* Leave uncached; the NodeView keeps showing its placeholder. */
+          })
+          .finally(() => {
+            pendingRef.current.delete(blockId);
+          });
+      }
+      return undefined;
+    },
+    [editor, findNode, bump],
+  );
+
+  const onBlockDataChange = useCallback(
+    (blockId: string, nextData: unknown) => {
+      if (!editor || editor.isDestroyed) return;
+      const found = findNode(blockId);
+      if (!found) return;
+      const { pos, node } = found;
+      const prior = cacheRef.current.get(blockId);
+      const type =
+        prior?.type ||
+        (typeof node.attrs.blockType === "string" ? node.attrs.blockType : "");
+      if (!type) return;
+
+      const base = prior?.base;
+      cacheRef.current.set(blockId, {
+        type,
+        base,
+        data: nextData,
+        edited: true,
+      });
+
+      // Re-serialize the edited block to MDX and write it back onto the node's
+      // `__raw`, so the existing NFM save path emits the new source verbatim.
+      let raw: string;
+      try {
+        raw = serializeRegistryBlockRaw(type, blockId, node, nextData, base);
+      } catch {
+        // Unknown type or invalid data — keep the cache update so the UI reflects
+        // the edit, but don't corrupt `__raw`.
+        bump();
+        return;
+      }
+
+      const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        __raw: raw,
+      });
+      editor.view.dispatch(tr);
+      bump();
+    },
+    [editor, findNode, bump],
+  );
+
+  return useMemo(
+    () => ({ getBlock, onBlockDataChange, version }),
+    [getBlock, onBlockDataChange, version],
+  );
 }
 
 export function VisualEditor({
@@ -1238,9 +1505,9 @@ export function VisualEditor({
   onJoinTitle,
   notionPageLinks = [],
   onOpenNotionPageLink,
+  notionPageId,
 }: VisualEditorProps) {
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
-  const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const notionPageLinksRef = useRef(notionPageLinks);
@@ -1254,20 +1521,6 @@ export function VisualEditor({
       ) ?? null
     );
   }, []);
-  const prevDocIdRef = useRef(documentId);
-  // Track the last content the editor emitted via onChange, so we can
-  // distinguish external SQL changes (agent/Notion/peer) from our own saves.
-  const lastEmittedRef = useRef<string>("");
-  // Tracks the last time the user actually typed (not just had focus), so an
-  // external edit can still apply when the user is idle but happens to have the
-  // editor focused — without yanking in-progress typing.
-  const lastTypedAtRef = useRef<number>(0);
-  // updatedAt of the content this editor currently reflects. An older-or-equal
-  // refetch is a stale snapshot and is ignored; a newer one is an intentional
-  // external edit and is applied. Starts null (no baseline) so the FIRST run
-  // reconciles a stale Y.Doc against authoritative SQL content — e.g. when an
-  // agent edited the closed doc and the persisted collab state lags behind.
-  const lastAppliedUpdatedAtRef = useRef<string | null>(null);
 
   // Reuse the synced Awareness instance when provided; fall back for tests or
   // non-template embedders that only pass a Y.Doc.
@@ -1288,43 +1541,6 @@ export function VisualEditor({
       localAwareness.setLocalStateField("user", user);
     }
   }, [localAwareness, user?.name, user?.email, user?.color]);
-
-  // Whether this client is the one that applies authoritative external snapshots
-  // (agent / Notion / full-rewrite edits) into the shared Y.Doc. Exactly one
-  // client does, so the changed region isn't inserted once per open editor.
-  const [isLeadClient, setIsLeadClient] = useState(true);
-  // Count of OTHER human collaborators currently present. When >0, a peer's edit
-  // also arrives through Yjs, so the SQL-content reconcile must wait-and-recheck
-  // to avoid applying the same change twice (Yjs + setContent → duplicated text).
-  const peerCountRef = useRef(0);
-  useEffect(() => {
-    if (!localAwareness || !ydoc) {
-      setIsLeadClient(true);
-      peerCountRef.current = 0;
-      return;
-    }
-    const update = () => {
-      setIsLeadClient(isReconcileLeadClient(localAwareness, ydoc.clientID));
-      // Count only VISIBLE peers — a backgrounded peer can't make live Yjs
-      // edits, so it shouldn't trigger the dual-path race defer below.
-      let peers = 0;
-      localAwareness.getStates().forEach((state, clientId) => {
-        if (clientId === ydoc.clientID) return; // self
-        if (clientId === AGENT_CLIENT_ID) return; // agent isn't a Yjs editor
-        const s = state as { user?: unknown; visible?: boolean };
-        if (s && s.user && s.visible !== false) peers += 1;
-      });
-      peerCountRef.current = peers;
-    };
-    update();
-    localAwareness.on("change", update);
-    // Re-elect when our own visibility flips: the lead must be a visible client.
-    document.addEventListener("visibilitychange", update);
-    return () => {
-      localAwareness.off("change", update);
-      document.removeEventListener("visibilitychange", update);
-    };
-  }, [localAwareness, ydoc]);
 
   // Clean up awareness on unmount
   useEffect(() => {
@@ -1358,6 +1574,12 @@ export function VisualEditor({
       onOpenNotionPageLink,
     ],
   );
+
+  // The collab hook needs the editor, but useEditor's `onUpdate` needs the
+  // hook's guards. Break the cycle with a ref: `onUpdate` reads the guards
+  // through `guardsRef`, populated right after the hook runs below. `onUpdate`
+  // only fires once the editor exists, by which point the ref holds the guards.
+  const guardsRef = useRef<UseCollabReconcileResult | null>(null);
 
   const editor = useEditor({
     extensions,
@@ -1472,20 +1694,17 @@ export function VisualEditor({
     },
     editable,
     onUpdate: ({ editor, transaction }) => {
-      if (isSettingContent.current) return;
-      // Never persist remote-originated changes (the initial Yjs state load or a
-      // peer's edit arriving via sync). Autosaving those would write a possibly
-      // STALE Y.Doc back over newer SQL content — clobbering an agent edit that
-      // hasn't been reconciled yet. Each client only saves its OWN local edits;
-      // a peer's edit is saved by the peer that made it.
-      if (transaction && isChangeOrigin(transaction)) return;
-      lastTypedAtRef.current = Date.now();
+      const guards = guardsRef.current;
+      // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
+      // and (collab) remote-origin transactions — the exact guards content used
+      // inline before, now owned by the shared hook.
+      if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
       try {
         const normalized = docToNfm(editor.getJSON() as any);
-        // Don't save empty content when Collaboration hasn't seeded yet —
-        // this prevents overwriting DB content with empty string
-        if (!normalized.trim() && ydoc) return;
-        lastEmittedRef.current = normalized;
+        // Don't persist an empty doc before Collaboration has seeded (would
+        // clobber DB content with an empty string). `registerEmitted` records
+        // this as the last-emitted value and returns false to skip the save.
+        if (!guards.registerEmitted(normalized)) return;
         queueMicrotask(() => onChangeRef.current(normalized));
       } catch (err: any) {
         toast.error("Markdown serialization error: " + err.message);
@@ -1494,143 +1713,71 @@ export function VisualEditor({
     },
   });
 
+  // The shared seed / reconcile / lead-client / onUpdate-guard logic, with
+  // Content's NFM serializer injected so the editor reads/writes the exact same
+  // bytes as before (docToNfm / nfmToDoc / canonicalizeNfm, and the
+  // `<empty-block/>`-aware seed predicate). `initialAppliedUpdatedAt: null`
+  // preserves Content's "first run reconciles a stale persisted Y.Doc against
+  // authoritative SQL" behavior (an agent that edited the CLOSED doc).
+  const collabState = useCollabReconcile({
+    editor,
+    ydoc,
+    awareness: localAwareness,
+    value: content,
+    contentUpdatedAt,
+    editable,
+    getMarkdown: (e) => docToNfm(e.getJSON() as any),
+    setContent: (e, value, options) => {
+      const doc = nfmToDoc(value);
+      if (options.addToHistory === false) {
+        e.chain()
+          .command(({ tr }) => {
+            // addToHistory:false so cmd+z (or Yjs undo) doesn't erase
+            // externally-loaded content.
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(doc, { emitUpdate: options.emitUpdate })
+          .run();
+        return;
+      }
+      e.commands.setContent(doc);
+    },
+    normalizeValue: canonicalizeNfm,
+    shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>
+      shouldSeedCollaborativeContent({
+        content: value,
+        currentMarkdown,
+        fragmentLength,
+      }),
+    initialAppliedUpdatedAt: null,
+  });
+  guardsRef.current = collabState;
+
+  // Side-map that feeds the shared registry-block NodeView its typed `data`,
+  // lazily parsed from each node's verbatim `__raw` NFM. Edits write the
+  // re-serialized MDX back onto the node so the existing NFM save path persists
+  // them. A document with no `registryBlock` nodes never touches this store.
+  const registryBlockStore = useRegistryBlockStore(editor);
+  const registryBlockDataValue = useMemo(
+    () => ({
+      editable,
+      getBlock: registryBlockStore.getBlock,
+      onBlockDataChange: registryBlockStore.onBlockDataChange,
+      // When the document is linked to a Notion page, badge any present block
+      // whose type has no NFM analog so the author sees what won't push. The
+      // shared NodeView only consults `isNotionIncompatibleType` while
+      // `notionSync` is on, so a non-linked document never badges anything.
+      notionSync: !!notionPageId,
+      isNotionIncompatibleType: isNotionIncompatibleBlockType,
+    }),
+    [editable, registryBlockStore, notionPageId],
+  );
+
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
   }, [editor, editable]);
-
-  // Seed Y.XmlFragment from content prop on first load.
-  // The Collaboration extension does NOT auto-seed from the content prop —
-  // we must do it manually when the fragment is empty.
-  const seededDocRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!editor || editor.isDestroyed || !ydoc || !content) return;
-    // Skip if already seeded for this document
-    if (seededDocRef.current === documentId) return;
-    // Only the lead client seeds an empty shared doc, so two clients opening a
-    // brand-new doc at once don't both seed and duplicate the content.
-    if (!isLeadClient) return;
-    const fragment = ydoc.getXmlFragment("default");
-    const currentMd = docToNfm(editor.getJSON() as any);
-    if (
-      shouldSeedCollaborativeContent({
-        content,
-        currentMarkdown: currentMd,
-        fragmentLength: fragment.length,
-      })
-    ) {
-      isSettingContent.current = true;
-      editor.commands.setContent(nfmToDoc(content));
-      isSettingContent.current = false;
-      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-    }
-    seededDocRef.current = documentId ?? null;
-  }, [editor, ydoc, content, documentId, isLeadClient, contentUpdatedAt]);
-
-  // Reconcile authoritative external content (agent edit, Notion pull, or a peer
-  // edit mirrored to SQL) into the live editor. Driven by `updatedAt`: only
-  // content genuinely newer than what this editor already reflects is applied,
-  // so a lagging poll can never revert live edits. The lead client applies it
-  // through the real markdown pipeline (so new block structure renders) and the
-  // Yjs CRDT propagates the result to every other client and persists it.
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    const docChanged = documentId !== prevDocIdRef.current;
-    if (docChanged) prevDocIdRef.current = documentId;
-
-    let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    // When peers are present, a peer's edit also arrives through Yjs. Wait one
-    // poll cycle (+margin) and re-check before applying via setContent, so we
-    // don't insert the same change the Yjs sync is about to deliver (which would
-    // duplicate the edited region). Agent/Notion edits never come through Yjs,
-    // so they survive the wait and still apply.
-    const PEER_SETTLE_MS = 2500;
-
-    const run = (deferred = false) => {
-      if (cancelled || !editor || editor.isDestroyed) return;
-      const nextEditorContent = nfmToDoc(content);
-      const currentMd = docToNfm(editor.getJSON() as any);
-      const normalizedNext = canonicalizeNfm(content);
-
-      // Already in sync, or our own echo: advance the applied watermark so a
-      // later write is correctly recognized as newer, then stop. (After a peer's
-      // Yjs edit lands during a deferred wait, this is what makes us no-op.)
-      if (currentMd === normalizedNext || content === lastEmittedRef.current) {
-        if (contentUpdatedAt)
-          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-        return;
-      }
-
-      if (
-        !shouldApplyExternalContentSync({
-          docChanged,
-          content,
-          lastEmittedMarkdown: lastEmittedRef.current,
-          currentMarkdown: currentMd,
-          nextMarkdown: normalizedNext,
-          contentUpdatedAt,
-          lastAppliedUpdatedAt: lastAppliedUpdatedAtRef.current,
-          isLeadClient,
-          editorFocused: editor.isFocused,
-          lastTypedAt: lastTypedAtRef.current,
-          now: Date.now(),
-        })
-      ) {
-        // If we only deferred because the user is typing right now, re-check
-        // shortly so the external edit still lands once they pause.
-        const externalNewer =
-          docChanged ||
-          !lastAppliedUpdatedAtRef.current ||
-          (!!contentUpdatedAt &&
-            contentUpdatedAt > lastAppliedUpdatedAtRef.current);
-        const typingRightNow =
-          editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
-        if (externalNewer && isLeadClient && typingRightNow) {
-          retryTimer = setTimeout(() => run(deferred), 700);
-        }
-        return;
-      }
-
-      // Race guard: with collaborators present, let Yjs deliver a peer's edit
-      // first. Defer once and re-check — if it was a peer edit, the equality
-      // check above will no-op next pass; if it was an agent/Notion edit, it
-      // still differs and we apply it below.
-      if (!deferred && !docChanged && peerCountRef.current > 0) {
-        retryTimer = setTimeout(() => run(true), PEER_SETTLE_MS);
-        return;
-      }
-
-      // Defer to a microtask so we don't trigger flushSync during a React
-      // render — TipTap's setContent dispatches PM transactions that may
-      // synchronously update React-owned state via the Collaboration extension.
-      queueMicrotask(() => {
-        if (cancelled || !editor || editor.isDestroyed) return;
-        isSettingContent.current = true;
-        // addToHistory: false so cmd+z doesn't erase externally-loaded content.
-        editor
-          .chain()
-          .command(({ tr }) => {
-            tr.setMeta("addToHistory", false);
-            return true;
-          })
-          .setContent(nextEditorContent)
-          .run();
-        isSettingContent.current = false;
-        if (contentUpdatedAt)
-          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-        lastEmittedRef.current = normalizedNext;
-      });
-    };
-
-    run();
-
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, [content, contentUpdatedAt, editor, documentId, isLeadClient]);
 
   if (!editor) {
     return (
@@ -1651,7 +1798,11 @@ export function VisualEditor({
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
-        <SlashCommandMenu editor={editor} documentId={documentId} />
+        <SlashCommandMenu
+          editor={editor}
+          documentId={documentId}
+          notionPageId={notionPageId}
+        />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable ? <TableHoverControls editor={editor} /> : null}
@@ -1665,7 +1816,9 @@ export function VisualEditor({
           </div>
         </div>
       ) : null}
-      <EditorContent editor={editor} />
+      <RegistryBlockDataProvider value={registryBlockDataValue}>
+        <EditorContent editor={editor} />
+      </RegistryBlockDataProvider>
     </div>
   );
 }

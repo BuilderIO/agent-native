@@ -150,6 +150,32 @@ description: >-
 - Workflow/generator skills: verb-noun (`create-skill`, `capture-learnings`).
 - The directory name must match the `name` in frontmatter.
 
+## Skill Scope (runtime vs dev)
+
+An optional `scope` frontmatter field controls which agent loads the skill:
+
+- `both` (default when omitted) — loaded by the in-app runtime agent. Use for
+  any skill the runtime agent should follow.
+- `runtime` — loaded only by the in-app runtime agent.
+- `dev` — meant for the human's coding agent (e.g. Claude Code) only. **Excluded
+  from the runtime agent everywhere**: not in the system-prompt skills block and
+  not in `docs-search` results.
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+Leave `scope` off for normal skills — the default (`both`) keeps them loading at
+runtime, so this is fully backward compatible. To make a dev-only skill visible
+to your coding agent but hidden from the runtime agent, mark it `scope: dev` and
+optionally mirror it under `.claude/skills/<name>/SKILL.md` (Claude Code reads
+`.claude/skills/` independently of the runtime's `.agents/skills/`).
+
 ## Tips
 
 - **Keep descriptions under 40 words** — they load into context on every

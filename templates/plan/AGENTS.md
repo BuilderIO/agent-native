@@ -7,6 +7,7 @@ review before code changes happen.
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Use actions for app operations and keep frontend/API parity.
@@ -24,8 +25,10 @@ review before code changes happen.
   Google OAuth env vars are configured.
 - Runtime plan content is normalized JSON in SQL. MDX is the source-control
   surface: `plan.mdx` for frontmatter plus markdown/document blocks,
-  `canvas.mdx` for optional DesignBoard/Section/Artboard/Screen/Annotation/
-  Connector markup, optional `assets/`, and optional `.plan-state.json`.
+  `prototype.mdx` for optional Prototype/PrototypeScreen/PrototypeTransition
+  markup, `canvas.mdx` for optional DesignBoard/Section/Artboard/Screen/
+  Annotation/Connector markup, optional `assets/`, and optional
+  `.plan-state.json`.
 - Surface material assumptions only when they change behavior, data, security,
   tests, deployment, or definition of done.
 - Before edits, read pending feedback with `get-plan-feedback`.
@@ -36,17 +39,52 @@ review before code changes happen.
 - `navigation.planId` identifies the active visual plan when present.
 - `navigate` moves the UI to the plan list or a specific visual plan.
 
-## Visual-Question Preflight
+## Normal Planning Flow
 
-`/visual-plan` is the main command. Before creating a plan, automatically use
-`create-visual-questions` when 2-6 visual answers would materially change the
-plan: fuzzy UI direction, form factor, layout model, feature scope, visual
-style, architecture shape, flow depth, or multiple plausible visual options.
+`/visual-plan` is the main command. Treat it like the host agent's standard
+planning mode: inspect the codebase, use parallel agents when useful, gather the
+information needed, ask clarifying questions through the host's native
+ask-user-question tools when needed, then call `create-visual-plan` to publish
+the plan. When the user pasted, referenced, or already has a Codex / Claude Code
+/ Markdown plan, keep `/visual-plan` as the command and pass the source text to
+`create-visual-plan` as `planText` so the new review surface builds from what
+they already have.
 
-Skip preflight for tiny or unambiguous work, when the codebase makes the answer
-clear, or when the missing detail can be safely stated as an assumption in the
-plan. If the user types `/visual-questions`, treat it as a manual override and
-start visual intake first.
+Use `/prototype-plan` when the user needs to click through states or review the
+feel of an interaction before implementation. Call `create-prototype-plan` for a
+new prototype-first plan. Call `convert-visual-plan-to-prototype` when an
+existing visual plan has HTML canvas wireframes that should become a live
+prototype. Prototype plans keep static mocks in the document and use the top
+viewer for clickable review, comments, rough/clean mode, dark/light mode, and
+prototype popout.
+
+Use `/plan-design` when the user needs full-fidelity, branded UI design before
+implementation. Research the real app shell, `design.md` if present, `.fig`
+brand-kit/design-system data when available, and codebase CSS/Tailwind/token
+signals. Call `create-plan-design` with high-fidelity bounded HTML/CSS screens
+for the Design tab, stable `data-design-id` attributes for targeted element
+style edits, and transitions only when a matching Prototype tab should be
+clickable. Treat the Design tab as the visual source of truth and the Prototype
+tab as the same direction made interactive.
+
+Use `/visual-recap` when the user wants a high-level review surface for a PR,
+commit, branch, or git diff that already changed. Recaps are reverse plans:
+derive blocks from the real diff, call `create-visual-recap` with the recap
+MDX source, publish it as a review aid, and state that reviewers still need to
+inspect the actual changed lines.
+
+The markdown/document portion should stay close to the plan the agent would
+normally produce. Diagrams, wireframes, mockups, annotations, and an optional
+bottom `question-form` Open Questions block are additive review aids, not a
+separate intake flow.
+
+Do not automatically call `create-visual-questions` from `/visual-plan` or
+`/ui-plan`. If a normal plan has answerable unresolved decisions, keep them in
+the same plan as a bottom `question-form` block with single-choice,
+multi-choice, or freeform questions, recommended options when useful, and
+wireframe/diagram previews for visual directions. If the user types
+`/visual-questions`, treat it as an explicit visual intake command before a
+later plan.
 
 ## Skills
 
@@ -56,15 +94,27 @@ Document Quality cores, so do not restate those rules here.
 
 - `.agents/skills/visual-plan/SKILL.md` — `/visual-plan`, the canonical command
   for any rich plan.
+- `.agents/skills/visual-recap/SKILL.md` — `/visual-recap`, high-level visual
+  code-review recaps for PRs, commits, branches, and git diffs.
 - `.agents/skills/ui-plan/SKILL.md` — `/ui-plan`, UI-first work that starts with
   the screens.
+- `.agents/skills/prototype-plan/SKILL.md` — `/prototype-plan`, clickable
+  prototype-first planning and visual-plan conversion.
+- `.agents/skills/plan-design/SKILL.md` — `/plan-design`, full-fidelity branded
+  Design tab plus optional matching Prototype tab.
 - `.agents/skills/visual-questions/SKILL.md` — `/visual-questions`, visual intake
   before a plan.
-- `.agents/skills/visualize-plan/SKILL.md` — `/visualize-plan`, a companion for
-  an existing Codex / Claude Code / Markdown / pasted plan.
 
 When the user critiques a plan's look or structure, fix the renderer or the
 sync-guarded skills (not just one stored plan) so the improvement sticks.
+
+## Review Recaps
+
+- `columns` is the generic before/after layout primitive for structured
+  comparisons. Use it for side-by-side schema, API, prose, and model blocks.
+- PR automation can publish org-gated recap plans when `PLAN_RECAP_APP_URL` and
+  `PLAN_RECAP_TOKEN` are configured; the recap link is informational and must
+  not imply the diff has been reviewed.
 
 ## Source Sync
 
@@ -79,6 +129,53 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Do not fork the vocabulary. MDX components must map to the same runtime terms:
   `DesignBoard`, `Section`, `Artboard`, `Screen`, `Annotation`, `Connector`, and
   the wireframe kit primitives from `shared/plan-content.ts`.
+
+## Version History
+
+- Plans keep DB-backed snapshots before meaningful authoring changes. Pure
+  comments, feedback replies, and comment status changes do not create history
+  snapshots.
+- Use `list-plan-versions` to see saved snapshots for a plan, and
+  `get-plan-version` to inspect one full snapshot before recommending a
+  rollback.
+- Use `restore-plan-version` only when the user asks to restore or roll back.
+  The current plan is snapshotted first with `Before restore`, so restore is
+  reversible. Restore preserves sharing, ownership, hosted publish metadata,
+  comments, and activity history; it restores the plan's authoring content and
+  legacy sections.
+
+## Browser Editing
+
+- Prose in `rich-text` blocks is edited inline with the shared
+  `RichMarkdownEditor`, autosaved through `update-visual-plan` with
+  `contentPatches: [{ op: "update-rich-text", blockId, markdown }]`.
+- Review annotation mode makes prose temporarily read-only so clicks can pin
+  feedback. Leaving review mode restores inline prose editing.
+- Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by
+  comments, source patches, or structured content patches rather than direct
+  rich-text editing.
+- Design-mode artboards can be element-edited with `update-visual-plan`
+  `contentPatches: [{ op: "update-design-element-style", frameId, blockId,
+elementId, styles }]`. Elements must have `data-design-id` or
+  `data-plan-design-id`; use `patch-wireframe-html` / `patch-prototype-html` for
+  structural or text changes.
+- Plan comments include reviewer identity, @mentions, resolver intent
+  (`agent` or `human`), exact anchors, and Figma-style threads. When adding
+  human feedback through `update-visual-plan`, preserve `authorEmail` and
+  `authorName` when known; pass `parentCommentId` to reply inline to an
+  existing comment thread. Text feedback should anchor to the nearest prose
+  block, and visual/canvas feedback should include target coordinates plus
+  concise surrounding context.
+- `get-plan-feedback` returns flat comments, grouped threads, anchor summaries,
+  detailed anchor lines, and recent review events that describe the edit/comment
+  delta. Use those fields before changing code or updating the plan, especially
+  to distinguish comments the agent should act on from comments intended for a
+  human reviewer.
+- New human comments send best-effort transactional email when email is
+  configured: root comments and replies notify the plan owner, @mentioned
+  members, and replies also notify prior human participants in that thread.
+  Reuse the shared `renderEmail` template; do not invent a separate
+  plan-specific email style.
 
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,

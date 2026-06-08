@@ -18,10 +18,29 @@ import {
   type PlanConnector,
   type PlanContent,
   type PlanLegacyWireframeBlock,
+  type PlanPrototype,
+  type PlanPrototypeScreen,
   type PlanWireframeElName,
+  type PlanWireframeBlock,
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import { normalizePlanContent } from "./plan-content.js";
+import {
+  BlockRegistry,
+  prop,
+  attributeValue,
+  serializeSpecBlock,
+  parseSpecBlock,
+  type MdxJsxNode,
+} from "@agent-native/core/blocks/server";
+import { registerPlanBlocks } from "../shared/plan-block-registry.js";
+
+// Server-side plan block registry. Registered specs (currently the editable
+// callout) drive serialize/parse via the registry; every other block type still
+// falls through to the legacy `serializeBlock`/`parseBlock` below, so stored
+// `.mdx` round-trips byte-compatibly. See `plan-block-registry.ts`.
+const planMdxRegistry = new BlockRegistry();
+registerPlanBlocks(planMdxRegistry);
 
 type MdxNode = {
   type: string;
@@ -70,6 +89,7 @@ type EstreeNode = {
 export type PlanMdxFolder = {
   "plan.mdx": string;
   "canvas.mdx"?: string;
+  "prototype.mdx"?: string;
   "assets/"?: Record<string, string>;
   ".plan-state.json"?: string;
 };
@@ -82,9 +102,12 @@ export type ExportPlanMdxInput = {
   url?: string;
 };
 
+const HOSTED_PLAN_ORIGIN = "https://plan.agent-native.com";
+
 export const planMdxFileSchema = z.object({
   "plan.mdx": z.string().min(1),
   "canvas.mdx": z.string().optional(),
+  "prototype.mdx": z.string().optional(),
   ".plan-state.json": z.string().optional(),
 });
 
@@ -117,10 +140,17 @@ const ANNOTATION_PLACEMENTS = [
   "bottom-right",
 ] as const satisfies readonly PlanAnnotationPlacement[];
 
+const ANNOTATION_TYPES = ["note", "text", "callout", "arrow"] as const;
+
 export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-file"),
-    file: z.enum(["plan.mdx", "canvas.mdx", ".plan-state.json"]),
+    file: z.enum([
+      "plan.mdx",
+      "canvas.mdx",
+      "prototype.mdx",
+      ".plan-state.json",
+    ]),
     content: z.string(),
   }),
   z.object({
@@ -131,7 +161,7 @@ export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("update-component-prop"),
-    file: z.enum(["plan.mdx", "canvas.mdx"]),
+    file: z.enum(["plan.mdx", "canvas.mdx", "prototype.mdx"]),
     componentId: z.string().min(1),
     prop: z.string().min(1),
     value: z.unknown(),
@@ -145,8 +175,21 @@ export const planMdxSourcePatchSchema = z.discriminatedUnion("op", [
     op: z.literal("update-annotation"),
     annotationId: z.string().min(1),
     patch: z.object({
+      type: z.enum(ANNOTATION_TYPES).optional(),
       title: z.string().optional(),
       text: z.string().optional(),
+      points: z
+        .array(z.object({ x: z.number(), y: z.number() }))
+        .min(1)
+        .max(12)
+        .optional(),
+      style: z
+        .object({
+          tone: z.enum(["default", "accent", "warn", "ok", "muted"]).optional(),
+          stroke: z.enum(["solid", "dashed"]).optional(),
+          width: z.number().min(1).max(12).optional(),
+        })
+        .optional(),
       targetId: z.string().optional(),
       placement: z.enum(ANNOTATION_PLACEMENTS).optional(),
       x: z.number().optional(),
@@ -170,6 +213,7 @@ const NODE_TO_COMPONENT: Record<PlanWireframeElName, string> = {
   screen: "FrameScreen",
   browserBar: "BrowserBar",
   statusBar: "StatusBar",
+  toolbar: "Toolbar",
   row: "Row",
   col: "Col",
   sidebar: "Sidebar",
@@ -214,7 +258,9 @@ const BLOCK_COMPONENTS = new Set([
   "Image",
   "Decision",
   "TabsBlock",
+  "Columns",
   "HtmlBlock",
+  "QuestionForm",
   "VisualQuestions",
 ]);
 
@@ -234,32 +280,11 @@ async function formatMdx(source: string): Promise<string> {
   }
 }
 
-function jsonExpression(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
-
-function escapeAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function prop(name: string, value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "boolean") {
-    return value ? ` ${name}` : ` ${name}={false}`;
-  }
-  if (typeof value === "number") return ` ${name}={${value}}`;
-  if (typeof value === "string") {
-    if (/^[\w .:/@#,+()[\]-]+$/.test(value) && value.length < 140) {
-      return ` ${name}="${escapeAttr(value)}"`;
-    }
-    return ` ${name}={${jsonExpression(value)}}`;
-  }
-  return ` ${name}={${jsonExpression(value)}}`;
-}
+// `prop`, `escapeAttr`, `jsonExpression`, and the attribute reader
+// (`attributeValue` + its estree literal walker) now live in
+// `@agent-native/core/blocks` and are imported above. They are the MDX
+// round-trip contract — shared verbatim so registry-driven and legacy blocks
+// encode/decode identically.
 
 function serializeNode(node: PlanWireframeNode, indent = ""): string {
   const name = NODE_TO_COMPONENT[node.el] ?? "Box";
@@ -274,18 +299,50 @@ function serializeNode(node: PlanWireframeNode, indent = ""): string {
   return `${indent}<${name}${attrs}>\n${children}\n${indent}</${name}>`;
 }
 
-function serializeScreen(data: {
-  surface: string;
-  caption?: string;
-  screen: PlanWireframeNode[];
-}): string {
-  const children = data.screen
-    .map((node) => serializeNode(node, "  "))
+function serializeScreen(
+  data: {
+    surface: string;
+    renderMode?: string;
+    caption?: string;
+    html?: string;
+    css?: string;
+    skeleton?: boolean;
+    screen?: PlanWireframeNode[];
+  },
+  indent = "",
+): string {
+  const attrs = [
+    prop("surface", data.surface),
+    prop("renderMode", data.renderMode),
+    prop("caption", data.caption),
+    prop("html", data.html),
+    prop("css", data.css),
+    prop("skeleton", data.skeleton),
+  ].join("");
+  const children = (data.screen ?? [])
+    .map((node) => serializeNode(node, `${indent}  `))
     .join("\n");
-  return `<Screen${prop("surface", data.surface)}${prop("caption", data.caption)}>\n${children}\n</Screen>`;
+  if (!children) return `${indent}<Screen${attrs} />`;
+  return `${indent}<Screen${attrs}>\n${children}\n${indent}</Screen>`;
 }
 
 function serializeBlock(block: PlanBlock): string {
+  if (block.type === "columns") {
+    return serializeColumnsBlock(block);
+  }
+  // Registry-first: a registered block type serializes through its spec's `mdx`
+  // config (byte-identical to the legacy branch below). Unregistered types fall
+  // through to the hand-written switch, so unconverted blocks are unchanged.
+  const registered = planMdxRegistry.get(block.type);
+  if (registered) {
+    return serializeSpecBlock(registered, {
+      id: block.id,
+      title: block.title,
+      summary: block.summary,
+      editable: block.editable,
+      data: (block as { data: unknown }).data,
+    });
+  }
   const title = prop("title", block.title);
   const summary = prop("summary", block.summary);
   const editable = prop("editable", block.editable);
@@ -308,7 +365,7 @@ function serializeBlock(block: PlanBlock): string {
     return `<ImplementationMap${prop("id", block.id)}${title}${summary}${editable}${prop("files", block.data.files)} />`;
   }
   if (block.type === "wireframe") {
-    return `<WireframeBlock${prop("id", block.id)}${title}${summary}${editable}>\n${serializeScreen(block.data)}\n</WireframeBlock>`;
+    return `<WireframeBlock${prop("id", block.id)}${title}${summary}${editable}>\n${serializeScreen(block.data, "  ")}\n</WireframeBlock>`;
   }
   if (block.type === "legacy-wireframe") {
     return `<LegacyWireframeBlock${prop("id", block.id)}${title}${summary}${editable}${prop("data", block.data)} />`;
@@ -323,21 +380,72 @@ function serializeBlock(block: PlanBlock): string {
     return `<Decision${prop("id", block.id)}${title}${summary}${editable}${prop("question", block.data.question)}${prop("options", block.data.options)} />`;
   }
   if (block.type === "tabs") {
-    return `<TabsBlock${prop("id", block.id)}${title}${summary}${editable}${prop("tabs", block.data.tabs)} />`;
+    return `<TabsBlock${prop("id", block.id)}${title}${summary}${editable}${prop("tabs", block.data.tabs)}${prop("orientation", block.data.orientation === "vertical" ? block.data.orientation : undefined)} />`;
   }
   if (block.type === "custom-html") {
     return `<HtmlBlock${prop("id", block.id)}${title}${summary}${editable}${prop("html", block.data.html)}${prop("css", block.data.css)}${prop("caption", block.data.caption)} />`;
   }
-  return `<VisualQuestions${prop("id", block.id)}${title}${summary}${editable}${prop("questions", block.data.questions)}${prop("submitLabel", block.data.submitLabel)} />`;
+  if (block.type === "visual-questions") {
+    return `<VisualQuestions${prop("id", block.id)}${title}${summary}${editable}${prop("questions", block.data.questions)}${prop("submitLabel", block.data.submitLabel)} />`;
+  }
+  throw new Error(`Unsupported plan block type: ${block.type}`);
+}
+
+function serializeColumnChild(block: PlanBlock): string {
+  if (block.type === "rich-text") {
+    return block.data.markdown.trim();
+  }
+  return serializeBlock(block);
+}
+
+function serializeColumnsBlock(
+  block: Extract<PlanBlock, { type: "columns" }>,
+): string {
+  const title = prop("title", block.title);
+  const summary = prop("summary", block.summary);
+  const editable = prop("editable", block.editable);
+  const columns = block.data.columns
+    .map((column) => {
+      const body = column.blocks.map(serializeColumnChild).join("\n\n").trim();
+      const contentId =
+        column.blocks.length === 1 && column.blocks[0]?.type === "rich-text"
+          ? column.blocks[0].id
+          : undefined;
+      return `<Column${prop("id", column.id)}${prop("label", column.label)}${prop("contentId", contentId)}>\n\n${body}\n\n</Column>`;
+    })
+    .join("\n\n");
+  return `<Columns${prop("id", block.id)}${title}${summary}${editable}>\n${columns}\n</Columns>`;
 }
 
 function frontmatter(data: Record<string, unknown>): string {
+  const visualUrl =
+    typeof data.visualUrl === "string" && data.visualUrl.trim().length > 0
+      ? data.visualUrl.trim()
+      : null;
   const lines = Object.entries(data)
     .filter(
       ([, value]) => value !== undefined && value !== null && value !== "",
     )
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`);
+  if (visualUrl) {
+    lines.unshift(
+      `# Visual plan: open ${visualUrl} in a browser for the canvas and review UI.`,
+    );
+  }
   return `---\n${lines.join("\n")}\n---\n\n`;
+}
+
+function visualUrlForMdx(input: Pick<ExportPlanMdxInput, "planId" | "url">) {
+  if (input.planId) {
+    return `${HOSTED_PLAN_ORIGIN}/plans/${encodeURIComponent(input.planId)}`;
+  }
+  if (!input.url) return undefined;
+  try {
+    const parsed = new URL(input.url, HOSTED_PLAN_ORIGIN);
+    return `${HOSTED_PLAN_ORIGIN}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function exportPlanContentToMdxFolder(
@@ -366,14 +474,15 @@ export async function exportPlanContentToMdxFolder(
         ],
       },
     ) ?? planContentSchema.parse({ version: PLAN_CONTENT_VERSION, blocks: [] });
+  const visualUrl = visualUrlForMdx(input);
 
   const planSource = [
     frontmatter({
+      visualUrl,
       title: content.title ?? input.title,
       brief: content.brief ?? input.brief ?? undefined,
       version: content.version,
-      planId: input.planId,
-      source: "agent-native-plan",
+      notionSync: content.notionSync ? true : undefined,
     }),
     content.blocks.map(serializeBlock).join("\n\n"),
   ].join("");
@@ -398,13 +507,44 @@ export async function exportPlanContentToMdxFolder(
   };
 
   if (content.canvas) {
-    folder["canvas.mdx"] = await formatMdx(serializeCanvas(content));
+    folder["canvas.mdx"] = await formatMdx(serializeCanvas(content, visualUrl));
+  }
+  if (content.prototype) {
+    folder["prototype.mdx"] = await formatMdx(
+      serializePrototype(content.prototype),
+    );
   }
 
   return folder;
 }
 
-function serializeCanvas(content: PlanContent): string {
+function serializePrototype(prototype: PlanPrototype): string {
+  const screens = prototype.screens
+    .map(
+      (screen) =>
+        `<PrototypeScreen${prop("id", screen.id)}${prop("title", screen.title)}${prop("summary", screen.summary)}${prop("surface", screen.surface)}${prop("renderMode", screen.renderMode)}${prop("state", screen.state)}${prop("html", screen.html)}${prop("css", screen.css)} />`,
+    )
+    .join("\n\n");
+  const transitions = (prototype.transitions ?? [])
+    .map(
+      (transition) =>
+        `<PrototypeTransition${prop("id", transition.id)}${prop("from", transition.from)}${prop("to", transition.to)}${prop("label", transition.label)}${prop("trigger", transition.trigger)} />`,
+    )
+    .join("\n");
+  return `<Prototype${prop("title", prototype.title)}${prop("brief", prototype.brief)}${prop("surface", prototype.surface)}${prop("initialScreenId", prototype.initialScreenId)}>\n${[
+    screens,
+    transitions,
+  ]
+    .filter(Boolean)
+    .join("\n\n")}\n</Prototype>`;
+}
+
+function serializeCanvasSourceComment(visualUrl: string | undefined): string {
+  if (visualUrl) return `{/* Canvas source. Open ${visualUrl} */}\n\n`;
+  return `{/* Canvas source. */}\n\n`;
+}
+
+function serializeCanvas(content: PlanContent, visualUrl?: string): string {
   const canvas = content.canvas;
   if (!canvas) return "";
   const frameById = new Map(canvas.frames.map((frame) => [frame.id, frame]));
@@ -426,15 +566,15 @@ function serializeCanvas(content: PlanContent): string {
         .filter(Boolean)
         .map((frame) => {
           emitted.add(frame.id);
-          return serializeArtboard(frame);
+          return serializeArtboard(frame, "    ");
         })
         .join("\n\n");
-      return `<Section${prop("id", section.id)}${prop("title", section.title)}${prop("subtitle", section.subtitle)}>\n${artboards}\n</Section>`;
+      return `  <Section${prop("id", section.id)}${prop("title", section.title)}${prop("subtitle", section.subtitle)}>\n${artboards}\n  </Section>`;
     })
     .join("\n\n");
   const looseFrames = canvas.frames
     .filter((frame) => !emitted.has(frame.id))
-    .map(serializeArtboard)
+    .map((frame) => serializeArtboard(frame, "  "))
     .join("\n\n");
   const annotationsSource: PlanAnnotation[] = [
     ...(canvas.annotations ?? []),
@@ -450,17 +590,17 @@ function serializeCanvas(content: PlanContent): string {
   const annotations = annotationsSource
     .map(
       (annotation) =>
-        `<Annotation${prop("id", annotation.id)}${prop("title", annotation.title)}${prop("targetId", annotation.targetId)}${prop("placement", annotation.placement)}${prop("x", annotation.x)}${prop("y", annotation.y)}>\n\n${annotation.text.trim()}\n\n</Annotation>`,
+        `  <Annotation${prop("id", annotation.id)}${prop("type", annotation.type)}${prop("title", annotation.title)}${prop("points", annotation.points)}${prop("style", annotation.style)}${prop("targetId", annotation.targetId)}${prop("placement", annotation.placement)}${prop("x", annotation.x)}${prop("y", annotation.y)}>\n\n${annotation.text.trim()}\n\n  </Annotation>`,
     )
     .join("\n\n");
   const connectors = (canvas.flow ?? [])
     .map(
       (connector) =>
-        `<Connector${prop("from", connector.from)}${prop("to", connector.to)}${prop("label", connector.label)} />`,
+        `  <Connector${prop("from", connector.from)}${prop("to", connector.to)}${prop("label", connector.label)} />`,
     )
     .join("\n");
 
-  return `<DesignBoard${prop("title", canvas.title)}${prop("version", content.version)}>\n${[
+  const board = `<DesignBoard${prop("title", canvas.title)}${prop("mode", canvas.mode)}${prop("design", canvas.design)}${prop("version", content.version)}>\n${[
     sectionSource,
     looseFrames,
     annotations,
@@ -468,9 +608,10 @@ function serializeCanvas(content: PlanContent): string {
   ]
     .filter(Boolean)
     .join("\n\n")}\n</DesignBoard>`;
+  return `${serializeCanvasSourceComment(visualUrl)}${board}`;
 }
 
-function serializeArtboard(frame: PlanArtboard): string {
+function serializeArtboard(frame: PlanArtboard, indent = ""): string {
   const attrs = [
     prop("id", frame.id),
     prop("label", frame.label),
@@ -483,12 +624,12 @@ function serializeArtboard(frame: PlanArtboard): string {
     prop("order", frame.order),
   ].join("");
   if (frame.wireframe) {
-    return `<Artboard${attrs}>\n${serializeScreen(frame.wireframe)}\n</Artboard>`;
+    return `${indent}<Artboard${attrs}>\n${serializeScreen(frame.wireframe, `${indent}  `)}\n${indent}</Artboard>`;
   }
   if (frame.legacyWireframe) {
-    return `<Artboard${attrs}>\n<LegacyWireframe${prop("data", frame.legacyWireframe)} />\n</Artboard>`;
+    return `${indent}<Artboard${attrs}>\n${indent}  <LegacyWireframe${prop("data", frame.legacyWireframe)} />\n${indent}</Artboard>`;
   }
-  return `<Artboard${attrs} />`;
+  return `${indent}<Artboard${attrs} />`;
 }
 
 function parseMdx(source: string): MdxNode {
@@ -512,6 +653,42 @@ function stringifyChildren(children: MdxNode[] | undefined): string {
   return stringifyMdx({ type: "root", children }).trim();
 }
 
+function parseBlocksFromNodes(
+  nodes: MdxNode[] | undefined,
+  idContext: string,
+  options: { firstMarkdownBlockId?: string } = {},
+): PlanBlock[] {
+  const blocks: PlanBlock[] = [];
+  const looseNodes: MdxNode[] = [];
+  let markdownIndex = 0;
+  const flushLoose = () => {
+    const markdown = stringifyChildren(looseNodes).trim();
+    looseNodes.length = 0;
+    if (!markdown) return;
+    blocks.push({
+      id:
+        markdownIndex === 0 && options.firstMarkdownBlockId
+          ? options.firstMarkdownBlockId
+          : createPlanBlockId("markdown"),
+      type: "rich-text",
+      data: { markdown },
+    });
+    markdownIndex += 1;
+  };
+
+  for (const [index, child] of (nodes ?? []).entries()) {
+    const block = parseBlock(child, `${idContext}-${index}`);
+    if (block) {
+      flushLoose();
+      blocks.push(block);
+    } else {
+      looseNodes.push(child);
+    }
+  }
+  flushLoose();
+  return blocks;
+}
+
 function elementName(node: MdxNode | undefined): string | undefined {
   return node?.type === "mdxJsxFlowElement" ||
     node?.type === "mdxJsxTextElement"
@@ -525,68 +702,8 @@ function findAttribute(node: MdxNode, name: string): MdxAttribute | undefined {
   );
 }
 
-function attributeValue(attr: MdxAttribute | undefined): unknown {
-  if (!attr) return undefined;
-  if (attr.value === null || attr.value === undefined) return true;
-  if (typeof attr.value === "string") return attr.value;
-  const astValue = literalExpressionValue(attr.value);
-  if (astValue !== undefined) return astValue;
-  const expression = attr.value.value.trim();
-  if (!expression) return undefined;
-  if (expression === "undefined") return undefined;
-  try {
-    return JSON.parse(expression);
-  } catch {
-    throw new Error(
-      `Unsupported MDX attribute expression for "${attr.name}": {${expression}}. Use literal values or valid JSON.`,
-    );
-  }
-}
-
-function literalExpressionValue(expression: MdxExpression): unknown {
-  const estree = (expression.data as { estree?: EstreeNode } | undefined)
-    ?.estree;
-  const statement = estree?.body?.[0];
-  if (!statement || statement.type !== "ExpressionStatement") return undefined;
-  return literalNodeValue(statement.expression);
-}
-
-function literalNodeValue(node: EstreeNode | undefined | null): unknown {
-  if (!node) return undefined;
-  if (node.type === "Literal") return node.value;
-  if (node.type === "ArrayExpression") {
-    return (node.elements ?? []).map((item) => literalNodeValue(item));
-  }
-  if (node.type === "ObjectExpression") {
-    const out: Record<string, unknown> = {};
-    for (const property of node.properties ?? []) {
-      if (property.type !== "Property" || property.computed) return undefined;
-      const key = property.key;
-      const rawKey =
-        key?.type === "Identifier"
-          ? key.name
-          : key?.type === "Literal" && typeof key.value === "string"
-            ? key.value
-            : undefined;
-      if (!rawKey) return undefined;
-      const value = literalNodeValue(property.value as EstreeNode | undefined);
-      if (value !== undefined) out[rawKey] = value;
-    }
-    return out;
-  }
-  if (node.type === "UnaryExpression") {
-    const value = literalNodeValue(node.argument);
-    if (typeof value !== "number") return undefined;
-    if (node.operator === "-") return -value;
-    if (node.operator === "+") return value;
-  }
-  if (node.type === "Identifier") {
-    if (node.name === "undefined") return undefined;
-    if (node.name === "NaN") return Number.NaN;
-    if (node.name === "Infinity") return Infinity;
-  }
-  return undefined;
-}
+// `attributeValue` and its estree literal walker now come from
+// `@agent-native/core/blocks` (imported above) — the shared parse-side contract.
 
 function stringAttr(node: MdxNode, name: string): string | undefined {
   const value = attributeValue(findAttribute(node, name));
@@ -624,6 +741,26 @@ function baseBlock(node: MdxNode) {
 
 function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const name = elementName(node);
+  if (name === "Columns") {
+    const parsed = parseReadableColumnsBlock(node, idContext);
+    if (parsed) return parsed;
+  }
+  // Registry-first: a registered MDX tag parses through its spec. The shared
+  // attribute reader resolves props the same way the legacy readers do, and the
+  // stringified prose children feed the spec's `fromAttrs` (callout/rich-text).
+  if (name && planMdxRegistry.hasTag(name)) {
+    const base = baseBlock(node);
+    const parsed = parseSpecBlock(
+      planMdxRegistry,
+      node as unknown as MdxJsxNode,
+      base,
+      stringifyChildren(node.children),
+      idContext,
+    );
+    if (parsed) {
+      return { ...base, type: parsed.type, data: parsed.data } as PlanBlock;
+    }
+  }
   if (!name || !BLOCK_COMPONENTS.has(name)) return null;
   const base = baseBlock(node);
   if (name === "RichText") {
@@ -726,7 +863,13 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     return {
       ...base,
       type: "tabs",
-      data: { tabs: arrayAttr(node, "tabs") ?? [] },
+      data: {
+        tabs: arrayAttr(node, "tabs") ?? [],
+        orientation:
+          stringAttr(node, "orientation") === "vertical"
+            ? "vertical"
+            : undefined,
+      },
     };
   }
   if (name === "HtmlBlock") {
@@ -750,18 +893,51 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   };
 }
 
+function parseReadableColumnsBlock(
+  node: MdxNode,
+  idContext: string,
+): PlanBlock | null {
+  const columnNodes = (node.children ?? []).filter(
+    (child) => elementName(child) === "Column",
+  );
+  if (columnNodes.length === 0) return null;
+  const base = baseBlock(node);
+  return {
+    ...base,
+    type: "columns",
+    data: {
+      columns: columnNodes.map((column, index) => {
+        const id =
+          stringAttr(column, "id") ?? createPlanBlockId(`column-${index + 1}`);
+        return {
+          id,
+          label: stringAttr(column, "label")?.trim() || undefined,
+          blocks: parseBlocksFromNodes(
+            column.children,
+            `${idContext}-${base.id}-${id}`,
+            { firstMarkdownBlockId: stringAttr(column, "contentId") },
+          ),
+        };
+      }),
+    },
+  };
+}
+
 function parseScreen(
   node: MdxNode,
   idContext = "screen",
-): {
-  surface: PlanArtboard["surface"];
-  caption?: string;
-  screen: PlanWireframeNode[];
-} {
+): PlanWireframeBlock["data"] {
   return {
     surface:
       (stringAttr(node, "surface") as PlanArtboard["surface"]) ?? "desktop",
+    renderMode: stringAttr(
+      node,
+      "renderMode",
+    ) as PlanWireframeBlock["data"]["renderMode"],
     caption: stringAttr(node, "caption"),
+    html: stringAttr(node, "html"),
+    css: stringAttr(node, "css"),
+    skeleton: boolAttr(node, "skeleton"),
     screen: (node.children ?? [])
       .map((child, index) =>
         parseWireframeNode(child, `${idContext}-screen-${index}`),
@@ -812,31 +988,13 @@ export async function parsePlanMdxFolder(
   const files = planMdxFileSchema.parse(folder);
   const parsedMatter = matter(files["plan.mdx"]);
   const planTree = parseMdx(parsedMatter.content);
-  const looseNodes: MdxNode[] = [];
-  const blocks: PlanBlock[] = [];
-  const flushLoose = () => {
-    const markdown = stringifyChildren(looseNodes).trim();
-    looseNodes.length = 0;
-    if (!markdown) return;
-    blocks.push({
-      id: createPlanBlockId("markdown"),
-      type: "rich-text",
-      data: { markdown },
-    });
-  };
-  for (const [index, child] of (planTree.children ?? []).entries()) {
-    const block = parseBlock(child, `plan-block-${index}`);
-    if (block) {
-      flushLoose();
-      blocks.push(block);
-    } else {
-      looseNodes.push(child);
-    }
-  }
-  flushLoose();
+  const blocks = parseBlocksFromNodes(planTree.children, "plan-block");
 
   const canvas = files["canvas.mdx"]
     ? parseCanvas(files["canvas.mdx"])
+    : undefined;
+  const prototype = files["prototype.mdx"]
+    ? parsePrototype(files["prototype.mdx"])
     : undefined;
   const state = parsePlanState(files[".plan-state.json"]);
   if (canvas && state?.canvas) canvas.viewport = state.canvas;
@@ -854,6 +1012,8 @@ export async function parsePlanMdxFolder(
       typeof parsedMatter.data.brief === "string"
         ? parsedMatter.data.brief
         : undefined,
+    notionSync: parsedMatter.data.notionSync === true ? true : undefined,
+    prototype,
     canvas,
     blocks,
   };
@@ -861,6 +1021,62 @@ export async function parsePlanMdxFolder(
   if (!normalized)
     throw new Error("MDX source did not parse into valid plan content.");
   return normalized;
+}
+
+function parsePrototype(source: string): PlanPrototype | undefined {
+  const tree = parseMdx(source);
+  const node = (tree.children ?? []).find(
+    (child) => elementName(child) === "Prototype",
+  );
+  if (!node) return undefined;
+  const screens: PlanPrototypeScreen[] = [];
+  const transitions: NonNullable<PlanPrototype["transitions"]> = [];
+  for (const child of node.children ?? []) {
+    const name = elementName(child);
+    if (name === "PrototypeScreen") {
+      const id = stringAttr(child, "id");
+      const html = stringAttr(child, "html");
+      if (!id || !html) continue;
+      screens.push({
+        id,
+        title: stringAttr(child, "title"),
+        summary: stringAttr(child, "summary"),
+        surface: stringAttr(child, "surface") as PlanPrototypeScreen["surface"],
+        renderMode: stringAttr(
+          child,
+          "renderMode",
+        ) as PlanPrototypeScreen["renderMode"],
+        state: arrayAttr<NonNullable<PlanPrototypeScreen["state"]>[number]>(
+          child,
+          "state",
+        ),
+        html,
+        css: stringAttr(child, "css"),
+      });
+      continue;
+    }
+    if (name === "PrototypeTransition") {
+      const from = stringAttr(child, "from");
+      const to = stringAttr(child, "to");
+      if (!from || !to) continue;
+      transitions.push({
+        id: stringAttr(child, "id"),
+        from,
+        to,
+        label: stringAttr(child, "label"),
+        trigger: stringAttr(child, "trigger"),
+      });
+    }
+  }
+  if (screens.length === 0) return undefined;
+  return {
+    title: stringAttr(node, "title"),
+    brief: stringAttr(node, "brief"),
+    surface: stringAttr(node, "surface") as PlanPrototype["surface"],
+    initialScreenId: stringAttr(node, "initialScreenId"),
+    screens,
+    ...(transitions.length > 0 ? { transitions } : {}),
+  };
 }
 
 function parsePlanState(source: string | undefined) {
@@ -911,12 +1127,18 @@ function parseCanvas(source: string): PlanContent["canvas"] {
     if (name === "Annotation") {
       annotations.push({
         id: stringAttr(child, "id") ?? createPlanBlockId("annotation"),
+        type: stringAttr(child, "type") as PlanAnnotation["type"],
         title: stringAttr(child, "title"),
         text:
           stringifyChildren(child.children) ||
           stringAttr(child, "text") ||
           stringAttr(child, "body") ||
           "",
+        points: arrayAttr<NonNullable<PlanAnnotation["points"]>[number]>(
+          child,
+          "points",
+        ),
+        style: dataAttr<PlanAnnotation["style"]>(child, "style"),
         targetId: stringAttr(child, "targetId"),
         placement: stringAttr(
           child,
@@ -939,7 +1161,14 @@ function parseCanvas(source: string): PlanContent["canvas"] {
     parseCanvasChild(child, undefined, `canvas-${index}`);
 
   return {
+    mode: stringAttr(board, "mode") as NonNullable<
+      PlanContent["canvas"]
+    >["mode"],
     title: stringAttr(board, "title"),
+    design: dataAttr<NonNullable<PlanContent["canvas"]>["design"]>(
+      board,
+      "design",
+    ),
     sections: sections.length ? sections : undefined,
     frames,
     flow: flow.length ? flow : undefined,
@@ -1046,7 +1275,7 @@ async function updateMdxSourceIf(
   return { source: await formatMdx(withMatter), changed: true };
 }
 
-type MdxSourceFile = "plan.mdx" | "canvas.mdx";
+type MdxSourceFile = "plan.mdx" | "canvas.mdx" | "prototype.mdx";
 
 function requireMdxSource(
   folder: PlanMdxFolder,

@@ -185,6 +185,38 @@ jobs:
           # dep that templates don't declare).
           pnpm --filter ./apps/calendar build
 
+  ssr-boot-smoke:
+    name: SSR cold-start smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Build core (plan's only @agent-native workspace dep) so the deploy
+      # build's CLI is available, then produce the real serverless bundle.
+      - name: Build core
+        run: pnpm --filter @agent-native/core build
+
+      # The `plan` template exercises the Excalidraw/Mermaid diagram blocks, so
+      # its server bundle is the canonical reproducer for browser-only libs
+      # leaking into SSR. The fix lives in @agent-native/core, so one template
+      # guards the whole fleet.
+      - name: Build plan template (netlify preset)
+        run: NITRO_PRESET=netlify pnpm --filter plan build
+
+      - name: Import SSR handler — must not crash at cold-start
+        # External timeout is a backstop against a pathological synchronous hang;
+        # the script itself races module eval against a 30s window and force-exits.
+        run: timeout 120 node scripts/ssr-boot-smoke.mjs plan
+
   guards:
     name: Security guards
     runs-on: ubuntu-latest
@@ -198,7 +230,9 @@ jobs:
           node-version: "22"
           cache: "pnpm"
 
-      - run: pnpm install --frozen-lockfile
+      # Guard scripts only need dependencies and should not depend on package
+      # lifecycle builds; skipping scripts avoids native optional builds here.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Run security guards
         run: pnpm guards

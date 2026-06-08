@@ -26,13 +26,13 @@ app/
   pages/         # FormsListPage, FormBuilderPage, FormFillPage, ResponsesPage
   routes/        # File-based routes
 server/
-  routes/api/    # API route handlers
+  routes/api/    # Route-only handlers (uploads, public submit, SEO/OG)
   handlers/      # forms.ts, submissions.ts
   plugins/       # auth, SSE
   db/            # Drizzle schema + init
 shared/
   types.ts       # Form, FormField, FormResponse types
-actions/         # Agent-callable scripts
+actions/               # Shared app operations (defineAction; UI uses action hooks)
 data/            # Local development SQLite file only
 ```
 
@@ -64,7 +64,9 @@ Forms support these field types:
 
 Each field has: `id`, `type`, `label`, `placeholder`, `description`, `required`, `options` (for select/radio/multiselect), `validation` (min/max/pattern), `conditional` (show/hide based on another field), `width` (full/half).
 
-## API Routes
+## Route-Only API Endpoints
+
+Prefer actions for authenticated app CRUD. The routes below are current public/route-shaped endpoints or legacy implementation details to migrate when editing this area. New normal app data should use `defineAction` plus `useActionQuery` / `useActionMutation`.
 
 | Method | Path                       | Auth   | Purpose                                    |
 | ------ | -------------------------- | ------ | ------------------------------------------ |
@@ -106,6 +108,8 @@ Works out of the box with local SQLite via `@libsql/client`. This local file is 
 
 Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
 
+Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
+
 ### Cloudflare Pages + D1
 
 1. Set `NITRO_PRESET=cloudflare_pages` in env
@@ -120,7 +124,7 @@ pnpm dev          # Start dev server (client + server)
 pnpm build        # Production build
 pnpm typecheck    # TypeScript validation
 pnpm test         # Run Vitest tests
-pnpm action <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run an action
 ```
 
 ## TypeScript Everywhere

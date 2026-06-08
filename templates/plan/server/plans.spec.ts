@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildInitialPlanCommentRows,
   buildPlanHtml,
+  buildUpdatedPlanCommentRows,
   deriveSectionsFromText,
+  newId,
   summarizePlan,
 } from "./plans.js";
 import { buildUiPlanHtml } from "./ui-plan-html.js";
@@ -45,6 +48,15 @@ function comment(id: string, status: PlanComment["status"]): PlanComment {
 }
 
 describe("Plans helpers", () => {
+  it("generates URL-friendly dashed IDs", () => {
+    expect(newId("plan")).toMatch(/^plan-[0-9a-f]{16}$/);
+    expect(newId("plan")).not.toContain("plan_");
+  });
+
+  it("keeps non-plan generated IDs compatible", () => {
+    expect(newId("cmt")).toMatch(/^cmt_[0-9a-f]{16}$/);
+  });
+
   it("summarizes sections and open comments", () => {
     const summary = summarizePlan(
       [section("a", "summary"), section("b", "wireframe")],
@@ -54,6 +66,279 @@ describe("Plans helpers", () => {
     expect(summary.sectionCounts).toEqual({ summary: 1, wireframe: 1 });
     expect(summary.commentCount).toBe(2);
     expect(summary.openCommentCount).toBe(1);
+  });
+
+  it("builds threaded initial comment rows with parent context first", () => {
+    const rows = buildInitialPlanCommentRows({
+      planId: "plan_threaded",
+      now: "2026-06-05T00:00:00.000Z",
+      requestEmail: "reviewer@example.com",
+      requestName: "Reviewer",
+      comments: [
+        {
+          id: "reply",
+          parentCommentId: "root",
+          kind: "comment",
+          status: "open",
+          message: "Inline reply",
+          createdBy: "human",
+        },
+        {
+          id: "root",
+          sectionId: "section-a",
+          kind: "annotation",
+          status: "open",
+          anchor: JSON.stringify({ blockId: "wireframe-a" }),
+          message: "Can we discuss this?",
+          createdBy: "human",
+        },
+      ],
+    });
+
+    expect(rows.map((row) => row.id)).toEqual(["root", "reply"]);
+    expect(rows[0]).toMatchObject({
+      id: "root",
+      parentCommentId: null,
+      sectionId: "section-a",
+      kind: "annotation",
+      authorEmail: "reviewer@example.com",
+      authorName: "Reviewer",
+    });
+    expect(JSON.parse(rows[0].anchor ?? "{}")).toEqual({
+      blockId: "wireframe-a",
+      resolutionTarget: "agent",
+      mentions: [],
+    });
+    expect(rows[1]).toMatchObject({
+      id: "reply",
+      parentCommentId: "root",
+      sectionId: "section-a",
+      kind: "annotation",
+      authorEmail: "reviewer@example.com",
+      authorName: "Reviewer",
+    });
+    expect(JSON.parse(rows[1].anchor ?? "{}")).toEqual({
+      blockId: "wireframe-a",
+      resolutionTarget: "agent",
+      mentions: [],
+    });
+  });
+
+  it("rejects missing or cyclic initial comment parents", () => {
+    expect(() =>
+      buildInitialPlanCommentRows({
+        planId: "plan_missing",
+        now: "2026-06-05T00:00:00.000Z",
+        comments: [
+          {
+            id: "reply",
+            parentCommentId: "missing",
+            kind: "comment",
+            status: "open",
+            message: "Reply",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).toThrow("Parent comment missing was not found in initial comments.");
+
+    expect(() =>
+      buildInitialPlanCommentRows({
+        planId: "plan_cycle",
+        now: "2026-06-05T00:00:00.000Z",
+        comments: [
+          {
+            id: "a",
+            parentCommentId: "b",
+            kind: "comment",
+            status: "open",
+            message: "A",
+            createdBy: "human",
+          },
+          {
+            id: "b",
+            parentCommentId: "a",
+            kind: "comment",
+            status: "open",
+            message: "B",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).toThrow("Initial comment threads contain a parent cycle.");
+  });
+
+  it("builds update comment rows against existing and pending parents", () => {
+    const rows = buildUpdatedPlanCommentRows({
+      planId: "plan_update",
+      now: "2026-06-05T00:00:00.000Z",
+      requestEmail: "reviewer@example.com",
+      requestName: "Reviewer",
+      existingComments: [
+        {
+          id: "existing-root",
+          sectionId: "section-existing",
+          kind: "annotation",
+          anchor: JSON.stringify({ blockId: "existing-wireframe" }),
+        },
+      ],
+      comments: [
+        {
+          id: "reply-to-new-root",
+          parentCommentId: "new-root",
+          kind: "comment",
+          status: "open",
+          message: "Reply before root",
+          createdBy: "human",
+        },
+        {
+          id: "new-root",
+          sectionId: "section-new",
+          kind: "comment",
+          status: "open",
+          anchor: JSON.stringify({ blockId: "new-wireframe" }),
+          message: "New root",
+          createdBy: "human",
+        },
+        {
+          id: "reply-to-existing-root",
+          parentCommentId: "existing-root",
+          kind: "comment",
+          status: "open",
+          message: "Reply to existing",
+          createdBy: "human",
+        },
+      ],
+    });
+
+    expect(rows.map((row) => row.id)).toEqual([
+      "new-root",
+      "reply-to-existing-root",
+      "reply-to-new-root",
+    ]);
+    expect(rows[1]).toMatchObject({
+      id: "reply-to-existing-root",
+      parentCommentId: "existing-root",
+      sectionId: "section-existing",
+      kind: "annotation",
+      anchor: JSON.stringify({ blockId: "existing-wireframe" }),
+    });
+    expect(rows[2]).toMatchObject({
+      id: "reply-to-new-root",
+      parentCommentId: "new-root",
+      sectionId: "section-new",
+      kind: "comment",
+      authorEmail: "reviewer@example.com",
+      authorName: "Reviewer",
+    });
+    expect(JSON.parse(rows[2].anchor ?? "{}")).toEqual({
+      blockId: "new-wireframe",
+      resolutionTarget: "agent",
+      mentions: [],
+    });
+  });
+
+  it("stores queryable resolver metadata and infers human routing from mentions", () => {
+    const mention = "@[Tiana](mailto:tiana%40example.com)";
+    const rows = buildInitialPlanCommentRows({
+      planId: "plan_comment_metadata",
+      now: "2026-06-05T00:00:00.000Z",
+      comments: [
+        {
+          id: "agent-root",
+          sectionId: "section-a",
+          kind: "annotation",
+          status: "open",
+          anchor: JSON.stringify({ anchorKind: "text", textQuote: "CTA" }),
+          message: "Please tune this for the agent.",
+          createdBy: "human",
+          resolutionTarget: "agent",
+        },
+        {
+          id: "mention-root",
+          kind: "comment",
+          status: "open",
+          message: `${mention} should approve this copy.`,
+          createdBy: "human",
+        },
+        {
+          id: "reply-inherits",
+          parentCommentId: "agent-root",
+          kind: "comment",
+          status: "open",
+          message: "Additional context for the same agent task.",
+          createdBy: "human",
+        },
+        {
+          id: "reply-mentions-human",
+          parentCommentId: "agent-root",
+          kind: "comment",
+          status: "open",
+          message: `${mention} please sanity-check the policy.`,
+          createdBy: "human",
+        },
+      ],
+    });
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get("agent-root")?.resolutionTarget).toBe("agent");
+    expect(JSON.parse(byId.get("agent-root")?.anchor ?? "{}")).toMatchObject({
+      resolutionTarget: "agent",
+    });
+    expect(byId.get("mention-root")?.resolutionTarget).toBe("human");
+    expect(JSON.parse(byId.get("mention-root")?.mentionsJson ?? "[]")).toEqual([
+      { label: "Tiana", email: "tiana@example.com" },
+    ]);
+    expect(byId.get("reply-inherits")?.resolutionTarget).toBe("agent");
+    expect(byId.get("reply-mentions-human")?.resolutionTarget).toBe("human");
+  });
+
+  it("rejects missing or cyclic update comment parents", () => {
+    expect(() =>
+      buildUpdatedPlanCommentRows({
+        planId: "plan_update_missing",
+        now: "2026-06-05T00:00:00.000Z",
+        existingComments: [],
+        comments: [
+          {
+            id: "reply",
+            parentCommentId: "missing",
+            kind: "comment",
+            status: "open",
+            message: "Reply",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).toThrow(
+      "Parent comment missing was not found on plan plan_update_missing.",
+    );
+
+    expect(() =>
+      buildUpdatedPlanCommentRows({
+        planId: "plan_update_cycle",
+        now: "2026-06-05T00:00:00.000Z",
+        existingComments: [],
+        comments: [
+          {
+            id: "a",
+            parentCommentId: "b",
+            kind: "comment",
+            status: "open",
+            message: "A",
+            createdBy: "human",
+          },
+          {
+            id: "b",
+            parentCommentId: "a",
+            kind: "comment",
+            status: "open",
+            message: "B",
+            createdBy: "human",
+          },
+        ],
+      }),
+    ).toThrow("Updated comment threads contain a parent cycle.");
   });
 
   it("turns imported text into visual companion sections", () => {
@@ -114,7 +399,7 @@ describe("Plans helpers", () => {
     expect(html).toContain('data-has-top-canvas="true"');
     expect(html).toContain("canvas-viewport");
     expect(html).toContain(
-      ".top-canvas-section { position: relative; height: 70vh;",
+      ".top-canvas-section { position: relative; height: 65vh;",
     );
     expect(html).not.toContain("canvas-toolbar");
     expect(html).not.toContain("Wireframe canvas");

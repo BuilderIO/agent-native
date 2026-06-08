@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -9,6 +9,13 @@ import {
   createPlanContentFromSections,
   serializePlanContent,
 } from "../server/plan-content.js";
+import {
+  isLocalPlanRuntime,
+  resolvePlanOrgIdForWrite,
+  requirePlanOwnerEmailForWrite,
+} from "../server/lib/local-identity.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   buildPlanHtml,
   deriveSectionsFromText,
@@ -37,6 +44,7 @@ function inferTitle(planText: string): string {
 export default defineAction({
   description:
     "Convert an existing Codex, Claude Code, Markdown, or pasted text plan into an Agent-Native visual plan with editable rich blocks, sketch diagrams/wireframes, implementation maps, code previews, and annotation space.",
+  agentTool: false,
   schema: z.object({
     title: z.string().optional().describe("Short title for the visual plan"),
     brief: z
@@ -52,31 +60,17 @@ export default defineAction({
     repoPath: z.string().optional().describe("Repository path for the run"),
     currentFocus: z.string().optional().default("visual review"),
   }),
-  publicAgent: {
-    expose: true,
-    readOnly: false,
-    requiresAuth: true,
-    isConsequential: true,
-    title: "Visualize Plan",
-    description:
-      "Import a text plan and open a richer HTML companion for visuals and feedback.",
-  },
-  mcpApp: {
-    compactCatalog: true,
-    resource: embedApp({
-      title: "Visual Plan",
-      description:
-        "Open the Agent-Native Plans HTML companion for an imported Codex or Claude Code plan.",
-      iframeTitle: "Agent-Native Plans",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
-  },
   run: async (args) => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) {
-      throw new Error("Visualizing a plan requires an authenticated user.");
-    }
+    const requesterEmail = getRequestUserEmail();
+    const ownerEmail = requirePlanOwnerEmailForWrite(
+      requesterEmail,
+      "Visualizing a plan",
+    );
+    const ownerOrgId = resolvePlanOrgIdForWrite(
+      requesterEmail,
+      getRequestOrgId(),
+    );
+    await assertGuestCreateWithinLimits(ownerEmail);
     const id = newId("plan");
     const now = nowIso();
     const title = args.title || inferTitle(args.planText);
@@ -114,7 +108,7 @@ export default defineAction({
         updatedAt: now,
         approvedAt: null,
         ownerEmail,
-        orgId: getRequestOrgId(),
+        orgId: ownerOrgId,
         visibility: "private",
       });
 
@@ -147,12 +141,22 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: id,
+          title: bundle.plan.title,
+          brief: bundle.plan.brief,
+          content: bundle.plan.content,
+          url: planPath(id),
+        })
+      : null;
     return {
       ...bundle,
       planId: id,
       html: buildPlanHtml(bundle),
       path: planPath(id),
       url: planPath(id),
+      ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
         "Open the Agent-Native Plans companion, react to the editable visual sections, add comments or corrections, then I will call get-plan-feedback before continuing. The live link is private until shared; use the Share panel for reviewer access or export-visual-plan for an HTML/Markdown/JSON receipt to check into source.",
     };

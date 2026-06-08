@@ -43,8 +43,11 @@ coding agents can discover the same workspace-wide guidance from the root.
 - Keep application routes, actions, server plugins, and app state inside the
   relevant `apps/<app>` directory unless multiple apps need the same behavior.
 - Put reusable code in `packages/shared` only after at least two apps need it.
-- Never copy live credentials, personal email addresses, customer data, or
-  company-specific placeholder values into source files.
+- Never copy live credentials, API keys, tokens, webhook URLs, signing secrets,
+  personal email addresses, customer data, private Builder/internal data, or
+  company-specific placeholder values into source files, docs, prompts,
+  fixtures, application state, action responses, or generated app content. Use
+  secrets/OAuth/runtime configuration and obvious placeholders in examples.
 
 ## New Workspace Apps
 

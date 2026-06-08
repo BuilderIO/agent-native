@@ -142,7 +142,7 @@ Dispatch resources are scoped **All apps** (every app inherits them at runtime, 
 
 ## Authentication and RBAC {#auth-and-rbac}
 
-Every agent-native app already ships with [Better Auth](/docs/authentication) and its organizations plugin — users, organizations, members, and the `owner` / `admin` / `member` roles are all first-class, shared across every template. In a workspace, you get that for free in every app, backed by the same database.
+Every agent-native app already ships with [Better Auth](/docs/authentication) plus the framework's built-in organization system — users, organizations, members, and the `owner` / `admin` / `member` roles are all first-class, shared across every template. (Organizations are framework-managed via the `organizations` / `org_members` tables, not Better Auth's organization plugin, which is intentionally not registered.) In a workspace, you get that for free in every app, backed by the same database.
 
 For enterprise-specific rules (allow-list domains, SSO enforcement, extra role checks), export an `authPlugin` from `packages/shared/src/server/index.ts`. Every app in the workspace now enforces those rules.
 

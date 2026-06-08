@@ -103,7 +103,7 @@ If unset, the framework falls back to `BETTER_AUTH_SECRET`. A dedicated `OAUTH_S
 
 ## Organizations {#organizations}
 
-Better Auth's organization plugin is built into the framework. Every app supports:
+The framework provides a built-in organization system. This is the framework's own `org/` module — backed by the `organizations` and `org_members` tables — not Better Auth's organization plugin, which is intentionally not registered. Every app supports:
 
 - Creating organizations
 - Inviting members with roles (`owner`, `admin`, `member`)
@@ -204,6 +204,7 @@ interface AuthSession {
   email: string; // User's email (primary identifier)
   userId?: string; // Better Auth user ID
   token?: string; // Session token
+  name?: string; // Display name from the auth provider, when available
   orgId?: string; // Active organization ID
   orgRole?: string; // Role in active org (owner/admin/member)
 }

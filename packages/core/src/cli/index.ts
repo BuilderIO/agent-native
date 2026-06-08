@@ -727,15 +727,19 @@ Usage:
                                 cmds: serve | install | uninstall | status |
                                 token (--client claude-code|claude-code-cli|
                                 codex|cowork)
-  agent-native connect <url>    Wire your coding agent to a DEPLOYED app via
-                                a browser device-code flow, with a saved
-                                client picker. --all connects every
+  agent-native connect <url>    Authenticate your coding agent to a DEPLOYED app.
+                                OAuth-capable clients (Claude Code) get a /mcp
+                                authenticate prompt; Codex / Cowork use the
+                                browser device-code flow. --all connects every
                                 first-party app; --token is the no-browser
-                                fallback.
+                                fallback. Usually run for you by 'skills add'.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
-  agent-native skills add assets|design-exploration|plans|visual-plan|ui-plan|visualize-plan
-                                Install app skill instructions and MCP in one step
+  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|prototype-plan|plan-design
+                                Install the skill instructions, register the MCP
+                                connector, AND authenticate it in one step.
+                                --no-connect skips auth (run 'connect' later);
+                                non-interactive shells print the connect command.
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

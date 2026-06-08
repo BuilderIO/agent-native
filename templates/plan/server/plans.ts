@@ -1,5 +1,10 @@
 import { buildDeepLink } from "@agent-native/core/server";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  currentAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { asc, eq, inArray } from "drizzle-orm";
 import { Buffer } from "node:buffer";
 import { z } from "zod";
@@ -7,17 +12,27 @@ import { getDb, schema } from "./db/index.js";
 import {
   PLAN_AUTHORS,
   PLAN_COMMENT_KINDS,
+  PLAN_COMMENT_RESOLUTION_TARGETS,
   PLAN_COMMENT_STATUSES,
   PLAN_SECTION_TYPES,
   PLAN_SOURCES,
   PLAN_STATUSES,
   type PlanBundle,
+  type PlanAuthor,
   type PlanComment,
   type PlanEvent,
   type PlanSection,
   type PlanSummary,
 } from "../shared/types.js";
+import {
+  extractCommentMentions,
+  normalizeCommentMentions,
+  normalizePlanCommentResolutionTarget,
+  parsePlanCommentAnchor,
+  type PlanCommentMention,
+} from "../shared/comment-context.js";
 import { buildPlanContentHtml, parsePlanContent } from "./plan-content.js";
+import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 type ImplementationFile = {
   id: string;
@@ -35,6 +50,9 @@ export const planSourceSchema = z.enum(PLAN_SOURCES);
 export const planSectionTypeSchema = z.enum(PLAN_SECTION_TYPES);
 export const planCommentKindSchema = z.enum(PLAN_COMMENT_KINDS);
 export const planCommentStatusSchema = z.enum(PLAN_COMMENT_STATUSES);
+export const planCommentResolutionTargetSchema = z.enum(
+  PLAN_COMMENT_RESOLUTION_TARGETS,
+);
 export const planAuthorSchema = z.enum(PLAN_AUTHORS);
 
 export const sectionInputSchema = z.object({
@@ -49,20 +67,373 @@ export const sectionInputSchema = z.object({
 
 export const commentInputSchema = z.object({
   id: z.string().optional(),
+  parentCommentId: z.string().optional(),
   sectionId: z.string().optional(),
   kind: planCommentKindSchema.optional().default("comment"),
   status: planCommentStatusSchema.optional().default("open"),
   anchor: z.string().optional(),
   message: z.string().min(1),
   createdBy: planAuthorSchema.optional().default("human"),
+  authorEmail: z.string().trim().optional(),
+  authorName: z.string().trim().optional(),
+  resolutionTarget: planCommentResolutionTargetSchema.optional(),
+  mentions: z
+    .array(
+      z.object({
+        email: z.string().trim().toLowerCase(),
+        label: z.string().trim(),
+        role: z.string().trim().optional(),
+      }),
+    )
+    .optional(),
+  resolvedBy: z.string().trim().optional().nullable(),
+  resolvedAt: z.string().trim().optional().nullable(),
 });
 
+export type PlanCommentInput = z.infer<typeof commentInputSchema>;
+
 export function newId(prefix: string): string {
-  return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const separator = prefix === "plan" ? "-" : "_";
+  return `${prefix}${separator}${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function parseMentionsJson(value: string | null | undefined) {
+  if (!value) return [];
+  try {
+    return normalizeCommentMentions(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function commentMentionsForInput(
+  comment: Pick<PlanCommentInput, "mentions" | "message" | "anchor">,
+  anchor = parsePlanCommentAnchor(comment.anchor),
+) {
+  const mentions = normalizeCommentMentions([
+    ...(comment.mentions ?? []),
+    ...(anchor?.mentions ?? []),
+    ...extractCommentMentions(comment.message),
+  ]);
+  return mentions;
+}
+
+function mentionsJson(mentions: PlanCommentMention[]) {
+  return mentions.length > 0 ? JSON.stringify(mentions) : null;
+}
+
+export function commentMetadataForInput(comment: PlanCommentInput) {
+  const anchor = parsePlanCommentAnchor(comment.anchor);
+  const mentions = commentMentionsForInput(comment, anchor);
+  const resolutionTarget = normalizePlanCommentResolutionTarget(
+    comment.resolutionTarget ??
+      anchor?.resolutionTarget ??
+      (mentions.length > 0 ? "human" : undefined),
+  );
+  let anchorString = comment.anchor ?? null;
+  if (anchor) {
+    anchorString = JSON.stringify({
+      ...anchor,
+      resolutionTarget,
+      mentions,
+    });
+  }
+  return {
+    anchor: anchorString,
+    resolutionTarget,
+    mentions,
+    mentionsJson: mentionsJson(mentions),
+  };
+}
+
+export function commentResolutionFields(input: {
+  status: PlanCommentInput["status"];
+  createdBy: PlanCommentInput["createdBy"];
+  authorEmail?: string | null;
+  requestEmail?: string | null;
+  now: string;
+}) {
+  if (input.status !== "resolved") {
+    return { resolvedBy: null, resolvedAt: null };
+  }
+  return {
+    resolvedBy:
+      nonEmpty(input.requestEmail) ??
+      nonEmpty(input.authorEmail) ??
+      input.createdBy,
+    resolvedAt: input.now,
+  };
+}
+
+export function resolveCommentAuthor(input: {
+  createdBy: PlanAuthor;
+  authorEmail?: string | null;
+  authorName?: string | null;
+  requestEmail?: string | null;
+  requestName?: string | null;
+}): { authorEmail: string | null; authorName: string | null } {
+  const requestEmail = nonEmpty(input.requestEmail);
+  const requestName = nonEmpty(input.requestName);
+  return {
+    authorEmail:
+      input.createdBy === "human"
+        ? (requestEmail ?? nonEmpty(input.authorEmail))
+        : nonEmpty(input.authorEmail),
+    authorName:
+      input.createdBy === "human"
+        ? (requestName ?? nonEmpty(input.authorName))
+        : nonEmpty(input.authorName),
+  };
+}
+
+export function buildInitialPlanCommentRows(input: {
+  planId: string;
+  comments: PlanCommentInput[];
+  requestEmail?: string | null;
+  requestName?: string | null;
+  now: string;
+}): Array<typeof schema.planComments.$inferInsert> {
+  type NewCommentRow = typeof schema.planComments.$inferInsert;
+  const pendingComments = input.comments.map((comment) => {
+    const author = resolveCommentAuthor({
+      createdBy: comment.createdBy,
+      authorEmail: comment.authorEmail,
+      authorName: comment.authorName,
+      requestEmail: input.requestEmail,
+      requestName: input.requestName,
+    });
+    const metadata = commentMetadataForInput(comment);
+    const resolution = commentResolutionFields({
+      status: comment.status,
+      createdBy: comment.createdBy,
+      authorEmail: author.authorEmail,
+      requestEmail: input.requestEmail,
+      now: input.now,
+    });
+    const row: NewCommentRow = {
+      ...author,
+      id: comment.id ?? newId("cmt"),
+      planId: input.planId,
+      parentCommentId: null,
+      sectionId: comment.sectionId ?? null,
+      kind: comment.kind,
+      status: comment.status,
+      anchor: metadata.anchor,
+      message: comment.message,
+      createdBy: comment.createdBy,
+      resolutionTarget: metadata.resolutionTarget,
+      mentionsJson: metadata.mentionsJson,
+      resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
+      resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
+      consumedAt: null,
+      createdAt: input.now,
+      updatedAt: input.now,
+    };
+    return { input: comment, row };
+  });
+
+  const commentsById = new Map<string, NewCommentRow>();
+  for (const pending of pendingComments) {
+    if (commentsById.has(pending.row.id)) {
+      throw new Error(`Duplicate comment id ${pending.row.id}.`);
+    }
+    commentsById.set(pending.row.id, pending.row);
+  }
+
+  for (const pending of pendingComments) {
+    if (!pending.input.parentCommentId) continue;
+    const parent = commentsById.get(pending.input.parentCommentId);
+    if (!parent) {
+      throw new Error(
+        `Parent comment ${pending.input.parentCommentId} was not found in initial comments.`,
+      );
+    }
+    pending.row.parentCommentId = parent.id;
+    pending.row.sectionId = pending.input.sectionId ?? parent.sectionId;
+    pending.row.kind = parent.kind;
+    pending.row.anchor = pending.input.anchor ?? parent.anchor;
+    if (
+      !pending.input.resolutionTarget &&
+      commentMentionsForInput(pending.input).length === 0
+    ) {
+      pending.row.resolutionTarget =
+        parent.resolutionTarget ??
+        normalizePlanCommentResolutionTarget(
+          parsePlanCommentAnchor(parent.anchor)?.resolutionTarget,
+        );
+    }
+  }
+
+  const rows: NewCommentRow[] = [];
+  const insertedCommentIds = new Set<string>();
+  const uninserted = new Map(
+    pendingComments.map((pending) => [pending.row.id, pending]),
+  );
+  while (uninserted.size > 0) {
+    let insertedThisPass = false;
+    for (const [commentId, pending] of Array.from(uninserted.entries())) {
+      if (
+        pending.row.parentCommentId &&
+        !insertedCommentIds.has(pending.row.parentCommentId)
+      ) {
+        continue;
+      }
+      rows.push(pending.row);
+      insertedCommentIds.add(commentId);
+      uninserted.delete(commentId);
+      insertedThisPass = true;
+    }
+    if (!insertedThisPass) {
+      throw new Error("Initial comment threads contain a parent cycle.");
+    }
+  }
+  return rows;
+}
+
+export function buildUpdatedPlanCommentRows(input: {
+  planId: string;
+  comments: PlanCommentInput[];
+  existingComments: Array<
+    Pick<
+      PlanComment,
+      "id" | "sectionId" | "kind" | "anchor" | "resolutionTarget"
+    >
+  >;
+  requestEmail?: string | null;
+  requestName?: string | null;
+  now: string;
+}): Array<typeof schema.planComments.$inferInsert> {
+  type NewCommentRow = typeof schema.planComments.$inferInsert;
+  type ParentContext = Pick<
+    NewCommentRow,
+    "id" | "sectionId" | "kind" | "anchor" | "resolutionTarget"
+  >;
+  const existingParents = new Map<string, ParentContext>(
+    input.existingComments.map((comment) => [comment.id, comment]),
+  );
+  const pendingComments = input.comments.map((comment) => {
+    const author = resolveCommentAuthor({
+      createdBy: comment.createdBy,
+      authorEmail: comment.authorEmail,
+      authorName: comment.authorName,
+      requestEmail: input.requestEmail,
+      requestName: input.requestName,
+    });
+    const metadata = commentMetadataForInput(comment);
+    const resolution = commentResolutionFields({
+      status: comment.status,
+      createdBy: comment.createdBy,
+      authorEmail: author.authorEmail,
+      requestEmail: input.requestEmail,
+      now: input.now,
+    });
+    const row: NewCommentRow = {
+      ...author,
+      id: comment.id ?? newId("cmt"),
+      planId: input.planId,
+      parentCommentId: null,
+      sectionId: comment.sectionId ?? null,
+      kind: comment.kind,
+      status: comment.status,
+      anchor: metadata.anchor,
+      message: comment.message,
+      createdBy: comment.createdBy,
+      resolutionTarget: metadata.resolutionTarget,
+      mentionsJson: metadata.mentionsJson,
+      resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
+      resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
+      consumedAt: null,
+      createdAt: input.now,
+      updatedAt: input.now,
+    };
+    return { input: comment, row };
+  });
+
+  const pendingById = new Map<
+    string,
+    { input: PlanCommentInput; row: NewCommentRow }
+  >();
+  for (const pending of pendingComments) {
+    if (pendingById.has(pending.row.id)) {
+      throw new Error(`Duplicate comment id ${pending.row.id}.`);
+    }
+    pendingById.set(pending.row.id, pending);
+  }
+
+  for (const pending of pendingComments) {
+    const parentId = pending.input.parentCommentId;
+    if (!parentId) continue;
+    const parent =
+      pendingById.get(parentId)?.row ?? existingParents.get(parentId);
+    if (!parent) {
+      throw new Error(
+        `Parent comment ${parentId} was not found on plan ${input.planId}.`,
+      );
+    }
+    pending.row.parentCommentId = parent.id;
+    pending.row.sectionId = pending.input.sectionId ?? parent.sectionId;
+    pending.row.kind = parent.kind;
+    pending.row.anchor = pending.input.anchor ?? parent.anchor;
+    if (
+      !pending.input.resolutionTarget &&
+      commentMentionsForInput(pending.input).length === 0
+    ) {
+      pending.row.resolutionTarget =
+        parent.resolutionTarget ??
+        normalizePlanCommentResolutionTarget(
+          parsePlanCommentAnchor(parent.anchor)?.resolutionTarget,
+        );
+    }
+  }
+
+  const rows: NewCommentRow[] = [];
+  const availableParentIds = new Set(existingParents.keys());
+  const uninserted = new Map(
+    pendingComments.map((pending) => [pending.row.id, pending]),
+  );
+  while (uninserted.size > 0) {
+    let insertedThisPass = false;
+    for (const [commentId, pending] of Array.from(uninserted.entries())) {
+      if (
+        pending.row.parentCommentId &&
+        pendingById.has(pending.row.parentCommentId) &&
+        !availableParentIds.has(pending.row.parentCommentId)
+      ) {
+        continue;
+      }
+      rows.push(pending.row);
+      availableParentIds.add(commentId);
+      uninserted.delete(commentId);
+      insertedThisPass = true;
+    }
+    if (!insertedThisPass) {
+      throw new Error("Updated comment threads contain a parent cycle.");
+    }
+  }
+  return rows;
+}
+
+export async function insertInitialPlanComments(input: {
+  planId: string;
+  comments: PlanCommentInput[];
+  requestEmail?: string | null;
+  requestName?: string | null;
+  now: string;
+}) {
+  const rows = buildInitialPlanCommentRows(input);
+  const db = getDb();
+  for (const row of rows) {
+    await db.insert(schema.planComments).values(row);
+  }
 }
 
 export function planPath(id: string): string {
@@ -110,15 +481,33 @@ export function toSection(
 export function toComment(
   row: typeof schema.planComments.$inferSelect,
 ): PlanComment {
+  const anchor = parsePlanCommentAnchor(row.anchor);
+  const mentions = normalizeCommentMentions([
+    ...parseMentionsJson(row.mentionsJson),
+    ...(anchor?.mentions ?? []),
+    ...extractCommentMentions(row.message),
+  ]);
   return {
     id: row.id,
     planId: row.planId,
+    parentCommentId: row.parentCommentId,
     sectionId: row.sectionId,
     kind: row.kind,
     status: row.status,
     anchor: row.anchor,
     message: row.message,
     createdBy: row.createdBy,
+    authorEmail: row.authorEmail,
+    authorName: row.authorName,
+    resolutionTarget: normalizePlanCommentResolutionTarget(
+      row.resolutionTarget ??
+        anchor?.resolutionTarget ??
+        (mentions.length > 0 ? "human" : undefined),
+    ),
+    mentions,
+    mentionsJson: row.mentionsJson,
+    resolvedBy: row.resolvedBy,
+    resolvedAt: row.resolvedAt,
     consumedAt: row.consumedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -158,12 +547,25 @@ export async function writeEvent(input: {
 }
 
 export async function assertPlanEditor(planId: string) {
-  return assertAccess("plan", planId, "editor");
+  return assertAccess(
+    "plan",
+    planId,
+    "editor",
+    resolvePlanAccessContext(currentAccess()),
+  );
 }
 
 export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
-  const access = await resolveAccess("plan", planId);
-  if (!access) throw new Error(`Plan ${planId} not found`);
+  const access = await resolveAccess(
+    "plan",
+    planId,
+    resolvePlanAccessContext(currentAccess()),
+  );
+  // `!access` means not-found OR no-permission (the resolver conflates them to
+  // avoid leaking existence). Throw ForbiddenError (statusCode 403) so the action
+  // surface returns a clean 4xx instead of a 500 stack — a missing/private plan
+  // must never surface as an Internal Server Error.
+  if (!access) throw new ForbiddenError(`Plan ${planId} not found`);
   const plan = access.resource as typeof schema.plans.$inferSelect;
   const db = getDb();
   const [sectionRows, commentRows, eventRows] = await Promise.all([
@@ -199,12 +601,20 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       source: plan.source,
       repoPath: plan.repoPath,
       currentFocus: plan.currentFocus,
+      hostedPlanId: plan.hostedPlanId,
+      hostedPlanUrl: plan.hostedPlanUrl,
       html: plan.html,
       markdown: plan.markdown,
       content: parsePlanContent(plan.content),
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,
+    },
+    access: {
+      role: access.role,
+      ownerEmail: plan.ownerEmail ?? null,
+      orgId: plan.orgId ?? null,
+      visibility: plan.visibility ?? "private",
     },
     sections,
     comments,
@@ -260,6 +670,8 @@ export async function summarizePlans(
       source: plan.source,
       repoPath: plan.repoPath,
       currentFocus: plan.currentFocus,
+      hostedPlanId: plan.hostedPlanId,
+      hostedPlanUrl: plan.hostedPlanUrl,
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,

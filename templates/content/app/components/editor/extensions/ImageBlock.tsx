@@ -48,6 +48,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { imageUploadErrorMessage, uploadImageFile } from "../image-upload";
 import type { ContentImageOptions } from "./ImageNode";
 
@@ -101,6 +102,83 @@ function pickedAssetImageAlt(payload: unknown) {
   if (!payload || typeof payload !== "object") return null;
   const image = payload as PickedAssetImagePayload;
   return pickedAssetString(image.altText) ?? pickedAssetString(image.title);
+}
+
+interface AssetsPickerDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  url: string;
+  onReady: (payload: unknown, event: MessageEvent, ref: EmbeddedAppRef) => void;
+  onMessage: (name: string, payload: unknown) => void;
+}
+
+function AssetsPickerDialog({
+  open,
+  onOpenChange,
+  url,
+  onReady,
+  onMessage,
+}: AssetsPickerDialogProps) {
+  const [pickerReady, setPickerReady] = useState(false);
+
+  useEffect(() => {
+    if (open) setPickerReady(false);
+  }, [open, url]);
+
+  function handleReady(
+    payload: unknown,
+    event: MessageEvent,
+    ref: EmbeddedAppRef,
+  ) {
+    setPickerReady(true);
+    onReady(payload, event, ref);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0">
+        <div className="flex h-12 shrink-0 items-center border-b px-4">
+          <DialogTitle className="text-base">Assets</DialogTitle>
+        </div>
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+          {!pickerReady && <AssetsPickerSkeleton />}
+          <EmbeddedApp
+            url={url}
+            title="Assets image picker"
+            className={`absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150 ${
+              pickerReady ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+            onReady={handleReady}
+            onMessage={onMessage}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AssetsPickerSkeleton() {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col gap-5 p-5"
+      role="status"
+      aria-label="Loading Assets picker"
+    >
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-9 flex-1 rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div key={index} className="flex min-w-0 flex-col gap-2">
+            <Skeleton className="aspect-square w-full rounded-lg" />
+            <Skeleton className="h-3 w-3/4 rounded" />
+            <Skeleton className="h-3 w-1/2 rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function normalizedImageWidth(value: unknown): number | null {
@@ -720,20 +798,13 @@ export function ImageBlock({
 
   function renderAssetsPickerDialog() {
     return (
-      <Dialog open={assetsPickerOpen} onOpenChange={setAssetsPickerOpen}>
-        <DialogContent className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0">
-          <div className="flex h-12 shrink-0 items-center border-b px-4">
-            <DialogTitle className="text-base">Assets</DialogTitle>
-          </div>
-          <EmbeddedApp
-            url={assetsPickerUrl()}
-            title="Assets image picker"
-            className="min-h-0 flex-1 border-0 bg-background"
-            onReady={handleAssetsPickerReady}
-            onMessage={handleAssetsPickerMessage}
-          />
-        </DialogContent>
-      </Dialog>
+      <AssetsPickerDialog
+        open={assetsPickerOpen}
+        onOpenChange={setAssetsPickerOpen}
+        url={assetsPickerUrl()}
+        onReady={handleAssetsPickerReady}
+        onMessage={handleAssetsPickerMessage}
+      />
     );
   }
 

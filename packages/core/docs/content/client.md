@@ -7,6 +7,8 @@ description: "React hooks and utilities for agent-native apps: sendToAgentChat, 
 
 `@agent-native/core` provides React hooks and utilities for the browser-side of agent-native apps.
 
+These client/React APIs are exported from both `@agent-native/core` and `@agent-native/core/client`. Import them from `@agent-native/core/client` (the browser entry) for clarity and correct bundling, since the bare `@agent-native/core` root resolves to the Node build by default.
+
 ## File-Based Routing {#file-based-routing}
 
 Agent-native apps use **React Router v7** with file-based routing. Every file in `app/routes/` becomes a URL.
@@ -87,7 +89,7 @@ Internally this is the submitted-chat path sometimes surfaced as
 posting that event directly.
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core/client";
 
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
@@ -106,14 +108,17 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option                | Type        | Description                                    |
-| --------------------- | ----------- | ---------------------------------------------- |
-| `message`             | `string`    | The visible prompt sent to the chat            |
-| `context`             | `string?`   | Hidden context appended (not shown in chat UI) |
-| `submit`              | `boolean?`  | true = auto-submit, false = prefill only       |
-| `projectSlug`         | `string?`   | Optional project slug for structured context   |
-| `preset`              | `string?`   | Optional preset name for downstream consumers  |
-| `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
+| Option                | Type        | Description                                                                |
+| --------------------- | ----------- | -------------------------------------------------------------------------- |
+| `message`             | `string`    | The visible prompt sent to the chat                                        |
+| `context`             | `string?`   | Hidden context appended (not shown in chat UI)                             |
+| `submit`              | `boolean?`  | true = auto-submit, false = prefill only                                   |
+| `newTab`              | `boolean?`  | Create a separate chat thread for this prompt                              |
+| `background`          | `boolean?`  | With `newTab`, run without focusing the tab and show the run in `RunsTray` |
+| `openSidebar`         | `boolean?`  | Set false to submit/prefill without opening the sidebar                    |
+| `projectSlug`         | `string?`   | Optional project slug for structured context                               |
+| `preset`              | `string?`   | Optional preset name for downstream consumers                              |
+| `referenceImagePaths` | `string[]?` | Optional reference image paths                                             |
 
 ## Agent Chat Context State (Advanced) {#agent-chat-context-state}
 
@@ -138,7 +143,7 @@ and `submit` for those.
 `useAgentChatContext()` returns `{ items, set, remove, clear, refresh }`.
 
 ```tsx
-import { useAgentChatContext } from "@agent-native/core";
+import { useAgentChatContext } from "@agent-native/core/client";
 
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
@@ -180,6 +185,52 @@ current staged items once. `clearAgentChatContext()` is intentionally broad; use
 | `title`       | `string`   | Short label shown in the composer chip                 |
 | `context`     | `string`   | Hidden context included with the next submitted prompt |
 | `openSidebar` | `boolean?` | Defaults to true; pass false to stage context silently |
+
+## askUserQuestion(opts) {#ask-user-question}
+
+Ask the user a multiple-choice question from app code, render it inline in the
+agent panel, and **await their answer**. It's the client-side twin of the
+agent's built-in `ask-question` tool: it writes a `GuidedQuestionPayload` to the
+`"guided-questions"` application-state key (where the mounted
+`GuidedQuestionFlow` renders it) and reveals the agent panel so the question is
+visible. Unlike the agent tool — whose answer flows back to the agent —
+`askUserQuestion()` **resolves with the answer to the caller**, so the UI can
+branch on it.
+
+Use it when the UI needs exactly one small decision (2–4 options) before it
+kicks off agent work — instead of building a custom modal. Reach for the
+composer for freeform detail, and a form/popover for multi-field input.
+
+```tsx
+import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
+
+const length = await askUserQuestion({
+  question: "How long should this deck be?",
+  header: "Deck length", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Short (3–5 slides)", value: "short" },
+    { label: "Medium (6–10 slides)", value: "medium", recommended: true },
+    { label: "Long (11+ slides)", value: "long" },
+  ],
+  allowFreeText: false, // omit the "Other" free-text option (default adds it)
+  allowMultiple: false, // single-select (default)
+});
+
+if (length) {
+  sendToAgentChat({ message: `Generate a ${length} deck.`, submit: true });
+}
+```
+
+Each option is `{ label, value?, description?, preview?, recommended? }`; `value`
+defaults to `label`, and `preview` renders a small mockup/code snippet under the
+option. The promise resolves with the selected `value` (or `value[]` when
+`allowMultiple`), the free-text string when the user picks "Other", or `null`
+if they skip — it stays pending until the user answers. Requires the agent panel
+to be mounted (it is in every template).
+
+The agent reaches the same UI through its `ask-question` tool: prefer letting the
+agent ask when _it_ hits a genuine fork it can't resolve from context; use
+`askUserQuestion()` when the _UI_ needs to gate an action on a choice.
 
 ## MCP App Host Bridge {#mcp-app-host-bridge}
 
@@ -230,7 +281,7 @@ Set `dynamicSuggestions={false}` to keep only static chips. Pass `getSuggestions
 React hook that wraps sendToAgentChat with loading state tracking:
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core";
+import { useAgentChatGenerating } from "@agent-native/core/client";
 
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
@@ -257,7 +308,7 @@ function GenerateButton() {
 React hook (formerly `useFileWatcher`) that listens for database changes over SSE, falls back to polling, and invalidates the framework query caches that keep the UI aligned with agent writes:
 
 ```ts
-import { useDbSync } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -325,7 +376,7 @@ function DashboardView({ id }) {
 Utility for merging class names (clsx + tailwind-merge):
 
 ```ts
-import { cn } from "@agent-native/core";
+import { cn } from "@agent-native/core/client";
 
 <div className={cn(
   "px-4 py-2 rounded",

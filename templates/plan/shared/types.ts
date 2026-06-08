@@ -1,4 +1,15 @@
 import type { PlanContent } from "./plan-content.js";
+import {
+  PLAN_COMMENT_RESOLUTION_TARGETS,
+  type PlanCommentMention,
+  type PlanCommentResolutionTarget,
+} from "./comment-context.js";
+
+export {
+  PLAN_COMMENT_RESOLUTION_TARGETS,
+  type PlanCommentMention,
+  type PlanCommentResolutionTarget,
+};
 
 export const PLAN_STATUSES = [
   "draft",
@@ -60,6 +71,8 @@ export interface PlanSummary {
   source: PlanSource;
   repoPath?: string | null;
   currentFocus?: string | null;
+  hostedPlanId?: string | null;
+  hostedPlanUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
@@ -76,6 +89,8 @@ export interface Plan {
   source: PlanSource;
   repoPath?: string | null;
   currentFocus?: string | null;
+  hostedPlanId?: string | null;
+  hostedPlanUrl?: string | null;
   html?: string | null;
   markdown?: string | null;
   content?: PlanContent | null;
@@ -100,12 +115,20 @@ export interface PlanSection {
 export interface PlanComment {
   id: string;
   planId: string;
+  parentCommentId?: string | null;
   sectionId?: string | null;
   kind: PlanCommentKind;
   status: PlanCommentStatus;
   anchor?: string | null;
   message: string;
   createdBy: PlanAuthor;
+  authorEmail?: string | null;
+  authorName?: string | null;
+  resolutionTarget?: PlanCommentResolutionTarget;
+  mentions?: PlanCommentMention[];
+  mentionsJson?: string | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
   consumedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -123,6 +146,12 @@ export interface PlanEvent {
 
 export interface PlanBundle {
   plan: Plan;
+  access?: {
+    role: "owner" | "viewer" | "editor" | "admin";
+    ownerEmail?: string | null;
+    orgId?: string | null;
+    visibility?: "private" | "org" | "public" | null;
+  };
   sections: PlanSection[];
   comments: PlanComment[];
   events: PlanEvent[];
@@ -131,4 +160,51 @@ export interface PlanBundle {
     commentCount: number;
     openCommentCount: number;
   };
+}
+
+export interface PlanVersionSnapshot {
+  plan: Pick<
+    Plan,
+    | "title"
+    | "brief"
+    | "status"
+    | "source"
+    | "repoPath"
+    | "currentFocus"
+    | "html"
+    | "markdown"
+    | "content"
+    | "approvedAt"
+  >;
+  sections: PlanSection[];
+}
+
+export interface PlanVersionSummary {
+  id: string;
+  planId: string;
+  title: string;
+  label?: string | null;
+  createdBy: PlanAuthor;
+  createdAt: string;
+  status: PlanStatus;
+  source: PlanSource;
+  blockCount: number;
+  sectionCount: number;
+  hasCanvas: boolean;
+  hasPrototype: boolean;
+  preview: string;
+}
+
+export interface PlanVersionDetail extends PlanVersionSummary {
+  snapshot: PlanVersionSnapshot;
+  plan: Plan;
+  sections: PlanSection[];
+  html: string;
+  markdown?: string | null;
+}
+
+export interface PlanVersionListResponse {
+  planId: string;
+  count: number;
+  versions: PlanVersionSummary[];
 }

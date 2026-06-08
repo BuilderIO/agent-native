@@ -107,6 +107,68 @@ export default runMigrations(
         sqlite: `ALTER TABLE plans ADD COLUMN content TEXT`,
       },
     },
+    {
+      version: 10,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_id TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN hosted_plan_id TEXT`,
+      },
+    },
+    {
+      version: 11,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_url TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN hosted_plan_url TEXT`,
+      },
+    },
+    {
+      version: 12,
+      sql: `CREATE TABLE IF NOT EXISTS plan_guest_mints (
+  id TEXT PRIMARY KEY,
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)`,
+    },
+    {
+      version: 13,
+      sql: `CREATE INDEX IF NOT EXISTS plan_guest_mints_ip_created_idx ON plan_guest_mints(ip_hash, created_at)`,
+    },
+    {
+      version: 14,
+      sql: `CREATE INDEX IF NOT EXISTS plans_owner_created_idx ON plans(owner_email, created_at)`,
+    },
+    {
+      version: 15,
+      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_email TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_name TEXT`,
+    },
+    {
+      version: 16,
+      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT REFERENCES plan_comments(id);
+CREATE INDEX IF NOT EXISTS plan_comments_parent_idx ON plan_comments(parent_comment_id)`,
+    },
+    {
+      version: 17,
+      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolution_target TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_by TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_at TEXT;
+CREATE INDEX IF NOT EXISTS plan_comments_resolution_idx ON plan_comments(plan_id, resolution_target, status, consumed_at)`,
+    },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS plan_versions (
+  id TEXT PRIMARY KEY,
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  plan_id TEXT NOT NULL REFERENCES plans(id),
+  title TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  change_label TEXT,
+  created_by TEXT NOT NULL DEFAULT 'agent',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS plan_versions_plan_owner_created_idx ON plan_versions(plan_id, owner_email, created_at)`,
+    },
   ],
   { table: "plans_migrations" },
 );

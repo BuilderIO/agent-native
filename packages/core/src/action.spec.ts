@@ -82,6 +82,25 @@ describe("defineAction", () => {
     expect(action.parallelSafe).toBe(true);
   });
 
+  it("threads through agentTool:false (frontend/HTTP-only, hidden from the agent)", () => {
+    const action = defineAction({
+      description: "sync UI selection",
+      parameters: { id: { type: "string" } },
+      agentTool: false,
+      run: async () => "ok",
+    });
+    expect(action.agentTool).toBe(false);
+  });
+
+  it("leaves agentTool undefined when not specified (default-exposed)", () => {
+    const action = defineAction({
+      description: "normal action",
+      parameters: { id: { type: "string" } },
+      run: async () => "ok",
+    });
+    expect(action.agentTool).toBeUndefined();
+  });
+
   it("preserves valid MCP Apps resource metadata", () => {
     const action = defineAction({
       description: "review draft",

@@ -2,6 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -12,8 +13,16 @@ import {
   type VisualQuestionBuilderInput,
 } from "../server/plan-content.js";
 import {
+  isLocalPlanRuntime,
+  resolvePlanOrgIdForWrite,
+  requirePlanOwnerEmailForWrite,
+} from "../server/lib/local-identity.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
   buildPlanHtml,
   commentInputSchema,
+  insertInitialPlanComments,
   loadPlanBundle,
   newId,
   nowIso,
@@ -72,7 +81,7 @@ const visualQuestionsSchema = z
 
 export default defineAction({
   description:
-    "Create a visual intake questionnaire as an Agent-Native Plan. Use this as the /visual-plan preflight or /visual-questions manual override when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before the final plan.",
+    "Create a visual intake questionnaire as an Agent-Native Plan. Use this for explicit /visual-questions workflows when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before a later plan.",
   schema: z
     .object({
       title: z.string().optional().describe("Short questionnaire title"),
@@ -133,7 +142,7 @@ export default defineAction({
     isConsequential: true,
     title: "Create Visual Questions",
     description:
-      "Create a rich visual intake form that feeds answers into a UI or visual plan prompt.",
+      "Create a rich visual intake form for explicit /visual-questions workflows.",
   },
   mcpApp: {
     compactCatalog: true,
@@ -147,12 +156,17 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) {
-      throw new Error(
-        "Creating visual questions requires an authenticated user.",
-      );
-    }
+    const requesterEmail = getRequestUserEmail();
+    const requesterName = getRequestUserName();
+    const ownerEmail = requirePlanOwnerEmailForWrite(
+      requesterEmail,
+      "Creating visual questions",
+    );
+    const ownerOrgId = resolvePlanOrgIdForWrite(
+      requesterEmail,
+      getRequestOrgId(),
+    );
+    await assertGuestCreateWithinLimits(ownerEmail);
 
     const id = newId("plan");
     const now = nowIso();
@@ -212,7 +226,7 @@ export default defineAction({
         updatedAt: now,
         approvedAt: args.status === "approved" ? now : null,
         ownerEmail,
-        orgId: getRequestOrgId(),
+        orgId: ownerOrgId,
         visibility: "private",
       });
 
@@ -233,25 +247,13 @@ export default defineAction({
         })),
       );
 
-    if (args.comments.length > 0) {
-      await getDb()
-        .insert(schema.planComments)
-        .values(
-          args.comments.map((comment) => ({
-            id: comment.id ?? newId("cmt"),
-            planId: id,
-            sectionId: comment.sectionId ?? null,
-            kind: comment.kind,
-            status: comment.status,
-            anchor: comment.anchor ?? null,
-            message: comment.message,
-            createdBy: comment.createdBy,
-            consumedAt: null,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-    }
+    await insertInitialPlanComments({
+      planId: id,
+      comments: args.comments,
+      requestEmail: requesterEmail,
+      requestName: requesterName,
+      now,
+    });
 
     await writeEvent({
       planId: id,
@@ -264,12 +266,22 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    const local = isLocalPlanRuntime()
+      ? await writePlanLocalFiles({
+          planId: id,
+          title: bundle.plan.title,
+          brief: bundle.plan.brief,
+          content: bundle.plan.content,
+          url: planPath(id),
+        })
+      : null;
     return {
       ...bundle,
       planId: id,
       html: buildPlanHtml(bundle),
       path: planPath(id),
       url: planPath(id),
+      ...(local?.written ? { localFiles: local } : {}),
       fallbackInstructions:
         "Open the visual questions plan, answer the chips, freeform fields, mockup choices, and diagram options, then use Copy prompt or Send to agent to feed the summary into a UI/visual plan. The live link is private until shared.",
     };

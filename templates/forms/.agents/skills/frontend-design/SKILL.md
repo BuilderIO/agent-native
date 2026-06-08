@@ -8,6 +8,8 @@ description: >-
   creative, polished UI that avoids generic AI aesthetics.
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
+metadata:
+  internal: true
 ---
 
 # Frontend Design
@@ -27,6 +29,19 @@ Before coding, decide:
 - **Differentiation**: What makes this feel designed for this exact domain?
 
 Then implement working code that is cohesive, accessible, responsive, and polished in small details: typography, spacing, copy, motion, empty states, loading states, focus states, and error states.
+
+## Minimalism And Progressive Disclosure
+
+Default to Apple/Linear-level restraint: make the primary workflow obvious, then remove everything that does not help that workflow right now. A polished UI often has fewer visible controls, fewer borders, fewer labels, and fewer explanatory surfaces than the first reasonable implementation.
+
+- **Start by subtracting**: Before adding a visible control, banner, toolbar row, card, or explanatory block, ask what can be removed, merged, renamed, or moved into an existing affordance.
+- **One primary action**: Each surface should have one dominant next action. Secondary actions belong in menus, popovers, command palettes, disclosure rows, or contextual hover/focus states unless they are used constantly.
+- **Progressively disclose rare work**: Advanced options, diagnostics, metadata, settings, import/export, destructive actions, and inspection tools should stay tucked away until requested. Prefer small icon triggers with tooltips, popovers, drawers, or detail panels over permanent chrome.
+- **Keep chrome quiet**: Avoid new always-visible bars, badges, callouts, helper text, and counters unless they prevent mistakes or are central to repeated use. Status can often be a dot, ring, muted count, or tooltip.
+- **Favor content over containers**: Do not wrap every section in a card. Use whitespace, alignment, typography, dividers, and full-width bands before adding boxes.
+- **Design for repeated use**: Production app UI should feel calm after the hundredth use. If a control shouts, animates, explains itself, or occupies a full row for an occasional action, hide or compress it.
+- **Make absence intentional**: Empty states should be sparse and action-oriented. Do not fill blank space with marketing copy, decorative art, or lists of features just because the screen feels empty.
+- **Use familiar primitives**: Icon buttons need clear tooltips. Menus, popovers, tabs, switches, and segmented controls should carry complexity instead of exposing every option at once.
 
 ## Aesthetic Guidelines
 
@@ -72,6 +87,8 @@ Avoid:
 - Custom reimplementations of shadcn primitives.
 - Raw color overrides on shared components when semantic tokens or variants would work.
 - New always-visible controls for rare actions. Prefer menus, popovers, sheets, tabs, collapsibles, or advanced sections.
+- Full-width banners, persistent helper rows, decorative cards, or explanatory chrome for status that could be a compact affordance.
+- Treating progressive disclosure as optional. If a control is not part of the main daily workflow, hide it until context, hover, focus, or explicit user intent makes it relevant.
 - UI cards nested inside other cards.
 - Text or icons that resize or shift fixed-format UI on hover/loading.
 

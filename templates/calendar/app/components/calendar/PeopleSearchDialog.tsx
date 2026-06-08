@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { agentNativePath } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client";
 import {
   IconSearch,
   IconX,
@@ -63,15 +63,13 @@ export function PeopleSearchDialog({
   const search = useCallback(async (q: string) => {
     setSearching(true);
     try {
-      const params = new URLSearchParams({ scope: "directory" });
-      if (q) params.set("q", q);
-      const url = `/_agent-native/actions/search-people?${params}`;
-      const res = await fetch(agentNativePath(url));
-      if (res.ok) {
-        const data: SearchResponse = await res.json();
-        setResults(data.results ?? []);
-        setScopeRequired(data.scopeRequired ?? false);
-      }
+      const data = await callAction<SearchResponse>(
+        "search-people",
+        q ? { q, scope: "directory" } : { scope: "directory" },
+        { method: "GET" },
+      );
+      setResults(data.results ?? []);
+      setScopeRequired(data.scopeRequired ?? false);
     } catch {
       // ignore
     } finally {

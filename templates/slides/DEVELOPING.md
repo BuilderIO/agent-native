@@ -41,7 +41,7 @@ app/                           # React SPA frontend
 └── root.tsx               # HTML shell + global providers
 
 server/                        # Nitro API server
-├── routes/                    # File-based API routes (auto-discovered by Nitro)
+├── routes/                    # File-based route-only endpoints (auto-discovered by Nitro)
 ├── handlers/                  # Route handler modules
 │   ├── decks.ts               # GET/PUT/POST/DELETE /api/decks (file-based CRUD)
 │   ├── image-gen.ts           # POST /api/image-gen/generate (Gemini)
@@ -55,7 +55,7 @@ data/                          # Local development database fallback
 shared/                        # Shared between client + server + scripts
 └── api.ts                     # Types, interfaces, DEFAULT_STYLE_REFERENCE_URLS
 
-actions/                       # Runnable via `pnpm action <name>`
+actions/                       # Shared app operations (defineAction; UI uses action hooks)
 ├── run.ts                     # Script dispatcher
 ├── generate-image.ts          # Image generation with style references
 ├── image-gen-status.ts        # Check API key status
@@ -67,25 +67,15 @@ actions/                       # Runnable via `pnpm action <name>`
 
 This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
 
-### Adding an API Route
+### Adding App Data
 
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
 
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
+### Adding a Route-Only Endpoint
 
-Each file exports a default `defineEventHandler`:
+Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.
 
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
+Each route-only endpoint still exports a default `defineEventHandler`, but keep shared app logic in actions or server libraries so agent and UI behavior do not fork.
 
 ### Server Plugins
 
@@ -115,6 +105,8 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
 
+Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
+
 **Environment variables:**
 
 | Variable              | Required                        | Description                                                                |
@@ -129,7 +121,7 @@ pnpm dev          # Start dev server (client + server on port 8080)
 pnpm build        # Production build
 pnpm typecheck    # TypeScript validation
 pnpm test         # Run Vitest tests
-pnpm action <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run an action
 ```
 
 ## TypeScript Everywhere

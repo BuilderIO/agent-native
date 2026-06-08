@@ -1,22 +1,40 @@
-import { useEffect, useState, type ReactNode } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useState } from "react";
 import {
   IconCheck,
+  IconChevronDown,
+  IconClipboardText,
   IconCode,
   IconEdit,
   IconPhoto,
+  IconSend,
   IconX,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import type { RichMarkdownCollabUser } from "@agent-native/core/client";
+import {
+  BlockView,
+  blockEditSurface,
+  useOptionalBlockRegistry,
+} from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import type { PlanBlock, PlanVisualQuestion } from "@shared/plan-content";
+import type { PlanBlock, PlanQuestion } from "@shared/plan-content";
 import {
   KitWireframeBlock,
   SketchDiagram,
   Wireframe,
 } from "./wireframe/Wireframe";
+import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
+import { PlanMarkdownReader } from "./PlanMarkdownReader";
 
 /**
  * Renders the document flow: dispatches a single plan block to its block
@@ -26,29 +44,104 @@ import {
 export function PlanBlockView({
   block,
   onChange,
+  onRichTextChange,
   onVisualQuestionsSubmit,
   compactVisuals,
+  contentUpdatedAt,
+  editingDisabled = false,
+  planId,
+  collabUser,
 }: {
   block: PlanBlock;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
+  onRichTextChange?: (
+    blockId: string,
+    markdown: string,
+  ) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
   compactVisuals?: boolean;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
+  planId?: string | null;
+  collabUser?: RichMarkdownCollabUser | null;
 }) {
+  // Registry-first dispatch. If the block type is registered, render through the
+  // block registry (`BlockView` → spec `Read`, or in edit mode the spec `Edit`
+  // or the schema-driven auto-editor). Unregistered types fall through to the
+  // legacy branches below unchanged, so existing blocks keep working. The spec's
+  // `Read` owns its own block container; the editor path is wrapped in a titled
+  // `plan-block` section here so editing matches the document chrome.
+  const blockRegistry = useOptionalBlockRegistry();
+  const spec = blockRegistry?.registry.get(block.type);
+  if (blockRegistry && spec) {
+    const editable = block.editable !== false && !!onChange;
+    const editing = editable && !editingDisabled;
+    const view = (
+      <BlockView
+        spec={spec}
+        block={{
+          id: block.id,
+          title: block.title,
+          summary: block.summary,
+          data: (block as { data: unknown }).data,
+        }}
+        editing={editing}
+        editable={editable}
+        onChange={(nextData) =>
+          onChange?.({
+            ...block,
+            data: nextData,
+          } as PlanBlock)
+        }
+        ctx={blockRegistry.ctx}
+      />
+    );
+    // In INLINE / CONTAINER edit mode the auto-editor / custom Edit often renders
+    // bare fields — wrap them in the standard titled block section. In read mode
+    // (and in PANEL edit mode, where `BlockView` renders the spec's own `Read`
+    // plus a corner edit button) the spec already provides its own section, so
+    // render it directly to avoid double-nesting.
+    const surface = blockEditSurface(spec);
+    const wrapInline =
+      editing && spec.placement.includes("block") && surface !== "panel";
+    return wrapInline ? (
+      <section className="plan-block" data-block-id={block.id}>
+        {block.title && <div className="plan-block-label">{block.title}</div>}
+        {view}
+        {block.summary && (
+          <p className="mt-5 text-plan-muted">{block.summary}</p>
+        )}
+      </section>
+    ) : (
+      view
+    );
+  }
+
   if (block.type === "rich-text") {
-    return <RichTextBlock block={block} onChange={onChange} />;
+    return (
+      <RichTextBlock
+        block={block}
+        onChange={onChange}
+        onRichTextChange={onRichTextChange}
+        contentUpdatedAt={contentUpdatedAt}
+        editingDisabled={editingDisabled}
+        planId={planId}
+        collabUser={collabUser}
+      />
+    );
   }
   if (block.type === "callout") {
     return (
       <section className="plan-block plan-callout" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
-        <p>{block.data.body}</p>
+        {block.title && <div className="plan-block-label">{block.title}</div>}
+        <PlanMarkdownReader markdown={block.data.body} />
       </section>
     );
   }
   if (block.type === "checklist") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <div className="grid gap-3">
           {block.data.items.map((item) => (
             <button
@@ -94,7 +187,7 @@ export function PlanBlockView({
   if (block.type === "table") {
     return (
       <section className="plan-block overflow-x-auto" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <table className="w-full min-w-[640px] border-collapse text-left">
           <thead>
             <tr className="border-b border-plan-line text-sm text-plan-muted">
@@ -129,7 +222,7 @@ export function PlanBlockView({
   if (block.type === "wireframe") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <KitWireframeBlock block={block} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
@@ -140,7 +233,7 @@ export function PlanBlockView({
   if (block.type === "legacy-wireframe") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <Wireframe data={block.data} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
@@ -151,7 +244,7 @@ export function PlanBlockView({
   if (block.type === "diagram") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <SketchDiagram data={block.data} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
@@ -165,7 +258,7 @@ export function PlanBlockView({
   if (block.type === "decision") {
     return (
       <section className="plan-block" data-block-id={block.id}>
-        {block.title && <h2>{block.title}</h2>}
+        {block.title && <div className="plan-block-label">{block.title}</div>}
         <p className="mt-3 max-w-3xl text-lg leading-8 text-plan-muted">
           {block.data.question}
         </p>
@@ -176,7 +269,7 @@ export function PlanBlockView({
               className={cn(
                 "rounded-xl border border-plan-line bg-plan-block p-4",
                 option.recommended
-                  ? "shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  ? "border-primary/30 bg-primary/5"
                   : "opacity-85",
               )}
             >
@@ -206,16 +299,30 @@ export function PlanBlockView({
       <TabsBlock
         block={block}
         onChange={onChange}
+        onRichTextChange={onRichTextChange}
         onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+        contentUpdatedAt={contentUpdatedAt}
+        editingDisabled={editingDisabled}
+        planId={planId}
+        collabUser={collabUser}
       />
     );
   }
   if (block.type === "custom-html") {
     return <CustomHtmlBlock block={block} onChange={onChange} />;
   }
+  if (block.type === "question-form") {
+    return (
+      <QuestionFormBlock
+        block={block}
+        onChange={onChange}
+        onSubmit={onVisualQuestionsSubmit}
+      />
+    );
+  }
   if (block.type === "visual-questions") {
     return (
-      <VisualQuestionsBlock
+      <QuestionFormBlock
         block={block}
         onChange={onChange}
         onSubmit={onVisualQuestionsSubmit}
@@ -228,159 +335,51 @@ export function PlanBlockView({
 function RichTextBlock({
   block,
   onChange,
+  onRichTextChange,
+  contentUpdatedAt,
+  editingDisabled,
+  planId,
+  collabUser,
 }: {
   block: Extract<PlanBlock, { type: "rich-text" }>;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
+  onRichTextChange?: (
+    blockId: string,
+    markdown: string,
+  ) => Promise<void> | void;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
+  planId?: string | null;
+  collabUser?: RichMarkdownCollabUser | null;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(block.data.markdown);
+  const canUseInlineEditor = block.editable !== false && !!onChange;
+  const editable = canUseInlineEditor && !editingDisabled;
   return (
     <section className="plan-block group" data-block-id={block.id}>
-      <div className="flex items-start justify-between gap-4">
-        {block.title && <h2>{block.title}</h2>}
-        {block.editable && onChange && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="opacity-70 transition-opacity group-hover:opacity-100"
-            data-plan-interactive
-            onClick={() => {
-              setDraft(block.data.markdown);
-              setEditing((value) => !value);
-            }}
-          >
-            {editing ? (
-              <IconX className="size-4" />
-            ) : (
-              <IconEdit className="size-4" />
-            )}
-            {editing ? "Cancel" : "Edit"}
-          </Button>
-        )}
-      </div>
-      {editing ? (
-        <div className="mt-4 space-y-3" data-plan-interactive>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDraft((value) => `## ${value}`)}
-            >
-              Heading
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDraft((value) => appendLine(value, "- "))}
-            >
-              Bullet
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDraft((value) => appendLine(value, "> "))}
-            >
-              Quote
-            </Button>
-          </div>
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            className="min-h-48 resize-y rounded-xl border-plan-line bg-plan-block font-mono text-sm"
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setEditing(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                onChange?.({
+      {canUseInlineEditor && !editingDisabled ? (
+        <PlanMarkdownEditor
+          markdown={block.data.markdown}
+          editable={editable}
+          contentUpdatedAt={contentUpdatedAt}
+          planId={planId}
+          blockId={block.id}
+          user={collabUser}
+          onSave={(markdown) =>
+            onRichTextChange
+              ? onRichTextChange(block.id, markdown)
+              : onChange?.({
                   ...block,
-                  data: { ...block.data, markdown: draft },
-                });
-                setEditing(false);
-              }}
-            >
-              Save
-            </Button>
-          </div>
-        </div>
+                  data: { ...block.data, markdown },
+                })
+          }
+        />
       ) : (
-        <div className="plan-prose mt-4">
-          <PlanMarkdown markdown={block.data.markdown} />
-        </div>
+        // Read-only path (public / shared-reviewer / review mode / SSR): render
+        // markdown without mounting Tiptap so comment clicks hit stable text.
+        <PlanMarkdownReader markdown={block.data.markdown} />
       )}
     </section>
   );
-}
-
-/**
- * Safe rich-text renderer. react-markdown does NOT render raw HTML by default
- * (no rehype-raw), so agent-authored markdown can never inject HTML/scripts.
- * Links are sanitized through react-markdown's defaultUrlTransform and forced
- * to open in a new tab. Fenced code blocks get the shared dark Shiki theme.
- */
-function PlanMarkdown({ markdown }: { markdown: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      urlTransform={defaultUrlTransform}
-      components={{
-        a({ children, href }) {
-          if (!href) return <span>{children}</span>;
-          return (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          );
-        },
-        pre({ children }) {
-          const codeProps = getCodeElementProps(children);
-          if (codeProps) {
-            const langMatch = (codeProps.className ?? "").match(
-              /\blanguage-([\w+-]+)\b/,
-            );
-            const code = extractCodeText(codeProps.children).replace(/\n$/, "");
-            return <CodeBlock code={code} language={langMatch?.[1]} />;
-          }
-          return <pre>{children}</pre>;
-        },
-      }}
-    >
-      {markdown}
-    </ReactMarkdown>
-  );
-}
-
-function getCodeElementProps(
-  node: ReactNode,
-): { className?: string; children?: ReactNode } | null {
-  if (typeof node === "object" && node !== null && "props" in node) {
-    return (
-      node as unknown as {
-        props: { className?: string; children?: ReactNode };
-      }
-    ).props;
-  }
-  return null;
-}
-
-function extractCodeText(node: ReactNode): string {
-  if (typeof node === "string") return node;
-  if (typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(extractCodeText).join("");
-  const props = getCodeElementProps(node);
-  if (props) return extractCodeText(props.children);
-  return "";
 }
 
 function CodeTabsBlock({
@@ -393,7 +392,7 @@ function CodeTabsBlock({
     block.data.tabs.find((tab) => tab.id === activeId) ?? block.data.tabs[0];
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       <div className="grid overflow-hidden border-y border-plan-line md:grid-cols-[300px_minmax(0,1fr)]">
         <div className="border-plan-line md:border-r">
           {block.data.tabs.map((tab) => (
@@ -404,7 +403,7 @@ function CodeTabsBlock({
               className={cn(
                 "flex w-full items-start gap-3 border-b border-plan-line px-4 py-4 text-left",
                 tab.id === active?.id
-                  ? "bg-plan-block text-plan-text shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  ? "bg-primary/10 text-plan-text dark:bg-primary/20"
                   : "text-plan-muted hover:bg-accent/30",
               )}
               onClick={() => setActiveId(tab.id)}
@@ -468,8 +467,8 @@ function ImplementationMapBlock({
     block.data.files[0];
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
-      <div className="grid overflow-hidden border-y border-plan-line lg:grid-cols-[360px_minmax(0,1fr)]">
+      {block.title && <div className="plan-block-label">{block.title}</div>}
+      <div className="grid overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className="border-plan-line lg:border-r">
           {block.data.files.map((file) => (
             <button
@@ -480,7 +479,7 @@ function ImplementationMapBlock({
               className={cn(
                 "grid w-full gap-1 border-b border-plan-line px-4 py-5 text-left",
                 file.path === active?.path
-                  ? "bg-plan-block text-plan-text shadow-[inset_3px_0_0_hsl(var(--ring))]"
+                  ? "bg-primary/10 text-plan-text dark:bg-primary/20"
                   : "text-plan-muted hover:bg-accent/30",
               )}
             >
@@ -519,11 +518,24 @@ function ImplementationMapBlock({
 function TabsBlock({
   block,
   onChange,
+  onRichTextChange,
   onVisualQuestionsSubmit,
+  contentUpdatedAt,
+  editingDisabled,
+  planId,
+  collabUser,
 }: {
   block: Extract<PlanBlock, { type: "tabs" }>;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
+  onRichTextChange?: (
+    blockId: string,
+    markdown: string,
+  ) => Promise<void> | void;
   onVisualQuestionsSubmit?: (summary: string) => void;
+  contentUpdatedAt?: string | null;
+  editingDisabled?: boolean;
+  planId?: string | null;
+  collabUser?: RichMarkdownCollabUser | null;
 }) {
   const [activeId, setActiveId] = useState(block.data.tabs[0]?.id ?? "");
   const active =
@@ -531,66 +543,92 @@ function TabsBlock({
   const compactTabVisuals = /interaction|component|note/i.test(
     block.title ?? "",
   );
+  const orientation =
+    block.data.orientation === "vertical" ? "vertical" : "horizontal";
+  const vertical = orientation === "vertical";
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       <div
-        className="mb-8 inline-flex max-w-full gap-1 overflow-x-auto"
-        role="tablist"
-        data-plan-interactive
+        className={cn(
+          vertical &&
+            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
+        )}
       >
-        {block.data.tabs.map((tab) => {
-          const selected = tab.id === active?.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => setActiveId(tab.id)}
-              className={cn(
-                "rounded-lg px-4 py-2 text-sm font-semibold transition-colors",
-                selected
-                  ? "bg-plan-block text-plan-text shadow-sm"
-                  : "text-plan-muted hover:bg-plan-block/60 hover:text-plan-text",
-              )}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-      {active && (
-        <div>
-          {active.blocks.map((child) => (
-            <PlanBlockView
-              key={child.id}
-              block={child}
-              onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-              compactVisuals={compactTabVisuals}
-              onChange={(nextChild) => {
-                onChange?.({
-                  ...block,
-                  data: {
-                    tabs: block.data.tabs.map((tab) =>
-                      tab.id === active.id
-                        ? {
-                            ...tab,
-                            blocks: updateBlocks(
-                              tab.blocks,
-                              child.id,
-                              () => nextChild,
-                            ),
-                          }
-                        : tab,
-                    ),
-                  },
-                });
-              }}
-            />
-          ))}
+        <div
+          className={cn(
+            vertical
+              ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto md:mb-0 md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+              : "mb-8 inline-flex max-w-full gap-1 overflow-x-auto",
+          )}
+          role="tablist"
+          aria-orientation={orientation}
+          data-plan-interactive
+        >
+          {block.data.tabs.map((tab) => {
+            const selected = tab.id === active?.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActiveId(tab.id)}
+                className={cn(
+                  "rounded-lg border border-transparent text-sm font-semibold transition-colors",
+                  vertical
+                    ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left md:w-full md:max-w-none"
+                    : "shrink-0 whitespace-nowrap px-4 py-2",
+                  selected
+                    ? "bg-primary/5 text-foreground dark:bg-primary/10"
+                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                )}
+              >
+                <span className={cn(vertical && "block min-w-0 truncate")}>
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      )}
+        {active && (
+          <div className={cn(vertical && "min-w-0")}>
+            {active.blocks.map((child) => (
+              <PlanBlockView
+                key={child.id}
+                block={child}
+                onRichTextChange={onRichTextChange}
+                onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                compactVisuals={compactTabVisuals}
+                contentUpdatedAt={contentUpdatedAt}
+                editingDisabled={editingDisabled}
+                planId={planId}
+                collabUser={collabUser}
+                onChange={(nextChild) => {
+                  onChange?.({
+                    ...block,
+                    data: {
+                      ...block.data,
+                      tabs: block.data.tabs.map((tab) =>
+                        tab.id === active.id
+                          ? {
+                              ...tab,
+                              blocks: updateBlocks(
+                                tab.blocks,
+                                child.id,
+                                () => nextChild,
+                              ),
+                            }
+                          : tab,
+                      ),
+                    },
+                  });
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -600,7 +638,7 @@ function CustomHtmlBlock({
   onChange,
 }: {
   block: Extract<PlanBlock, { type: "custom-html" }>;
-  onChange?: (block: PlanBlock) => void;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState(block.data.html);
@@ -609,13 +647,19 @@ function CustomHtmlBlock({
   return (
     <section className="plan-block group" data-block-id={block.id}>
       <div className="flex items-start justify-between gap-4">
-        {block.title && <h2>{block.title}</h2>}
+        {block.title ? (
+          <div className="plan-block-label">{block.title}</div>
+        ) : (
+          <span />
+        )}
         {onChange && (
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="icon"
             data-plan-interactive
+            aria-label={editing ? "Cancel editing source" : "Edit source"}
+            className="size-8 text-plan-muted hover:bg-transparent hover:text-plan-text"
             onClick={() => setEditing((value) => !value)}
           >
             {editing ? (
@@ -623,7 +667,6 @@ function CustomHtmlBlock({
             ) : (
               <IconEdit className="size-4" />
             )}
-            {editing ? "Cancel" : "Edit source"}
           </Button>
         )}
       </div>
@@ -690,17 +733,17 @@ function CustomHtmlBlock({
 type VisualAnswer = { text?: string; selected?: string[] };
 type VisualAnswers = Record<string, VisualAnswer>;
 
-function isAnswered(question: PlanVisualQuestion, answer?: VisualAnswer) {
+function isAnswered(question: PlanQuestion, answer?: VisualAnswer) {
   if (question.mode === "freeform") return Boolean(answer?.text?.trim());
-  return Boolean(answer?.selected?.length);
+  return Boolean(answer?.selected?.length || answer?.text?.trim());
 }
 
-function VisualQuestionsBlock({
+export function QuestionFormBlock({
   block,
   onSubmit,
 }: {
-  block: Extract<PlanBlock, { type: "visual-questions" }>;
-  onChange?: (block: PlanBlock) => void;
+  block: Extract<PlanBlock, { type: "question-form" | "visual-questions" }>;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
   onSubmit?: (summary: string) => void;
 }) {
   const questions = block.data.questions;
@@ -717,11 +760,21 @@ function VisualQuestionsBlock({
   const answered = questions.filter((question) =>
     isAnswered(question, answers[question.id]),
   ).length;
+  const buildSummary = () =>
+    summarizeQuestionForm(block.id, block.title, questions, answers);
+  const chooseDirectionLabel =
+    block.data.submitLabel && block.data.submitLabel !== "Send to agent"
+      ? block.data.submitLabel
+      : "Choose direction";
 
   return (
     <section className="plan-questions-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
-      <div className="mt-8 grid gap-14">
+      {block.title && (
+        <h2 className="text-[1.45rem] font-semibold leading-tight text-plan-text">
+          {block.title}
+        </h2>
+      )}
+      <div className="mt-7 grid gap-8">
         {questions.map((question, index) => (
           <VisualQuestionView
             key={question.id}
@@ -732,53 +785,80 @@ function VisualQuestionsBlock({
           />
         ))}
       </div>
-      <div className="sticky bottom-0 mt-14 flex items-center justify-between gap-4 border-t border-plan-line bg-plan-document py-4 backdrop-blur">
+      <div className="sticky bottom-0 mt-10 flex items-center justify-between gap-4 border-t border-plan-line bg-plan-document py-4 backdrop-blur">
         <p className="text-sm font-semibold text-plan-muted">
           {answered}/{questions.length} answered
         </p>
-        <div className="flex gap-2" data-plan-interactive>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              void navigator.clipboard.writeText(
-                summarizeVisualQuestions(questions, answers),
-              );
-            }}
-          >
-            Copy prompt
-          </Button>
-          <Button
-            type="button"
-            onClick={() =>
-              onSubmit?.(summarizeVisualQuestions(questions, answers))
-            }
-          >
-            {block.data.submitLabel || "Send to agent"}
-          </Button>
+        <div data-plan-interactive>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" className="shrink-0 gap-1.5">
+                {chooseDirectionLabel}
+                <IconChevronDown className="size-3.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 rounded-xl">
+              <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => onSubmit?.(buildSummary())}
+                  className="items-start gap-2"
+                  disabled={!onSubmit}
+                >
+                  <IconSend className="mt-0.5 size-4" />
+                  <span className="grid gap-0.5">
+                    <span>Send to inline agent</span>
+                    <span className="text-xs font-normal leading-4 text-muted-foreground">
+                      Posts answered questions into the app side agent.
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    void navigator.clipboard.writeText(buildSummary());
+                  }}
+                  className="items-start gap-2"
+                >
+                  <IconClipboardText className="mt-0.5 size-4" />
+                  <span className="grid gap-0.5">
+                    <span>Copy for your agent</span>
+                    <span className="text-xs font-normal leading-4 text-muted-foreground">
+                      Copies a prompt you can paste into chat.
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </section>
   );
 }
 
-function summarizeVisualQuestions(
-  questions: PlanVisualQuestion[],
+function summarizeQuestionForm(
+  blockId: string | undefined,
+  blockTitle: string | undefined,
+  questions: PlanQuestion[],
   answers: VisualAnswers,
 ) {
   const lines = [
-    "Use these visual intake answers to create or update the visual plan:",
+    "Use these plan question answers to revise the existing visual plan:",
+    blockId ? `Question block: ${blockId}` : "",
+    blockTitle ? `Section: ${blockTitle}` : "",
     "",
-  ];
+  ].filter((line) => line !== "");
   for (const question of questions) {
     const answer = answers[question.id];
+    const selectedLabels =
+      question.options
+        ?.filter((option) => answer?.selected?.includes(option.id))
+        .map((option) => option.label) ?? [];
+    const other = answer?.text?.trim();
     const value =
       question.mode === "freeform"
-        ? answer?.text?.trim()
-        : question.options
-            ?.filter((option) => answer?.selected?.includes(option.id))
-            .map((option) => option.label)
-            .join(", ");
+        ? other
+        : [...selectedLabels, ...(other ? [`Other: ${other}`] : [])].join(", ");
     lines.push(`- ${question.title}: ${value || "No answer yet"}`);
   }
   return lines.join("\n");
@@ -790,23 +870,26 @@ function VisualQuestionView({
   answer,
   onAnswer,
 }: {
-  question: PlanVisualQuestion;
+  question: PlanQuestion;
   index: number;
   answer?: VisualAnswer;
   onAnswer: (answer: VisualAnswer) => void;
 }) {
   const selected = answer?.selected ?? [];
+  const hasVisualOptions = Boolean(
+    question.options?.some((option) => option.wireframe || option.diagram),
+  );
   return (
-    <article className="grid gap-6 sm:grid-cols-[46px_minmax(0,1fr)]">
-      <div className="flex size-8 items-center justify-center rounded-full border border-plan-line bg-plan-block text-sm font-semibold text-plan-muted">
+    <article className="grid gap-4 sm:grid-cols-[36px_minmax(0,1fr)]">
+      <div className="flex size-7 items-center justify-center rounded-full border border-plan-line bg-plan-block text-xs font-semibold text-plan-muted">
         {index + 1}
       </div>
       <div>
-        <h3 className="text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl">
+        <h3 className="text-lg font-semibold leading-7 text-plan-text">
           {question.title}
         </h3>
         {question.subtitle && (
-          <p className="mt-3 max-w-3xl text-lg leading-8 text-plan-muted">
+          <p className="mt-1.5 max-w-3xl text-sm leading-6 text-plan-muted">
             {question.subtitle}
           </p>
         )}
@@ -814,12 +897,19 @@ function VisualQuestionView({
           <Textarea
             value={answer?.text ?? ""}
             onChange={(event) => onAnswer({ text: event.target.value })}
-            className="mt-6 min-h-28 rounded-xl border-plan-line bg-plan-block text-base"
+            className="mt-4 min-h-28 rounded-xl border-plan-line bg-plan-block text-sm"
             data-plan-interactive
-            placeholder="Add details..."
+            placeholder={question.placeholder || "Add details..."}
           />
         ) : (
-          <div className="mt-6 grid gap-7">
+          <div
+            className={cn(
+              "mt-4",
+              hasVisualOptions
+                ? "grid gap-4 md:grid-cols-2"
+                : "grid max-w-4xl gap-3",
+            )}
+          >
             {question.options?.map((option) => {
               const isSelected = selected.includes(option.id);
               return (
@@ -827,23 +917,30 @@ function VisualQuestionView({
                   key={option.id}
                   type="button"
                   data-plan-interactive
-                  className="grid gap-5 border-b border-plan-line pb-7 text-left last:border-b-0"
+                  aria-pressed={isSelected}
+                  className={cn(
+                    hasVisualOptions
+                      ? "grid gap-4 rounded-xl border border-plan-line bg-plan-block p-4 text-left transition-colors hover:bg-accent/30"
+                      : "grid w-full gap-2 rounded-xl border border-plan-line bg-plan-block px-4 py-3 text-left text-plan-text transition-colors hover:border-primary/40 hover:bg-accent/30",
+                    isSelected && "border-primary/40 bg-primary/10",
+                  )}
                   onClick={() => {
                     if (question.mode === "single") {
-                      onAnswer({ selected: [option.id] });
+                      onAnswer({ ...answer, selected: [option.id] });
                       return;
                     }
                     onAnswer({
+                      ...answer,
                       selected: isSelected
                         ? selected.filter((id) => id !== option.id)
                         : [...selected, option.id],
                     });
                   }}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <span
                       className={cn(
-                        "mt-1 flex size-5 shrink-0 items-center justify-center border",
+                        "mt-0.5 flex size-5 shrink-0 items-center justify-center border",
                         question.mode === "single" ? "rounded-full" : "rounded",
                         isSelected
                           ? "border-primary bg-primary text-primary-foreground"
@@ -853,22 +950,25 @@ function VisualQuestionView({
                       {isSelected && <IconCheck className="size-3.5" />}
                     </span>
                     <span>
-                      <span className="text-xl font-semibold text-plan-text">
+                      <span className="text-base font-semibold leading-6 text-plan-text">
                         {option.label}
                       </span>
                       {option.recommended && (
-                        <span className="ml-3 rounded-full border border-primary/30 px-2 py-0.5 text-xs font-bold uppercase tracking-[0.12em] text-primary">
-                          Recommended
-                        </span>
+                        <>
+                          {" "}
+                          <span className="ml-3 rounded-md border border-primary/30 px-2 py-0.5 align-middle text-[11px] font-medium uppercase tracking-[0.12em] text-primary">
+                            Recommended
+                          </span>
+                        </>
                       )}
                       {option.detail && (
-                        <span className="mt-2 block max-w-2xl whitespace-pre-line text-base leading-7 text-plan-muted">
+                        <span className="mt-1 block max-w-2xl whitespace-pre-line text-sm font-normal leading-6 text-plan-muted">
                           {option.detail}
                         </span>
                       )}
                     </span>
                   </div>
-                  {(option.wireframe || option.diagram) && (
+                  {hasVisualOptions && (option.wireframe || option.diagram) && (
                     <div className="ml-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
                       {option.wireframe && (
                         <Wireframe data={option.wireframe} compact />
@@ -881,6 +981,17 @@ function VisualQuestionView({
                 </button>
               );
             })}
+            {question.allowOther && (
+              <Input
+                value={answer?.text ?? ""}
+                onChange={(event) =>
+                  onAnswer({ ...answer, text: event.target.value })
+                }
+                className="h-10 w-full rounded-lg border-plan-line bg-plan-block px-4 sm:w-64"
+                data-plan-interactive
+                placeholder={question.placeholder || "Other..."}
+              />
+            )}
           </div>
         )}
       </div>
@@ -888,11 +999,15 @@ function VisualQuestionView({
   );
 }
 
-/* ── Shiki syntax highlighting (lazy-loaded, single dark theme) ─────────── */
+/* ── Shiki syntax highlighting (lazy-loaded, light/dark themes) ─────────── */
 type ShikiHighlighter = {
   codeToHtml: (
     code: string,
-    options: { lang: string; theme: string },
+    options: {
+      lang: string;
+      themes: { light: string; dark: string };
+      defaultColor?: false | "light" | "dark";
+    },
   ) => string | Promise<string>;
   getLoadedLanguages: () => string[];
 };
@@ -907,7 +1022,10 @@ function loadHighlighter(): Promise<ShikiHighlighter> {
           import("shiki/engine/oniguruma"),
         ]);
       return createHighlighterCore({
-        themes: [import("shiki/themes/github-dark-default.mjs")],
+        themes: [
+          import("shiki/themes/github-light-default.mjs"),
+          import("shiki/themes/github-dark-default.mjs"),
+        ],
         langs: [
           import("shiki/langs/javascript.mjs"),
           import("shiki/langs/typescript.mjs"),
@@ -963,7 +1081,11 @@ function HighlightedCode({
         const lang = loaded.includes(resolved) ? resolved : "text";
         return highlighter.codeToHtml(code, {
           lang,
-          theme: "github-dark-default",
+          themes: {
+            light: "github-light-default",
+            dark: "github-dark-default",
+          },
+          defaultColor: false,
         });
       })
       .then((out) => {
@@ -1002,7 +1124,7 @@ function ImageBlock({
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
   return (
     <section className="plan-block" data-block-id={block.id}>
-      {block.title && <h2>{block.title}</h2>}
+      {block.title && <div className="plan-block-label">{block.title}</div>}
       {src ? (
         <img
           src={src}
@@ -1044,6 +1166,7 @@ function updateBlocks(
     return {
       ...block,
       data: {
+        ...block.data,
         tabs: block.data.tabs.map((tab) => ({
           ...tab,
           blocks: updateBlocks(tab.blocks, id, updater),
@@ -1051,9 +1174,4 @@ function updateBlocks(
       },
     };
   });
-}
-
-function appendLine(value: string, prefix: string) {
-  const suffix = value.endsWith("\n") || value.length === 0 ? "" : "\n";
-  return `${value}${suffix}${prefix}`;
 }

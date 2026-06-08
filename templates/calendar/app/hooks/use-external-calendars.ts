@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import { callAction, useActionQuery } from "@agent-native/core/client";
 import type { ExternalCalendar } from "@shared/api";
 
 export function useExternalCalendars() {
@@ -10,16 +10,11 @@ export function useAddExternalCalendar() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (cal: { url: string; name?: string; color?: string }) => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/add-external-calendar"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(cal),
-        },
-      );
-      if (!res.ok) throw new Error("Failed to add calendar");
-      return res.json() as Promise<ExternalCalendar>;
+      try {
+        return await callAction<ExternalCalendar>("add-external-calendar", cal);
+      } catch {
+        throw new Error("Failed to add calendar");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -41,15 +36,15 @@ export function useUpdateExternalCalendarColor() {
           undefined,
         ]) ?? [];
       const updated = current.map((c) => (c.id === id ? { ...c, color } : c));
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/update-external-calendars"),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ calendars: updated }),
-        },
-      );
-      if (!res.ok) throw new Error("Failed to save");
+      try {
+        await callAction<ExternalCalendar[]>(
+          "update-external-calendars",
+          { calendars: updated },
+          { method: "PUT" },
+        );
+      } catch {
+        throw new Error("Failed to save");
+      }
       return updated;
     },
     onSuccess: (data) => {
@@ -66,15 +61,11 @@ export function useRemoveExternalCalendar() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/remove-external-calendar"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        },
-      );
-      if (!res.ok) throw new Error("Failed to remove calendar");
+      try {
+        await callAction("remove-external-calendar", { id });
+      } catch {
+        throw new Error("Failed to remove calendar");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({

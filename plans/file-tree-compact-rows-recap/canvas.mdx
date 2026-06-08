@@ -1,0 +1,64 @@
+{/* Canvas source. */}
+
+<DesignBoard title="FileTree UI comparison" version={2}>
+<Section id="section-filetree-ui" title="FileTree before/after" subtitle="UI impact: compact paths, a 10-row default, and muted folder icons.">
+<Artboard id="filetree-before" label="Before: nested rows consume space" surface="panel" order={1}>
+<Screen surface="panel" caption="Before: every single-child folder in the path used its own row.">
+  <FrameScreen>
+    <Col full>
+      <Row>
+        <Title text="Changed surfaces" />
+        <Pill label="17 files" />
+      </Row>
+      <Box dashed>
+        <NavItem label="packages" />
+        <NavItem label="core" />
+        <NavItem label="src" />
+        <NavItem label="client" />
+        <NavItem label="blocks" />
+        <NavItem label="library" active />
+        <TaskRow title="tabs.tsx" note="M Tabs now use editSurface..." />
+        <TaskRow title="tabs.spec.ts" note="A Covers tabs region exposure..." />
+        <TaskRow title="table.tsx" note="M Structured tables keep inline editing..." />
+        <TaskRow title="html.tsx" note="M Custom HTML fields reuse shared affordance..." />
+        <TaskRow title="AiEditableField.tsx" note="A Shared field wrapper..." />
+        <TaskRow title="types.ts" note="M Added BlockDataChangeMeta..." />
+        <TaskRow title="index.ts" note="M Re-exported block metadata..." />
+        <NavItem label="rich-markdown-editor" />
+        <TaskRow title="RegistryBlockNode.tsx" note="M Atom/panel block guard..." />
+        <TaskRow title="DragHandle.ts" note="M Single-click action menu..." />
+      </Box>
+    </Col>
+  </FrameScreen>
+</Screen>
+</Artboard>
+
+<Artboard id="filetree-after" label="After: compact rows with explicit reveal" surface="panel" order={2}>
+<Screen surface="panel" caption="After: single-child folders compact, initial rows cap at 10, and folders use muted gray icons.">
+  <FrameScreen>
+    <Col full>
+      <Row>
+        <Title text="Changed surfaces" />
+        <Pill label="17 files" />
+        <Pill label="muted folders" tone="muted" />
+      </Row>
+      <Box>
+        <NavItem label="packages/core/src/client/blocks/library" active />
+        <TaskRow title="tabs.tsx" note="M Tabs now use editSurface..." />
+        <TaskRow title="tabs.spec.ts" note="A Covers tabs region exposure..." />
+        <TaskRow title="table.tsx" note="M Structured tables keep inline editing..." />
+        <TaskRow title="html.tsx" note="M Custom HTML fields reuse shared affordance..." />
+        <TaskRow title="AiEditableField.tsx" note="A Shared field wrapper..." />
+        <TaskRow title="types.ts" note="M Added BlockDataChangeMeta..." />
+        <TaskRow title="index.ts" note="M Re-exported block metadata..." />
+        <NavItem label="rich-markdown-editor" />
+        <TaskRow title="RegistryBlockNode.tsx" note="M Atom/panel block guard..." />
+        <Btn label="Show all 17 rows" tone="accent" />
+      </Box>
+    </Col>
+  </FrameScreen>
+</Screen>
+</Artboard>
+</Section>
+
+</DesignBoard>

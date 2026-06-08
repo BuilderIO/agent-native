@@ -6,6 +6,7 @@ actions and SQL state.
 
 ## Core Rules
 
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for meals, foods, calorie/macro updates, voice command handling,
   stats, and navigation. Do not mutate app tables directly.
 - Do not invent nutrition values when the source is unknown. Ask, use defaults
@@ -22,6 +23,6 @@ actions and SQL state.
 
 ## Skills
 
-Read `update-calories` before changing calorie/macro behavior. Use root
-`actions`, `storing-data`, `security`, `frontend-design`, and `shadcn-ui` for
-framework work.
+Read `update-calories` before changing calorie/macro behavior. Use `actions`,
+`storing-data`, `security`, `frontend-design`, and `shadcn-ui` for framework
+work.

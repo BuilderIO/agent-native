@@ -56,6 +56,24 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+export const NITRO_RUNTIME_IGNORE_PATTERNS = [
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+  "**/*.spec.mts",
+  "**/*.spec.cts",
+  "**/*.spec.js",
+  "**/*.spec.jsx",
+  "**/*.spec.mjs",
+  "**/*.spec.cjs",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.test.mts",
+  "**/*.test.cts",
+  "**/*.test.js",
+  "**/*.test.jsx",
+  "**/*.test.mjs",
+  "**/*.test.cjs",
+];
 
 function normalizeConfiguredAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
@@ -198,12 +216,13 @@ export function generateWorkerEntry(
     const a = actions[i];
     const varName = `action_${i}`;
     actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
-    const routePath = `/_agent-native/actions/${a.name}`;
+    // Mirror the runtime mount (action-routes.ts): `path = http?.path ?? name`.
+    const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
-      const result = await ${varName}.run(params);
+      const result = await ${varName}.run(params, { caller: "http" });
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -1256,6 +1275,8 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "win32-x64-msvc",
 ];
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
+const RESVG_SCOPE = "@resvg";
+const RESVG_PACKAGE_PREFIX = "resvg-js";
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
 const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
@@ -1385,6 +1406,47 @@ export function findInstalledFfmpegStaticPackage(
   return null;
 }
 
+export function findInstalledResvgPackages(
+  nodeModulesRoots: string[],
+): Array<{ packageName: string; packageDir: string }> {
+  const found = new Map<string, string>();
+
+  for (const root of nodeModulesRoots) {
+    const directScope = path.join(root, RESVG_SCOPE);
+    if (fs.existsSync(directScope)) {
+      for (const entry of fs.readdirSync(directScope)) {
+        if (!entry.startsWith(RESVG_PACKAGE_PREFIX)) continue;
+        const packageDir = path.join(directScope, entry);
+        if (fs.existsSync(path.join(packageDir, "package.json"))) {
+          found.set(entry, packageDir);
+        }
+      }
+    }
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      const match = entry.match(/^@resvg\+(resvg-js[^@]*)@/);
+      if (!match) continue;
+      const packageName = match[1];
+      const packageDir = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        RESVG_SCOPE,
+        packageName,
+      );
+      if (fs.existsSync(path.join(packageDir, "package.json"))) {
+        found.set(packageName, packageDir);
+      }
+    }
+  }
+
+  return [...found.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([packageName, packageDir]) => ({ packageName, packageDir }));
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
@@ -1404,6 +1466,21 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
       `[deploy] Copied ${copied} installed libsql native package(s) into the server bundle.`,
     );
   }
+}
+
+function copyInstalledResvgPackages(serverDir: string | undefined) {
+  if (!serverDir || !fs.existsSync(serverDir)) return;
+  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd));
+  if (packages.length === 0) return;
+
+  const destScopeDir = path.join(serverDir, "node_modules", RESVG_SCOPE);
+  for (const { packageName, packageDir } of packages) {
+    copyDir(packageDir, path.join(destScopeDir, packageName));
+  }
+
+  console.log(
+    `[deploy] Copied ${packages.length} resvg package(s) into the server bundle for OG image rendering.`,
+  );
 }
 
 function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
@@ -1644,6 +1721,68 @@ export async function runNitroBuildPipeline(
   await hooks.nitroBuild(nitro);
 }
 
+/**
+ * Browser-only diagram/drawing renderers that execute `window`-touching code at
+ * module-evaluation time. They are rendered exclusively client-side — core's
+ * `MermaidBlock` and templates' Excalidraw slides mount them inside `useEffect` /
+ * `React.lazy`, never during SSR — so the server never needs the real module.
+ *
+ * Keep this list to libraries that are *provably never* invoked on the server.
+ * Node-only deps that DO run server-side (pdf-parse, @google/genai, canvas, …)
+ * must NOT go here — see `heavyClientExternals` for the edge-worker externals.
+ */
+const BROWSER_ONLY_SERVER_LIBS = [
+  "@excalidraw/excalidraw",
+  "@excalidraw/mermaid-to-excalidraw",
+  "mermaid",
+];
+
+/**
+ * Rolldown plugin for the Nitro server bundle that replaces the browser-only
+ * renderers above with an inert proxy module.
+ *
+ * Why this is needed: Nitro re-bundles the server from node_modules with its own
+ * Rolldown pipeline, and Rolldown merges Excalidraw into a SHARED vendor chunk
+ * that the SSR render path (tiptap / radix-ui / recharts) imports *statically*.
+ * That evaluates Excalidraw's top-level `window` access at function cold-start
+ * and crashes every request with `ReferenceError: window is not defined` (HTTP
+ * 502). The Vite SSR build already stubs these via `ssrStubPlugin` for
+ * `build/server`, but that Vite plugin doesn't run during Nitro's separate
+ * bundle — so mirror the same stub here.
+ */
+function createBrowserOnlyServerStubPlugin() {
+  const stubbed = new Set(BROWSER_ONLY_SERVER_LIBS);
+  const STUB_ID = "\0agent-native-browser-only-server-stub";
+  return {
+    name: "agent-native-browser-only-server-stub",
+    // enforce: "pre" so we intercept before Nitro's node resolver bundles the
+    // real package. defu concatenates rollupConfig.plugins ahead of Nitro's own.
+    resolveId(id: string) {
+      // Match the bare package name or any subpath (incl. `/index.css`).
+      const pkg = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return stubbed.has(pkg) ? STUB_ID : null;
+    },
+    load(id: string) {
+      if (id !== STUB_ID) return null;
+      // A Proxy answers any property access (default or named) with another
+      // proxy, so every import shape resolves without evaluating real browser
+      // code. It is never actually invoked on the server, so it never throws.
+      return (
+        "const handler = { get(_t, p) {" +
+        " if (p === Symbol.toPrimitive) return () => '';" +
+        " if (p === 'then') return undefined;" +
+        " if (p === '__esModule') return true;" +
+        " return new Proxy(function () {}, handler); } };" +
+        "const stub = new Proxy(function () {}, handler);" +
+        "export default stub;"
+      );
+    },
+  };
+}
+
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
@@ -1725,6 +1864,7 @@ export default bundle;
     baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
+    ignore: NITRO_RUNTIME_IGNORE_PATTERNS,
     alias: {
       ...pathAliases,
       ...(fs.existsSync(rrServerBuild)
@@ -1733,6 +1873,15 @@ export default bundle;
     },
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
+    },
+    // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
+    // the server bundle. Without this, Nitro's Rolldown build pulls the real
+    // Excalidraw into a shared vendor chunk imported statically by the SSR render
+    // path, and its top-level `window` access crashes the function at cold-start
+    // (ReferenceError: window is not defined → every request 502s). Mirrors the
+    // Vite `ssrStubPlugin`, which only covers the `build/server` step.
+    rollupConfig: {
+      plugins: [createBrowserOnlyServerStubPlugin()],
     },
     ...(providedPluginsNitroPlugin
       ? { plugins: [providedPluginsNitroPlugin] }
@@ -1756,6 +1905,7 @@ export default bundle;
 
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
+    copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
   }
 

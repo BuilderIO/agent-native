@@ -8,11 +8,12 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import { agentNativePath } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client";
 import type { DesignSystemData } from "../../shared/api";
 
 export default function DesignSystems() {
   const { designSystems, isLoading, refetch } = useDesignSystems();
+  const setDefaultMutation = useActionMutation("set-default-design-system");
   const [showSetup, setShowSetup] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -23,14 +24,7 @@ export default function DesignSystems() {
 
   const handleSetDefault = async (id: string) => {
     try {
-      await fetch(
-        agentNativePath("/_agent-native/actions/set-default-design-system"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        },
-      );
+      await setDefaultMutation.mutateAsync({ id });
       refetch();
     } catch (err) {
       console.error("Failed to set default design system:", err);

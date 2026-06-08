@@ -40,6 +40,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconLock } from "@tabler/icons-react";
+import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import {
+  contentBlockRegistry,
+  createContentBlockRenderContext,
+} from "@/blocks/contentBlockRegistry";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import type { NotionPageLink } from "./VisualEditor";
 import {
@@ -198,6 +203,14 @@ function DatabaseMembershipBreadcrumb({
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
+  // The block render context (asset/upload resolvers, inline markdown reader,
+  // panel popover) is stable for the editor's lifetime. Created once here and
+  // provided alongside the content block registry so every registry block in the
+  // editor subtree renders through the same wiring.
+  const blockRenderContext = useMemo(
+    () => createContentBlockRenderContext({ documentId }),
+    [documentId],
+  );
   const navigate = useNavigate();
   const { data: documents = [] } = useDocuments();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
@@ -629,153 +642,159 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     : document.content;
 
   return (
-    <div
-      className="relative flex min-h-0 min-w-0 flex-1"
-      data-document-print-root
+    <BlockRegistryProvider
+      registry={contentBlockRegistry}
+      ctx={blockRenderContext}
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <DocumentToolbar
-          documentId={documentId}
-          documentTitle={exportTitle}
-          documentContent={exportContent}
-          activeUsers={activeUsers}
-          agentPresent={agentPresent}
-          agentActive={agentActive}
-          isSaving={isSaving}
-          currentUserEmail={session?.email}
-          canEdit={canEdit}
-          hideFromSearch={document.hideFromSearch}
-        />
+      <div
+        className="relative flex min-h-0 min-w-0 flex-1"
+        data-document-print-root
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <DocumentToolbar
+            documentId={documentId}
+            documentTitle={exportTitle}
+            documentContent={exportContent}
+            activeUsers={activeUsers}
+            agentPresent={agentPresent}
+            agentActive={agentActive}
+            isSaving={isSaving}
+            currentUserEmail={session?.email}
+            canEdit={canEdit}
+            hideFromSearch={document.hideFromSearch}
+          />
 
-        <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
+          <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
 
-        <div
-          ref={scrollContainerRef}
-          className="flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
-          data-document-print-scroll
-        >
           <div
-            className={documentEditorTitleRegionClassName(
-              Boolean(document.database),
-            )}
+            ref={scrollContainerRef}
+            className="flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
+            data-document-print-scroll
           >
-            <DatabaseMembershipBreadcrumb
-              document={document}
-              onOpenDatabase={(databaseDocumentId) =>
-                navigate(`/page/${databaseDocumentId}`, { flushSync: true })
-              }
-            />
-            {document.icon || !isDatabasePage ? (
-              <div className="mb-1">
-                {canEdit ? (
-                  <EmojiPicker
-                    icon={document.icon}
-                    defaultIcon={defaultIcon}
-                    defaultIconLabel={
-                      defaultIconKind === "database" ? "database" : "page"
-                    }
-                    onSelect={(emoji) => {
-                      updateDocument.mutate({ id: documentId, icon: emoji });
-                    }}
-                  />
-                ) : document.icon ? (
-                  <div className="p-1 -ml-1 text-5xl leading-none">
-                    {document.icon}
-                  </div>
-                ) : defaultIconKind === "database" && !isDatabasePage ? (
-                  <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
-                    <IconDatabase className="size-12" aria-hidden="true" />
-                  </div>
-                ) : null}
+            <div
+              className={documentEditorTitleRegionClassName(
+                Boolean(document.database),
+              )}
+            >
+              <DatabaseMembershipBreadcrumb
+                document={document}
+                onOpenDatabase={(databaseDocumentId) =>
+                  navigate(`/page/${databaseDocumentId}`, { flushSync: true })
+                }
+              />
+              {document.icon || !isDatabasePage ? (
+                <div className="mb-1">
+                  {canEdit ? (
+                    <EmojiPicker
+                      icon={document.icon}
+                      defaultIcon={defaultIcon}
+                      defaultIconLabel={
+                        defaultIconKind === "database" ? "database" : "page"
+                      }
+                      onSelect={(emoji) => {
+                        updateDocument.mutate({ id: documentId, icon: emoji });
+                      }}
+                    />
+                  ) : document.icon ? (
+                    <div className="p-1 -ml-1 text-5xl leading-none">
+                      {document.icon}
+                    </div>
+                  ) : defaultIconKind === "database" && !isDatabasePage ? (
+                    <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
+                      <IconDatabase className="size-12" aria-hidden="true" />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <textarea
+                ref={titleInputRef}
+                rows={1}
+                wrap="soft"
+                value={localTitle}
+                onChange={(e) =>
+                  handleTitleChange(normalizeTitleText(e.target.value))
+                }
+                onPaste={handleTitlePaste}
+                onFocus={() => {
+                  titleFocusedRef.current = true;
+                }}
+                onBlur={() => {
+                  titleFocusedRef.current = false;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const pm = window.document.querySelector(
+                      ".ProseMirror",
+                    ) as HTMLElement | null;
+                    pm?.focus();
+                  }
+                }}
+                aria-label="Document title"
+                placeholder="Title"
+                readOnly={!canEdit}
+                style={{ fieldSizing: "content" } as any}
+                className={cn(
+                  "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
+                  isDatabasePage ? "text-3xl" : "text-3xl md:text-4xl",
+                )}
+              />
+              {document.databaseMembership ? (
+                <DocumentProperties documentId={documentId} canEdit={canEdit} />
+              ) : null}
+            </div>
+            {document.database ? (
+              <div className={documentEditorDatabaseRegionClassName()}>
+                <DocumentDatabase document={document} canEdit={canEdit} />
               </div>
             ) : null}
-            <textarea
-              ref={titleInputRef}
-              rows={1}
-              wrap="soft"
-              value={localTitle}
-              onChange={(e) =>
-                handleTitleChange(normalizeTitleText(e.target.value))
-              }
-              onPaste={handleTitlePaste}
-              onFocus={() => {
-                titleFocusedRef.current = true;
-              }}
-              onBlur={() => {
-                titleFocusedRef.current = false;
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const pm = window.document.querySelector(
+
+            <div
+              className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) {
+                  const pm = e.currentTarget.querySelector(
                     ".ProseMirror",
                   ) as HTMLElement | null;
                   pm?.focus();
                 }
               }}
-              aria-label="Document title"
-              placeholder="Title"
-              readOnly={!canEdit}
-              style={{ fieldSizing: "content" } as any}
-              className={cn(
-                "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
-                isDatabasePage ? "text-3xl" : "text-3xl md:text-4xl",
-              )}
-            />
-            {document.databaseMembership ? (
-              <DocumentProperties documentId={documentId} canEdit={canEdit} />
-            ) : null}
-          </div>
-          {document.database ? (
-            <div className={documentEditorDatabaseRegionClassName()}>
-              <DocumentDatabase document={document} canEdit={canEdit} />
+            >
+              <VisualEditor
+                key={documentId}
+                documentId={documentId}
+                content={document.content}
+                contentUpdatedAt={document.updatedAt}
+                onChange={handleContentChange}
+                ydoc={canEdit ? ydoc : null}
+                awareness={canEdit ? awareness : null}
+                user={currentUser}
+                editable={canEdit}
+                onComment={canEdit ? handleComment : undefined}
+                onJoinTitle={joinFirstBodyBlockToTitle}
+                notionPageLinks={notionPageLinks}
+                onOpenNotionPageLink={handleOpenNotionPageLink}
+                notionPageId={document.notionPageId}
+              />
             </div>
-          ) : null}
-
-          <div
-            className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                const pm = e.currentTarget.querySelector(
-                  ".ProseMirror",
-                ) as HTMLElement | null;
-                pm?.focus();
-              }
-            }}
-          >
-            <VisualEditor
-              key={documentId}
-              documentId={documentId}
-              content={document.content}
-              contentUpdatedAt={document.updatedAt}
-              onChange={handleContentChange}
-              ydoc={canEdit ? ydoc : null}
-              awareness={canEdit ? awareness : null}
-              user={currentUser}
-              editable={canEdit}
-              onComment={canEdit ? handleComment : undefined}
-              onJoinTitle={joinFirstBodyBlockToTitle}
-              notionPageLinks={notionPageLinks}
-              onOpenNotionPageLink={handleOpenNotionPageLink}
-            />
           </div>
         </div>
-      </div>
 
-      {isMobile && canEdit ? (
-        <Sheet
-          open={hasComments}
-          onOpenChange={(open) => {
-            if (!open) setPendingComment(null);
-          }}
-        >
-          <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
-            {sidebar}
-          </SheetContent>
-        </Sheet>
-      ) : (
-        hasComments && sidebar
-      )}
-    </div>
+        {isMobile && canEdit ? (
+          <Sheet
+            open={hasComments}
+            onOpenChange={(open) => {
+              if (!open) setPendingComment(null);
+            }}
+          >
+            <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
+              {sidebar}
+            </SheetContent>
+          </Sheet>
+        ) : (
+          hasComments && sidebar
+        )}
+      </div>
+    </BlockRegistryProvider>
   );
 }

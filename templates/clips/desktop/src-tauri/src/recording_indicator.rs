@@ -27,9 +27,12 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WebviewWindowBuilder,
+};
 
 use crate::dlog;
 use crate::util::{
@@ -47,11 +50,22 @@ const PILL_LABEL: &str = "recording-pill";
 static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
 static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
 
-/// Granola-fidelity collapsed dimensions (logical px). The expanded form
-/// stretches to fit the live-transcript area.
-const PILL_W_LOGICAL: u32 = 280;
+/// Hover-tracking loop control. macOS only feeds mouse-moved / hover events to
+/// the *key* window, so the background pill's CSS `:hover` never fires while
+/// another app is focused. We poll the global cursor position against the
+/// pill's frame and emit `clips:pill-hover` so the renderer can drive the
+/// hover styling itself. Gates the single polling task.
+static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
+
+/// Collapsed dimensions (logical px). The collapsed pill is a vertical capsule
+/// — clips logo on top, waveform below — so it is taller than it is wide. The
+/// expanded form stretches horizontally to fit the live-transcript area.
+const PILL_W_LOGICAL: u32 = 38;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
-const PILL_H_LOGICAL: u32 = 44;
+/// Meeting mode expands wider so the live transcript and the notes editor sit
+/// side by side without either column feeling cramped.
+const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 720;
+const PILL_H_LOGICAL: u32 = 92;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
@@ -220,7 +234,15 @@ fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let (w_log, h_log) = if detached {
         (PILL_DETACHED_W_LOGICAL, PILL_DETACHED_H_LOGICAL)
     } else if expanded {
-        (PILL_W_EXPANDED_LOGICAL, PILL_H_EXPANDED_LOGICAL)
+        // Meeting mode (right-side anchor) expands wide enough for the
+        // transcript + notes split; plain clip recordings keep the narrower
+        // transcript-only width.
+        let w = if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
+            PILL_W_EXPANDED_MEETING_LOGICAL
+        } else {
+            PILL_W_EXPANDED_LOGICAL
+        };
+        (w, PILL_H_EXPANDED_LOGICAL)
     } else {
         (PILL_W_LOGICAL, PILL_H_LOGICAL)
     };
@@ -351,6 +373,7 @@ pub async fn recording_pill_show(
         );
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        start_pill_hover_tracking(&app);
         return Ok(());
     }
 
@@ -367,6 +390,7 @@ pub async fn recording_pill_show(
         .shadow(false)
         .visible(false)
         .focused(false)
+        .accept_first_mouse(true)
         .build()
         .map_err(|e| {
             eprintln!("[clips-tray] recording-pill build failed: {}", e);
@@ -377,6 +401,7 @@ pub async fn recording_pill_show(
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    start_pill_hover_tracking(&app);
 
     // Tell the freshly-mounted React side which mode + meeting_id to render.
     use tauri::Emitter;
@@ -389,6 +414,53 @@ pub async fn recording_pill_show(
     );
 
     Ok(())
+}
+
+/// True when the global cursor sits inside the pill window's frame. Cursor and
+/// frame both come from Tauri (physical px, desktop top-left origin), so the
+/// test is a plain point-in-rect with no AppKit hop.
+fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
+    let (Ok(c), Ok(p), Ok(s)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        return false;
+    };
+    c.x >= p.x as f64
+        && c.x <= (p.x + s.width as i32) as f64
+        && c.y >= p.y as f64
+        && c.y <= (p.y + s.height as i32) as f64
+}
+
+/// Start polling the cursor against the pill frame and emitting
+/// `clips:pill-hover` on transitions. Idempotent — a second call is a no-op
+/// while a loop is already running.
+fn start_pill_hover_tracking(app: &AppHandle) {
+    if PILL_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tauri::Emitter;
+        let mut prev = false;
+        while PILL_HOVER_TRACKING.load(Ordering::Relaxed) {
+            let Some(win) = app.get_webview_window(PILL_LABEL) else {
+                break;
+            };
+            let inside = cursor_inside_pill_frame(&win);
+            if inside != prev {
+                prev = inside;
+                let _ = win.emit("clips:pill-hover", serde_json::json!({ "hovered": inside }));
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+        PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
+    });
+}
+
+fn stop_pill_hover_tracking() {
+    PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -410,6 +482,7 @@ pub async fn recording_pill_expand(app: AppHandle, expanded: bool) -> Result<(),
 
 #[tauri::command]
 pub async fn recording_pill_hide(app: AppHandle) -> Result<(), String> {
+    stop_pill_hover_tracking();
     if let Some(w) = app.get_webview_window(PILL_LABEL) {
         // Snapshot current position before close so the next show re-opens
         // at the user's chosen spot.

@@ -4,6 +4,8 @@ description: >-
   How agents call other agents via the A2A (agent-to-agent) JSON-RPC protocol.
   Use when enabling inter-agent communication, exposing agent skills to other
   agents, or calling external agents from scripts.
+metadata:
+  internal: true
 ---
 
 # A2A Protocol (Agent-to-Agent)
@@ -175,9 +177,14 @@ submitted → working → completed
 
 A2A uses bearer token auth. The server reads the token from the environment variable specified by `apiKeyEnv`:
 
-- Set `A2A_API_KEY=my-secret-token` in the server's environment
-- Callers pass it as `Authorization: Bearer my-secret-token`
+- Set `A2A_API_KEY=<A2A_API_KEY_VALUE>` in the server's deployment environment
+- Callers pass it as `Authorization: Bearer <A2A_API_KEY_VALUE>`
 - The agent card endpoint (`/.well-known/agent-card.json`) is public — no auth needed for discovery
+
+Never hardcode the bearer token in source, docs, prompts, app state, action
+descriptions, client bundles, or examples. A2A tokens are deploy-level secrets
+unless a specific app designs a scoped credential flow; read them from secure
+runtime configuration and never log or return them.
 
 ## Message Parts
 
@@ -247,5 +254,5 @@ import type {
 ## Related Skills
 
 - **delegate-to-agent** — For work the local agent handles. Use A2A when the work goes to a different agent.
-- **scripts** — A2A calls typically happen in scripts
+- **actions** — A2A calls typically happen inside actions
 - **storing-data** — Results from A2A calls are stored in SQL like any other data

@@ -55,7 +55,10 @@ export function VersionHistoryPanel({
 
   const handleRestore = async (version: DocumentVersion) => {
     try {
-      await restoreVersion.mutateAsync(version.id);
+      await restoreVersion.mutateAsync({
+        documentId,
+        versionId: version.id,
+      });
       toast.success("Version restored.");
       setSelectedVersion(null);
       onOpenChange(false);

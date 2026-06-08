@@ -69,6 +69,7 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:workspace_members": "membership join rows scoped through workspaces",
   "plan:plan_comments": "child rows scoped through plans",
   "plan:plan_events": "child rows scoped through plans",
+  "plan:plan_guest_mints": "internal guest abuse-mitigation counters",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
   "design:design_versions": "version rows scoped through designs",

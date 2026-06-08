@@ -80,7 +80,7 @@ exclusion, and honest not-found behavior without connecting a real workspace.
 ### Scaffolding
 
 ```bash
-pnpm dlx @agent-native/core create my-brain --template brain --standalone
+npx @agent-native/core create my-brain --standalone --template brain
 ```
 
 Then open the app, add sources, import a transcript, and ask the agent to
@@ -142,7 +142,7 @@ so Dispatch and sibling apps can ask company-memory questions — the A2A agent
 card is public discovery metadata, while retrieval still happens inside Brain's
 authenticated action surface.
 
-## Data model overview
+## Data model
 
 Brain intentionally uses SQL text search and agentic query expansion. There is
 no vector database requirement, so the template stays portable across SQLite,

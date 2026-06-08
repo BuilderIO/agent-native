@@ -6,9 +6,11 @@ import {
   addImmutableAssetRouteRulesForClientBuild,
   copyDir,
   findInstalledFfmpegStaticPackage,
+  findInstalledResvgPackages,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  NITRO_RUNTIME_IGNORE_PATTERNS,
   runNitroBuildPipeline,
   shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
@@ -540,6 +542,68 @@ export default {
       echo: { hello: "again" },
     });
   });
+
+  it("mounts an action under its custom http.path, not its name", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "aliased-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  run: async (params) => ({ ok: true, echo: params }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        // Mirrors the runtime mount: route = `${PREFIX}/${http.path ?? name}`.
+        [{ name: "aliased", absPath: actionPath, method: "post", path: "v2" }],
+      ),
+    );
+
+    const aliased = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/v2", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      }),
+      {},
+      {},
+    );
+    expect(aliased.status).toBe(200);
+    await expect(aliased.json()).resolves.toEqual({
+      ok: true,
+      echo: { hello: "world" },
+    });
+
+    // The bare name is no longer a route when a custom path is set.
+    const byName = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/aliased", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      }),
+      {},
+      {},
+    );
+    expect(byName.status).toBe(404);
+  });
+});
+
+describe("Nitro runtime scan ignores", () => {
+  it("excludes test files from Nitro route, middleware, and plugin scanning", () => {
+    expect(NITRO_RUNTIME_IGNORE_PATTERNS).toEqual(
+      expect.arrayContaining([
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.spec.mjs",
+        "**/*.test.cjs",
+      ]),
+    );
+  });
 });
 
 describe("generateProvidedPluginsNitroPluginSource", () => {
@@ -675,6 +739,72 @@ describe("findInstalledFfmpegStaticPackage", () => {
     expect(shouldBundleFfmpegStaticForServerless("win32", "x64", "x64")).toBe(
       false,
     );
+  });
+});
+
+describe("findInstalledResvgPackages", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  function setupNodeModules() {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-resvg-test-"));
+    dirs.push(cwd);
+    const nodeModules = path.join(cwd, "node_modules");
+    fs.mkdirSync(nodeModules, { recursive: true });
+    return nodeModules;
+  }
+
+  it("finds direct resvg packages", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(nodeModules, "@resvg", "resvg-js");
+    const nativeDir = path.join(
+      nodeModules,
+      "@resvg",
+      "resvg-js-linux-x64-gnu",
+    );
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.mkdirSync(nativeDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(nativeDir, "package.json"), "{}");
+
+    expect(findInstalledResvgPackages([nodeModules])).toEqual([
+      { packageName: "resvg-js", packageDir },
+      { packageName: "resvg-js-linux-x64-gnu", packageDir: nativeDir },
+    ]);
+  });
+
+  it("finds resvg packages in pnpm's nested store layout", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@resvg+resvg-js@2.6.2",
+      "node_modules",
+      "@resvg",
+      "resvg-js",
+    );
+    const nativeDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@resvg+resvg-js-linux-x64-gnu@2.6.2",
+      "node_modules",
+      "@resvg",
+      "resvg-js-linux-x64-gnu",
+    );
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.mkdirSync(nativeDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(nativeDir, "package.json"), "{}");
+
+    expect(findInstalledResvgPackages([nodeModules])).toEqual([
+      { packageName: "resvg-js", packageDir },
+      { packageName: "resvg-js-linux-x64-gnu", packageDir: nativeDir },
+    ]);
   });
 });
 

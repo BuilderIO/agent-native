@@ -301,29 +301,71 @@ The agent can send messages on its own initiative (notifications, reminders, sch
 To add a new messaging platform, implement the `PlatformAdapter` interface:
 
 ```ts
-import type { PlatformAdapter } from "@agent-native/core/server";
+import type { H3Event } from "h3";
+import type {
+  PlatformAdapter,
+  IncomingMessage,
+  OutgoingMessage,
+} from "@agent-native/core/server";
+import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
   platform: "discord",
+  label: "Discord",
 
-  // Verify the incoming webhook is authentic
-  verifyRequest(request: Request): Promise<boolean> {
-    // Validate signature headers
+  // Env keys this adapter needs (rendered in the settings UI)
+  getRequiredEnvKeys(): EnvKeyConfig[] {
+    return [
+      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+    ];
   },
 
-  // Extract the message text and thread context
-  parseMessage(body: unknown): Promise<{
-    text: string;
-    threadId: string;
-    senderId: string;
-    metadata?: Record<string, unknown>;
-  }> {
-    // Parse platform-specific payload
+  // Handle platform-specific verification challenges (e.g. Slack's
+  // url_verification). Return { handled: true, response } to short-circuit.
+  async handleVerification(event: H3Event) {
+    return { handled: false };
   },
 
-  // Post the agent's response back
-  sendResponse(threadId: string, text: string): Promise<void> {
-    // Call the platform's API
+  // Validate the webhook request signature
+  async verifyWebhook(event: H3Event): Promise<boolean> {
+    // Validate signature headers; return true if authentic
+    return true;
+  },
+
+  // Parse the webhook payload into a normalized IncomingMessage.
+  // Return null to silently ignore the event (bot messages, edits, etc.).
+  async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
+    return {
+      platform: "discord",
+      externalThreadId: "channel-or-thread-id",
+      text: "the user's message",
+      senderId: "discord-user-id",
+      platformContext: { channelId: "channel-id" },
+      timestamp: Date.now(),
+    };
+  },
+
+  // Format plain agent text into a platform-appropriate OutgoingMessage
+  formatAgentResponse(text: string): OutgoingMessage {
+    return { text, platformContext: {} };
+  },
+
+  // Post the agent's response back to the platform
+  async sendResponse(
+    message: OutgoingMessage,
+    context: IncomingMessage,
+  ): Promise<void> {
+    // Call the platform's API, using context.platformContext for routing
+  },
+
+  // Return current connection/configuration status for the settings UI
+  async getStatus() {
+    return {
+      platform: "discord",
+      label: "Discord",
+      enabled: true,
+      configured: !!process.env.DISCORD_BOT_TOKEN,
+    };
   },
 };
 ```

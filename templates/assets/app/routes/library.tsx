@@ -223,12 +223,26 @@ function assetContentUrl(asset: Asset, variant?: "thumb") {
   );
 }
 
-function assetThumbnailSource(asset: Asset) {
+function uniqueSources(sources: Array<string | undefined>) {
+  return sources.filter(
+    (source, index, all): source is string =>
+      typeof source === "string" &&
+      source.length > 0 &&
+      all.indexOf(source) === index,
+  );
+}
+
+function assetThumbnailSources(asset: Asset) {
   if (shouldUseContentProxyForPreview(asset)) {
-    return assetContentUrl(asset, asset.thumbnailUrl ? "thumb" : undefined);
+    return uniqueSources([
+      assetContentUrl(asset, asset.thumbnailUrl ? "thumb" : undefined),
+      assetContentUrl(asset),
+    ]);
   }
-  return (
-    asset.thumbnailUrl ?? asset.previewUrl ?? asset.downloadUrl ?? asset.url
+  return uniqueSources(
+    [asset.thumbnailUrl, asset.previewUrl, asset.downloadUrl].map((source) =>
+      absoluteAssetUrl(source),
+    ),
   );
 }
 
@@ -453,16 +467,35 @@ function assetDisplayTitle(asset: Asset) {
 }
 
 function AssetThumbnail({ asset }: { asset: Asset }) {
-  const source = assetThumbnailSource(asset);
+  const sources = assetThumbnailSources(asset);
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [unavailable, setUnavailable] = useState(false);
+  const source = sources[sourceIndex];
   const proxiedPreview = shouldUseContentProxyForPreview(asset);
   const [displayUrl, setDisplayUrl] = useState<string | undefined>(
     proxiedPreview ? undefined : source,
   );
+  const sourcesKey = sources.join("\n");
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setUnavailable(false);
+  }, [sourcesKey]);
+
+  function useNextSource() {
+    const nextIndex = sourceIndex + 1;
+    if (nextIndex < sources.length) {
+      setSourceIndex(nextIndex);
+    } else {
+      setDisplayUrl(undefined);
+      setUnavailable(true);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
     const proxied = shouldUseContentProxyForPreview(asset);
-    if (!source) {
+    if (!source || unavailable) {
       setDisplayUrl(undefined);
       return;
     }
@@ -485,12 +518,12 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
         if (!cancelled) setDisplayUrl(dataUrl);
       })
       .catch(() => {
-        if (!cancelled) setDisplayUrl(undefined);
+        if (!cancelled) useNextSource();
       });
     return () => {
       cancelled = true;
     };
-  }, [asset.mimeType, source]);
+  }, [asset.mimeType, source, sourceIndex, unavailable]);
 
   if (!displayUrl) {
     return <div className="h-full w-full bg-muted" />;
@@ -502,6 +535,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
       crossOrigin={isCrossOriginPreview(displayUrl) ? "anonymous" : undefined}
       alt={asset.altText ?? asset.title ?? ""}
       className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+      onError={useNextSource}
     />
   );
 }

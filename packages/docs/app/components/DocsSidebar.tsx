@@ -72,7 +72,7 @@ export default function DocsSidebar() {
   }, [location.pathname, openSectionTitle]);
 
   return (
-    <aside className="hidden w-[220px] shrink-0 lg:block">
+    <aside className="hidden w-[228px] shrink-0 lg:block">
       <nav
         ref={navRef}
         className="docs-sidebar-nav sticky top-[65px] max-h-[calc(100vh-65px)] overflow-y-auto pb-8 pt-8 pr-4"

@@ -58,16 +58,28 @@ See [What is agent-native?](/docs/what-is-agent-native) for the broader framewor
 ### Scaffolding
 
 ```bash
-pnpm dlx @agent-native/core create my-forms --template forms --standalone
+npx @agent-native/core create my-forms --standalone --template forms
 ```
 
 For a workspace with Forms alongside other apps:
 
 ```bash
-pnpm dlx @agent-native/core create my-platform
+npx @agent-native/core create my-platform
 ```
 
 Pick Forms and any other templates you want during the workspace setup.
+
+### Data model
+
+All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema.ts`. Forms carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+| Table         | What it holds                                                                                                                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forms`       | A form definition — `title`, `description`, unique `slug`, `fields` (JSON array of `FormField`), `settings` (JSON `FormSettings`), `status` (`draft` / `published` / `closed`), and a soft-delete `deleted_at` |
+| `responses`   | One submission per row — `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, optional `ip` and `submitter_email`                                                                                    |
+| `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
+
+The `fields` and `settings` JSON shapes are defined in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Owner-private settings such as integration webhook URLs and allowed origins are stripped before any data reaches the public fill page via `toPublicFormSettings`.
 
 ### Customizing it
 

@@ -1,6 +1,25 @@
-import { type CSSProperties, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { type PlanWireframeTone } from "@shared/plan-content";
-import { DEFAULT_SKETCH, PlanWobbleDefs, sketchStyle } from "./wobble";
+
+/** Default sketch level (0–100) → rough.js roughness. Legible but hand-drawn. */
+export const DEFAULT_SKETCH = 40;
+
+/**
+ * Frame-level config threaded to every Screen (including ones the registry
+ * builds for a top-level `screen` node), so skeleton / theme / sketch-vs-clean
+ * reach the kit no matter which path renders the root Screen.
+ */
+export const KitConfigContext = createContext<{
+  skeleton?: boolean;
+  sketch?: number;
+  theme?: "light" | "dark";
+  style?: "sketchy" | "clean";
+}>({});
 
 /*
  * wf-kit — low-fi wireframe primitives (hand-drawn vibe), ported to React from
@@ -71,9 +90,10 @@ function fontWeight(weight?: "normal" | "medium" | "bold"): number {
 export function Screen({
   children,
   pad = 0,
-  sketch = DEFAULT_SKETCH,
+  sketch,
   density,
   theme,
+  skeleton = false,
   style = {},
 }: {
   children?: ReactNode;
@@ -81,13 +101,22 @@ export function Screen({
   sketch?: number;
   density?: "compact" | "regular" | "roomy";
   theme?: "light" | "dark";
+  /** Neutral loading register: rough off, borders dropped, soft placeholder fills. */
+  skeleton?: boolean;
   style?: CSSProperties;
 }) {
+  const cfg = useContext(KitConfigContext);
+  const isSkeleton = skeleton || Boolean(cfg.skeleton);
+  const wfStyle = cfg.style ?? "sketchy";
+  const wfTheme = theme ?? cfg.theme ?? "light";
+  void sketch;
   return (
     <div
       className="plan-wf"
       data-density={density ?? "regular"}
-      data-theme={theme ?? "light"}
+      data-theme={wfTheme}
+      data-skeleton={isSkeleton ? "true" : undefined}
+      data-style={wfStyle}
       style={{
         position: "relative",
         width: "100%",
@@ -102,11 +131,9 @@ export function Screen({
         padding: pad,
         boxSizing: "border-box",
         overflow: "hidden",
-        ...sketchStyle(sketch),
         ...style,
       }}
     >
-      <PlanWobbleDefs sketch={sketch} />
       {children}
     </div>
   );
@@ -138,6 +165,8 @@ export function Hand({
         fontSize: size ?? V.fs,
         fontWeight: weight,
         color,
+        minWidth: 0,
+        overflowWrap: "break-word",
         ...style,
       }}
     >
@@ -225,12 +254,15 @@ export function Box({
 }) {
   return (
     <div
+      data-rough="rect"
       style={{
+        ["--rough-stroke" as string]: V.ink,
         border: `${V.stroke} ${dashed ? "dashed" : "solid"} ${V.ink}`,
         borderRadius: V.radius,
         background: fill,
         padding: pad,
         boxSizing: "border-box",
+        minWidth: 0,
         ...style,
       }}
     >
@@ -255,7 +287,9 @@ export function Check({
   const r = shape === "circle" ? "50%" : "calc(var(--radius) * 0.5)";
   return (
     <div
+      data-rough={shape === "circle" ? "ellipse" : "rect"}
       style={{
+        ["--rough-stroke" as string]: done ? V.accent : V.ink,
         width: size,
         height: size,
         flex: "0 0 auto",
@@ -312,7 +346,10 @@ export function Pill({
         padding: "2px 9px",
         fontSize: "calc(var(--fs) * 0.82)",
         fontFamily: V.hand,
-        whiteSpace: "nowrap",
+        maxWidth: "100%",
+        minWidth: 0,
+        whiteSpace: "normal",
+        overflowWrap: "anywhere",
         lineHeight: 1.3,
         ...style,
       }}
@@ -374,7 +411,9 @@ export function Btn({
   const c = toneColors(tone === "default" ? "accent" : tone);
   return (
     <div
+      data-rough="rect"
       style={{
+        ["--rough-stroke" as string]: solid ? c.bd : V.ink,
         display: full ? "flex" : "inline-flex",
         alignItems: "center",
         justifyContent: "center",
@@ -388,8 +427,12 @@ export function Btn({
         fontSize: V.fs,
         fontWeight: 700,
         width: full ? "100%" : "auto",
+        maxWidth: "100%",
+        minWidth: 0,
         boxSizing: "border-box",
-        whiteSpace: "nowrap",
+        whiteSpace: "normal",
+        overflowWrap: "anywhere",
+        textAlign: "center",
         ...style,
       }}
     >
@@ -425,7 +468,10 @@ export function Chip({
         fontSize: "calc(var(--fs) * 0.88)",
         fontFamily: V.hand,
         fontWeight: active ? 700 : 400,
-        whiteSpace: "nowrap",
+        maxWidth: "100%",
+        minWidth: 0,
+        whiteSpace: "normal",
+        overflowWrap: "anywhere",
         ...style,
       }}
     >
@@ -463,7 +509,9 @@ export function Field({
         </Hand>
       )}
       <div
+        data-rough="rect"
         style={{
+          ["--rough-stroke" as string]: V.ink,
           border: `${V.stroke} solid ${V.ink}`,
           borderRadius: V.radius,
           background: V.card,
@@ -472,11 +520,12 @@ export function Field({
           display: "flex",
           alignItems: area ? "flex-start" : "center",
           justifyContent: "space-between",
+          minWidth: 0,
           gap: 8,
         }}
       >
         {value ? (
-          <Hand>{value}</Hand>
+          <Hand style={{ minWidth: 0, overflowWrap: "anywhere" }}>{value}</Hand>
         ) : area ? (
           <Lines n={2} widths={["85%", "60%"]} />
         ) : (
@@ -522,7 +571,9 @@ export function StatusBar() {
 export function Fab({ icon = "+" }: { icon?: string }) {
   return (
     <div
+      data-rough="ellipse"
       style={{
+        ["--rough-stroke" as string]: V.accent,
         position: "absolute",
         right: 18,
         bottom: 22,
@@ -561,7 +612,9 @@ export function BrowserBar({
 }) {
   return (
     <div
+      data-rough="line:bottom"
       style={{
+        ["--rough-stroke" as string]: V.ink,
         display: "flex",
         alignItems: "center",
         gap: 10,
@@ -575,7 +628,9 @@ export function BrowserBar({
         {[0, 1, 2].map((i) => (
           <span
             key={i}
+            data-rough="ellipse"
             style={{
+              ["--rough-stroke" as string]: V.ink,
               width: 11,
               height: 11,
               borderRadius: "50%",
@@ -624,6 +679,7 @@ export function SectionLabel({
         display: "flex",
         alignItems: "baseline",
         justifyContent: "space-between",
+        minWidth: 0,
         gap: 8,
       }}
     >
@@ -631,7 +687,11 @@ export function SectionLabel({
         size="calc(var(--fs) * 0.9)"
         weight={700}
         color={toneInk(tone)}
-        style={{ letterSpacing: 0.3, whiteSpace: "nowrap" }}
+        style={{
+          letterSpacing: 0.3,
+          minWidth: 0,
+          overflowWrap: "anywhere",
+        }}
       >
         {children}
       </Hand>
@@ -647,7 +707,9 @@ export function SectionLabel({
 export function Avatar({ size = 26 }: { size?: number }) {
   return (
     <div
+      data-rough="ellipse"
       style={{
+        ["--rough-stroke" as string]: V.ink,
         width: size,
         height: size,
         borderRadius: "50%",
@@ -672,7 +734,9 @@ export function IconSquare({
 }) {
   return (
     <div
+      data-rough="rect"
       style={{
+        ["--rough-stroke" as string]: active ? V.accent : V.soft,
         width: size,
         height: size,
         flex: "0 0 auto",
@@ -722,6 +786,7 @@ export function NavItem({
         padding: "5px 8px",
         borderRadius: V.radius,
         background: active ? V.accentSoft : "transparent",
+        minWidth: 0,
       }}
     >
       {dot ? (
@@ -741,7 +806,7 @@ export function NavItem({
       <Hand
         color={active ? V.accent : V.ink}
         weight={active ? 700 : 400}
-        style={{ flex: 1 }}
+        style={{ flex: 1, minWidth: 0 }}
       >
         {label}
       </Hand>
@@ -769,7 +834,9 @@ export function Sidebar({
 }) {
   return (
     <div
+      data-rough="line:right"
       style={{
+        ["--rough-stroke" as string]: V.ink,
         width,
         flex: "0 0 auto",
         borderRight: `${V.stroke} solid ${V.ink}`,
@@ -779,6 +846,8 @@ export function Sidebar({
         flexDirection: "column",
         gap: V.gap,
         minHeight: 0,
+        minWidth: 0,
+        alignSelf: "stretch",
         overflow: "hidden",
         ...style,
       }}
@@ -824,9 +893,11 @@ export function Main({
 
 export function Row({
   children,
+  full = false,
   style = {},
 }: {
   children?: ReactNode;
+  full?: boolean;
   style?: CSSProperties;
 }) {
   return (
@@ -834,8 +905,12 @@ export function Row({
       style={{
         display: "flex",
         flexDirection: "row",
+        alignItems: "stretch",
         gap: V.gap,
         minWidth: 0,
+        minHeight: 0,
+        maxWidth: "100%",
+        flex: full ? 1 : undefined,
         ...style,
       }}
     >
@@ -846,9 +921,11 @@ export function Row({
 
 export function Col({
   children,
+  full = false,
   style = {},
 }: {
   children?: ReactNode;
+  full?: boolean;
   style?: CSSProperties;
 }) {
   return (
@@ -857,7 +934,9 @@ export function Col({
         display: "flex",
         flexDirection: "column",
         gap: V.gap,
+        minWidth: 0,
         minHeight: 0,
+        flex: full ? 1 : undefined,
         ...style,
       }}
     >
@@ -892,6 +971,7 @@ export function TaskRow({
         alignItems: "flex-start",
         gap: V.gap,
         padding: "calc(var(--pad) * 0.55) 0",
+        minWidth: 0,
       }}
     >
       <div style={{ marginTop: 1 }}>
@@ -922,6 +1002,8 @@ export function TaskRow({
         style={{
           display: "flex",
           alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
           gap: 8,
           flex: "0 0 auto",
         }}
@@ -952,6 +1034,8 @@ export function Card({
         flexDirection: "column",
         gap: 8,
         background: V.card,
+        minWidth: 0,
+        maxWidth: "100%",
         ...style,
       }}
     >
@@ -1028,7 +1112,9 @@ export function Toolbar({
 }) {
   return (
     <div
+      data-rough="line:bottom"
       style={{
+        ["--rough-stroke" as string]: V.ink,
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -1037,6 +1123,8 @@ export function Toolbar({
         borderBottom: `${V.stroke} solid ${V.ink}`,
         background: V.card,
         flex: "0 0 auto",
+        minWidth: 0,
+        flexWrap: "wrap",
         ...style,
       }}
     >

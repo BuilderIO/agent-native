@@ -117,6 +117,8 @@ import { sendToAgentChat } from "@agent-native/core/client";
 - **`message`** — the visible prompt shown in chat.
 - **`context`** — hidden context appended to the prompt (selected text, cursor position, current entity id — anything the agent should know but the user shouldn't see twice).
 - **`submit`** — `true` to auto-run, `false` to prefill but wait. Omit to use the project default.
+- **`newTab`** — create a separate chat thread for this prompt.
+- **`background`** — with `newTab`, run without focusing the new thread. The hidden run is tracked in `RunsTray`.
 - **`openSidebar`** — set to `false` for background/silent sends. Default opens the sidebar so the user sees the response.
 - **`type`** — `"content"` (default) keeps the work in the embedded app agent. `"code"` routes to the code-editing frame (for agent-written code changes, see [Frames](/docs/frames)).
 

@@ -4,6 +4,8 @@ description: >-
   How to keep the UI in sync with agent changes via SSE plus polling fallback.
   Use when wiring query invalidation for new data models, debugging UI not
   updating, or understanding jitter prevention.
+metadata:
+  internal: true
 ---
 
 # Real-Time Sync
@@ -20,7 +22,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
 1. **Server** increments a version counter on every database write. In-process events stream through the authenticated `/_agent-native/events` endpoint.
 
-2. **Client** listens for SSE/poll events and updates per-source change counters:
+2. **Client** listens for sync events and updates per-source change counters:
 
    ```ts
    import { useDbSync } from "@agent-native/core";
@@ -47,9 +49,9 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
    For list/sidebar queries, use the same pattern — pass the counter into the queryKey of every list query you want to keep fresh.
 
-3. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds. If SSE is disabled or unavailable, polling continues at the normal cadence.
+4. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds. If SSE is disabled or unavailable, polling continues at the normal cadence.
 
-4. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
+5. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
 
 ## Don't
 
@@ -132,9 +134,9 @@ The `use-navigation-state.ts` hook sends the same `TAB_ID` in the `X-Request-Sou
 
 Without jitter prevention, a cycle occurs: the UI writes state, sync detects the change, the UI refetches and re-renders, potentially overwriting what the user is actively editing. With `ignoreSource`, the UI only reacts to changes from other sources (agent scripts, other browser tabs, other users).
 
-## Action Routes and Polling
+## Action Routes and Live Sync
 
-Action routes (`/_agent-native/actions/:name`) work with the same sync system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
+Actions work with the same sync system. When a mutating action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks. Client components should call actions through those hooks, not with raw action-route fetches.
 
 For custom apps, the best out-of-the-box path is:
 
@@ -146,14 +148,13 @@ This avoids duplicate `/api/*` JSON CRUD routes and makes agent-created records 
 
 ### Auto-emit on mutating actions
 
-The framework emits a poll event with `source: "action"` whenever any non-read-only action runs to completion — whether called via HTTP (`/_agent-native/actions/:name`) or as an agent tool call. Read-only actions (`http: { method: "GET" }` or explicit `readOnly: true`) are skipped.
+The framework emits a change event with `source: "action"` whenever any non-read-only action runs to completion — whether called via HTTP (`/_agent-native/actions/:name`) or as an agent tool call. Read-only actions (`http: { method: "GET" }` or explicit `readOnly: true`) are skipped.
 
 This means UIs don't need the agent to remember to call `refresh-screen` after every mutation. A listener like this (used in the `macros` template) will refresh after any mutating agent call:
 
 ```ts
 useDbSync({
   queryClient,
-  queryKeys: [],
   ignoreSource: TAB_ID,
   onEvent: (data) => {
     if (data.requestSource === TAB_ID) return;
@@ -165,9 +166,41 @@ useDbSync({
 
 `refresh-screen` remains available for unusual cases — e.g. the agent mutated data via a path the framework can't see (external system the app mirrors), or the agent wants to pass a `scope` hint for narrower invalidation.
 
+## Keeping Stateful Components In Sync
+
+The `useChangeVersion` / `useActionQuery` pattern above keeps the **query layer** fresh. But components that copy a server value into local React state still go stale on agent edits — refetching the query updates the prop, yet the local copy never re-adopts it. This is a recurring bug.
+
+**Never do this** for a value the agent can mutate:
+
+```ts
+// BUG: `title` is captured once and never re-reads the prop.
+const [title, setTitle] = useState(props.title);
+```
+
+When the agent renames the record, the query refetches, `props.title` updates, but the input still shows the stale value until the component remounts.
+
+**Derived-state surfaces (form fields, inline editors, popovers): use `useReconciledState`.** It re-adopts the authoritative external value when it changes, except while the user is actively editing that field — so agent mutations show up live without clobbering in-progress typing:
+
+```ts
+import { useReconciledState } from "@agent-native/core/client";
+
+// `active` = true while the user is editing this field (focused / dirty).
+const [title, setTitle] = useReconciledState(props.title, { active: isEditing });
+```
+
+**Collaborative rich-text editors are different** — they don't copy a value into `useState`. They reconcile authoritative SQL content into a shared Y.Doc under an `updatedAt` gate with lead-client election. See `real-time-collab` → "Agent edits as a real-time peer editor". Don't reach for `useReconciledState` for a Yjs-backed editor.
+
+| Surface | Keep it fresh with |
+| ------- | ------------------ |
+| React Query reads | `useChangeVersion` / `useActionQuery` (above) |
+| Local edit state copied from a server value (inputs, popovers, inline editors) | `useReconciledState(externalValue, { active })` |
+| Collaborative rich-text editor (Yjs) | `updatedAt`-gated reconcile + `isReconcileLeadClient` — see `real-time-collab` |
+
 ## Related Skills
 
-- **storing-data** — Application-state and settings are the data stores that sync via polling
+- **storing-data** — Application-state and settings are data stores that sync through change events
 - **context-awareness** — Navigation state writes use jitter prevention to avoid overwriting active edits
-- **actions** — Action routes auto-expose actions as HTTP endpoints; database writes trigger poll events
-- **self-modifying-code** — Agent code edits trigger poll events; rapid edits can cause event storms
+- **actions** — Mutating actions trigger change events
+- **client-methods** — Route details belong in helpers/hooks, not components
+- **self-modifying-code** — Agent code edits trigger change events; rapid edits can cause event storms
+- **real-time-collab** — Collaborative editors reconcile agent edits into a shared Y.Doc, driven by the same change-sync `updatedAt` bump

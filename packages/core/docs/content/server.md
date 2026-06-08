@@ -63,18 +63,18 @@ Actions mounted by the framework automatically run with request context. Custom 
 ```ts
 import { defineEventHandler } from "h3";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
-import { getDb } from "@agent-native/core/db";
+import { getDb } from "../../db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import * as schema from "../../db/schema";
 
 export default defineEventHandler(async (event) => {
   const session = await getSession(event);
-  if (!session?.user?.email) {
+  if (!session?.email) {
     throw new Response("Unauthorized", { status: 401 });
   }
 
   return runWithRequestContext(
-    { userEmail: session.user.email, orgId: session.orgId },
+    { userEmail: session.email, orgId: session.orgId },
     async () => {
       const db = getDb();
       return db
@@ -86,7 +86,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-Do not run unscoped `db.select().from(ownableTable)` in custom routes.
+`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`, so custom routes import it from the template (`../../db/index.js`), not from `@agent-native/core/db`. Do not run unscoped `db.select().from(ownableTable)` in custom routes.
 
 ## Server Plugins {#server-plugins}
 

@@ -1,15 +1,19 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
   PlanAuthor,
   PlanBundle,
   PlanCommentKind,
+  PlanCommentMention,
+  PlanCommentResolutionTarget,
   PlanCommentStatus,
   PlanSectionType,
   PlanSource,
   PlanStatus,
   PlanSummary,
+  PlanVersionDetail,
+  PlanVersionListResponse,
 } from "@shared/types";
 import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
 
@@ -25,12 +29,19 @@ export type PlanSectionInput = {
 
 export type PlanCommentInput = {
   id?: string;
+  parentCommentId?: string;
   sectionId?: string;
   kind?: PlanCommentKind;
   status?: PlanCommentStatus;
   anchor?: string;
   message: string;
   createdBy?: PlanAuthor;
+  authorEmail?: string;
+  authorName?: string;
+  resolutionTarget?: PlanCommentResolutionTarget;
+  mentions?: PlanCommentMention[];
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
 };
 
 export type CreatePlanInput = {
@@ -54,6 +65,34 @@ export type CreateUiPlanInput = CreatePlanInput & {
   components?: Array<{ name: string; description: string }>;
   sketchiness?: number;
   implementationNotes?: string;
+};
+
+export type CreatePrototypePlanInput = CreatePlanInput & {
+  screens?: Array<{
+    id?: string;
+    title: string;
+    summary?: string;
+    surface?: "desktop" | "mobile" | "popover" | "panel" | "browser";
+    renderMode?: "wireframe" | "design";
+    html?: string;
+    css?: string;
+    state?: Array<{ id?: string; label: string; value: string }>;
+  }>;
+  transitions?: Array<{
+    id?: string;
+    from: string;
+    to: string;
+    label?: string;
+    trigger?: string;
+  }>;
+  implementationNotes?: string;
+};
+
+export type CreatePlanDesignInput = CreatePrototypePlanInput & {
+  designMd?: string;
+  brandKit?: Record<string, unknown>;
+  codebaseStyles?: Record<string, unknown>;
+  designNotes?: string;
 };
 
 export type VisualQuestionOptionInput = {
@@ -106,12 +145,21 @@ export type UpdatePlanInput = {
   note?: string;
 };
 
+export type ConvertVisualPlanToPrototypeInput = {
+  planId: string;
+  title?: string;
+  brief?: string;
+  removeCanvas?: boolean;
+};
+
 function usePlanInvalidation() {
   const qc = useQueryClient();
   return () => {
     void qc.invalidateQueries({ queryKey: ["action", "list-visual-plans"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-visual-plan"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-feedback"] });
+    void qc.invalidateQueries({ queryKey: ["action", "list-plan-versions"] });
+    void qc.invalidateQueries({ queryKey: ["action", "get-plan-version"] });
   };
 }
 
@@ -125,8 +173,13 @@ function showActionError(message: string) {
   };
 }
 
-export function usePlans() {
-  return useActionQuery<PlanSummary[]>("list-visual-plans", {});
+type UsePlansOptions = Omit<
+  UseQueryOptions<PlanSummary[]>,
+  "queryKey" | "queryFn"
+>;
+
+export function usePlans(options?: UsePlansOptions) {
+  return useActionQuery<PlanSummary[]>("list-visual-plans", {}, options);
 }
 
 export function usePlan(id?: string) {
@@ -162,6 +215,28 @@ export function useCreateUiPlan() {
   });
 }
 
+export function useCreatePrototypePlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    CreatePrototypePlanInput
+  >("create-prototype-plan", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to create prototype plan"),
+  });
+}
+
+export function useCreatePlanDesign() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    CreatePlanDesignInput
+  >("create-plan-design", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to create plan design"),
+  });
+}
+
 export function useCreateVisualQuestions() {
   const invalidate = usePlanInvalidation();
   return useActionMutation<
@@ -180,7 +255,7 @@ export function useVisualizePlan() {
     VisualizePlanInput
   >("visualize-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to visualize plan"),
+    onError: showActionError("Failed to import plan"),
   });
 }
 
@@ -191,6 +266,89 @@ export function useUpdatePlan() {
     {
       onSuccess: invalidate,
       onError: showActionError("Failed to update visual plan"),
+    },
+  );
+}
+
+export function usePlanVersions(planId: string | null, open = true) {
+  return useActionQuery<PlanVersionListResponse>(
+    "list-plan-versions",
+    planId && open ? { planId } : undefined,
+    {
+      enabled: Boolean(planId && open),
+      placeholderData: (prev) => prev,
+    } as any,
+  );
+}
+
+export function usePlanVersion(
+  planId: string | null,
+  versionId: string | null,
+) {
+  return useActionQuery<PlanVersionDetail>(
+    "get-plan-version",
+    planId && versionId ? { planId, versionId } : undefined,
+    {
+      enabled: Boolean(planId && versionId),
+      placeholderData: (prev) => prev,
+    } as any,
+  );
+}
+
+export function useRestorePlanVersion() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { html?: string; restoredVersionId?: string },
+    { planId: string; versionId: string }
+  >("restore-plan-version", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to restore plan version"),
+  });
+}
+
+export function useConvertVisualPlanToPrototype() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { html?: string; path?: string; url?: string },
+    ConvertVisualPlanToPrototypeInput
+  >("convert-visual-plan-to-prototype", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to convert plan to prototype"),
+  });
+}
+
+/**
+ * Result of the `publish-visual-plan` action (owned by the plan server stream).
+ * Either the plan is hosted and we get a shareable URL, or the user is in
+ * local/no-account mode and must create an account / sign in first.
+ */
+export type PublishVisualPlanResult =
+  | {
+      needsAuth?: false | undefined;
+      url: string;
+      hostedPlanId: string;
+      hostedPlanUrl?: string;
+      hostedUrl?: string;
+    }
+  | {
+      needsAuth: true;
+      url?: undefined;
+      hostedPlanId?: undefined;
+      hostedPlanUrl?: undefined;
+      hostedUrl?: undefined;
+      /** CLI command that connects an account (shown for terminal users). */
+      connectCommand?: string;
+      /** Browser sign-in / account-creation URL to open and then retry. */
+      authUrl?: string;
+    };
+
+export function usePublishVisualPlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<PublishVisualPlanResult, { planId: string }>(
+    "publish-visual-plan",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to publish plan"),
     },
   );
 }

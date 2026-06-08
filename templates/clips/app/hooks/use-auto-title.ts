@@ -11,7 +11,11 @@
  */
 
 import { useEffect, useRef } from "react";
-import { agentNativePath, sendToAgentChat } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  callAction,
+  sendToAgentChat,
+} from "@agent-native/core/client";
 import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
@@ -170,11 +174,10 @@ export function useAutoTitleBridge(): void {
             if (dispatched.current.has(fallbackKey)) continue;
             dispatched.current.add(fallbackKey);
 
-            fetch(agentNativePath("/_agent-native/actions/regenerate-title"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ recordingId: rec.id }),
-            }).catch(() => {});
+            callAction(
+              "regenerate-title" as any,
+              { recordingId: rec.id } as any,
+            ).catch(() => {});
           }
         }
       } finally {

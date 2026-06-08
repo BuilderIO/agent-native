@@ -34,6 +34,7 @@ import {
   TaskRow,
   Text,
   Title,
+  Toolbar,
 } from "./primitives";
 
 /*
@@ -51,13 +52,53 @@ type NodeRenderer = (node: PlanWireframeNode, children: ReactNode) => ReactNode;
 
 const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
   // --- Frame / structure -------------------------------------------------
-  screen: (_n, children) => <Screen>{children}</Screen>,
+  screen: (n) => {
+    // Surface-aware safe area so content never touches a frame edge:
+    // - browser/window screens are full-bleed (chrome + sidebar/main pad inside)
+    // - mobile keeps the status bar full-bleed but pads the body below it
+    // - bare card/panel/popover screens inset all their content uniformly
+    const kids = n.children ?? [];
+    const lead = kids[0]?.el;
+    if (lead === "browserBar") {
+      return (
+        <Screen pad={0}>
+          {renderNode(kids[0], kids[0].id ?? "browserbar")}
+          {renderScreenBodyNodes(kids.slice(1))}
+        </Screen>
+      );
+    }
+    if (lead === "statusBar") {
+      return (
+        <Screen pad={0}>
+          {renderNode(kids[0], kids[0].id ?? "statusbar")}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--gap)",
+              padding: "calc(var(--pad) * 1.1)",
+            }}
+          >
+            {renderScreenBodyNodes(kids.slice(1))}
+          </div>
+        </Screen>
+      );
+    }
+    return (
+      <Screen pad="calc(var(--pad) * 1.35)">
+        {renderScreenBodyNodes(kids)}
+      </Screen>
+    );
+  },
   browserBar: (n, children) => (
     <BrowserBar title={n.title ?? n.text}>{children}</BrowserBar>
   ),
   statusBar: () => <StatusBar />,
-  row: (_n, children) => <Row>{children}</Row>,
-  col: (_n, children) => <Col>{children}</Col>,
+  toolbar: (_n, children) => <Toolbar>{children}</Toolbar>,
+  row: (n, children) => <Row full={n.full}>{children}</Row>,
+  col: (n, children) => <Col full={n.full}>{children}</Col>,
   sidebar: (_n, children) => <Sidebar>{children}</Sidebar>,
   main: (_n, children) => <Main>{children}</Main>,
   box: (n, children) => <Box dashed={n.dashed}>{children}</Box>,
@@ -131,6 +172,22 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
   iconSquare: (n) => <IconSquare active={n.active} />,
   kv: (n) => <KV rows={n.rows ?? []} />,
 };
+
+function renderScreenBodyNode(
+  node: PlanWireframeNode,
+  key?: string | number,
+): ReactNode {
+  const shouldFill =
+    node.full !== false &&
+    (node.el === "row" || node.el === "col" || node.el === "main");
+  return renderNode(shouldFill ? { ...node, full: true } : node, key);
+}
+
+function renderScreenBodyNodes(nodes: PlanWireframeNode[]): ReactNode {
+  return nodes.map((node, i) =>
+    renderScreenBodyNode(node, node.id ?? `screen-body-${i}`),
+  );
+}
 
 /** Render a single kit-tree node (and its children, recursively). */
 export function renderNode(

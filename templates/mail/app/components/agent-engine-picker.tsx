@@ -49,15 +49,15 @@ interface EnginesResponse {
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
-async function postAction<T>(
-  name: string,
-  body: Record<string, unknown>,
-): Promise<T> {
-  const res = await fetch(agentNativePath(`/_agent-native/actions/${name}`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+async function manageAgentEngine<T>(body: Record<string, unknown>): Promise<T> {
+  const res = await fetch(
+    agentNativePath("/_agent-native/actions/manage-agent-engine"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
   if (!res.ok) {
     const err = await res.json().catch(() => null);
     throw new Error(err?.error || `Request failed (${res.status})`);
@@ -172,14 +172,14 @@ export function AgentEnginePicker() {
   // Fetch engine list
   const { data, isLoading, error } = useQuery<EnginesResponse>({
     queryKey: ["agent-engines"],
-    queryFn: () => postAction<EnginesResponse>("list-agent-engines", {}),
+    queryFn: () => manageAgentEngine<EnginesResponse>({ action: "list" }),
     staleTime: 30_000,
   });
 
   // Set engine mutation
   const setEngine = useMutation({
     mutationFn: ({ engine, model }: { engine: string; model: string }) =>
-      postAction("set-agent-engine", { engine, model }),
+      manageAgentEngine({ action: "set", engine, model }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["agent-engines"] });
       setLocalEngine(null);
@@ -191,10 +191,11 @@ export function AgentEnginePicker() {
   // Test engine mutation
   const testEngine = useMutation({
     mutationFn: ({ engine, model }: { engine: string; model: string }) =>
-      postAction<{ ok: boolean; latencyMs?: number; error?: string }>(
-        "test-agent-engine",
-        { engine, model },
-      ),
+      manageAgentEngine<{ ok: boolean; latencyMs?: number; error?: string }>({
+        action: "test",
+        engine,
+        model,
+      }),
     onSuccess: (result) => {
       setTestResult(result);
     },

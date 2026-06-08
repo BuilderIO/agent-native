@@ -96,6 +96,7 @@ describe("variant slot state", () => {
     expect((appState as any).slots).toEqual([
       expect.objectContaining({
         slotId: "slot-1",
+        runId: "run-1",
         status: "ready",
         assetId: "asset-1",
         createdAt: "2026-05-28T00:00:00.000Z",

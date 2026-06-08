@@ -1,5 +1,10 @@
 import { Link, useNavigate, useParams } from "react-router";
-import { useState, type ComponentProps, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 import {
   sendToAgentChat,
@@ -19,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { assetMediaUrl } from "@/lib/asset-urls";
+import { assetPreviewSources } from "@/lib/asset-preview-sources";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -72,7 +78,8 @@ export default function AssetDetailPage() {
 
   const isVideo =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/");
-  const previewUrl = assetMediaUrl(asset.previewUrl);
+  const previewSources = assetPreviewSources(asset);
+  const previewUrl = previewSources[0];
   const categoryLabel = assetCategoryLabel(asset);
   const isStarterAsset =
     asset.metadata?.isStarterAsset === true ||
@@ -288,7 +295,7 @@ export default function AssetDetailPage() {
           />
         ) : (
           <AssetImagePreview
-            src={previewUrl}
+            sources={previewSources}
             alt={asset.altText || asset.title || ""}
           />
         )}
@@ -339,14 +346,23 @@ function assetCategoryLabel(asset: any): string | null {
 }
 
 function AssetImagePreview({
-  src,
+  sources,
   alt,
 }: {
-  src: string | undefined;
+  sources: string[];
   alt: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  if (!src || failed) {
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [unavailable, setUnavailable] = useState(false);
+  const sourcesKey = sources.join("\n");
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setUnavailable(false);
+  }, [sourcesKey]);
+
+  const src = sources[sourceIndex];
+  if (!src || unavailable) {
     return (
       <div className="flex min-h-48 min-w-72 items-center justify-center rounded-lg border border-dashed border-border bg-background px-6 text-sm font-medium text-muted-foreground">
         Preview unavailable
@@ -358,7 +374,14 @@ function AssetImagePreview({
       src={src}
       alt={alt}
       className="max-h-full max-w-full rounded-lg border border-border object-contain shadow-sm"
-      onError={() => setFailed(true)}
+      onError={() => {
+        const nextIndex = sourceIndex + 1;
+        if (nextIndex < sources.length) {
+          setSourceIndex(nextIndex);
+        } else {
+          setUnavailable(true);
+        }
+      }}
     />
   );
 }

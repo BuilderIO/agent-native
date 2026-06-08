@@ -22,16 +22,16 @@ app/                      # React SPA frontend
 └── global.css            # TailwindCSS 3 theming and global styles
 
 server/                   # Nitro API server
-├── routes/               # File-based API routes (auto-discovered by Nitro)
+├── routes/               # File-based route-only endpoints (auto-discovered by Nitro)
 ├── handlers/             # Route handler modules (BigQuery, HubSpot, etc.)
 ├── plugins/              # Server plugins (startup logic)
 ├── db/                   # Drizzle schema + DB connection
 └── lib/                  # Shared server libraries
 
-actions/                  # CLI scripts for backend automation
+actions/                  # Shared app operations (defineAction; UI uses action hooks)
 ├── run.ts                # Universal script runner
 ├── helpers.ts            # Shared arg parsing & output utilities
-└── *.ts                  # Individual scripts (auto-discovered by filename)
+└── *.ts                  # Individual actions (auto-discovered by filename)
 
 shared/                   # Types shared between client & server
 └── api.ts                # Shared API interfaces
@@ -53,31 +53,21 @@ This app uses **Nitro** (via `@agent-native/core`) for the server. All server co
 
 ```
 server/
-  routes/     # File-based API routes (auto-discovered by Nitro)
+  routes/     # File-based route-only endpoints (auto-discovered by Nitro)
   handlers/   # Route handler logic modules
   plugins/    # Server plugins — run at startup (SSE, auth)
   lib/        # Shared server modules (helpers)
 ```
 
-### Adding an API Route
+### Adding App Data
 
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
 
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
+### Adding a Route-Only Endpoint
 
-Each file exports a default `defineEventHandler`:
+Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.
 
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
+Each route-only endpoint still exports a default `defineEventHandler`, but keep shared app logic in actions or server libraries so agent and UI behavior do not fork.
 
 ### Server Plugins
 

@@ -24,6 +24,11 @@ export {
   type AgentChatContextState,
   type AgentChatMessage,
 } from "./agent-chat.js";
+export {
+  saveAgentEngineApiKey,
+  type AgentEngineProvider,
+  type SaveAgentEngineApiKeyOptions,
+} from "./agent-engine-key.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export {
   useAgentChatContext,
@@ -155,6 +160,76 @@ export {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
+export {
+  // Shared editor core (Phase 1): the ONE configurable surface both the plan
+  // and content editors build on.
+  SharedRichEditor,
+  createSharedEditorExtensions,
+  MARKDOWN_DIALECT_CONFIG,
+  useCollabReconcile,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
+  getEditorMarkdown,
+  SlashCommandMenu,
+  DEFAULT_SLASH_COMMANDS,
+  createImageSlashCommand,
+  // Shared block-level image node + injectable upload contract. Plans opt in
+  // via `features.image` + `onImageUpload`; Content keeps its own image block.
+  SharedImage,
+  createImageExtension,
+  pickAndInsertImage,
+  uploadEditorImage,
+  BubbleToolbar,
+  buildDefaultBubbleItems,
+  // Back-compat alias + factory kept for existing embedders and specs.
+  RichMarkdownEditor,
+  createRichMarkdownExtensions,
+  // Single-doc plan editor primitives: the GFM↔ProseMirror serializer, the
+  // run-id prose attribute, and the shared drag-handle (block grip + reorder).
+  RunId,
+  RUN_ID_NODE_TYPES,
+  gfmToProseJSON,
+  proseJSONToGfm,
+  DragHandle,
+  DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  // Generic registry-block Tiptap NodeView + side-map provider + dedupe plugin.
+  // Hosts mount the node from `createRegistryBlockNode` as an extra extension
+  // and wrap the editor in `RegistryBlockDataProvider`.
+  createRegistryBlockNode,
+  RegistryBlockNodeView,
+  RegistryBlockDataProvider,
+  useRegistryBlockData,
+  // Shared registry-derived block slash-command builder (plan + content adapt it).
+  buildRegistryBlockSlashItems,
+  getRegistryBlockSlashDescription,
+  getRegistryBlockSlashSearchText,
+  type BuildRegistryBlockSlashItemsOptions,
+  type DragHandleDropContext,
+  type DragHandleDropPlacement,
+  type DragHandleOptions,
+  type CreateRegistryBlockNodeOptions,
+  type RegistryBlockDataValue,
+  type RegistryBlockSideMapBlock,
+  type SharedRichEditorProps,
+  type SharedEditorCollab,
+  type SharedEditorFeatures,
+  type CreateSharedEditorExtensionsOptions,
+  type UseCollabReconcileOptions,
+  type UseCollabReconcileResult,
+  type SlashCommandItem,
+  type SlashCommandMenuProps,
+  type ImageUploadFn,
+  type SharedImageOptions,
+  type BubbleToolbarItem,
+  type BubbleToolbarProps,
+  type RichMarkdownDialect,
+  type RichMarkdownEditorPreset,
+  type RichMarkdownEditorProps,
+  type RichMarkdownCollabUser,
+  type CreateRichMarkdownExtensionsOptions,
+} from "./rich-markdown-editor/index.js";
+// ProseMirror node JSON shape — re-exported so the plan template (which has no
+// direct @tiptap dep) can type its doc↔blocks serializer.
+export type { JSONContent } from "@tiptap/core";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
 export {
@@ -349,6 +424,7 @@ export type { TiptapComposerHandle } from "./composer/TiptapComposer.js";
 export {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
+  askUserQuestion,
   formatGuidedAnswerValue,
   formatGuidedAnswersForAgent,
   getOtherGuidedAnswerText,
@@ -356,6 +432,9 @@ export {
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
+  type AskUserQuestionInput,
+  type AskUserQuestionOption,
+  type AskUserQuestionResult,
   type GuidedQuestion,
   type GuidedQuestionAnswers,
   type GuidedQuestionFlowProps,
@@ -456,6 +535,7 @@ export {
   captureClientException,
   type ClientCaptureContext,
 } from "./analytics.js";
+export { track } from "./track.js";
 export {
   useCollaborativeDoc,
   isReconcileLeadClient,
@@ -573,3 +653,38 @@ export {
   type UseCollaborativeArrayResult,
 } from "../collab/client-struct.js";
 export { NotificationsBell } from "./notifications/index.js";
+// Block registry (also available as the dedicated `@agent-native/core/blocks`
+// subpath, which server/agent code should prefer via `/blocks/server`).
+export {
+  defineBlock,
+  BlockRegistry,
+  registerBlocks,
+  BlockRegistryProvider,
+  useBlockRegistry,
+  useOptionalBlockRegistry,
+  BlockView,
+  SchemaBlockEditor,
+  markdown,
+  richtext,
+  introspect,
+  serializeSpecBlock,
+  parseSpecBlock,
+  createAttrReader,
+  describeBlocksForAgent,
+  renderBlockVocabularyReference,
+  type BlockSpec,
+  type BlockPlacement,
+  type BlockMdxConfig,
+  type BlockAttrReader,
+  type BlockRenderContext,
+  type BlockReadProps,
+  type BlockEditProps,
+  type MdxAttrValue,
+  type FieldKind,
+  type FieldDescriptor,
+  type MdxJsxNode,
+  type MdxAttrNode,
+  type SerializableBlock,
+  type ParsedBlockBase,
+  type BlockAgentDoc,
+} from "./blocks/index.js";

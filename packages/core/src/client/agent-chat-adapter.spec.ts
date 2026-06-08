@@ -2,6 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
+const analyticsMock = vi.hoisted(() => ({
+  captureError: vi.fn(),
+}));
+
+vi.mock("./analytics.js", () => analyticsMock);
+
 function sseResponse(events: unknown[], runId = "run-qa"): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
   return new Response(
@@ -87,6 +93,7 @@ describe("createAgentChatAdapter", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    analyticsMock.captureError.mockReset();
   });
 
   it("posts the latest user message with attachments, references, and model selection", async () => {
@@ -921,6 +928,50 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("preserves the RunsTray tracking marker on chat requests", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-bg",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Run quietly" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { trackInRunsTray: true },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      message: "Run quietly",
+      threadId: "thread-bg",
+      trackInRunsTray: true,
+    });
+  });
+
   it("keeps recovery prompts from replacing the original user request", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -1239,7 +1290,7 @@ describe("createAgentChatAdapter", () => {
         return jsonResponse({ error: "gone" }, 404);
       }
       if (url.includes("/runs/active")) {
-        return jsonResponse({ active: false, status: "idle" });
+        return jsonResponse({ error: "missing route" }, 404);
       }
       return jsonResponse({ error: "unexpected" }, 500);
     });
@@ -1266,6 +1317,7 @@ describe("createAgentChatAdapter", () => {
     const results = await promise;
 
     expect(postCount).toBe(2);
+    expect(analyticsMock.captureError).not.toHaveBeenCalled();
     const secondBody = JSON.parse(fetchSpy.mock.calls[3][1].body);
     expect(secondBody.message).toContain("Continue from where you left off");
     const last = results.at(-1) as any;

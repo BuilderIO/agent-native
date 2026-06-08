@@ -94,6 +94,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { assetMediaUrl } from "@/lib/asset-urls";
+import { assetPreviewSources } from "@/lib/asset-preview-sources";
 import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
@@ -223,6 +224,14 @@ function compareVariantSlotsNewestFirst(left: any, right: any): number {
   );
 }
 
+function stalePendingVariantRunId(slot: any): string | null {
+  if (slot?.status !== "pending") return null;
+  if (typeof slot?.runId !== "string" || !slot.runId) return null;
+  const timestamp = variantSlotTime(slot);
+  if (!timestamp) return null;
+  return Date.now() - timestamp >= 2 * 60 * 1000 ? slot.runId : null;
+}
+
 function paletteDraftFromColors(colors: unknown): string {
   return Array.isArray(colors)
     ? colors.filter((color) => typeof color === "string").join(", ")
@@ -306,6 +315,7 @@ export default function LibraryPage() {
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [paletteDraft, setPaletteDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const refreshingVariantRunIdsRef = useRef<Set<string>>(new Set());
   const createFolder = useActionMutation("create-folder");
 
   useEffect(() => {
@@ -418,6 +428,31 @@ export default function LibraryPage() {
           )
           .sort(compareVariantSlotsNewestFirst)
       : [];
+
+  useEffect(() => {
+    if (refreshGeneration.isPending) return;
+    const runId = pendingVariants
+      .map(stalePendingVariantRunId)
+      .find((id: string | null): id is string =>
+        Boolean(id && !refreshingVariantRunIdsRef.current.has(id)),
+      );
+    if (!runId) return;
+    refreshingVariantRunIdsRef.current.add(runId);
+    refreshGeneration.mutate(
+      { runId },
+      {
+        onSettled: () => {
+          window.setTimeout(() => {
+            refreshingVariantRunIdsRef.current.delete(runId);
+          }, 30_000);
+          void queryClient.invalidateQueries({
+            queryKey: ["app-state", "asset-variants"],
+            refetchType: "active",
+          });
+        },
+      },
+    );
+  }, [pendingVariants, queryClient, refreshGeneration]);
 
   function markAssetsOptimisticallyDeleted(ids: string[]) {
     setOptimisticallyDeletedAssetIds((current) => {
@@ -2194,6 +2229,13 @@ function PendingUploadCard({ upload }: { upload: PendingUpload }) {
 function AssetPreview({ asset }: { asset: any }) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
+  const sources = assetPreviewSources(asset, "thumbnail");
+  const sourcesKey = sources.join("\n");
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setUnavailable(false);
+  }, [sourcesKey]);
 
   if (asset.mediaType === "video" || asset.mimeType?.startsWith("video/")) {
     return (
@@ -2211,15 +2253,6 @@ function AssetPreview({ asset }: { asset: any }) {
       </div>
     );
   }
-  const sources = [
-    assetMediaUrl(asset.thumbnailUrl),
-    assetMediaUrl(asset.previewUrl),
-  ].filter(
-    (source, index, all): source is string =>
-      typeof source === "string" &&
-      source.length > 0 &&
-      all.indexOf(source) === index,
-  );
   const src = sources[sourceIndex];
   if (unavailable || !src) {
     return (
@@ -2703,9 +2736,19 @@ function VariantCard({
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
+  const previewSources = assetPreviewSources(slot, "thumbnail");
+  const previewSourcesKey = previewSources.join("\n");
   const isFailed = slot.status === "failed";
   const label = isFailed ? "Dismiss" : "Delete";
   const busy = saving || dismissSlot.isPending;
+  const previewSrc = previewSources[sourceIndex];
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setPreviewUnavailable(false);
+  }, [previewSourcesKey]);
 
   return (
     <div
@@ -2803,15 +2846,27 @@ function VariantCard({
       </AlertDialog>
 
       <div className="flex aspect-[4/3] items-center justify-center bg-muted">
-        {slot.previewUrl ? (
+        {previewSrc && !previewUnavailable ? (
           <img
-            src={slot.thumbnailUrl || slot.previewUrl}
+            src={previewSrc}
             alt=""
             className="h-full w-full object-cover"
+            onError={() => {
+              const nextIndex = sourceIndex + 1;
+              if (nextIndex < previewSources.length) {
+                setSourceIndex(nextIndex);
+              } else {
+                setPreviewUnavailable(true);
+              }
+            }}
           />
         ) : isFailed ? (
           <div className="p-4 text-center text-xs text-destructive">
             {slot.error}
+          </div>
+        ) : previewUnavailable ? (
+          <div className="p-4 text-center text-xs text-muted-foreground">
+            Preview unavailable
           </div>
         ) : (
           <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
