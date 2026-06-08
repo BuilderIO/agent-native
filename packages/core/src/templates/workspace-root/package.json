@@ -23,10 +23,5 @@
     "tsx": "catalog:",
     "typescript": "^6.0.3"
   },
-  "pnpm": {
-    "overrides": {
-      "better-auth": "1.6.0"
-    }
-  },
   "packageManager": "pnpm@10.14.0"
 }
