@@ -10,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Create or replace a visual recap plan from source-control friendly MDX generated from a PR, commit, branch, or git diff. Use this for high-altitude code review recaps after a code change exists; the caller should derive the MDX from the real diff and avoid inventing schema, API, file, or contract facts. When the diff changes rendered UI, include realistic wireframes of the changed surface instead of abstract diagrams.",
+    "Create or replace a visual recap plan from source-control friendly MDX generated from a PR, commit, branch, or git diff. Use this for high-altitude code review recaps after a code change exists; the caller should derive the MDX from the real diff and avoid inventing schema, API, file, or contract facts. When the diff changes rendered UI, include realistic wireframes of the changed surface instead of abstract diagrams. The only supported output is the published recap this tool returns — never deliver the recap as inline chat content (markdown, ASCII sketch, table, or fenced wireframe); an inline recap is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
   schema: z.object({
     planId: z
       .string()

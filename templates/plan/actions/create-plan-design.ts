@@ -100,7 +100,7 @@ const designContextRecordSchema = z.record(z.string(), z.unknown()).refine(
 
 export default defineAction({
   description:
-    "Create a /plan-design Agent-Native plan: a full-fidelity Design tab on a Figma-style canvas, plus a matching Prototype tab when interaction or flow review is useful. Use design.md, parsed .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with `data-design-id` targets for specific style edits.",
+    "Create a /plan-design Agent-Native plan: a full-fidelity Design tab on a Figma-style canvas, plus a matching Prototype tab when interaction or flow review is useful. Use design.md, parsed .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with `data-design-id` targets for specific style edits. The only supported output is the published plan this tool returns — never deliver the design plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
   schema: z
     .object({
       title: z.string().optional().describe("Short design plan title"),

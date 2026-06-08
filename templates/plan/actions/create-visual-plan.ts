@@ -50,7 +50,7 @@ function inferImportedPlanTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Create an Agent-Native plan for a coding-agent task, or import existing Codex, Claude Code, Markdown, or pasted plan text as the starting point. Use this before implementation to open a durable structured plan with inline document diagrams, annotated code for the key files, options, annotations, and an optional top UI/product visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs).",
+    "Create an Agent-Native plan for a coding-agent task, or import existing Codex, Claude Code, Markdown, or pasted plan text as the starting point. Use this before implementation to open a durable structured plan with inline document diagrams, annotated code for the key files, options, annotations, and an optional top UI/product visual surface (none, wireframe canvas only, or wireframe canvas plus clickable prototype tabs). The only supported output is the published plan this tool returns — never deliver the plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),

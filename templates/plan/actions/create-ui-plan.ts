@@ -52,7 +52,7 @@ const uiPlanComponentSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined implementation document with annotated code for the key files, contracts, validation, comments, share/export, and agent handoff.",
+    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined implementation document with annotated code for the key files, contracts, validation, comments, share/export, and agent handoff. The only supported output is the published plan this tool returns — never deliver the plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
   schema: z
     .object({
       title: z.string().optional().describe("Short UI plan title"),

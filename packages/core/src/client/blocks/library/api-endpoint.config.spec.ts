@@ -134,6 +134,7 @@ describe("api-endpoint block — mdx round-trip", () => {
       "summary",
       "auth",
       "deprecated",
+      "change",
       "params",
       "request",
       "responses",

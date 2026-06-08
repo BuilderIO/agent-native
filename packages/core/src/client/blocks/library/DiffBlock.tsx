@@ -9,7 +9,15 @@ import {
 import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
-import type { DiffData, DiffMode } from "./diff.config.js";
+import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
+import {
+  AnnotationGutterMarker,
+  AnnotationNoteRail,
+  buildLineMarkerMap,
+  hasRailAnnotations,
+  resolveAnnotations,
+  type ResolvedAnnotation,
+} from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 
 /**
@@ -356,9 +364,33 @@ function buildRows(changes: Change[]): DiffRow[] {
  * Group rows into segments, collapsing interior runs of >COLLAPSE_THRESHOLD
  * context rows (keeping CONTEXT_EDGE visible at each side). Leading/trailing runs
  * collapse too, but keep only the inner edge visible.
+ *
+ * `isAnchored` marks context rows that carry an annotation (or sit adjacent to
+ * one): an anchored row is NEVER hidden inside a collapsed run, so a note that
+ * targets an unchanged line stays reachable. An anchor splits its run into the
+ * separately-collapsible spans on either side of it, with CONTEXT_EDGE rows kept
+ * visible around the anchor.
  */
-function segmentRows(rows: DiffRow[]): DiffSegment[] {
+function segmentRows(
+  rows: DiffRow[],
+  isAnchored?: (row: DiffRow) => boolean,
+): DiffSegment[] {
   const segments: DiffSegment[] = [];
+
+  // Collapse one contiguous context run [from, to) that contains NO anchors.
+  const collapseRun = (run: DiffRow[], atStart: boolean, atEnd: boolean) => {
+    if (run.length <= COLLAPSE_THRESHOLD) {
+      for (const row of run) segments.push(row);
+      return;
+    }
+    const head = atStart ? [] : run.slice(0, CONTEXT_EDGE);
+    const tail = atEnd ? [] : run.slice(run.length - CONTEXT_EDGE);
+    const hidden = run.slice(head.length, run.length - tail.length);
+    for (const row of head) segments.push(row);
+    if (hidden.length > 0) segments.push({ collapsed: true, rows: hidden });
+    for (const row of tail) segments.push(row);
+  };
+
   let i = 0;
   while (i < rows.length) {
     if (rows[i].kind !== "context") {
@@ -369,18 +401,32 @@ function segmentRows(rows: DiffRow[]): DiffSegment[] {
     // Gather the full contiguous context run.
     let j = i;
     while (j < rows.length && rows[j].kind === "context") j += 1;
-    const run = rows.slice(i, j);
-    if (run.length <= COLLAPSE_THRESHOLD) {
-      for (const row of run) segments.push(row);
+    const fullRun = rows.slice(i, j);
+    const runAtStart = i === 0;
+    const runAtEnd = j === rows.length;
+
+    if (!isAnchored || !fullRun.some(isAnchored)) {
+      collapseRun(fullRun, runAtStart, runAtEnd);
     } else {
-      const atStart = i === 0;
-      const atEnd = j === rows.length;
-      const head = atStart ? [] : run.slice(0, CONTEXT_EDGE);
-      const tail = atEnd ? [] : run.slice(run.length - CONTEXT_EDGE);
-      const hidden = run.slice(head.length, run.length - tail.length);
-      for (const row of head) segments.push(row);
-      if (hidden.length > 0) segments.push({ collapsed: true, rows: hidden });
-      for (const row of tail) segments.push(row);
+      // Walk the run, emitting anchored rows verbatim and collapsing the
+      // unanchored spans between them. An anchored row is always visible; the
+      // spans on each side of it collapse independently.
+      let spanStart = 0;
+      for (let k = 0; k <= fullRun.length; k += 1) {
+        const atAnchor = k < fullRun.length && isAnchored(fullRun[k]);
+        if (atAnchor || k === fullRun.length) {
+          const span = fullRun.slice(spanStart, k);
+          if (span.length > 0) {
+            collapseRun(
+              span,
+              runAtStart && spanStart === 0,
+              runAtEnd && k === fullRun.length,
+            );
+          }
+          if (k < fullRun.length) segments.push(fullRun[k]);
+          spanStart = k + 1;
+        }
+      }
     }
     i = j;
   }

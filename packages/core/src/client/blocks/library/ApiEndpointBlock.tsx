@@ -500,9 +500,23 @@ export function ApiEndpointRead({
                           {response.status}
                         </span>
                         {response.description && (
-                          <span className="text-sm text-plan-muted">
+                          <span
+                            className={cn(
+                              "text-sm",
+                              response.change
+                                ? CHANGE_INK[response.change]
+                                : "text-plan-muted",
+                            )}
+                          >
                             {response.description}
                           </span>
+                        )}
+                        {response.change && (
+                          <ChangeChip
+                            change={response.change}
+                            variant="label"
+                            className="ml-auto"
+                          />
                         )}
                       </div>
                       {response.example && (
@@ -528,6 +542,18 @@ export function ApiEndpointRead({
 /* ── Edit (panel form) ─────────────────────────────────────────────────────── */
 
 const fieldLabelClass = "text-xs font-medium text-muted-foreground";
+
+/**
+ * Options for a change `DevSelect` — a leading "No change" entry (decodes to
+ * `undefined`) plus the four diff states, mirroring the file-tree editor.
+ */
+const CHANGE_SELECT_OPTIONS = [
+  { value: "none", label: "No change" },
+  ...API_ENDPOINT_CHANGES.map((change) => ({
+    value: change,
+    label: CHANGE_LABEL[change],
+  })),
+];
 
 /**
  * Panel editor for an `api-endpoint` block. A property form: method (Select),
@@ -637,7 +663,7 @@ export function ApiEndpointEdit({
         />
       </label>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_120px_auto] items-end gap-3">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabelClass}>Auth</span>
           <DevInput
@@ -648,6 +674,21 @@ export function ApiEndpointEdit({
             onChange={(event) =>
               patch({ auth: event.target.value || undefined })
             }
+          />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className={fieldLabelClass}>Change</span>
+          <DevSelect
+            className="h-9"
+            value={data.change ?? "none"}
+            disabled={!editable}
+            onValueChange={(value) =>
+              patch({
+                change:
+                  value === "none" ? undefined : (value as ApiEndpointChange),
+              })
+            }
+            options={CHANGE_SELECT_OPTIONS}
           />
         </label>
         <label className="flex items-center gap-2 pb-2">
@@ -753,6 +794,33 @@ export function ApiEndpointEdit({
                 })
               }
             />
+            {/* Diff state: change kind + the prior value (`was`) shown
+                struck-through before the current one when "modified". */}
+            <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+              <DevSelect
+                className="h-8"
+                value={param.change ?? "none"}
+                disabled={!editable}
+                onValueChange={(value) =>
+                  updateParam(index, {
+                    change:
+                      value === "none"
+                        ? undefined
+                        : (value as ApiEndpointChange),
+                  })
+                }
+                options={CHANGE_SELECT_OPTIONS}
+              />
+              <DevInput
+                className="h-8 font-mono text-xs"
+                value={param.was ?? ""}
+                disabled={!editable || param.change !== "modified"}
+                placeholder="was (e.g. optional, or old type)"
+                onChange={(event) =>
+                  updateParam(index, { was: event.target.value || undefined })
+                }
+              />
+            </div>
           </div>
         ))}
       </div>
@@ -845,6 +913,23 @@ export function ApiEndpointEdit({
                 })
               }
             />
+            <label className="flex items-center gap-2">
+              <span className={fieldLabelClass}>Change</span>
+              <DevSelect
+                className="h-8 w-[120px]"
+                value={response.change ?? "none"}
+                disabled={!editable}
+                onValueChange={(value) =>
+                  updateResponse(index, {
+                    change:
+                      value === "none"
+                        ? undefined
+                        : (value as ApiEndpointChange),
+                  })
+                }
+                options={CHANGE_SELECT_OPTIONS}
+              />
+            </label>
           </div>
         ))}
       </div>

@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Convert an existing Agent-Native visual plan into a prototype plan by deriving a clickable prototype from the plan's HTML canvas wireframes. The prototype viewer appears above the document while the original canvas/static mocks remain available for reference unless removeCanvas is true.",
+    "Convert an existing Agent-Native visual plan into a prototype plan by deriving a clickable prototype from the plan's HTML canvas wireframes. The prototype viewer appears above the document while the original canvas/static mocks remain available for reference unless removeCanvas is true. The only supported output is the updated plan this tool returns — never reproduce the prototype as inline chat content; if this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
   schema: z.object({
     planId: z.string().describe("Visual plan ID to convert"),
     title: z
