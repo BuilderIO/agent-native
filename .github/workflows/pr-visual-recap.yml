@@ -289,7 +289,16 @@ jobs:
           printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
           # VISUAL_RECAP_MODEL (e.g. gpt-5.5) and VISUAL_RECAP_REASONING
           # (none|minimal|low|medium|high|xhigh) tune the Codex run.
-          CODEX_ARGS=(exec --sandbox workspace-write --skip-git-repo-check)
+          #
+          # The GitHub runner is itself an ephemeral, throwaway sandbox, so run
+          # Codex with sandboxing and approvals disabled. Codex's own bubblewrap
+          # sandbox cannot initialize on the runner ("could not find bubblewrap
+          # on PATH"), which makes every shell command fail at startup so the
+          # agent cannot even read recap.diff; and under an approval gate the
+          # write-side plan MCP call (create-visual-recap) is auto-cancelled
+          # ("user cancelled MCP tool call"). --dangerously-bypass-approvals-and-sandbox
+          # is the documented invocation for externally-sandboxed CI and clears both.
+          CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
           # Validate reasoning against the known enum before embedding it in the
           # codex `-c` TOML override, so an unexpected value can't alter the config.
