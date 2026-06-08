@@ -475,9 +475,8 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
     title: "CPU Mode Breakdown",
     promql: `label_replace(avg by (mode) (rate(node_cpu_seconds_total${S}[{{rateInterval}}])), "grafana_target", "$1", "mode", "(.*)")`,
     tab: "CPU",
-    chartType: "area",
+    chartType: "line",
     yFormatter: "percent",
-    stacked: true,
   });
   chart({
     id: "cpu-core-busy",
