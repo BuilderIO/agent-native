@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.40.2
+
+### Patch Changes
+
+- 8ea7f6d: Remove the annotated-code dev-doc block from Plans/Content (block source,
+  client/server registries, schema, slash menu, and skill guidance).
+
 ## 0.40.1
 
 ### Patch Changes
