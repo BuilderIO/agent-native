@@ -34,6 +34,12 @@
   --input: 36 10% 86%;
   --ring: 218 85% 57%;
   --radius: 0.5rem;
+  /* Callout tone accents — info/decision/risk/warning/success. */
+  --plan-tone-info: 218 85% 57%;
+  --plan-tone-decision: 262 83% 58%;
+  --plan-tone-risk: 0 84% 60%;
+  --plan-tone-warning: 25 95% 48%;
+  --plan-tone-success: 142 71% 38%;
   --sidebar-background: 42 18% 96%;
   --sidebar-foreground: 30 6% 43%;
   --sidebar-primary: 30 5% 13%;
@@ -65,6 +71,12 @@
   --input: 35 5% 21%;
   --ring: 218 85% 67%;
   --radius: 0.5rem;
+  /* Callout tone accents — brighter so they read on the dark surface. */
+  --plan-tone-info: 218 85% 67%;
+  --plan-tone-decision: 263 88% 74%;
+  --plan-tone-risk: 0 84% 67%;
+  --plan-tone-warning: 28 96% 60%;
+  --plan-tone-success: 142 60% 52%;
   --sidebar-background: 30 5% 10%;
   --sidebar-foreground: 38 7% 63%;
   --sidebar-primary: 40 9% 92%;
@@ -773,6 +785,170 @@
   background: var(--shiki-dark-bg);
 }
 
+/* `code` primitive block: read wraps the single-bordered .plan-code-surface with
+   a borderless filename header + hover chrome (copy); edit is a single-bordered
+   surface that auto-grows (no drag-to-resize) with a hover language switcher. */
+.plan-code {
+  position: relative;
+}
+
+.plan-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.15rem 0.4rem;
+}
+
+.plan-code-filename {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--plan-text);
+}
+
+.plan-code-muted {
+  color: var(--plan-muted);
+  font-weight: 500;
+}
+
+.plan-code-chrome {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.plan-code:hover .plan-code-chrome,
+.plan-code:focus-within .plan-code-chrome {
+  opacity: 1;
+}
+
+.plan-code-chrome-float {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+}
+
+.plan-code-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.75rem;
+  width: 1.75rem;
+  border-radius: 7px;
+  border: 1px solid var(--plan-line);
+  background: var(--plan-code);
+  color: var(--plan-muted);
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background-color 0.12s;
+}
+
+.plan-code-chip:hover {
+  color: var(--plan-text);
+  background: var(--plan-block);
+}
+
+.plan-code-lang-select {
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border-radius: 7px;
+  border: 1px solid var(--plan-line);
+  background: var(--plan-code);
+  color: var(--plan-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.plan-code-lang-select:hover {
+  color: var(--plan-text);
+}
+
+/* Editable surface: ONE border, auto-grows to content (no drag-to-resize). */
+.plan-code-editing {
+  overflow: hidden;
+  border: 1px solid var(--plan-line);
+  border-radius: 12px;
+  background: var(--plan-code);
+}
+
+.plan-code-editing .plan-code-head {
+  padding: 0.4rem 0.5rem 0.4rem 0.85rem;
+  border-bottom: 1px solid var(--plan-line);
+}
+
+.plan-code-editing:hover .plan-code-chrome,
+.plan-code-editing:focus-within .plan-code-chrome {
+  opacity: 1;
+}
+
+.plan-code-editor-body {
+  position: relative;
+  overflow: auto;
+}
+
+.plan-code-editor-layer,
+.plan-code-editor-input {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.plan-code-editor-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--plan-code-text);
+}
+
+.plan-code-editor-input {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 2.5rem;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--plan-text);
+  outline: none;
+}
+
+.plan-code-editor-input::placeholder {
+  color: var(--plan-muted);
+}
+
+.plan-code-caption {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--plan-muted);
+}
+
+.plan-code-caption-input {
+  width: 100%;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  font-size: 0.8rem;
+  color: var(--plan-muted);
+  outline: none;
+}
+
 /* Editor node view (Tiptap): language picker header + highlighted <pre>. */
 .an-code-block {
   position: relative;
@@ -890,6 +1066,43 @@
   max-width: 860px;
   border-left: 3px solid hsl(var(--ring));
   padding-left: 1.25rem;
+}
+
+/* Tone styling: `data-tone` is set by the callout reader/editor (it defaults to
+ * "info"). Each tone picks an accent; the bar, a faint left-anchored wash, and
+ * the block label all derive from it so warning reads orange, risk red, etc. */
+.plan-callout[data-tone="info"] {
+  --plan-callout-accent: var(--plan-tone-info);
+}
+.plan-callout[data-tone="decision"] {
+  --plan-callout-accent: var(--plan-tone-decision);
+}
+.plan-callout[data-tone="risk"] {
+  --plan-callout-accent: var(--plan-tone-risk);
+}
+.plan-callout[data-tone="warning"] {
+  --plan-callout-accent: var(--plan-tone-warning);
+}
+.plan-callout[data-tone="success"] {
+  --plan-callout-accent: var(--plan-tone-success);
+}
+
+.plan-callout[data-tone] {
+  border-left-color: hsl(var(--plan-callout-accent));
+  border-radius: 0 8px 8px 0;
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--plan-callout-accent) / 0.08),
+    hsl(var(--plan-callout-accent) / 0.02) 38%,
+    transparent 72%
+  );
+  transition:
+    border-left-color 0.12s ease,
+    background-image 0.12s ease;
+}
+
+.plan-callout[data-tone] .plan-block-label {
+  color: hsl(var(--plan-callout-accent));
 }
 
 .plan-sketch-region {

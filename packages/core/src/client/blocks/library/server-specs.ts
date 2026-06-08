@@ -10,6 +10,7 @@ import {
   type ChecklistData,
 } from "./checklist.config.js";
 import { tableSchema, tableMdx, type TableData } from "./table.config.js";
+import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 import {
   codeTabsSchema,
   codeTabsMdx,
@@ -98,6 +99,17 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     label: "Table",
     description:
       "A simple grid with header columns and string rows for comparisons, parameters, or structured lists.",
+  }),
+  defineBlock<CodeData>({
+    type: "code",
+    schema: codeSchema,
+    mdx: codeMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    notionCompatible: true,
+    label: "Code",
+    description:
+      "A single syntax-highlighted code snippet (Notion-style: one border, hover language switcher + copy, collapse-to-N lines). Put several in a `tabs` block for a file rail.",
   }),
   defineBlock<CodeTabsData>({
     type: "code-tabs",

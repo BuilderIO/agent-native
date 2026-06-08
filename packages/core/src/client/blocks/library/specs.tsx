@@ -4,6 +4,7 @@ import { registerBlocks, type BlockRegistry } from "../registry.js";
 // Pre-built standard library specs (schema + mdx + React Read/Edit all bundled).
 import { checklistBlock } from "./checklist.js";
 import { tableBlock } from "./table.js";
+import { codeBlock } from "./code.js";
 import { codeTabsBlock } from "./code-tabs.js";
 import { htmlBlock } from "./html.js";
 import { tabsBlock } from "./tabs.js";
@@ -259,6 +260,7 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
 export const libraryBlockSpecs: BlockSpec<any>[] = [
   checklistBlock,
   tableBlock,
+  codeBlock,
   codeTabsBlock,
   htmlBlock,
   tabsBlock,

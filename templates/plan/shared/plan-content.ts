@@ -29,6 +29,7 @@ export type PlanBlockType =
   | "callout"
   | "checklist"
   | "table"
+  | "code"
   | "code-tabs"
   | "implementation-map"
   | "wireframe"
@@ -105,6 +106,17 @@ export type PlanCodeTabsBlock = PlanBlockBase & {
       code: string;
       caption?: string;
     }>;
+  };
+};
+
+export type PlanCodeBlock = PlanBlockBase & {
+  type: "code";
+  data: {
+    code: string;
+    language?: string;
+    filename?: string;
+    caption?: string;
+    maxLines?: number;
   };
 };
 
@@ -590,6 +602,7 @@ export type PlanBlock =
   | PlanCalloutBlock
   | PlanChecklistBlock
   | PlanTableBlock
+  | PlanCodeBlock
   | PlanCodeTabsBlock
   | PlanImplementationMapBlock
   | PlanWireframeBlock
@@ -1445,6 +1458,16 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
           )
           .min(1)
           .max(12),
+      }),
+    }),
+    baseBlockSchema.extend({
+      type: z.literal("code"),
+      data: z.object({
+        code: z.string().max(100_000),
+        language: z.string().trim().max(40).optional(),
+        filename: z.string().trim().max(400).optional(),
+        caption: z.string().trim().max(400).optional(),
+        maxLines: z.number().int().min(0).max(2000).optional(),
       }),
     }),
     baseBlockSchema.extend({
