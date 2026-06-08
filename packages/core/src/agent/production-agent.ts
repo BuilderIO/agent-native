@@ -1422,8 +1422,23 @@ function seedWriteToolInterruptionsFromHistory(
   const interruptions = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return interruptions;
 
+  // Only count interruptions from the CURRENT logical turn — the continuation
+  // chain after the most recent user message. `messages` on an internal
+  // continuation is `...structuredHistory` (prior turns) + the current turn, so
+  // scanning the whole array would let an interrupted write from an earlier
+  // turn inflate the retry budget of an identical (name + input) write in a
+  // later turn, tripping `repeated_write_tool_interruption` immediately.
+  let turnStart = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      turnStart = i;
+      break;
+    }
+  }
+  const turnMessages = messages.slice(turnStart);
+
   const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
-  for (const message of messages) {
+  for (const message of turnMessages) {
     if (message.role === "assistant") {
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;

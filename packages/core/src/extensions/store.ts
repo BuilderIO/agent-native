@@ -990,19 +990,25 @@ export async function createExtension(
  * Scoped by `orgId` the same way `createExtension` stamps it, so the same
  * `ownerEmail` working in two different orgs can create identically-named,
  * identical-content extensions without this lookup cross-matching and skipping
- * the second insert. Keyed on the tool call's stable inputs (name + content),
- * not on metadata like description/icon — a connection-retry of one tool call
- * carries the same name + content, so that pair is the idempotency key.
+ * the second insert. Keyed on the FULL create inputs (name + content +
+ * description + icon, normalized exactly as `createExtension` stores them), so
+ * two creates that differ in any of them are treated as distinct — only a
+ * byte-identical re-create (the connection-retry case) recovers the prior row,
+ * and no intentional second create silently loses its metadata.
  */
 export async function findRecentDuplicateExtension(data: {
   name: string;
   content: string;
+  description?: string;
+  icon?: string;
 }): Promise<ExtensionRow | null> {
   await ensureExtensionsTables();
   const db = getDb();
   const userEmail = getRequestUserEmail();
   if (!userEmail) return null;
   const orgId = getRequestOrgId() ?? null;
+  const description = data.description ?? "";
+  const icon = data.icon ?? null;
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const rows = await db
     .select()
@@ -1013,6 +1019,8 @@ export async function findRecentDuplicateExtension(data: {
         orgId === null ? isNull(extensions.orgId) : eq(extensions.orgId, orgId),
         eq(extensions.name, data.name),
         eq(extensions.content, data.content),
+        eq(extensions.description, description),
+        icon === null ? isNull(extensions.icon) : eq(extensions.icon, icon),
         gte(extensions.createdAt, fiveMinutesAgo),
         isNull(extensions.hiddenAt),
       ),

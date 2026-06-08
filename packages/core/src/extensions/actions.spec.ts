@@ -674,6 +674,8 @@ describe("extensions/actions", () => {
     expect(findRecentDuplicateExtension).toHaveBeenCalledWith({
       name: "Pasted Dashboard",
       content: bigHtml,
+      description: "",
+      icon: undefined,
     });
     expect(createExtension).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Pasted Dashboard", content: bigHtml }),
@@ -729,6 +731,37 @@ describe("extensions/actions", () => {
 
     expect(typeof result).toBe("string");
     expect(result).toContain("no readable text attachment");
+    expect(createExtension).not.toHaveBeenCalled();
+  });
+
+  it("create-extension rejects a truncated pasted attachment instead of hosting corrupted content", async () => {
+    const createExtension = vi.fn();
+    mockExtensionModules({ store: { createExtension } });
+
+    const truncated =
+      "<div x-data>" +
+      "x".repeat(500) +
+      "\n\n[Attachment truncated after 200,000 characters; 50,000 characters omitted from the submitted attachment.]";
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["create-extension"].run(
+      { name: "TooBig", contentFromAttachment: "latest" },
+      {
+        caller: "tool",
+        attachments: [
+          {
+            type: "file",
+            name: "pasted-text-big.txt",
+            contentType: "text/plain",
+            text: truncated,
+          },
+        ],
+      } as any,
+    )) as any;
+
+    expect(typeof result).toBe("string");
+    expect(result).toContain("too large to host verbatim");
     expect(createExtension).not.toHaveBeenCalled();
   });
 

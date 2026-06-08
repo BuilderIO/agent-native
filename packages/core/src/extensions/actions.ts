@@ -268,11 +268,22 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if ("error" in resolved) return resolved.error;
         const content = resolved.content.trim();
         if (!content) return "Error: content is required.";
+        const description = String(args?.description ?? "").trim();
+        const icon = args?.icon ? String(args.icon) : undefined;
 
         // Idempotency: if an identical extension was created in the last 5
         // minutes (e.g. a connection drop caused the agent to retry this tool
         // call), return the existing one instead of creating a duplicate.
-        const existing = await findRecentDuplicateExtension({ name, content });
+        // Keyed on the FULL create inputs (name + content + description + icon),
+        // so two creates that differ in ANY of them are treated as distinct
+        // rather than silently collapsed — only a byte-identical re-create (the
+        // retry case) recovers the existing row.
+        const existing = await findRecentDuplicateExtension({
+          name,
+          content,
+          description,
+          icon,
+        });
         if (existing) {
           const existingPath = extensionPath(existing.id, existing.name);
           try {
@@ -295,9 +306,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 
         const extension = await createExtension({
           name,
-          description: String(args?.description ?? "").trim(),
+          description,
           content,
-          icon: args?.icon ? String(args.icon) : undefined,
+          icon,
         });
         const path = extensionPath(extension.id, extension.name);
 
@@ -390,9 +401,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 
         // Full-replacement content can come inline (`content`) or by reference
         // (`contentFromAttachment`) so the model never has to re-type a large
-        // pasted file. Inline wins when both are present.
+        // pasted file. Inline wins only when NON-EMPTY — the docstring tells
+        // callers to leave `content` empty when using `contentFromAttachment`,
+        // so an empty/blank `content` must fall through to the attachment
+        // instead of blanking the extension (mirrors resolveExtensionContent).
         let replacementContent =
-          args?.content !== undefined ? String(args.content) : undefined;
+          typeof args?.content === "string" && args.content.trim().length > 0
+            ? args.content
+            : undefined;
         if (
           replacementContent === undefined &&
           args?.contentFromAttachment !== undefined
@@ -907,7 +923,20 @@ function resolveExtensionContent(
     };
   }
 
-  return { content: unwrapAttachmentEnvelope(match.text) };
+  const resolved = unwrapAttachmentEnvelope(match.text);
+  // Fail fast instead of hosting corrupted content. The client caps an
+  // outbound attachment at MAX_OUTBOUND_ATTACHMENT_CHARS (200k) and appends a
+  // trailing notice ending "...omitted from the submitted attachment.]" (see
+  // truncateOutboundAttachment in agent-chat-adapter.ts). Hosting that verbatim
+  // would bake a half file + the notice into the extension body; reject it with
+  // an actionable message so the user shrinks/splits the file instead.
+  if (/omitted from the submitted attachment\.\]\s*$/.test(resolved)) {
+    return {
+      error:
+        "Error: the pasted file is too large to host verbatim (it was truncated above 200,000 characters before reaching the server, so hosting it would corrupt the extension). Reduce the file or split it into smaller extensions, then try again.",
+    };
+  }
+  return { content: resolved };
 }
 
 function coerceBoolean(value: unknown): boolean {
