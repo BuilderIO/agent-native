@@ -592,9 +592,15 @@ export function PlanDocumentEditor({
         wrapperSelector: `.${WRAPPER_CLASS}`,
         getDragTransferData,
         receiveDragTransferData,
+        // Without this the top-level editor never lights up the left/right side
+        // drop zones (the core DragHandle gates them on `handleDrop` existing),
+        // so dragging two top-level blocks together to CREATE a new columns
+        // block was dead — only inserting into an existing column worked. Same
+        // handler we already hand down to nested regions via PlanSideDropContext.
+        handleDrop,
       }),
     ],
-    [getDragTransferData, receiveDragTransferData],
+    [getDragTransferData, receiveDragTransferData, handleDrop],
   );
 
   // When the plan opts into Notion sync, the slash menu only offers blocks that
