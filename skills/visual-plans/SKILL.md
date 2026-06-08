@@ -12,7 +12,7 @@ metadata:
 
 Agent-Native Plans is structured visual planning mode for coding agents. Build
 the plan you would normally write in Markdown, but as a scannable document with
-editable blocks mixed in: inline diagrams, implementation maps, code previews,
+editable blocks mixed in: inline diagrams, annotated code, code previews,
 open questions, and an optional top visual review area (wireframe canvas, live
 prototype, or both in tabs). Architecture, backend, data, and refactor plans
 usually start in the document with local diagrams near each claim. UI and product
