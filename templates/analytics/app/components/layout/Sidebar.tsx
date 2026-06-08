@@ -266,18 +266,6 @@ function SidebarSectionSortMenu({
 
 type Visibility = "private" | "org" | "public";
 
-function VisibilityDot({ visibility }: { visibility: Visibility }) {
-  return (
-    <span
-      className={cn(
-        "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-        visibility === "private" ? "bg-muted-foreground/40" : "bg-blue-400",
-      )}
-      aria-label={visibility === "private" ? "Private" : "Shared with org"}
-    />
-  );
-}
-
 // --- Shared sortable row (used by both dashboards and analyses) ---
 
 function SortableRow({
@@ -454,31 +442,7 @@ function SortableRow({
                 onTouchStart={onPrefetch}
                 className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
               >
-                <span className="flex items-center gap-1.5">
-                  {visibility && onSetVisibility ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void runSetVisibility(
-                          visibility === "private" ? "org" : "private",
-                        );
-                      }}
-                      aria-label={
-                        visibility === "private"
-                          ? "Share with org"
-                          : "Make private"
-                      }
-                      className="shrink-0"
-                    >
-                      <VisibilityDot visibility={visibility} />
-                    </button>
-                  ) : (
-                    visibility && <VisibilityDot visibility={visibility} />
-                  )}
-                  <span className="truncate">{name}</span>
-                </span>
+                <span className="truncate">{name}</span>
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right">{name}</TooltipContent>
