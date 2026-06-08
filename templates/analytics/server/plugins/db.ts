@@ -185,6 +185,18 @@ export default runMigrations(
       version: 31,
       sql: `CREATE INDEX IF NOT EXISTS dashboards_hidden_at_idx ON dashboards (hidden_at)`,
     },
+    {
+      version: 32,
+      sql: `ALTER TABLE analyses ADD COLUMN IF NOT EXISTS hidden_at TEXT`,
+    },
+    {
+      version: 33,
+      sql: `ALTER TABLE analyses ADD COLUMN IF NOT EXISTS hidden_by TEXT`,
+    },
+    {
+      version: 34,
+      sql: `CREATE INDEX IF NOT EXISTS analyses_hidden_at_idx ON analyses (hidden_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

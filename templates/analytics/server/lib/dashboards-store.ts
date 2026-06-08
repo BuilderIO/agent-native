@@ -72,6 +72,9 @@ export interface AnalysisRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
+  /** ISO timestamp set when the analysis is hidden from default navigation. */
+  hiddenAt: string | null;
+  hiddenBy: string | null;
   /** Effective role for the caller when loaded by id. List rows omit this. */
   role?: AccessRole;
   canEdit?: boolean;
@@ -648,6 +651,8 @@ function rowToAnalysis(row: any, role?: AccessRole): AnalysisRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    hiddenAt: row.hiddenAt ?? null,
+    hiddenBy: row.hiddenBy ?? null,
     ...accessFields(role),
   };
 }
@@ -763,19 +768,28 @@ export async function getAnalysis(
   );
 }
 
-export async function listAnalyses(ctx: AccessCtx): Promise<AnalysisRecord[]> {
+export async function listAnalyses(
+  ctx: AccessCtx,
+  filter?: { hidden?: DashboardHiddenFilter },
+): Promise<AnalysisRecord[]> {
   const db = getDb() as any;
-  const rows = await db
-    .select()
-    .from(schema.analyses)
-    .where(
-      accessFilter(schema.analyses, schema.analysisShares, {
-        userEmail: ctx.email,
-        orgId: ctx.orgId ?? undefined,
-      }),
-    );
+  const hidden = filter?.hidden ?? "visible";
+  const conditions: any[] = [
+    accessFilter(schema.analyses, schema.analysisShares, {
+      userEmail: ctx.email,
+      orgId: ctx.orgId ?? undefined,
+    }),
+  ];
+  if (hidden === "visible") conditions.push(isNull(schema.analyses.hiddenAt));
+  else if (hidden === "hidden")
+    conditions.push(isNotNull(schema.analyses.hiddenAt));
+  const where = conditions.length === 1 ? conditions[0] : and(...conditions);
+  const rows = await db.select().from(schema.analyses).where(where);
   const out = rows.map(rowToAnalysis);
   const seen = new Set<string>(out.map((r) => r.id));
+  // Legacy settings rows have no hidden concept, so hidden-only queries skip
+  // the legacy scan entirely.
+  if (hidden === "hidden") return out;
   try {
     const all = await getAllSettings();
     for (const [key, value] of Object.entries(all)) {
@@ -904,6 +918,86 @@ export async function removeAnalysis(
   } catch {
     // best-effort
   }
+}
+
+/**
+ * Hide an analysis from default lists/navigation without deleting it. The
+ * analysis remains accessible by id and can be found by surfaces that
+ * explicitly include hidden records.
+ */
+export async function hideAnalysis(
+  id: string,
+  ctx: AccessCtx,
+): Promise<AnalysisRecord | null> {
+  const existing = await getAnalysis(id, ctx);
+  if (!existing) return null;
+  if (existing.hiddenAt) return existing;
+  await assertAccess("analysis", id, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const now = nowIso();
+  await db
+    .update(schema.analyses)
+    .set({ hiddenAt: now, hiddenBy: ctx.email, updatedAt: now })
+    .where(eq(schema.analyses.id, id));
+  const [row] = await db
+    .select()
+    .from(schema.analyses)
+    .where(eq(schema.analyses.id, id));
+  const analysis = rowToAnalysis(row);
+  recordScopedChange(
+    "analyses",
+    "change",
+    analysis.id,
+    analysis.ownerEmail,
+    analysis.orgId,
+    analysis.visibility,
+  );
+  return analysis;
+}
+
+/**
+ * Unhide an analysis. During cleanup, legacy org-shared analyses can be left
+ * with a blank owner; the first user to unhide one becomes the owner so future
+ * sharing/editing has a real person behind it.
+ */
+export async function unhideAnalysis(
+  id: string,
+  ctx: AccessCtx,
+): Promise<AnalysisRecord | null> {
+  const existing = await getAnalysis(id, ctx);
+  if (!existing) return null;
+  await assertAccess("analysis", id, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const now = nowIso();
+  const patch: Record<string, unknown> = {
+    hiddenAt: null,
+    hiddenBy: null,
+    updatedAt: now,
+  };
+  if (!existing.ownerEmail) {
+    patch.ownerEmail = ctx.email;
+  }
+  await db.update(schema.analyses).set(patch).where(eq(schema.analyses.id, id));
+  const [row] = await db
+    .select()
+    .from(schema.analyses)
+    .where(eq(schema.analyses.id, id));
+  const analysis = rowToAnalysis(row);
+  recordScopedChange(
+    "analyses",
+    "change",
+    analysis.id,
+    analysis.ownerEmail,
+    analysis.orgId,
+    analysis.visibility,
+  );
+  return analysis;
 }
 
 // ---------------------------------------------------------------------------

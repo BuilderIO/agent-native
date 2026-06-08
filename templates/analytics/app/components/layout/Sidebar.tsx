@@ -36,6 +36,8 @@ import {
   IconLock,
   IconLink,
   IconMessageCircle,
+  IconEye,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -111,6 +113,8 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+
+type AnalysisHiddenFilter = "visible" | "hidden";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
@@ -279,6 +283,9 @@ function SortableRow({
   onDelete,
   onRename,
   onArchive,
+  onHide,
+  onUnhide,
+  hidden,
   onPrefetch,
   visibility,
   onSetVisibility,
@@ -296,6 +303,10 @@ function SortableRow({
   /** When provided, the menu shows Archive as the primary destructive action
    *  and Delete becomes a confirm-gated "Delete permanently". */
   onArchive?: () => Promise<void> | void;
+  /** When provided, the menu shows a Hide item (and Unhide when `hidden`). */
+  onHide?: () => Promise<void> | void;
+  onUnhide?: () => Promise<void> | void;
+  hidden?: boolean;
   onPrefetch?: () => void;
   visibility?: Visibility;
   onSetVisibility?: (visibility: Visibility) => Promise<void> | void;
@@ -371,6 +382,34 @@ function SortableRow({
       );
     }
   }, [name, onArchive]);
+
+  const runHide = useCallback(async () => {
+    setMenuOpen(false);
+    if (!onHide) return;
+    try {
+      await onHide();
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? `Couldn't hide ${name}: ${e.message}`
+          : `Couldn't hide ${name}`,
+      );
+    }
+  }, [name, onHide]);
+
+  const runUnhide = useCallback(async () => {
+    setMenuOpen(false);
+    if (!onUnhide) return;
+    try {
+      await onUnhide();
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? `Couldn't unhide ${name}: ${e.message}`
+          : `Couldn't unhide ${name}`,
+      );
+    }
+  }, [name, onUnhide]);
 
   const runSetVisibility = useCallback(
     async (visibility: Visibility) => {
@@ -515,6 +554,27 @@ function SortableRow({
                 <IconLink className="mr-2 h-3.5 w-3.5" />
                 Copy link
               </DropdownMenuItem>
+              {onUnhide && hidden ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void runUnhide();
+                  }}
+                >
+                  <IconEye className="mr-2 h-3.5 w-3.5" />
+                  Unhide
+                </DropdownMenuItem>
+              ) : onHide ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void runHide();
+                  }}
+                >
+                  <IconEyeOff className="mr-2 h-3.5 w-3.5" />
+                  Hide
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator />
               {onArchive ? (
                 <>
@@ -894,11 +954,20 @@ async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
     }));
 }
 
-async function fetchSidebarAnalyses(): Promise<
-  { id: string; name: string; visibility: Visibility }[]
+async function fetchSidebarAnalyses(
+  hidden: AnalysisHiddenFilter = "visible",
+): Promise<
+  {
+    id: string;
+    name: string;
+    visibility: Visibility;
+    hiddenAt: string | null;
+  }[]
 > {
   const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/analyses"), {
+  const path =
+    hidden === "hidden" ? "/api/analyses?hidden=hidden" : "/api/analyses";
+  const res = await fetch(appApiPath(path), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -916,6 +985,7 @@ async function fetchSidebarAnalyses(): Promise<
         a.visibility === "org" || a.visibility === "public"
           ? a.visibility
           : ("private" as Visibility),
+      hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
     }));
 }
 
@@ -1026,6 +1096,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
   const [analysisFilter, setAnalysisFilter] = useState<"all" | "org">("all");
+  const [analysisHiddenFilter, setAnalysisHiddenFilter] =
+    useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const [analysisSortMode, setAnalysisSortModeState] =
@@ -1051,6 +1123,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const { mutateAsync: renameDashboard } =
     useActionMutation("rename-dashboard");
   const { mutateAsync: renameAnalysis } = useActionMutation("rename-analysis");
+  const { mutateAsync: hideAnalysisMut } = useActionMutation("hide-analysis");
   const { mutateAsync: setResourceVisibility } = useActionMutation(
     "set-resource-visibility",
   );
@@ -1142,8 +1215,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     });
 
   const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
-    queryKey: ["analyses-sidebar", analysesSync],
-    queryFn: fetchSidebarAnalyses,
+    queryKey: ["analyses-sidebar", analysesSync, analysisHiddenFilter],
+    queryFn: () => fetchSidebarAnalyses(analysisHiddenFilter),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -1581,6 +1654,52 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [queryClient, renameAnalysis],
   );
 
+  const handleAnalysisHide = useCallback(
+    async (a: { id: string; name: string }) => {
+      const sidebarKey = ["analyses-sidebar"] as const;
+      const prev = getQuerySnapshots<{ id: string }[]>(queryClient, sidebarKey);
+      // Optimistically drop it from the visible list (the hidden-filter
+      // variant is invalidated below to pick it up).
+      queryClient.setQueriesData<{ id: string }[]>(
+        { queryKey: sidebarKey },
+        (old) => (old ?? []).filter((item) => item.id !== a.id),
+      );
+      try {
+        await hideAnalysisMut({ id: a.id, hidden: true });
+        queryClient.invalidateQueries({ queryKey: sidebarKey });
+        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        toast.success(`"${a.name}" hidden`);
+      } catch (err) {
+        restoreQuerySnapshots(queryClient, prev);
+        throw err;
+      }
+    },
+    [queryClient, hideAnalysisMut],
+  );
+
+  const handleAnalysisUnhide = useCallback(
+    async (a: { id: string; name: string }) => {
+      const sidebarKey = ["analyses-sidebar"] as const;
+      const prev = getQuerySnapshots<{ id: string }[]>(queryClient, sidebarKey);
+      // Optimistically drop it from the hidden list (the visible variant is
+      // invalidated below to pick it up).
+      queryClient.setQueriesData<{ id: string }[]>(
+        { queryKey: sidebarKey },
+        (old) => (old ?? []).filter((item) => item.id !== a.id),
+      );
+      try {
+        await hideAnalysisMut({ id: a.id, hidden: false });
+        queryClient.invalidateQueries({ queryKey: sidebarKey });
+        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        toast.success(`"${a.name}" unhidden`);
+      } catch (err) {
+        restoreQuerySnapshots(queryClient, prev);
+        throw err;
+      }
+    },
+    [queryClient, hideAnalysisMut],
+  );
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
@@ -1924,6 +2043,36 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   : "Show org-shared only"}
               </TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAnalysisHiddenFilter((f) =>
+                      f === "hidden" ? "visible" : "hidden",
+                    )
+                  }
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring",
+                    analysisHiddenFilter === "hidden"
+                      ? "text-blue-400"
+                      : "text-muted-foreground/45 opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/section:opacity-100",
+                  )}
+                  aria-label={
+                    analysisHiddenFilter === "hidden"
+                      ? "Showing hidden analyses"
+                      : "Show hidden analyses"
+                  }
+                >
+                  <IconEyeOff className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {analysisHiddenFilter === "hidden"
+                  ? "Showing hidden (click for visible)"
+                  : "Show hidden analyses"}
+              </TooltipContent>
+            </Tooltip>
             <button
               type="button"
               onClick={toggleAnalysesOpen}
@@ -1964,6 +2113,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       onToggleFavorite={toggleFavorite}
                       onDelete={() => handleAnalysisDelete(a)}
                       onRename={(name) => handleAnalysisRename(a, name)}
+                      hidden={analysisHiddenFilter === "hidden"}
+                      onHide={
+                        analysisHiddenFilter === "hidden"
+                          ? undefined
+                          : () => handleAnalysisHide(a)
+                      }
+                      onUnhide={
+                        analysisHiddenFilter === "hidden"
+                          ? () => handleAnalysisUnhide(a)
+                          : undefined
+                      }
                       visibility={a.visibility}
                       onSetVisibility={(v) => handleAnalysisSetVisibility(a, v)}
                       onPrefetch={() => prefetchAnalysis(a.id)}

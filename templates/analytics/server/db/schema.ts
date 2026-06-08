@@ -71,6 +71,9 @@ export const analyses = table("analyses", {
   author: text("author"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  /** Hidden analyses are omitted from default navigation but remain openable. */
+  hiddenAt: text("hidden_at"),
+  hiddenBy: text("hidden_by"),
   ...ownableColumns(),
 });
 
