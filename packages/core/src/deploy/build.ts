@@ -1721,6 +1721,68 @@ export async function runNitroBuildPipeline(
   await hooks.nitroBuild(nitro);
 }
 
+/**
+ * Browser-only diagram/drawing renderers that execute `window`-touching code at
+ * module-evaluation time. They are rendered exclusively client-side — core's
+ * `MermaidBlock` and templates' Excalidraw slides mount them inside `useEffect` /
+ * `React.lazy`, never during SSR — so the server never needs the real module.
+ *
+ * Keep this list to libraries that are *provably never* invoked on the server.
+ * Node-only deps that DO run server-side (pdf-parse, @google/genai, canvas, …)
+ * must NOT go here — see `heavyClientExternals` for the edge-worker externals.
+ */
+const BROWSER_ONLY_SERVER_LIBS = [
+  "@excalidraw/excalidraw",
+  "@excalidraw/mermaid-to-excalidraw",
+  "mermaid",
+];
+
+/**
+ * Rolldown plugin for the Nitro server bundle that replaces the browser-only
+ * renderers above with an inert proxy module.
+ *
+ * Why this is needed: Nitro re-bundles the server from node_modules with its own
+ * Rolldown pipeline, and Rolldown merges Excalidraw into a SHARED vendor chunk
+ * that the SSR render path (tiptap / radix-ui / recharts) imports *statically*.
+ * That evaluates Excalidraw's top-level `window` access at function cold-start
+ * and crashes every request with `ReferenceError: window is not defined` (HTTP
+ * 502). The Vite SSR build already stubs these via `ssrStubPlugin` for
+ * `build/server`, but that Vite plugin doesn't run during Nitro's separate
+ * bundle — so mirror the same stub here.
+ */
+function createBrowserOnlyServerStubPlugin() {
+  const stubbed = new Set(BROWSER_ONLY_SERVER_LIBS);
+  const STUB_ID = "\0agent-native-browser-only-server-stub";
+  return {
+    name: "agent-native-browser-only-server-stub",
+    // enforce: "pre" so we intercept before Nitro's node resolver bundles the
+    // real package. defu concatenates rollupConfig.plugins ahead of Nitro's own.
+    resolveId(id: string) {
+      // Match the bare package name or any subpath (incl. `/index.css`).
+      const pkg = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return stubbed.has(pkg) ? STUB_ID : null;
+    },
+    load(id: string) {
+      if (id !== STUB_ID) return null;
+      // A Proxy answers any property access (default or named) with another
+      // proxy, so every import shape resolves without evaluating real browser
+      // code. It is never actually invoked on the server, so it never throws.
+      return (
+        "const handler = { get(_t, p) {" +
+        " if (p === Symbol.toPrimitive) return () => '';" +
+        " if (p === 'then') return undefined;" +
+        " if (p === '__esModule') return true;" +
+        " return new Proxy(function () {}, handler); } };" +
+        "const stub = new Proxy(function () {}, handler);" +
+        "export default stub;"
+      );
+    },
+  };
+}
+
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
@@ -1811,6 +1873,15 @@ export default bundle;
     },
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
+    },
+    // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
+    // the server bundle. Without this, Nitro's Rolldown build pulls the real
+    // Excalidraw into a shared vendor chunk imported statically by the SSR render
+    // path, and its top-level `window` access crashes the function at cold-start
+    // (ReferenceError: window is not defined → every request 502s). Mirrors the
+    // Vite `ssrStubPlugin`, which only covers the `build/server` step.
+    rollupConfig: {
+      plugins: [createBrowserOnlyServerStubPlugin()],
     },
     ...(providedPluginsNitroPlugin
       ? { plugins: [providedPluginsNitroPlugin] }
