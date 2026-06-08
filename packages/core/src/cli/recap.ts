@@ -301,11 +301,22 @@ async function upsertComment(input: {
   repo: string;
   issue: string;
   body: string;
-}): Promise<{ action: "created" | "updated"; id: number; html_url?: string }> {
+  /** When true, refresh an existing comment but never create a new one. */
+  updateOnly?: boolean;
+}): Promise<{
+  action: "created" | "updated" | "skipped";
+  id: number;
+  html_url?: string;
+}> {
   const body = input.body.includes(MARKER)
     ? input.body
     : `${MARKER}\n${input.body}`;
   const existing = await findExistingComment(input);
+  if (!existing && input.updateOnly) {
+    // Nothing to refresh and we were told not to create — e.g. a tiny diff with
+    // no prior recap. Stay silent rather than posting a "skipped" comment.
+    return { action: "skipped", id: 0 };
+  }
   if (existing) {
     const updated = await githubRequest<GitHubComment>(
       input.token,
@@ -348,6 +359,15 @@ function sameOrigin(a: string, b: string): boolean {
   }
 }
 
+/** The origin of a URL, or "" if it doesn't parse. */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "";
+  }
+}
+
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const headShort = (env.HEAD_SHA || "").slice(0, 7);
@@ -375,15 +395,36 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     return lines.join("\n");
   }
 
+  // Tiny diffs aren't worth a recap. Refresh an existing sticky comment to this
+  // state (the workflow only updates, never creates, on tiny) so it never lingers
+  // pointing at a stale head SHA.
+  if (env.DIFF_TINY === "true") {
+    lines.push("### Visual recap — skipped (diff too small)");
+    lines.push("");
+    lines.push(
+      "The change in this push is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
+    );
+    lines.push("");
+    lines.push(`Updated for \`${headShort}\`.`);
+    lines.push("");
+    lines.push(aid);
+    return lines.join("\n");
+  }
+
   const planUrl = (env.PLAN_URL || "").trim();
-  // recap-url.txt is agent-written, so the plan URL is untrusted. When the plan
-  // app origin is known (PLAN_RECAP_APP_URL — always set by the workflow), only
-  // a same-origin URL is linkable; otherwise drop it so a poisoned URL can't
-  // become a phishing link in the sticky comment.
   const appUrl = (env.PLAN_RECAP_APP_URL || "").trim();
-  const planUrlOk =
-    planUrl !== "" && (appUrl === "" || sameOrigin(planUrl, appUrl));
-  if (!planUrlOk) {
+  // recap-url.txt is agent-written → untrusted. Rebuild a canonical link from a
+  // TRUSTED base (the configured PLAN_RECAP_APP_URL when set, else the parsed
+  // origin of the plan URL) plus a strictly-validated plan id, instead of
+  // embedding the raw URL. That both enforces the app origin and prevents
+  // markdown injection — a same-origin URL with a crafted path/query could
+  // otherwise break out of the markdown link.
+  const planId = planUrl ? planIdFromUrl(planUrl) : null;
+  const sameOriginOk = appUrl === "" || sameOrigin(planUrl, appUrl);
+  const base = (appUrl || originOf(planUrl)).replace(/\/$/, "");
+  const safeUrl =
+    planId && base && sameOriginOk ? `${base}/plans/${planId}` : "";
+  if (!safeUrl) {
     lines.push("### Visual recap — generation failed");
     lines.push("");
     lines.push(
@@ -396,14 +437,23 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     return lines.join("\n");
   }
 
-  const imageUrl = (env.RECAP_IMAGE_URL || "").trim();
+  // The image URL is produced by our own recap-image route, but validate it is
+  // same-origin and matches the canonical hex-token path before embedding it, so
+  // it likewise cannot inject markdown.
+  const imageUrlRaw = (env.RECAP_IMAGE_URL || "").trim();
+  const imageUrl =
+    imageUrlRaw &&
+    sameOrigin(imageUrlRaw, base) &&
+    /\/_agent-native\/recap-image\/[0-9a-f]+\.png$/.test(imageUrlRaw)
+      ? imageUrlRaw
+      : "";
   lines.push("### Visual recap — review at a higher altitude");
   lines.push("");
   if (imageUrl) {
-    lines.push(`[![Visual recap](${imageUrl})](${planUrl})`);
+    lines.push(`[![Visual recap](${imageUrl})](${safeUrl})`);
     lines.push("");
   }
-  lines.push(`**[Open the interactive recap](${planUrl})**`);
+  lines.push(`**[Open the interactive recap](${safeUrl})**`);
   if (env.DIFF_HUGE === "true") {
     lines.push("");
     lines.push(
@@ -412,11 +462,8 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   }
   lines.push("");
   lines.push(`Updated for \`${headShort}\`. ${aid}`);
-  const planId = planIdFromUrl(planUrl);
-  if (planId) {
-    lines.push("");
-    lines.push(`<!-- plan-id: ${planId} -->`);
-  }
+  lines.push("");
+  lines.push(`<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
 }
 
@@ -624,6 +671,8 @@ async function runComment(
       repo,
       issue,
       body: buildCommentBody(),
+      updateOnly:
+        args["update-only"] === true || args["update-only"] === "true",
     });
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;

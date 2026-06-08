@@ -89,15 +89,51 @@ describe("recap comment body", () => {
       PLAN_URL: "https://plan.agent-native.com/plans/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL:
-        "https://plan.agent-native.com/_agent-native/recap-image/tok.png",
+        "https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png",
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      "[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/tok.png)](https://plan.agent-native.com/plans/plan-abc123)",
+      "[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png)](https://plan.agent-native.com/plans/plan-abc123)",
     );
     expect(body).toContain("Open the interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
+  });
+
+  it("rebuilds a canonical link (origin + plan id), dropping any crafted path/query", () => {
+    const body = buildCommentBody({
+      // Same-origin URL, but with markdown-breakout junk appended to the path.
+      PLAN_URL:
+        "https://plan.agent-native.com/plans/plan-abc123)](https://evil.example.com)",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain(
+      "[Open the interactive recap](https://plan.agent-native.com/plans/plan-abc123)",
+    );
+    expect(body).not.toContain("evil.example.com");
+  });
+
+  it("drops a same-origin image URL that is not a canonical recap-image path", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/plans/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_IMAGE_URL: "https://plan.agent-native.com/evil.png)](javascript:0)",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).not.toContain("![Visual recap]");
+    expect(body).not.toContain("javascript:");
+    expect(body).toContain("Open the interactive recap");
+  });
+
+  it("refreshes to a skipped state on a tiny diff", () => {
+    const body = buildCommentBody({
+      DIFF_TINY: "true",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("skipped");
+    expect(body).toContain("too small");
+    expect(body).not.toContain("Open the interactive recap");
   });
 
   it("falls back to a link-only comment when the screenshot upload failed", () => {

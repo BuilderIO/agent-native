@@ -331,15 +331,22 @@ jobs:
           retention-days: 14
 
       # Upsert the single sticky comment: inline screenshot + link on success,
-      # suppressed / failed / tiny variants otherwise.
+      # suppressed / failed / tiny variants otherwise. Runs even on a tiny diff
+      # so a prior recap comment is refreshed (not left pointing at a stale SHA).
       - name: Upsert sticky comment
-        if: always() && steps.diff.outputs.tiny != 'true'
+        if: always()
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           RECAP_IMAGE_URL: ${{ steps.shot.outputs.image_url }}
           SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+          DIFF_TINY: ${{ steps.diff.outputs.tiny }}
         run: |
           set -euo pipefail
-          $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN"
+          ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
+          # On a tiny diff only REFRESH an existing recap comment — never create a
+          # new one — so a tiny push doesn't add noise but also can't leave a
+          # stale prior recap behind.
+          if [ "${DIFF_TINY:-}" = "true" ]; then ARGS+=(--update-only); fi
+          $RECAP_CLI "${ARGS[@]}"
