@@ -5,6 +5,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   IconChevronDown,
   IconChevronUp,
+  IconExternalLink,
+  IconGripHorizontal,
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
@@ -12,6 +14,7 @@ import {
 } from "@tabler/icons-react";
 
 import { LiveTranscript } from "./live-transcript";
+import { PillLogo } from "./pill-logo";
 
 type PillMode = "meeting" | "clip";
 
@@ -31,18 +34,48 @@ interface PillContext {
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
  * sizing the window when the user toggles the chevron.
  */
+/** Short relative time for the notes auto-save label, e.g. "just now",
+ * "30s ago", "2m ago", "1h ago". */
+function formatSavedAgo(savedAt: number, now: number): string {
+  const secs = Math.max(0, Math.floor((now - savedAt) / 1000));
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
+
 export function RecordingPill() {
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
+  const ctxRef = useRef<PillContext>({ mode: "clip" });
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  // Bumped on an interval so the relative "saved 2m ago" label stays fresh
+  // without a save actually happening.
+  const [, setNowTick] = useState(0);
+  const notesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest typed notes, mirrored into a ref so the unmount/blur flush can
+  // read the current value without re-subscribing.
+  const pendingNotesRef = useRef<string | null>(null);
+  const activeMeetingIdRef = useRef<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
   // the `clips:pill-detached` event from Rust (toggled by JS via
   // `recording_pill_set_detached`).
   const [detached, setDetached] = useState(false);
+  // Driven by the Rust-side global cursor poll (`clips:pill-hover`). macOS only
+  // delivers hover events to the key window, so while another app is focused
+  // CSS `:hover` never fires on the pill — we mirror the polled state into a
+  // class and key the hover styling off that too.
+  const [hovered, setHovered] = useState(false);
   const startedAtRef = useRef<number>(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Per-source levels. The mic recognizer (native_speech.rs) emits with
@@ -79,10 +112,12 @@ export function RecordingPill() {
     };
     trackListen(
       listen<PillContext>("clips:pill-context", (ev) => {
-        setCtx({
+        const next: PillContext = {
           meetingId: ev.payload?.meetingId ?? null,
           mode: ev.payload?.mode ?? "clip",
-        });
+        };
+        ctxRef.current = next;
+        setCtx(next);
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
@@ -92,6 +127,22 @@ export function RecordingPill() {
         // disabled and a stale fallback timer can fire mid-session.
         setStopping(false);
         setError(null);
+        // Reset notes state for the new session.
+        setNotes("");
+        setSaving(false);
+        setSaveError(false);
+        setSavedAt(null);
+        pendingNotesRef.current = null;
+        // Only clear the meeting id when leaving meeting mode. In meeting mode
+        // clips:meeting-notes-init is the authoritative setter — resetting here
+        // would race with that event and could wipe a freshly-set id.
+        if (ev.payload?.mode !== "meeting") {
+          activeMeetingIdRef.current = null;
+        }
+        if (notesDebounceRef.current) {
+          clearTimeout(notesDebounceRef.current);
+          notesDebounceRef.current = null;
+        }
         if (stopFallbackRef.current) {
           clearTimeout(stopFallbackRef.current);
           stopFallbackRef.current = null;
@@ -99,8 +150,51 @@ export function RecordingPill() {
       }),
     );
     trackListen(
+      listen<{ meetingId: string; initialNotes: string }>(
+        "clips:meeting-notes-init",
+        (ev) => {
+          if (ctxRef.current.meetingId !== ev.payload.meetingId) return;
+          activeMeetingIdRef.current = ev.payload.meetingId;
+          if (pendingNotesRef.current !== null) {
+            // User typed before the async fetch resolved — keep their edits and
+            // save them now that we have the meeting id. Don't overwrite with
+            // server data.
+            emit("clips:save-meeting-notes", {
+              meetingId: ev.payload.meetingId,
+              notes: pendingNotesRef.current,
+            }).catch(() => {});
+          } else {
+            setNotes(ev.payload.initialNotes ?? "");
+          }
+        },
+      ),
+    );
+    // Unified auto-save signal from the popover — fires after either the
+    // transcript or the notes are persisted. Drives the single "Auto-saved"
+    // indicator below the notes editor.
+    trackListen(
+      listen<{ meetingId: string; ts: number }>("clips:meeting-saved", (ev) => {
+        if (ev.payload?.meetingId !== activeMeetingIdRef.current) return;
+        setSaving(false);
+        setSaveError(false);
+        pendingNotesRef.current = null;
+        setSavedAt(ev.payload?.ts ?? Date.now());
+      }),
+    );
+    trackListen(
+      listen("clips:meeting-save-failed", () => {
+        setSaving(false);
+        setSaveError(true);
+      }),
+    );
+    trackListen(
       listen<{ error: string }>("pill:error", (ev) => {
         setError(ev.payload?.error ?? "An error occurred.");
+      }),
+    );
+    trackListen(
+      listen<{ hovered: boolean }>("clips:pill-hover", (ev) => {
+        setHovered(!!ev.payload?.hovered);
       }),
     );
     trackListen(
@@ -126,8 +220,15 @@ export function RecordingPill() {
         },
       ),
     );
+    // Signal that all listeners are registered. app.tsx listens for this and
+    // re-emits clips:pill-context + clips:meeting-notes-init so events that
+    // fired before React mounted (fresh Tauri window) are not missed.
+    emit("clips:pill-ready", {}).catch(() => {});
     return () => {
       stopped = true;
+      // Flush any pending note edit before tearing down (e.g. the pill window
+      // closing on stop) so the last keystrokes aren't lost.
+      flushNotesNow();
       unlistens.forEach((u) => {
         try {
           u();
@@ -135,6 +236,10 @@ export function RecordingPill() {
           // ignore
         }
       });
+      if (notesDebounceRef.current) {
+        clearTimeout(notesDebounceRef.current);
+        notesDebounceRef.current = null;
+      }
       if (stopFallbackRef.current) {
         clearTimeout(stopFallbackRef.current);
         stopFallbackRef.current = null;
@@ -153,6 +258,13 @@ export function RecordingPill() {
       tickRef.current = null;
     };
   }, [paused]);
+
+  // Keep the "Auto-saved · Xm ago" label fresh while the pill is open.
+  useEffect(() => {
+    if (savedAt === null) return;
+    const id = setInterval(() => setNowTick((t) => t + 1), 15000);
+    return () => clearInterval(id);
+  }, [savedAt]);
 
   // Dual-stream waveform — one bar group per source. When system-audio
   // hasn't emitted any levels yet (e.g. dictation-only flow), the system
@@ -216,12 +328,13 @@ export function RecordingPill() {
       });
     };
 
-    // Mic (top, amber). Sys (bottom, sky blue) with 2× gain — system levels run lower.
+    // Mic (top, green — matches the collapsed pill's accent). Sys (bottom, sky
+    // blue) with 2× gain — system levels run lower.
     mount(
       micCanvasRef.current,
       micLevelRef,
-      "rgba(252, 196, 60, 0.90)",
-      "rgba(252, 196, 60, 0.5)",
+      "rgba(74, 222, 128, 0.95)",
+      "rgba(74, 222, 128, 0.55)",
       1.0,
     );
     mount(
@@ -290,7 +403,10 @@ export function RecordingPill() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
-  }, [hasSystemAudio]);
+    // `expanded` is a dep because the collapsed view renders a single mic
+    // canvas while the expanded meeting view can swap to the dual-stream
+    // layout — the canvas elements remount and must be re-initialized.
+  }, [hasSystemAudio, expanded]);
 
   async function toggleExpanded() {
     const next = !expanded;
@@ -314,6 +430,9 @@ export function RecordingPill() {
   async function onStopClick() {
     if (stopping) return;
     setStopping(true);
+    // Persist any pending note edit before the stop sequence tears the pill
+    // window down.
+    flushNotesNow();
     emit("clips:pill-stop", { meetingId: ctx.meetingId ?? null }).catch(
       () => {},
     );
@@ -333,6 +452,20 @@ export function RecordingPill() {
     }
   }
 
+  // Immediately persist any pending (debounced) note edit. Used on blur and on
+  // unmount so notes typed in the last ~800ms before stopping aren't dropped.
+  const flushNotesNow = () => {
+    if (!notesDebounceRef.current) return;
+    clearTimeout(notesDebounceRef.current);
+    notesDebounceRef.current = null;
+    const mid = activeMeetingIdRef.current;
+    if (mid && pendingNotesRef.current !== null)
+      emit("clips:save-meeting-notes", {
+        meetingId: mid,
+        notes: pendingNotesRef.current,
+      }).catch(() => {});
+  };
+
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -351,71 +484,107 @@ export function RecordingPill() {
 
   return (
     <div className="pill-outer">
-      <div className="pill-inner" onMouseDown={handlePillMouseDown}>
+      <div
+        className={`pill-inner${expanded ? "" : " pill-inner-compact"}${
+          hovered ? " pill-hovered" : ""
+        }`}
+        onMouseDown={handlePillMouseDown}
+      >
         <div
-          className={`pill-header${detached ? " pill-header-detached" : ""}`}
+          className={`pill-header${
+            detached
+              ? " pill-header-detached"
+              : !expanded
+                ? " pill-vertical"
+                : ""
+          }`}
         >
-          <span
-            className={`pill-dot ${paused ? "pill-dot-paused" : "pill-dot-active"}`}
-          />
-          <span className="pill-timer">
-            {mm}:{ss}
-          </span>
-          {hasSystemAudio ? (
-            <div
-              className="pill-wave-dual"
-              aria-hidden
-              title="Top: you. Bottom: speaker."
-            >
+          <div
+            className="pill-media"
+            onClick={
+              !expanded && !detached ? () => void toggleExpanded() : undefined
+            }
+          >
+            <PillLogo className="pill-logo" />
+            {hasSystemAudio ? (
+              <div
+                className="pill-wave-dual"
+                aria-hidden
+                title="Top: you. Bottom: speaker."
+              >
+                <canvas
+                  ref={micCanvasRef}
+                  className="pill-wave-canvas-half"
+                  aria-label="Microphone level"
+                />
+                <canvas
+                  ref={sysCanvasRef}
+                  className="pill-wave-canvas-half"
+                  aria-label="System audio level"
+                />
+              </div>
+            ) : (
               <canvas
                 ref={micCanvasRef}
-                className="pill-wave-canvas-half"
-                aria-label="Microphone level"
+                className="pill-wave-canvas"
+                aria-hidden
               />
-              <canvas
-                ref={sysCanvasRef}
-                className="pill-wave-canvas-half"
-                aria-label="System audio level"
-              />
-            </div>
-          ) : (
-            <canvas
-              ref={micCanvasRef}
-              className="pill-wave-canvas"
-              aria-hidden
-            />
-          )}
-          <span className="pill-mode">
-            {ctx.mode === "meeting" ? "Meeting notes" : "Recording"}
-          </span>
-          <button
-            type="button"
-            onClick={onStopClick}
-            disabled={stopping}
-            data-no-drag
-            className="pill-stop-btn"
-            aria-label={stopping ? "Stopping" : stopLabel}
-            title={stopping ? "Stopping..." : stopLabel}
-          >
-            {stopping ? (
-              <IconLoader2 className="pill-spinner" size={14} />
-            ) : (
-              <IconPlayerStopFilled size={14} />
             )}
-          </button>
-          <button
-            type="button"
-            onClick={toggleExpanded}
-            data-no-drag
-            className="pill-expand-btn"
-            aria-label={expanded ? "Collapse" : "Expand"}
-          >
+          </div>
+          <div className="pill-controls">
+            <span className="pill-timer">
+              {mm}:{ss}
+            </span>
             {expanded ? (
-              <IconChevronUp size={16} />
-            ) : (
-              <IconChevronDown size={16} />
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={onPauseClick}
+                data-no-drag
+                className="pill-pause-btn"
+                aria-label={paused ? "Resume" : "Pause"}
+                title={paused ? "Resume" : "Pause"}
+              >
+                {paused ? (
+                  <IconPlayerPlayFilled size={14} />
+                ) : (
+                  <IconPlayerPauseFilled size={14} />
+                )}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onStopClick}
+              disabled={stopping}
+              data-no-drag
+              className="pill-stop-btn"
+              aria-label={stopping ? "Stopping" : stopLabel}
+              title={stopping ? "Stopping..." : stopLabel}
+            >
+              {stopping ? (
+                <IconLoader2 className="pill-spinner" size={14} />
+              ) : (
+                <IconPlayerStopFilled size={14} />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={toggleExpanded}
+              data-no-drag
+              className="pill-expand-btn"
+              aria-label={expanded ? "Collapse" : "Expand"}
+            >
+              {expanded ? (
+                <IconChevronUp size={16} />
+              ) : (
+                <IconChevronDown size={16} />
+              )}
+            </button>
+          </div>
+          {!expanded && !detached ? (
+            <div className="pill-vgrip" aria-hidden>
+              <IconGripHorizontal size={14} stroke={2} />
+            </div>
+          ) : null}
         </div>
 
         {detached ? (
@@ -447,40 +616,81 @@ export function RecordingPill() {
           }
         >
           <div className="pill-divider" />
-          <div className="pill-transcript-area">
-            <LiveTranscript />
-          </div>
-          <div className="pill-footer">
-            <button
-              type="button"
-              onClick={onPauseClick}
-              data-no-drag
-              className="pill-pause-btn"
-            >
-              {paused ? (
-                <IconPlayerPlayFilled size={14} />
-              ) : (
-                <IconPlayerPauseFilled size={14} />
-              )}
-              {paused ? "Resume" : "Pause"}
-            </button>
-            <button
-              type="button"
-              onClick={onStopClick}
-              disabled={stopping}
-              data-no-drag
-              className="pill-stop-footer-btn"
-              aria-label={stopping ? "Stopping" : stopLabel}
-              title={stopping ? "Stopping..." : stopLabel}
-            >
-              {stopping ? (
-                <IconLoader2 className="pill-spinner" size={14} />
-              ) : (
-                <IconPlayerStopFilled size={14} />
-              )}
-              {stopping ? "Stopping" : "Stop"}
-            </button>
-          </div>
+          {ctx.mode === "meeting" ? (
+            <div className="pill-split">
+              <div className="pill-split-pane">
+                <div className="pill-pane-label">Transcript</div>
+                <div className="pill-transcript-area">
+                  <LiveTranscript />
+                </div>
+              </div>
+              <div className="pill-split-divider" />
+              <div className="pill-split-pane">
+                <div className="pill-pane-label">Notes</div>
+                <div className="pill-notes-area">
+                  <textarea
+                    className="pill-notes-textarea"
+                    placeholder="Jot down notes during the meeting…"
+                    data-no-drag
+                    value={notes}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNotes(val);
+                      pendingNotesRef.current = val;
+                      if (!saving) setSaving(true);
+                      if (saveError) setSaveError(false);
+                      if (notesDebounceRef.current)
+                        clearTimeout(notesDebounceRef.current);
+                      notesDebounceRef.current = setTimeout(() => {
+                        const mid = activeMeetingIdRef.current;
+                        if (mid)
+                          emit("clips:save-meeting-notes", {
+                            meetingId: mid,
+                            notes: val,
+                          }).catch(() => {});
+                        // `saving` clears when the popover confirms the write
+                        // via `clips:meeting-saved`.
+                      }, 800);
+                    }}
+                    onBlur={flushNotesNow}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="pill-transcript-area">
+              <LiveTranscript />
+            </div>
+          )}
+          {ctx.mode === "meeting" ? (
+            <div className="pill-saved-bar">
+              <button
+                type="button"
+                data-no-drag
+                className="pill-open-web-btn"
+                onClick={() => {
+                  const mid = activeMeetingIdRef.current;
+                  if (mid)
+                    emit("clips:open-meeting", { meetingId: mid }).catch(
+                      () => {},
+                    );
+                }}
+                title="Open this meeting in the browser"
+              >
+                <IconExternalLink size={12} />
+                Open in browser
+              </button>
+              <span className="pill-saved-status">
+                {saveError
+                  ? "Save failed — retrying on next edit"
+                  : saving
+                    ? "Saving…"
+                    : savedAt !== null
+                      ? `Auto-saved · ${formatSavedAgo(savedAt, Date.now())}`
+                      : ""}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

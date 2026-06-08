@@ -37,6 +37,8 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { FeedbackButton } from "./components/FeedbackButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
+import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
+import { normalizeServerUrl } from "./lib/url";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -82,38 +84,7 @@ interface LocalRecordingNotice {
   files: LocalExportedFile[];
 }
 
-type TranscriptSource = "mic" | "system";
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
-
-interface MeetingTranscriptionPayload {
-  meetingId: string;
-  joinUrl?: string | null;
-  reason?: "user" | "calendar-auto" | string;
-}
-
-interface TranscriptSegment {
-  startMs: number;
-  endMs: number;
-  text: string;
-  // Raw stream the segment came from. The transcript UI maps this to the
-  // "Me" (mic) / "Them" (system) speaker label.
-  source: "mic" | "system";
-}
-
-interface MeetingTranscriptionSession {
-  meetingId: string;
-  recordingId: string;
-  lines: string[];
-  // Real per-segment timestamps from the Whisper engine, accumulated across
-  // the meeting and persisted alongside the text. Empty on the SFSpeech
-  // mic-only fallback (no real timestamps available).
-  segments: TranscriptSegment[];
-  unlisten: Array<() => void>;
-  flushTimer: ReturnType<typeof setTimeout> | null;
-  stopping: boolean;
-  paused: boolean;
-  audioMode: "mic-system" | "mic-only";
-}
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
 type CaptureSource = "full-screen" | "window";
@@ -251,10 +222,6 @@ function originForUrl(value: string, base?: string): string | null {
 
 function originForServer(serverUrl: string): string {
   return originForUrl(serverUrl) ?? serverUrl.trim().replace(/\/+$/, "");
-}
-
-function normalizeServerUrl(serverUrl: string): string {
-  return serverUrl.trim().replace(/\/+$/, "");
 }
 
 function serverUrlForPendingUpload(
@@ -667,9 +634,6 @@ export function App() {
   const signInInflightRef = useRef(false);
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const meetingTranscriptionRef = useRef<MeetingTranscriptionSession | null>(
-    null,
-  );
   const isRecording = recorder !== null;
   const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
   const selectedMicLabel = useMemo(
@@ -901,16 +865,37 @@ export function App() {
   }, []);
 
   const callClipsAction = useCallback(
-    async <T,>(name: string, body: Record<string, unknown>): Promise<T> => {
+    async <T,>(
+      name: string,
+      body: Record<string, unknown>,
+      opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
+    ): Promise<T> => {
       const base = serverUrl.replace(/\/+$/, "");
-      const headers = new Headers({ "Content-Type": "application/json" });
+      const method = opts?.method ?? "POST";
+      const headers = new Headers();
       const authToken = loadDesktopAuthToken(serverUrl);
       if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
-      const response = await fetch(`${base}/_agent-native/actions/${name}`, {
-        method: "POST",
+      // GET actions read their args from the query string; POST actions send a
+      // JSON body.
+      let url = `${base}/_agent-native/actions/${name}`;
+      let requestBody: string | undefined;
+      if (method === "GET") {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(body)) {
+          if (value != null) params.set(key, String(value));
+        }
+        const qs = params.toString();
+        if (qs) url += `?${qs}`;
+      } else {
+        headers.set("Content-Type", "application/json");
+        requestBody = JSON.stringify(body);
+      }
+      const response = await fetch(url, {
+        method,
         credentials: "include",
         headers,
-        body: JSON.stringify(body),
+        body: requestBody,
+        signal: opts?.signal,
       });
       const text = await response.text().catch(() => "");
       let json: any = null;
@@ -933,400 +918,12 @@ export function App() {
     [serverUrl],
   );
 
-  const flushMeetingTranscript = useCallback(async () => {
-    const session = meetingTranscriptionRef.current;
-    if (!session || !session.lines.length) return;
-    // Cumulative replace: send the full transcript-so-far plus the real
-    // Whisper segment timestamps on every flush. Re-sending the whole thing is
-    // idempotent (last write wins), so a failed/retried flush self-heals.
-    // overwriteReady tells the action this live session owns the transcript and
-    // may overwrite its own already-"ready" row. Buffer is NOT cleared.
-    await callClipsAction("save-browser-transcript", {
-      recordingId: session.recordingId,
-      fullText: session.lines.join("\n\n"),
-      segments: session.segments,
-      source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
-      overwriteReady: true,
-    });
-  }, [callClipsAction]);
-
-  const stopMeetingTranscription = useCallback(
-    async (reason: string = "manual") => {
-      const session = meetingTranscriptionRef.current;
-      if (!session || session.stopping) return;
-      session.stopping = true;
-      if (session.flushTimer) {
-        window.clearTimeout(session.flushTimer);
-        session.flushTimer = null;
-      }
-      try {
-        if (session.audioMode === "mic-system") {
-          await invoke("meeting_audio_stop");
-        } else {
-          await invoke("native_speech_stop");
-        }
-      } catch (err) {
-        console.warn("[clips-popover] meeting audio stop failed:", err);
-      }
-      session.unlisten.splice(0).forEach((unlisten) => {
-        try {
-          unlisten();
-        } catch {
-          // ignore
-        }
-      });
-      await invoke("silence_detector_stop").catch(() => {});
-      await flushMeetingTranscript().catch((err) => {
-        console.warn("[clips-popover] meeting transcript save failed:", err);
-      });
-      await callClipsAction("stop-meeting-recording", {
-        meetingId: session.meetingId,
-      }).catch((err) => {
-        console.warn("[clips-popover] stop meeting action failed:", err);
-      });
-      if (session.lines.length) {
-        await callClipsAction("finalize-meeting", {
-          meetingId: session.meetingId,
-        }).catch((err) => {
-          console.warn("[clips-popover] finalize meeting failed:", err);
-        });
-      }
-      await invoke("recording_pill_hide").catch(() => {});
-      await invoke("set_recording_state", { active: false }).catch(() => {});
-      emit("meetings:transcription-stopped", {
-        meetingId: session.meetingId,
-        reason,
-      }).catch(() => {});
-      meetingTranscriptionRef.current = null;
-    },
-    [callClipsAction, flushMeetingTranscript],
-  );
-
-  const startMeetingTranscription = useCallback(
-    async (payload: MeetingTranscriptionPayload) => {
-      const meetingId = payload.meetingId;
-      if (!meetingId) return;
-
-      const existing = meetingTranscriptionRef.current;
-      if (existing && !existing.stopping) {
-        if (existing.meetingId === meetingId) {
-          emit("meetings:hide-notification", { meetingId }).catch(() => {});
-          return;
-        }
-        await stopMeetingTranscription("replaced");
-      }
-
-      try {
-        const result = await callClipsAction<{
-          meetingId?: string;
-          recording?: { id?: string | null } | null;
-        }>("start-meeting-recording", { meetingId });
-        const resolvedMeetingId = result.meetingId ?? meetingId;
-        const recordingId = result.recording?.id;
-        if (!recordingId) {
-          throw new Error("Could not create a transcript session.");
-        }
-
-        const session: MeetingTranscriptionSession = {
-          meetingId: resolvedMeetingId,
-          recordingId,
-          lines: [],
-          segments: [],
-          unlisten: [],
-          flushTimer: null,
-          stopping: false,
-          paused: false,
-          audioMode: "mic-system",
-        };
-        meetingTranscriptionRef.current = session;
-        await invoke("set_recording_state", { active: true }).catch(() => {});
-
-        const scheduleFlush = () => {
-          if (session.flushTimer) window.clearTimeout(session.flushTimer);
-          session.flushTimer = window.setTimeout(() => {
-            session.flushTimer = null;
-            flushMeetingTranscript().catch((err) => {
-              console.warn("[clips-popover] transcript flush failed:", err);
-            });
-          }, 1500);
-        };
-
-        const addUnlisten = (promise: Promise<() => void>) => {
-          promise
-            .then((unlisten) => {
-              if (
-                meetingTranscriptionRef.current !== session ||
-                session.stopping
-              ) {
-                unlisten();
-                return;
-              }
-              session.unlisten.push(unlisten);
-            })
-            .catch(() => {});
-        };
-
-        addUnlisten(
-          listen<{
-            text?: string;
-            source?: TranscriptSource;
-            segments?: Array<{ startMs: number; endMs: number; text: string }>;
-          }>("voice:final-transcript", (event) => {
-            if (meetingTranscriptionRef.current !== session) return;
-            const text = event.payload?.text?.trim();
-            if (!text) return;
-            const source: "mic" | "system" =
-              event.payload?.source === "system" ? "system" : "mic";
-            const speaker = source === "system" ? "Them" : "Me";
-            session.lines.push(`${speaker}: ${text}`);
-            // Keep the real Whisper segment timestamps (offset onto the meeting
-            // timeline) so the transcript persists accurate timings instead of
-            // synthetic ones. Tag each with the source stream.
-            for (const seg of event.payload?.segments ?? []) {
-              const segText = seg.text?.trim();
-              if (!segText) continue;
-              session.segments.push({
-                startMs: seg.startMs,
-                endMs: seg.endMs,
-                text: segText,
-                source,
-              });
-            }
-            scheduleFlush();
-          }),
-        );
-        addUnlisten(
-          listen<{ meetingId?: string | null }>("clips:pill-stop", (event) => {
-            const stoppedMeetingId = event.payload?.meetingId;
-            if (stoppedMeetingId && stoppedMeetingId !== resolvedMeetingId)
-              return;
-            stopMeetingTranscription("manual").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:silence-stop", () => {
-            stopMeetingTranscription("silence").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:sleep-stop", () => {
-            stopMeetingTranscription("sleep").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:call-ended", () => {
-            stopMeetingTranscription("call-ended").catch(() => {});
-          }),
-        );
-
-        const silenceDetectorConfig = {
-          silenceThreshold: 0.05,
-          silenceMs: 15 * 60 * 1000,
-          callEndedMs: 2 * 60 * 1000,
-          watchSleep: true,
-          watchCallEnded: true,
-        };
-
-        const startMeetingAudio = async () => {
-          if (session.audioMode === "mic-system") {
-            await invoke("meeting_audio_start", {
-              meetingId: resolvedMeetingId,
-              locale: navigator.language || "en-US",
-              micDeviceId: selectedMicId || null,
-              micDeviceLabel: selectedMicLabel || null,
-            });
-          } else {
-            await invoke("native_speech_start", {
-              locale: navigator.language || "en-US",
-              micDeviceId: selectedMicId || null,
-              micDeviceLabel: selectedMicLabel || null,
-            });
-          }
-        };
-
-        // Pause/resume is reconciled through a tiny state machine. The user's
-        // desired state (`desiredPaused`) is recorded immediately, while the
-        // actual capture state lives in `session.paused`. Only one transition
-        // runs at a time (`applyingTransition`); after each async step settles
-        // we reconcile again. This guarantees a click that lands mid-transition
-        // (e.g. pause while a resume is still starting audio) still wins.
-        let desiredPaused = false;
-        let applyingTransition = false;
-
-        const applyMeetingAudioState = async () => {
-          if (applyingTransition) return;
-          if (meetingTranscriptionRef.current !== session || session.stopping) {
-            return;
-          }
-          if (desiredPaused === session.paused) return;
-          applyingTransition = true;
-          try {
-            if (desiredPaused) {
-              if (session.flushTimer) {
-                window.clearTimeout(session.flushTimer);
-                session.flushTimer = null;
-              }
-              // Stop the silence detector so a pause isn't mistaken for a
-              // silent/ended call and torn down entirely.
-              await invoke("silence_detector_stop").catch(() => {});
-              try {
-                if (session.audioMode === "mic-system") {
-                  await invoke("meeting_audio_stop");
-                } else {
-                  await invoke("native_speech_stop");
-                }
-              } catch (err) {
-                // Could not stop audio — it may still be running, so do NOT
-                // claim the session is paused. Revert to running and bring the
-                // silence detector back up.
-                console.warn(
-                  "[clips-popover] meeting audio pause failed; staying live:",
-                  err,
-                );
-                desiredPaused = false;
-                session.paused = false;
-                await invoke("silence_detector_start", {
-                  config: silenceDetectorConfig,
-                }).catch(() => {});
-                return;
-              }
-              // Persist whatever was captured before the pause.
-              await flushMeetingTranscript().catch(() => {});
-              session.paused = true;
-            } else {
-              try {
-                await startMeetingAudio();
-              } catch (err) {
-                // Could not restart audio — keep the session paused so the user
-                // can retry resume instead of silently losing the rest of the
-                // transcript. Do NOT fall back to a different audio mode.
-                console.warn(
-                  "[clips-popover] meeting audio resume failed; staying paused:",
-                  err,
-                );
-                desiredPaused = true;
-                session.paused = true;
-                return;
-              }
-              session.paused = false;
-              await invoke("silence_detector_start", {
-                config: silenceDetectorConfig,
-              }).catch(() => {});
-            }
-          } finally {
-            applyingTransition = false;
-          }
-          // The desired state may have changed while we were awaiting (e.g. the
-          // user clicked pause during a resume); reconcile again.
-          void applyMeetingAudioState();
-        };
-
-        const requestMeetingAudioState = (paused: boolean) => {
-          desiredPaused = paused;
-          void applyMeetingAudioState();
-        };
-
-        addUnlisten(
-          listen("clips:recorder-pause", () => {
-            requestMeetingAudioState(true);
-          }),
-        );
-        addUnlisten(
-          listen("clips:recorder-resume", () => {
-            requestMeetingAudioState(false);
-          }),
-        );
-
-        await invoke("recording_pill_show", {
-          meetingId: resolvedMeetingId,
-          mode: "meeting",
-        });
-
-        try {
-          await startMeetingAudio();
-        } catch (err) {
-          console.warn(
-            "[clips-popover] mic + system meeting audio failed, falling back to mic-only:",
-            err,
-          );
-          session.audioMode = "mic-only";
-          await invoke("native_speech_start", {
-            locale: navigator.language || "en-US",
-            micDeviceId: selectedMicId || null,
-            micDeviceLabel: selectedMicLabel || null,
-          });
-        }
-
-        await invoke("silence_detector_start", {
-          config: silenceDetectorConfig,
-        }).catch(() => {});
-
-        if (payload.joinUrl && payload.reason !== "user") {
-          emit("meetings:open-join-url", {
-            joinUrl: payload.joinUrl,
-          }).catch(() => {});
-        }
-
-        emit("meetings:hide-notification", {
-          meetingId,
-        }).catch(() => {});
-      } catch (err) {
-        meetingTranscriptionRef.current = null;
-        await invoke("recording_pill_hide").catch(() => {});
-        await invoke("set_recording_state", { active: false }).catch(() => {});
-        const message =
-          err instanceof Error ? err.message : "Could not start notes.";
-        emit("meetings:transcription-error", {
-          meetingId,
-          error: message,
-        }).catch(() => {});
-      }
-    },
-    [
-      callClipsAction,
-      flushMeetingTranscript,
-      selectedMicId,
-      selectedMicLabel,
-      stopMeetingTranscription,
-    ],
-  );
-
-  useEffect(() => {
-    const unlisteners: Array<() => void> = [];
-    let stopped = false;
-    const track = (promise: Promise<() => void>) => {
-      promise
-        .then((unlisten) => {
-          if (stopped) {
-            unlisten();
-            return;
-          }
-          unlisteners.push(unlisten);
-        })
-        .catch(() => {});
-    };
-    track(
-      listen<MeetingTranscriptionPayload>(
-        "meetings:start-transcription",
-        (event) => {
-          startMeetingTranscription(event.payload).catch((err) => {
-            console.error("[clips-popover] start transcription failed:", err);
-          });
-        },
-      ),
-    );
-    return () => {
-      stopped = true;
-      unlisteners.forEach((unlisten) => {
-        try {
-          unlisten();
-        } catch {
-          // ignore
-        }
-      });
-      unlisteners.length = 0;
-    };
-  }, [startMeetingTranscription]);
+  useMeetingTranscription({
+    callClipsAction,
+    serverUrl,
+    selectedMicId,
+    selectedMicLabel,
+  });
 
   // OAuth (Google) opens in the system browser — the popover WebView can't
   // share a cookie jar with a separate Tauri WebviewWindow, and the old
