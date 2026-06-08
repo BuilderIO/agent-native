@@ -74,6 +74,16 @@ export const PlanImageNode = SharedImage.extend({
   atom: true,
   draggable: true,
 
+  // `SharedImage.addProseMirrorPlugins` appends a plugin keyed
+  // `an-shared-image-upload` via `this.parent?.()`. Extending the node WITHOUT
+  // redefining this method makes Tiptap thread `this.parent` back to the very
+  // same inherited method, so the keyed plugin is appended twice and
+  // ProseMirror throws "Adding different instances of a keyed plugin". Delegate
+  // to the parent exactly once so the upload plugin is registered a single time.
+  addProseMirrorPlugins() {
+    return this.parent?.() ?? [];
+  },
+
   addNodeView() {
     return ReactNodeViewRenderer(PlanImageNodeView);
   },
