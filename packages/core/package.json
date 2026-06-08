@@ -131,6 +131,8 @@
     "@anthropic-ai/tokenizer": "0.0.4",
     "@assistant-ui/react": "^0.12.19",
     "@assistant-ui/react-markdown": "^0.12.6",
+    "@assistant-ui/store": "0.2.13",
+    "@assistant-ui/tap": "^0.5.14",
     "@clack/prompts": "^1.4.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/theme-one-dark": "^6.1.3",
