@@ -105,7 +105,11 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     "pnpm-workspace.yaml",
   ]) {
     const p = path.join(appDir, f);
-    if (fs.existsSync(p)) fs.unlinkSync(p);
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {
+      // Non-fatal: leave the file in place.
+    }
   }
 
   // 3) Templates document action commands from the framework repo layout.
