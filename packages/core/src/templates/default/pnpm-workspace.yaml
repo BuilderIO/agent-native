@@ -1,5 +1,5 @@
 overrides:
-  "@assistant-ui/store": "0.2.13"
+  "@assistant-ui/store": ">=0.2.9 <0.2.14"
   "@assistant-ui/tap": "^0.5.14"
 
 allowBuilds:
