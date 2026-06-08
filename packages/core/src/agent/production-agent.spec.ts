@@ -916,6 +916,315 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("stops write tool that was interrupted twice in continuation history", async () => {
+    let streamCalls = 0;
+    const writeAction = vi.fn(async () => ({ ok: true }));
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `write-call-${streamCalls}`,
+              name: "save-data",
+              input: { content: "big payload" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    // Simulate a continuation turn where save-data was interrupted twice.
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "save this data" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-1",
+              name: "save-data",
+              input: { content: "big payload" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-1",
+              toolName: "save-data",
+              toolInput: '{"content":"big payload"}',
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-2",
+              name: "save-data",
+              input: { content: "big payload" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-2",
+              toolName: "save-data",
+              toolInput: '{"content":"big payload"}',
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: {
+        "save-data": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // The write action must NOT run again — the guard should have blocked it.
+    expect(writeAction).not.toHaveBeenCalled();
+    // A tool_done event with an interruption error should be emitted.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        result: expect.stringContaining("interrupted 2 time(s)"),
+      }),
+    );
+    // The agent should stop with a helpful message.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("interrupted 2 time(s)"),
+      }),
+    );
+  });
+
+  it("still runs write tools on first interruption (allows one retry)", async () => {
+    const writeAction = vi.fn(async () => ({ ok: true }));
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "write-retry",
+                name: "save-data",
+                input: { content: "small payload" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "save this" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-1",
+              name: "save-data",
+              input: { content: "small payload" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-1",
+              toolName: "save-data",
+              toolInput: '{"content":"small payload"}',
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: {
+        "save-data": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    // With only 1 prior interruption (below the threshold of 2), the action runs.
+    expect(writeAction).toHaveBeenCalledOnce();
+  });
+
+  it("passes the turn's attachments into each tool action's run context", async () => {
+    // The by-reference fix: an action (e.g. create-extension's
+    // contentFromAttachment) reads the pasted/attached file from
+    // ctx.attachments instead of forcing the model to re-emit it as a tool
+    // argument.
+    let receivedAttachments: unknown;
+    const writeAction = vi.fn(async (_args: unknown, ctx: any) => {
+      receivedAttachments = ctx?.attachments;
+      return { ok: true };
+    });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "host-1",
+                name: "host-paste",
+                input: { name: "Pasted", contentFromAttachment: "latest" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "hosted" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const turnAttachments = [
+      {
+        type: "file",
+        name: "pasted-text-1718000000000-ab12cd.txt",
+        contentType: "text/plain",
+        text: "<div>pasted body</div>",
+      },
+    ];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "host my pasted file" }],
+        },
+      ],
+      actions: {
+        "host-paste": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+      attachments: turnAttachments as any,
+    });
+
+    expect(writeAction).toHaveBeenCalledOnce();
+    expect(receivedAttachments).toEqual(turnAttachments);
+  });
+
   it("still runs identical read-only tools on a fresh user turn", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

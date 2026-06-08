@@ -47,6 +47,16 @@ plan needs a richer review surface.
   patterns first; name actual files, symbols, and data shapes instead of
   inventing them. Check existing `actions/` before proposing endpoints and prefer
   named client helpers over raw fetch. Delegate wide exploration to a sub-agent.
+  Lead with reuse: for each step, name what it reuses — existing actions, schema,
+  components, helpers — before what it adds, so the plan explains the genuinely new
+  delta instead of redescribing what already exists.
+- **Decide the hard-to-reverse bets first.** For non-trivial backend, data, or API
+  work, sketch where the feature is headed, then call out the decisions that are
+  expensive to undo once data or callers depend on them — wire format, public ids,
+  data-model shape, auth and ownership boundaries — and get those right in the plan
+  even if most of the feature ships later. Then scope to the smallest first cut that
+  proves the approach without foreclosing it, stating both what is in and what is
+  explicitly deferred.
 - **Preserve existing plans.** If the user pasted, referenced, or already has a
   Codex / Claude Code / Markdown plan, treat it as source material. Preserve its
   intent, do not invent codebase facts, label inferred visuals as inferred, and
@@ -99,7 +109,10 @@ plan needs a richer review surface.
    model. Plans should load out of the box for the local agent and local browser
    session; if a signed-in embedded browser cannot read a local plan that an
    anonymous/tool check can read, fix the app/action ownership or access path
-   rather than patching one plan by hand.
+   rather than patching one plan by hand. For high-stakes plans (architecture,
+   backend, data, multi-file, or risky), also kick off the self-review pass in
+   **Self-Review Before Handoff** while the user reads, instead of blocking the
+   handoff on it.
 5. Call `get-plan-feedback` before editing, after review, after any long pause,
    and before the final response. Treat `anchorDetails`, resolver intent, recent
    review events, and any focused screenshots from browser handoff as the source
@@ -110,6 +123,34 @@ plan needs a richer review surface.
    plan.
 7. Export with `export-visual-plan` only when the user wants a shareable receipt
    or repo-check-in artifacts.
+
+## Self-Review Before Handoff
+
+For high-stakes plans — architecture, backend, data-model, migration, multi-file,
+or otherwise risky work — run one adversarial self-review pass before treating the
+plan as final. Skip it for small, UI-only, or single-decision plans where the cost
+outweighs the value. Keep the pass cheap and non-blocking:
+
+- **Surface the plan first, review concurrently.** Post the link and let the user
+  start reading, then run the review in parallel — never make the user wait on it.
+- **Review the written plan; do not re-research.** Critique the plan text and its
+  own blocks. The grounding was already done while drafting, so the review checks
+  the output instead of re-exploring the repo.
+- **Spawn one skeptical reviewer** whose only job is to find what is weak, missing,
+  or wrong — not to praise. Point it at: hard-to-reverse decisions made implicitly
+  or not at all (wire format, public ids, data-model shape, auth, ownership); steps
+  not anchored in real files or symbols; a menu of options where the plan should
+  commit to one; obvious missing decisions ("what happens when X?", "why not Y?");
+  and padding or single-step filler.
+- **Fix vs. ask.** Apply clear-cut fixes yourself with `update-visual-plan`
+  `contentPatches` — vague non-goals, unanchored claims, an obvious missing
+  decision. Route genuine judgment calls back to the user instead: add them to the
+  bottom `question-form` Open Questions block or batch them into the normal
+  ask-user-question flow. Do not silently decide them.
+- **Do not surprise the user mid-read.** On a large plan, apply the patches before
+  the editor loads; otherwise note briefly that a self-review is running so the
+  plan changing under them is expected. When you next respond, summarize what the
+  review changed and what it surfaced for the user to decide.
 
 ## Visual Surface Choice
 

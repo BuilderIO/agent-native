@@ -77,6 +77,15 @@ const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
 // times lets a transient slow start recover, while the cap still terminates a
 // genuinely stuck turn with a clear message instead of looping forever.
 const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3;
+// How many consecutive continuations that re-stream the SAME narration without
+// advancing (no in-flight tool, no completed tool) we tolerate before giving
+// up. A model that degenerates into repeating one phrase ("I have the full
+// HTML. Creating the extension now!") emits "new" text every continuation,
+// which keeps resetting the stalled/empty budgets — so without this guard the
+// stuck turn burns the entire MAX_TOTAL_TRANSIENT_CONTINUATIONS budget (each
+// round re-sending any large pasted payload) before bailing. Catching the
+// repeat ends it in a few rounds with a clear, actionable message instead.
+const MAX_REPEATED_TRANSIENT_CONTINUATIONS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -607,6 +616,30 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
 }
 
 /**
+ * Signature of the *unique* sentence-like segments in a continuation's newly
+ * streamed text, used to detect a degenerate repetition loop. A stuck model
+ * re-emits the same phrase ("I have the full HTML. Creating the extension
+ * now!") an arbitrary number of times per run, so the set of unique segments
+ * is small and stable across continuations regardless of how many times any
+ * single run repeated it. An empty signature (no visible text) is never a
+ * repeat — the stalled/empty budgets handle no-output stalls instead.
+ */
+function continuationRepeatSignature(content: ContentPart[]): string {
+  const text = content
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join(" ")
+    .toLowerCase();
+  const segments = text
+    // Split after sentence punctuation even when runs are concatenated without
+    // a following space ("...now!I have..."), and on newlines.
+    .split(/(?<=[.!?])|\n+/)
+    .map((segment) => segment.replace(/[^a-z0-9]+/g, " ").trim())
+    .filter((segment) => segment.length > 0);
+  if (segments.length === 0) return "";
+  return Array.from(new Set(segments)).sort().join(" ");
+}
+
+/**
  * True when an action was streamed but never returned a result yet — i.e. a
  * `tool_start` with no matching `tool_done`. The server is still executing it,
  * so a run_timeout that fires in this window is NOT a stall: the agent was
@@ -717,9 +750,15 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
           : signal.reason === "stream_ended"
             ? "The previous stream ended before the agent sent a final completion signal."
             : "The previous run reached an internal execution budget.";
+  // A run_timeout or a mid-stream cutoff while assembling one large action
+  // payload (e.g. inlining a big pasted HTML file into `create-extension`) is
+  // the classic trigger for the repetition/cutoff loop. Nudge the model toward
+  // a compact first version it can actually finish in a single run.
+  const cutoffPreparingAction =
+    signal.reason === "run_timeout" || signal.reason === "stream_ended";
   const actionInputNote =
-    signal.reason === "run_timeout" && tool
-      ? `\n\nThe previous run timed out while preparing the \`${tool}\` action input before the action could run. Avoid spending another whole run assembling one large tool payload. If this is \`create-extension\`, create a compact working v1 first, then use focused \`update-extension\` edits for refinements.`
+    cutoffPreparingAction && tool
+      ? `\n\nThe previous run was cut off while preparing the \`${tool}\` action input before the action could finish. Avoid spending another whole run assembling one large tool payload. If this is \`create-extension\`, create a compact working v1 first, then use focused \`update-extension\` edits for refinements.`
       : "";
   return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}${actionInputNote}`;
 }
@@ -1117,6 +1156,18 @@ export function createAgentChatAdapter(options?: {
       let stalledTransientContinuationAttempts = 0;
       let emptyTransientContinuationAttempts = 0;
       let totalTransientContinuationAttempts = 0;
+      let repeatedTransientContinuationAttempts = 0;
+      let lastContinuationRepeatSignature: string | null = null;
+      let recoveryGaveUpOnRepetition = false;
+      // Track when the same write tool is stuck in-flight across consecutive
+      // continuations (connection keeps dropping mid-execution). This is
+      // orthogonal to the text-repeat guard — in-flight tools reset
+      // madeProgress=true so the stalled/empty budgets never fire, but the tool
+      // never actually completes. After MAX_REPEATED_INFLIGHT_TOOL_STALLS
+      // consecutive interruptions of the same tool, bail with a clear message.
+      let lastInFlightToolName: string | undefined;
+      let repeatedInFlightToolCount = 0;
+      const MAX_REPEATED_INFLIGHT_TOOL_STALLS = 3;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
@@ -1135,6 +1186,11 @@ export function createAgentChatAdapter(options?: {
           `stale_run_continuations: ${staleRunContinuationAttempts}`,
           `stalled_transient_continuations: ${stalledTransientContinuationAttempts}`,
           `empty_transient_continuations: ${emptyTransientContinuationAttempts}`,
+          `repeated_transient_continuations: ${repeatedTransientContinuationAttempts}`,
+          `repeated_inflight_tool_stalls: ${repeatedInFlightToolCount}`,
+          lastInFlightToolName
+            ? `last_inflight_tool: ${lastInFlightToolName}`
+            : "",
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
           attemptedRunIds.length > 0
             ? `attempted_runs: ${attemptedRunIds.join(", ")}`
@@ -1145,6 +1201,9 @@ export function createAgentChatAdapter(options?: {
       };
 
       const exhaustedRecoveryMessage = (reason?: string): string => {
+        if (recoveryGaveUpOnRepetition) {
+          return "The agent got stuck repeating the same response without finishing, so I stopped the automatic retries. This often happens when it tries to re-type a large pasted file into one action — starting a new chat, or asking for a smaller first step, usually gets it unstuck.";
+        }
         if (
           content.length === 0 &&
           (reason === "run_timeout" ||
@@ -1218,6 +1277,9 @@ export function createAgentChatAdapter(options?: {
             staleRunContinuationAttempts,
             stalledTransientContinuationAttempts,
             emptyTransientContinuationAttempts,
+            repeatedTransientContinuationAttempts,
+            repeatedInFlightToolCount,
+            lastInFlightToolName,
             totalTransientContinuationAttempts,
             ...extra,
           },
@@ -1232,6 +1294,9 @@ export function createAgentChatAdapter(options?: {
               staleRunContinuationAttempts,
               stalledTransientContinuationAttempts,
               emptyTransientContinuationAttempts,
+              repeatedTransientContinuationAttempts,
+              repeatedInFlightToolCount,
+              lastInFlightToolName,
               totalTransientContinuationAttempts,
             },
           },
@@ -1443,12 +1508,85 @@ export function createAgentChatAdapter(options?: {
           const madeDurableToolProgress = visibleContent.some(
             (part) => part.type === "tool-call" && part.result !== undefined,
           );
+          // In-flight tool stall guard. When the same write tool is stuck
+          // in-flight because the connection keeps dropping (stream_ended),
+          // hasInFlightTool=true keeps madeProgress=true and completely
+          // bypasses the stalled/empty budgets. Track the last in-flight tool
+          // name; when the same tool is still unresolved after
+          // MAX_REPEATED_INFLIGHT_TOOL_STALLS consecutive stream_ended events,
+          // bail with a clear message.
+          //
+          // Only count stream_ended (connection drop / reconnect failed), NOT
+          // run_timeout (server legitimately still executing a slow tool). A
+          // run_timeout with an in-flight tool means the server is actively
+          // working and reconnection may still recover the result; a repeated
+          // stream_ended means the connection keeps breaking under that payload.
+          const currentInFlightToolPart = visibleContent.find(
+            (p): p is Extract<ContentPart, { type: "tool-call" }> =>
+              p.type === "tool-call" &&
+              p.result === undefined &&
+              p.activity !== true,
+          );
+          const currentInFlightToolName = currentInFlightToolPart?.toolName;
+          const isConnectionDrop = signal.reason === "stream_ended";
+          if (currentInFlightToolName && isConnectionDrop) {
+            if (currentInFlightToolName === lastInFlightToolName) {
+              repeatedInFlightToolCount += 1;
+            } else {
+              repeatedInFlightToolCount = 0;
+              lastInFlightToolName = currentInFlightToolName;
+            }
+          } else if (!currentInFlightToolName) {
+            repeatedInFlightToolCount = 0;
+          }
+
+          // Degenerate repetition guard. When the model gets stuck re-streaming
+          // the SAME narration every continuation without ever starting or
+          // finishing a tool, each round is "new" text — so madeProgress stays
+          // true and the stalled/empty budgets never trip. Compare this round's
+          // unique-sentence signature to the previous round's; a match with no
+          // tool progress is a non-advancing loop. Tracked by its own counter
+          // so it bails after a few rounds instead of the full transient budget,
+          // without perturbing the stalled/empty/stale accounting.
+          const repeatSignature = continuationRepeatSignature(visibleContent);
+          const isNonAdvancingRepeat =
+            signal.reason !== "loop_limit" &&
+            repeatSignature !== "" &&
+            repeatSignature === lastContinuationRepeatSignature &&
+            !hasInFlightTool &&
+            !madeDurableToolProgress;
 
           if (signal.reason === "loop_limit") {
             stalledTransientContinuationAttempts = 0;
             emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
+            // Bail when the same write tool is stuck in-flight across too many
+            // consecutive continuations. Checked before the text-repeat guard
+            // because hasInFlightTool=true would mask the repeat as progress.
+            if (repeatedInFlightToolCount >= MAX_REPEATED_INFLIGHT_TOOL_STALLS) {
+              recoveryGaveUpOnRepetition = true;
+              return { ok: false, resetVisibleContent: false };
+            }
+            // Bail fast on a non-advancing repetition loop, well before the
+            // stalled/empty/total budgets would (each round otherwise re-sends
+            // the whole pasted payload). Tracked separately so it never trips
+            // on legitimately-progressing runs that happen to be slow.
+            if (isNonAdvancingRepeat) {
+              repeatedTransientContinuationAttempts += 1;
+              if (
+                repeatedTransientContinuationAttempts >
+                MAX_REPEATED_TRANSIENT_CONTINUATIONS
+              ) {
+                recoveryGaveUpOnRepetition = true;
+                return { ok: false, resetVisibleContent: false };
+              }
+            } else {
+              repeatedTransientContinuationAttempts = 0;
+            }
+            if (repeatSignature) {
+              lastContinuationRepeatSignature = repeatSignature;
+            }
             // A run_timeout that produced nothing visible and no activity (the
             // model spent the whole soft-timeout window thinking before its
             // first output) is NOT an immediate give-up: a transient slow start

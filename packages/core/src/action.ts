@@ -1,4 +1,8 @@
-import type { ActionTool, AgentChatEvent } from "./agent/types.js";
+import type {
+  ActionTool,
+  AgentChatAttachment,
+  AgentChatEvent,
+} from "./agent/types.js";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
@@ -44,6 +48,18 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** How this action was invoked. */
   caller: ActionCaller;
+  /**
+   * Attachments submitted with the current agent turn (pasted text blocks,
+   * uploaded files, images), exactly as the server received them — with full,
+   * untruncated `text` for text attachments. Populated only inside the agent
+   * tool loop (`caller: "tool"`); `undefined` on every other surface.
+   *
+   * Lets an action consume a large pasted artifact BY REFERENCE (e.g.
+   * `create-extension`'s `contentFromAttachment`) instead of forcing the model
+   * to re-emit the whole file as a tool argument — which frequently gets cut
+   * off mid-stream and triggers a continuation loop.
+   */
+  attachments?: AgentChatAttachment[];
 }
 
 export interface AgentActionStopOptions {

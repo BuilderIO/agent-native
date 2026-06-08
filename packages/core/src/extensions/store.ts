@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull } from "drizzle-orm";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
@@ -979,6 +979,37 @@ export async function createExtension(
   await recordExtensionHistorySnapshot(row, "create", "Created extension");
   await notifyExtensionChanged([{ owner: row.ownerEmail }]);
   return row;
+}
+
+/**
+ * Returns an extension with the exact same name and content created by the
+ * current user in the last 5 minutes, or null if none exists. Used to make
+ * create-extension idempotent when a connection drop causes the agent to
+ * retry the same tool call.
+ */
+export async function findRecentDuplicateExtension(data: {
+  name: string;
+  content: string;
+}): Promise<ExtensionRow | null> {
+  await ensureExtensionsTables();
+  const db = getDb();
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) return null;
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const rows = await db
+    .select()
+    .from(extensions)
+    .where(
+      and(
+        eq(extensions.ownerEmail, userEmail),
+        eq(extensions.name, data.name),
+        eq(extensions.content, data.content),
+        gte(extensions.createdAt, fiveMinutesAgo),
+        isNull(extensions.hiddenAt),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export interface UpdateExtensionData {
