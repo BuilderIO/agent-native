@@ -8,7 +8,10 @@ import { runReport } from "../lib/google-analytics";
 import { getUserSegmentation, queryEvents } from "../lib/amplitude";
 import { readBody } from "@agent-native/core/server";
 import { queryFirstPartyAnalytics } from "../lib/first-party-analytics";
-import { runPrometheusPanel } from "../lib/prometheus";
+import {
+  runPrometheusPanel,
+  serializePanelDescriptorInput,
+} from "../lib/prometheus";
 
 /**
  * ga4 panels carry a JSON blob in `sql` describing the GA4 Data API call.
@@ -248,15 +251,13 @@ function flattenAmplitudeResponse(
 
 export const handleSqlQuery = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async (ctx) => {
-    const { query, source } = await readBody(event);
-
-    if (!query || typeof query !== "string") {
-      setResponseStatus(event, 400);
-      return { error: "Missing or invalid query" };
-    }
+    const { query: rawQuery, source } = (await readBody(event)) as {
+      query?: unknown;
+      source?: unknown;
+    };
 
     if (
-      !source ||
+      typeof source !== "string" ||
       !["bigquery", "ga4", "amplitude", "first-party", "prometheus"].includes(
         source,
       )
@@ -266,6 +267,26 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
         error:
           "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus'",
       };
+    }
+
+    let query: string;
+    if (source === "prometheus") {
+      if (rawQuery === undefined || rawQuery === null || rawQuery === "") {
+        setResponseStatus(event, 400);
+        return { error: "Missing or invalid query" };
+      }
+      try {
+        query = serializePanelDescriptorInput(rawQuery);
+      } catch (err: any) {
+        setResponseStatus(event, 400);
+        return { error: err?.message || "Missing or invalid query" };
+      }
+    } else {
+      if (!rawQuery || typeof rawQuery !== "string") {
+        setResponseStatus(event, 400);
+        return { error: "Missing or invalid query" };
+      }
+      query = rawQuery;
     }
 
     try {

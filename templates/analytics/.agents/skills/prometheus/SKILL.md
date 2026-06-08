@@ -36,15 +36,12 @@ Step is auto-calculated when omitted (~250 points across the range, clamped to a
 
 ## Dashboard panels
 
-Prometheus is a valid panel `source`. The `sql` field carries a JSON descriptor, not a query string.
+Prometheus is a valid panel `source`. The `sql` field is still a string in the
+dashboard config; put the serialized JSON descriptor in that string, not a
+parsed object.
 
 ```json
-{
-  "promql": "rate(http_requests_total{job=\"api\"}[5m])",
-  "mode": "range",
-  "range": "1h",
-  "step": "30s"
-}
+"{\"promql\":\"rate(http_requests_total{job=\\\"api\\\"}[5m])\",\"mode\":\"range\",\"range\":\"1h\",\"step\":\"30s\"}"
 ```
 
 Defaults: `mode=range`, `range=1h`, `step=auto`. Use `mode=instant` only for `metric` / `callout` chart types.
