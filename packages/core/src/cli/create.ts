@@ -848,6 +848,36 @@ function postProcessStandalone(
     } catch {}
   }
 
+  // Write pnpm-workspace.yaml for pnpm v11 compatibility. pnpm v11 no longer
+  // reads the pnpm field in package.json, so allowBuilds and overrides must
+  // live here. Merge with any existing file (e.g. from the default template).
+  const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
+  try {
+    const existing = fs.existsSync(wsPath)
+      ? fs.readFileSync(wsPath, "utf-8")
+      : "";
+    let updated = existing;
+    if (!existing.includes("@assistant-ui/store")) {
+      updated =
+        updated.trimEnd() +
+        (updated ? "\n" : "") +
+        `overrides:\n` +
+        `  "@assistant-ui/store": ">=0.2.9 <0.2.14"\n` +
+        `  "@assistant-ui/tap": "^0.5.14"\n`;
+    }
+    if (!existing.includes("allowBuilds")) {
+      updated =
+        updated.trimEnd() +
+        `\nallowBuilds:\n` +
+        `  better-sqlite3: true\n` +
+        `  esbuild: true\n` +
+        `  node-pty: true\n`;
+    }
+    if (updated !== existing) {
+      fs.writeFileSync(wsPath, updated);
+    }
+  } catch {}
+
   setupAgentSymlinks(targetDir);
 }
 
