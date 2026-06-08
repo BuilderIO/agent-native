@@ -485,6 +485,11 @@ function DiffRead({ data, blockId, title, summary }: BlockReadProps<DiffData>) {
   return (
     <section className="plan-block group/diff-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
+      {summary && (
+        <p className="mb-3 text-sm leading-relaxed text-plan-muted">
+          {summary}
+        </p>
+      )}
       <div className="overflow-hidden rounded-md border border-border bg-background">
         {/* Header: filename, path, +/− counts, mode toggle. */}
         <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
@@ -559,7 +564,6 @@ function DiffRead({ data, blockId, title, summary }: BlockReadProps<DiffData>) {
           </button>
         )}
       </div>
-      {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
   );
 }

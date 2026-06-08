@@ -10,6 +10,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
+import { PlanImageNode } from "./PlanImageNode";
 
 // Plans get the shared block-level image node: the `/image` slash command, plus
 // paste / drag-drop of image files. Each image uploads through the framework
@@ -20,7 +21,12 @@ const PLAN_SLASH_COMMANDS = [
   ...DEFAULT_SLASH_COMMANDS,
   createImageSlashCommand(uploadEditorImage),
 ];
-const PLAN_EDITOR_FEATURES = { image: true } as const;
+// `features.image` is off because `PlanImageNode` (injected below) IS the image
+// node — it extends the shared node with a React node view that adds the hover
+// zoom / lightbox / three-dots menu. Enabling the core image node too would
+// register a second `image` node and collide.
+const PLAN_EDITOR_FEATURES = { image: false } as const;
+const PLAN_EXTRA_EXTENSIONS = [PlanImageNode];
 
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_RETRY_MS = 120;
@@ -158,6 +164,7 @@ export function PlanMarkdownEditor({
       dialect="gfm"
       preset="plan"
       features={PLAN_EDITOR_FEATURES}
+      extraExtensions={PLAN_EXTRA_EXTENSIONS}
       onImageUpload={uploadEditorImage}
       slashItems={PLAN_SLASH_COMMANDS}
       className={cn("plan-rich-markdown-editor mt-4", className)}

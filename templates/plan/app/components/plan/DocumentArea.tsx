@@ -35,6 +35,7 @@ import {
 } from "./wireframe/Wireframe";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
+import { PlanImageViewer } from "./PlanImageViewer";
 
 /**
  * Renders the document flow: dispatches a single plan block to its block
@@ -1132,12 +1133,14 @@ function ImageBlock({
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
       {src ? (
-        <img
+        <PlanImageViewer
           src={src}
           alt={block.data.alt}
           loading="lazy"
-          className={cn(
-            "mt-4 max-h-[640px] w-full rounded-xl border border-plan-line bg-plan-block",
+          block
+          className="mt-4"
+          imgClassName={cn(
+            "max-h-[640px] w-full rounded-xl border border-plan-line bg-plan-block",
             block.data.fit === "cover" ? "object-cover" : "object-contain",
           )}
         />

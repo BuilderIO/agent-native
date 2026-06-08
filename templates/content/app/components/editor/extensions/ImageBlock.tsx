@@ -1223,6 +1223,42 @@ export function ImageBlock({
           </>
         )}
 
+        {!isEditable ? (
+          <div
+            className="media-block__toolbar"
+            data-visible={isHovered ? "true" : undefined}
+            aria-hidden={!isHovered}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={openLightbox}
+                  className="media-block__toolbar-btn"
+                  aria-label="Expand image"
+                >
+                  <IconArrowsMaximize size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Expand</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => void downloadImage(src, alt)}
+                  className="media-block__toolbar-btn"
+                  aria-label="Download image"
+                >
+                  <IconDownload size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Download</TooltipContent>
+            </Tooltip>
+          </div>
+        ) : null}
+
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}
         {renderAssetsPickerDialog()}
 

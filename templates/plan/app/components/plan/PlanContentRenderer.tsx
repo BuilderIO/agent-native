@@ -294,7 +294,18 @@ export function PlanContentRenderer({
           regionLabel,
           compactVisuals,
         }) => (
+          // Key by container + region so a container that renders only its
+          // ACTIVE region at one position (tabs) gets a FRESH nested editor on
+          // every switch. Without it React reuses the one instance and only
+          // swaps `blocks`; the nested `useCollabReconcile` then treats the new
+          // region's content as a recent echo and skips re-applying it, so the
+          // Tiptap doc keeps the previous tab's nodes while the side-map swaps to
+          // the new tab — surfacing as "every tab shows the same diff" and, once
+          // the stale node's id is gone from the side-map, a permanent
+          // "Loading diff block…". Columns already render each region at its own
+          // keyed position, so this is a no-op there.
           <NestedPlanBlocksEditor
+            key={`${containerBlockId}::${regionId}`}
             blocks={blocks as PlanBlock[]}
             contentUpdatedAt={contentUpdatedAt}
             planId={planId}
@@ -320,6 +331,22 @@ export function PlanContentRenderer({
       editingDisabled,
       notionCompatibleOnly,
     ],
+  );
+
+  // On wide recap screens the "Files touched" tree moves to a permanent left
+  // sidebar (mirroring the right-hand contents rail) instead of sitting in the
+  // document body. Keep the block in the document so it stays the editable
+  // source of truth and is never dropped on save; render a read-only mirror in
+  // the aside, and hide the in-flow copy at the same breakpoint the rail appears
+  // (see `filesSidebarHideCss`). Gated to recaps so ordinary plans are
+  // unaffected, and to the first file-tree block (the conventional files-touched
+  // summary).
+  const filesSidebarBlock = useMemo(
+    () =>
+      isRecap
+        ? content.blocks.find((block) => block.type === "file-tree")
+        : undefined,
+    [isRecap, content.blocks],
   );
 
   return (
@@ -349,7 +376,33 @@ export function PlanContentRenderer({
         )}
         {!prototypeOnly && (
           <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
-            <PlanTableOfContents content={content} isRecap={isRecap} />
+            <PlanTableOfContents
+              content={content}
+              isRecap={isRecap}
+              omitBlockId={filesSidebarBlock?.id}
+            />
+            {filesSidebarBlock && (
+              <>
+                <style>{filesSidebarHideCss(filesSidebarBlock.id)}</style>
+                <aside
+                  className="plan-document-files"
+                  aria-label={filesSidebarBlock.title || "Files touched"}
+                >
+                  <div className="plan-document-files__nav">
+                    <PlanBlockView
+                      block={{
+                        ...filesSidebarBlock,
+                        id: `${filesSidebarBlock.id}__aside`,
+                      }}
+                      editingDisabled
+                      contentUpdatedAt={contentUpdatedAt}
+                      planId={planId}
+                      collabUser={collabUser}
+                    />
+                  </div>
+                </aside>
+              </>
+            )}
             <header className="border-b border-plan-line pb-8">
               <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
                 {planLabel}
@@ -407,6 +460,34 @@ export function PlanContentRenderer({
       </article>
     </BlockRegistryProvider>
   );
+}
+
+/**
+ * Scoped CSS that, at the contents-rail breakpoint (1400px), hides the in-flow
+ * copy of the relocated "Files touched" block (its mirror lives in the left
+ * `.plan-document-files` aside) and restores first-block spacing on whatever
+ * block now leads the document body. The hide uses a descendant selector so it
+ * matches both the read-mode `.plan-block` and the editable-mode
+ * `.plan-block-node` wrappers; the spacing reset only matches the read-mode
+ * direct-child layout (the editable mode draws no per-block top border, so there
+ * is nothing to reset there). The aside mirror carries a distinct `…__aside` id,
+ * so it is never caught by these rules.
+ */
+function filesSidebarHideCss(blockId: string): string {
+  const id = blockId.replace(/["\\]/g, "\\$&");
+  const leadReset = [
+    ".plan-block",
+    ".plan-callout",
+    ".plan-questions-block",
+    ".an-block-panel",
+    ".plan-block-node",
+  ]
+    .map((sel) => `.plan-document-flow > [data-block-id="${id}"] + ${sel}`)
+    .join(",\n");
+  return `@media (min-width: 1400px){
+.plan-document-flow [data-block-id="${id}"]{display:none}
+${leadReset}{margin-top:2.25rem;padding-top:0;border-top:0}
+}`;
 }
 
 function EditableHeaderText({

@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeSurface } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
+import { PlanImageViewer } from "./PlanImageViewer";
 
 type PlanMarkdownReaderProps = {
   markdown: string;
@@ -68,6 +69,13 @@ export function PlanMarkdownReader({
               <table
                 {...props}
                 className={cn("an-rich-md-table", tableClassName)}
+              />
+            ),
+            img: ({ src, alt }) => (
+              <PlanImageViewer
+                src={typeof src === "string" ? src : ""}
+                alt={typeof alt === "string" ? alt : ""}
+                loading="lazy"
               />
             ),
             pre: ({ children }: ComponentPropsWithoutRef<"pre">) => {

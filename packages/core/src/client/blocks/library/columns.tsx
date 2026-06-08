@@ -16,8 +16,9 @@ import {
 
 /**
  * Standard `columns` block: a multi-column side-by-side container whose columns
- * each hold a list of child blocks. Labels may still exist in stored data for
- * source round-tripping, but the document UI intentionally renders bare regions.
+ * each hold a list of child blocks. A column's optional `label` renders as a
+ * small heading above that column (e.g. `Before` / `After`), so a comparison
+ * names its states outside the content — never baked into a child wireframe.
  *
  * Like `tabs`, child rendering flows through `ctx.renderBlock` — the app's own
  * block dispatcher — so registered children render via their spec and
@@ -53,6 +54,11 @@ const API_REFERENCE_BLOCK_TYPES = new Set(["api-endpoint", "openapi-spec"]);
 const BEFORE_LABELS = new Set(["before", "old", "previous", "current"]);
 const AFTER_LABELS = new Set(["after", "new", "next", "target"]);
 
+// Wireframe surfaces that render too wide to survive a half-width comparison
+// column: a full desktop page or browser frame shrinks and crops when squeezed
+// side by side, so a comparison that holds one of these stacks vertically.
+const WIDE_WIREFRAME_SURFACES = new Set(["desktop", "browser"]);
+
 function normalizedLabel(column: ColumnsColumn): string {
   return column.label?.trim().toLowerCase() ?? "";
 }
@@ -63,6 +69,17 @@ function isComparisonGroup(columns: ColumnsColumn[]): boolean {
     labels.some((label) => BEFORE_LABELS.has(label)) &&
     labels.some((label) => AFTER_LABELS.has(label))
   );
+}
+
+/** A wireframe child whose `surface` is wide enough to need full document width. */
+function isWideWireframeBlock(block: NestedBlock): boolean {
+  if (block.type !== "wireframe") return false;
+  const surface = (block.data as { surface?: unknown } | undefined)?.surface;
+  return typeof surface === "string" && WIDE_WIREFRAME_SURFACES.has(surface);
+}
+
+function hasWideWireframe(columns: ColumnsColumn[]): boolean {
+  return columns.some((column) => column.blocks.some(isWideWireframeBlock));
 }
 
 function isApiReferenceGroup(columns: ColumnsColumn[]): boolean {
@@ -80,9 +97,13 @@ function isApiReferenceGroup(columns: ColumnsColumn[]): boolean {
 }
 
 function columnsLayoutClass(columns: ColumnsColumn[]): string {
-  return isApiReferenceGroup(columns)
-    ? COLS_CLASS[1]
-    : gridColsClass(columns.length);
+  // API reference groups always read as a single stacked column.
+  if (isApiReferenceGroup(columns)) return COLS_CLASS[1];
+  // Wide wireframes (full desktop / browser surfaces) crop when squeezed into a
+  // half-width comparison cell, so stack the states vertically and let each
+  // frame use the full document width. Narrow surfaces stay side by side.
+  if (hasWideWireframe(columns)) return COLS_CLASS[1];
+  return gridColsClass(columns.length);
 }
 
 function isBlankRichTextBlock(block: NestedBlock): boolean {
@@ -122,6 +143,9 @@ export function ColumnsBlockReader({
       <div className={cn("grid gap-6", columnsLayoutClass(data.columns))}>
         {data.columns.map((column) => (
           <div key={column.id} className="min-w-0">
+            {column.label && (
+              <h4 className="plan-columns-label">{column.label}</h4>
+            )}
             <div>
               {column.blocks.map((child) => (
                 <div key={child.id}>
@@ -176,6 +200,9 @@ export function ColumnsBlockEditor({
       <div className={cn("grid gap-6", columnsLayoutClass(data.columns))}>
         {data.columns.map((column) => (
           <div key={column.id} className="min-w-0">
+            {column.label && (
+              <h4 className="plan-columns-label">{column.label}</h4>
+            )}
             <div>
               {ctx.renderBlocksEditor
                 ? ctx.renderBlocksEditor({
