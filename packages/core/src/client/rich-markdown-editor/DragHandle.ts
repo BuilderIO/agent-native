@@ -178,10 +178,36 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     }
   }
 
-  candidates.sort(
-    (a, b) => editorArea(a.registration) - editorArea(b.registration),
+  // Pick which editor owns the grip when several register a hover block at this
+  // point. Nested region editors (e.g. each column inside a `columns` block) tile
+  // their container's whole footprint AND extend a wide forgiving zone
+  // (HOVER_SIDE_OUTSET_REM) into its left-margin gutter, so a pure
+  // "smallest editor wins" rule lets an inner block beat the container everywhere
+  // and leaves the container itself impossible to grab. Split candidates by where
+  // the cursor sits relative to each block:
+  //   - Over a block's body (clientX at/after its left edge) the innermost
+  //     (smallest) editor wins, so nested blocks stay grabbable from their content.
+  //   - In the shared left-margin gutter (clientX left of every candidate's
+  //     content, where the grip lives) the outermost (largest) editor wins, so the
+  //     container block can be picked up and reordered.
+  const contentCandidates = candidates.filter(
+    (candidate) => clientX >= candidate.block.rect.left,
   );
-  const active = candidates[0] ?? null;
+  let active: {
+    registration: DragHandleRegistration;
+    block: HoverBlock;
+  } | null;
+  if (contentCandidates.length > 0) {
+    contentCandidates.sort(
+      (a, b) => editorArea(a.registration) - editorArea(b.registration),
+    );
+    active = contentCandidates[0];
+  } else {
+    candidates.sort(
+      (a, b) => editorArea(b.registration) - editorArea(a.registration),
+    );
+    active = candidates[0] ?? null;
+  }
 
   for (const registration of dragHandleRegistrations) {
     if (registration !== active?.registration) registration.hideHover?.();
