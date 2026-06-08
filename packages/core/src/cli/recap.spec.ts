@@ -87,6 +87,7 @@ describe("recap comment body", () => {
   it("embeds an inline screenshot + link and a plan-id marker on success", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/plans/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL:
         "https://plan.agent-native.com/_agent-native/recap-image/tok.png",
       HEAD_SHA: "abcdef1234567",
@@ -102,11 +103,24 @@ describe("recap comment body", () => {
   it("falls back to a link-only comment when the screenshot upload failed", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/plans/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL: "",
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("![Visual recap]");
     expect(body).toContain("Open the interactive recap");
+  });
+
+  it("drops the link when the plan URL origin does not match the app origin", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://evil.example.com/plans/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_IMAGE_URL: "",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain("generation failed");
+    expect(body).not.toContain("Open the interactive recap");
+    expect(body).not.toContain("evil.example.com");
   });
 
   it("explains a suppressed (secret) diff without echoing the secret", () => {

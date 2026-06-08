@@ -339,6 +339,15 @@ function planIdFromUrl(url: string): string | null {
   return match ? match[1] : null;
 }
 
+/** True when both URLs parse and share an origin. */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const headShort = (env.HEAD_SHA || "").slice(0, 7);
@@ -367,7 +376,14 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   }
 
   const planUrl = (env.PLAN_URL || "").trim();
-  if (!planUrl) {
+  // recap-url.txt is agent-written, so the plan URL is untrusted. When the plan
+  // app origin is known (PLAN_RECAP_APP_URL — always set by the workflow), only
+  // a same-origin URL is linkable; otherwise drop it so a poisoned URL can't
+  // become a phishing link in the sticky comment.
+  const appUrl = (env.PLAN_RECAP_APP_URL || "").trim();
+  const planUrlOk =
+    planUrl !== "" && (appUrl === "" || sameOrigin(planUrl, appUrl));
+  if (!planUrlOk) {
     lines.push("### Visual recap — generation failed");
     lines.push("");
     lines.push(
