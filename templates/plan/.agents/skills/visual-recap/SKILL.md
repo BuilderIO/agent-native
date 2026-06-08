@@ -19,6 +19,26 @@ schema, API, file, and architecture changes become the same `data-model`,
 now they summarize work that exists. A reviewer scans the shape of the change
 before spending attention on the literal lines.
 
+## Always Publish As An Agent-Native Plan — Never Inline
+
+The deliverable is ALWAYS a published Agent-Native Plan, created with the
+`create-visual-recap` tool on the `plan` MCP server. NEVER hand the recap to the
+user as inline chat content — not Markdown prose, not an ASCII sketch, not a
+table, not a fenced "wireframe", not a "here's the recap" summary. A recap's
+entire value is the hosted, interactive, annotatable plan; an inline summary is
+not a recap, it is the thing a recap replaces. The only supported output is to
+publish the plan and return its absolute URL.
+
+If the `plan` MCP server's tools are not available, do NOT improvise an inline
+recap as a fallback. The usual cause is a connector that did not finish
+connecting this session (it registers zero tools), NOT necessarily an auth
+problem — so do not assume the user must authenticate. Stop and tell the user
+how to restore it: reconnect the plan MCP server (in Claude Code, run `/mcp` and
+reconnect, or restart the session); only if it is genuinely unauthenticated, run
+`agent-native connect <plan-app-url>` or re-authenticate via `/mcp`. Then publish
+once the tool is reachable. Falling back to inline content is a defect, not a
+degraded mode.
+
 ## When To Use
 
 Build a recap when a PR or commit is large, multi-file, or touches schema, API

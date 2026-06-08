@@ -506,7 +506,7 @@ export default defineAction({
                 nextContent.brief ??
                 sourceBundleForMarkdown.plan.brief,
               planId: args.planId,
-              url: planPath(args.planId),
+              url: planPath(args.planId, sourceBundleForMarkdown.plan.kind),
             })
           )["plan.mdx"]
         : null;
@@ -819,7 +819,7 @@ export default defineAction({
           title: bundle.plan.title,
           brief: bundle.plan.brief,
           content: bundle.plan.content,
-          url: `/plans/${encodeURIComponent(bundle.plan.id)}`,
+          url: planPath(bundle.plan.id, bundle.plan.kind),
         })
       : null;
     return {

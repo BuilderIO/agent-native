@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
-import { loadPlanBundle, planDeepLink } from "../server/plans.js";
+import { loadPlanBundle, planDeepLink, planPath } from "../server/plans.js";
 
 export default defineAction({
   description:
@@ -26,7 +26,7 @@ export default defineAction({
       title: bundle.plan.title,
       brief: bundle.plan.brief,
       planId: bundle.plan.id,
-      url: `/plans/${encodeURIComponent(bundle.plan.id)}`,
+      url: planPath(bundle.plan.id, bundle.plan.kind),
     });
     return {
       planId: bundle.plan.id,

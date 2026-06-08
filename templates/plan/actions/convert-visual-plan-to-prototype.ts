@@ -132,15 +132,15 @@ export default defineAction({
           title: nextBundle.plan.title,
           brief: nextBundle.plan.brief,
           content: nextBundle.plan.content,
-          url: planPath(nextBundle.plan.id),
+          url: planPath(nextBundle.plan.id, nextBundle.plan.kind),
         })
       : null;
     return {
       ...nextBundle,
       planId: nextBundle.plan.id,
       html: buildPlanHtml(nextBundle),
-      path: planPath(nextBundle.plan.id),
-      url: planPath(nextBundle.plan.id),
+      path: planPath(nextBundle.plan.id, nextBundle.plan.kind),
+      url: planPath(nextBundle.plan.id, nextBundle.plan.kind),
       ...(local?.written ? { localFiles: local } : {}),
     };
   },

@@ -58,6 +58,7 @@ export default defineAction({
   run: async (args) =>
     importVisualPlanSourceAction.run({
       ...args,
+      kind: "recap",
       source: args.source ?? "imported",
       currentFocus: args.currentFocus ?? "visual recap review",
       status: args.status ?? "review",
@@ -66,7 +67,7 @@ export default defineAction({
     const plan = (result as { plan?: { id?: string } } | null)?.plan;
     if (!plan?.id) return null;
     return {
-      url: planDeepLink(plan.id),
+      url: planDeepLink(plan.id, "recap"),
       label: "Open Recap",
       view: "plan",
     };

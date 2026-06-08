@@ -57,6 +57,8 @@ type PlanContentRendererProps = {
   collabUser?: RichMarkdownCollabUser | null;
   /** Focus the reader on the live prototype only, for popout windows. */
   prototypeOnly?: boolean;
+  /** Render as a read-only visual recap ("Visual Recap" eyebrow, recap copy). */
+  isRecap?: boolean;
   visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
@@ -84,12 +86,15 @@ export function PlanContentRenderer({
   prototypeOnly = false,
   visualSurfaceMode,
   onVisualSurfaceModeChange,
+  isRecap = false,
 }: PlanContentRendererProps) {
-  const planLabel = content.prototype
-    ? "Prototype Plan"
-    : content.canvas?.title === "UI Flow"
-      ? "UI Plan"
-      : "Visual Plan";
+  const planLabel = isRecap
+    ? "Visual Recap"
+    : content.prototype
+      ? "Prototype Plan"
+      : content.canvas?.title === "UI Flow"
+        ? "UI Plan"
+        : "Visual Plan";
   const updateBlock = async (id: string, nextBlock: PlanBlock) => {
     if (
       onContentPatch &&
@@ -344,7 +349,7 @@ export function PlanContentRenderer({
         )}
         {!prototypeOnly && (
           <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
-            <PlanTableOfContents content={content} />
+            <PlanTableOfContents content={content} isRecap={isRecap} />
             <header className="border-b border-plan-line pb-8">
               <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
                 {planLabel}

@@ -78,7 +78,13 @@ function resolvePlanTocElements(root: HTMLElement, items: PlanTocItem[]) {
   return map;
 }
 
-export function PlanTableOfContents({ content }: { content: PlanContent }) {
+export function PlanTableOfContents({
+  content,
+  isRecap = false,
+}: {
+  content: PlanContent;
+  isRecap?: boolean;
+}) {
   const navRef = useRef<HTMLElement>(null);
   const elementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const [activeId, setActiveId] = useState("");
@@ -187,7 +193,9 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
   return (
     <aside className="plan-document-toc" aria-label="Plan sections">
       <nav ref={navRef} className="plan-document-toc__nav">
-        <p className="plan-document-toc__heading">On this plan</p>
+        <p className="plan-document-toc__heading">
+          {isRecap ? "On this recap" : "On this plan"}
+        </p>
         <ol className="plan-document-toc__list">
           {items.map((item) => (
             <li key={item.id}>

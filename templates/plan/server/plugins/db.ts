@@ -169,6 +169,18 @@ CREATE INDEX IF NOT EXISTS plan_comments_resolution_idx ON plan_comments(plan_id
 );
 CREATE INDEX IF NOT EXISTS plan_versions_plan_owner_created_idx ON plan_versions(plan_id, owner_email, created_at)`,
     },
+    {
+      // `kind` distinguishes read-only visual recaps from editable plans. Add it
+      // with a 'plan' default, then backfill existing recaps (identified by the
+      // recap-review focus the create-visual-recap action sets).
+      version: 19,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'plan';
+UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual recap review'`,
+        sqlite: `ALTER TABLE plans ADD COLUMN kind TEXT NOT NULL DEFAULT 'plan';
+UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual recap review'`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

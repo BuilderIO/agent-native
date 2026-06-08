@@ -7,6 +7,7 @@ function plan(overrides: Partial<Plan>): Plan {
     id: "technical_plan_1",
     title: "Technical plan",
     brief: "Exercise technical plan rendering.",
+    kind: "plan",
     status: "review",
     source: "codex",
     repoPath: "/Users/steve/Projects/builder/agent-native/framework",

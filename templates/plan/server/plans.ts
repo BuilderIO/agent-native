@@ -14,11 +14,13 @@ import {
   PLAN_COMMENT_KINDS,
   PLAN_COMMENT_RESOLUTION_TARGETS,
   PLAN_COMMENT_STATUSES,
+  PLAN_KINDS,
   PLAN_SECTION_TYPES,
   PLAN_SOURCES,
   PLAN_STATUSES,
   type PlanBundle,
   type PlanAuthor,
+  type PlanKind,
   type PlanComment,
   type PlanEvent,
   type PlanSection,
@@ -47,6 +49,7 @@ type ImplementationFile = {
 
 export const planStatusSchema = z.enum(PLAN_STATUSES);
 export const planSourceSchema = z.enum(PLAN_SOURCES);
+export const planKindSchema = z.enum(PLAN_KINDS);
 export const planSectionTypeSchema = z.enum(PLAN_SECTION_TYPES);
 export const planCommentKindSchema = z.enum(PLAN_COMMENT_KINDS);
 export const planCommentStatusSchema = z.enum(PLAN_COMMENT_STATUSES);
@@ -93,7 +96,9 @@ export const commentInputSchema = z.object({
 export type PlanCommentInput = z.infer<typeof commentInputSchema>;
 
 export function newId(prefix: string): string {
-  const separator = prefix === "plan" ? "-" : "_";
+  // Plans and recaps both use a `-` separator (plan-…, recap-…) so the id reads
+  // cleanly in the URL; other prefixes keep the legacy `_` separator.
+  const separator = prefix === "plan" || prefix === "recap" ? "-" : "_";
   return `${prefix}${separator}${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
 
@@ -436,15 +441,16 @@ export async function insertInitialPlanComments(input: {
   }
 }
 
-export function planPath(id: string): string {
-  return `/plans/${encodeURIComponent(id)}`;
+export function planPath(id: string, kind: PlanKind = "plan"): string {
+  const base = kind === "recap" ? "recaps" : "plans";
+  return `/${base}/${encodeURIComponent(id)}`;
 }
 
-export function planDeepLink(id: string): string {
+export function planDeepLink(id: string, kind: PlanKind = "plan"): string {
   return buildDeepLink({
     app: "plan",
     view: "plan",
-    to: planPath(id),
+    to: planPath(id, kind),
     params: { planId: id },
   });
 }
@@ -597,6 +603,7 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       id: plan.id,
       title: plan.title,
       brief: plan.brief,
+      kind: plan.kind ?? "plan",
       status: plan.status,
       source: plan.source,
       repoPath: plan.repoPath,
@@ -666,6 +673,7 @@ export async function summarizePlans(
       id: plan.id,
       title: plan.title,
       brief: plan.brief,
+      kind: plan.kind ?? "plan",
       status: plan.status,
       source: plan.source,
       repoPath: plan.repoPath,

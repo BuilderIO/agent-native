@@ -155,6 +155,7 @@ beforeAll(async () => {
   await client.executeMultiple(`
     CREATE TABLE plans (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, brief TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'plan',
       status TEXT NOT NULL DEFAULT 'draft', source TEXT NOT NULL DEFAULT 'manual',
       repo_path TEXT, current_focus TEXT, html TEXT, markdown TEXT, content TEXT,
       hosted_plan_id TEXT, hosted_plan_url TEXT,

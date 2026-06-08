@@ -134,7 +134,11 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
             return (
               <Link
                 key={plan.id}
-                to={`/plans/${plan.id}`}
+                to={
+                  plan.kind === "recap"
+                    ? `/recaps/${plan.id}`
+                    : `/plans/${plan.id}`
+                }
                 className={cn(
                   "group flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm transition-colors",
                   isActive

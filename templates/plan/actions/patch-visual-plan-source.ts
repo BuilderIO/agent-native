@@ -50,7 +50,7 @@ export default defineAction({
       title: bundle.plan.title,
       brief: bundle.plan.brief,
       planId: bundle.plan.id,
-      url: planPath(bundle.plan.id),
+      url: planPath(bundle.plan.id, bundle.plan.kind),
     });
     const nextMdx = await applyPlanMdxSourcePatches(currentMdx, args.patches);
     const nextContent = await parsePlanMdxFolder(nextMdx);
@@ -103,7 +103,7 @@ export default defineAction({
           title: updated.plan.title,
           brief: updated.plan.brief,
           content: updated.plan.content,
-          url: planPath(updated.plan.id),
+          url: planPath(updated.plan.id, updated.plan.kind),
         })
       : null;
     return {
@@ -111,8 +111,8 @@ export default defineAction({
       planId: updated.plan.id,
       html: buildPlanHtml(updated),
       mdx: nextMdx,
-      path: planPath(updated.plan.id),
-      url: planPath(updated.plan.id),
+      path: planPath(updated.plan.id, updated.plan.kind),
+      url: planPath(updated.plan.id, updated.plan.kind),
       ...(local?.written ? { localFiles: local } : {}),
     };
   },

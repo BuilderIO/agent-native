@@ -12,7 +12,10 @@ registerShareableResource({
   sharesTable: schema.planShares,
   displayName: "Plan",
   titleColumn: "title",
-  getResourcePath: (plan) => `/plans/${plan.id}`,
+  getResourcePath: (plan) =>
+    (plan as { kind?: string }).kind === "recap"
+      ? `/recaps/${plan.id}`
+      : `/plans/${plan.id}`,
   getDb,
   resolveAccessContext: resolvePlanAccessContext,
 });

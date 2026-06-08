@@ -34,7 +34,7 @@ export default defineAction({
         title: bundle.plan.title,
         brief: bundle.plan.brief,
         planId: bundle.plan.id,
-        url: planPath(bundle.plan.id),
+        url: planPath(bundle.plan.id, bundle.plan.kind),
       }),
     };
   },

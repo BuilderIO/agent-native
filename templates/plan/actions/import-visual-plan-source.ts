@@ -27,6 +27,7 @@ import {
   newId,
   nowIso,
   planDeepLink,
+  planKindSchema,
   planPath,
   planSourceSchema,
   planStatusSchema,
@@ -43,6 +44,11 @@ export default defineAction({
       .describe("Existing plan ID to replace. Omit to create a new plan."),
     title: z.string().optional().describe("Plan title override."),
     brief: z.string().optional().describe("Plan brief override."),
+    kind: planKindSchema
+      .optional()
+      .describe(
+        "Plan kind. Use 'recap' for a read-only code-review recap (recap- id, /recaps/ route, no inline text editing). Defaults to 'plan'.",
+      ),
     source: planSourceSchema.optional().default("imported"),
     repoPath: z.string().optional().describe("Repository path for the plan."),
     currentFocus: z
@@ -92,6 +98,9 @@ export default defineAction({
         .set({
           title,
           brief,
+          // Only flip kind when the caller is explicit (e.g. create-visual-recap
+          // passes "recap"); a plain source re-import never demotes a recap.
+          ...(args.kind ? { kind: args.kind } : {}),
           source: args.source,
           repoPath: args.repoPath ?? null,
           currentFocus: args.currentFocus ?? "source review",
@@ -117,7 +126,7 @@ export default defineAction({
             title: bundle.plan.title,
             brief: bundle.plan.brief,
             content: bundle.plan.content,
-            url: planPath(bundle.plan.id),
+            url: planPath(bundle.plan.id, bundle.plan.kind),
           })
         : null;
       return {
@@ -129,10 +138,10 @@ export default defineAction({
           title: bundle.plan.title,
           brief: bundle.plan.brief,
           planId: bundle.plan.id,
-          url: planPath(bundle.plan.id),
+          url: planPath(bundle.plan.id, bundle.plan.kind),
         }),
-        path: planPath(bundle.plan.id),
-        url: planPath(bundle.plan.id),
+        path: planPath(bundle.plan.id, bundle.plan.kind),
+        url: planPath(bundle.plan.id, bundle.plan.kind),
         ...(local?.written ? { localFiles: local } : {}),
       };
     }
@@ -148,11 +157,13 @@ export default defineAction({
     );
     await assertGuestCreateWithinLimits(ownerEmail);
 
-    const id = newId("plan");
+    const kind = args.kind ?? "plan";
+    const id = newId(kind);
     await db.insert(schema.plans).values({
       id,
       title,
       brief,
+      kind,
       status: args.status,
       source: args.source,
       repoPath: args.repoPath ?? null,
@@ -182,7 +193,7 @@ export default defineAction({
           title: bundle.plan.title,
           brief: bundle.plan.brief,
           content: bundle.plan.content,
-          url: planPath(bundle.plan.id),
+          url: planPath(bundle.plan.id, bundle.plan.kind),
         })
       : null;
     return {
@@ -194,19 +205,21 @@ export default defineAction({
         title: bundle.plan.title,
         brief: bundle.plan.brief,
         planId: bundle.plan.id,
-        url: planPath(bundle.plan.id),
+        url: planPath(bundle.plan.id, bundle.plan.kind),
       }),
-      path: planPath(id),
-      url: planPath(id),
+      path: planPath(id, kind),
+      url: planPath(id, kind),
       ...(local?.written ? { localFiles: local } : {}),
     };
   },
   link: ({ result }) => {
-    const plan = (result as { plan?: { id?: string } } | null)?.plan;
+    const plan = (result as { plan?: { id?: string; kind?: string } } | null)
+      ?.plan;
     if (!plan?.id) return null;
+    const isRecap = plan.kind === "recap";
     return {
-      url: planDeepLink(plan.id),
-      label: "Open Plan",
+      url: planDeepLink(plan.id, isRecap ? "recap" : "plan"),
+      label: isRecap ? "Open Recap" : "Open Plan",
       view: "plan",
     };
   },
