@@ -2,6 +2,11 @@ packages:
   - "packages/*"
   - "apps/*"
 
+overrides:
+  "@assistant-ui/store": ">=0.2.9 <0.2.14"
+  "@assistant-ui/tap": "^0.5.14"
+  better-auth: "1.6.0"
+
 onlyBuiltDependencies:
   - "@swc/core"
   - better-sqlite3
@@ -10,3 +15,12 @@ onlyBuiltDependencies:
   - esbuild
   - lightningcss
   - node-pty
+
+allowBuilds:
+  "@swc/core": true
+  better-sqlite3: true
+  canvas: true
+  electron: true
+  esbuild: true
+  lightningcss: true
+  node-pty: true

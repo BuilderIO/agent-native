@@ -848,6 +848,31 @@ function postProcessStandalone(
     } catch {}
   }
 
+  // Write pnpm-workspace.yaml for pnpm v11 compatibility. pnpm v11 no longer
+  // reads the pnpm field in package.json, so allowBuilds and overrides must
+  // live here. Merge into any existing file (e.g. from the default template)
+  // without creating duplicate section headers.
+  const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
+  try {
+    const existing = fs.existsSync(wsPath)
+      ? fs.readFileSync(wsPath, "utf-8")
+      : "";
+    const updated = mergeWorkspaceYamlSections(existing, {
+      overrides: {
+        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
+        '"@assistant-ui/tap"': '"^0.5.14"',
+      },
+      allowBuilds: {
+        "better-sqlite3": "true",
+        esbuild: "true",
+        "node-pty": "true",
+      },
+    });
+    if (updated !== existing) {
+      fs.writeFileSync(wsPath, updated);
+    }
+  } catch {}
+
   setupAgentSymlinks(targetDir);
 }
 
@@ -1118,6 +1143,40 @@ async function downloadGitHubRepo(
 /* ─────────────────────────────────────────────────────────────────────────
  * Text / filesystem helpers
  * ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Merge key-value entries into named sections of a pnpm-workspace.yaml string
+ * without creating duplicate section headers. For each section:
+ *   - If the section already exists, new entries are injected after its header.
+ *   - If the section is absent, a new block is appended at the end.
+ * Entries already present (by key) are skipped.
+ */
+function mergeWorkspaceYamlSections(
+  yaml: string,
+  sections: Record<string, Record<string, string>>,
+): string {
+  let result = yaml;
+  for (const [section, entries] of Object.entries(sections)) {
+    for (const [key, value] of Object.entries(entries)) {
+      if (result.includes(key)) continue;
+      const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
+      const match = sectionHeader.exec(result);
+      if (match) {
+        const insertAt = match.index + match[0].length;
+        result =
+          result.slice(0, insertAt) +
+          `\n  ${key}: ${value}` +
+          result.slice(insertAt);
+      } else {
+        result =
+          result.trimEnd() +
+          (result ? "\n" : "") +
+          `\n${section}:\n  ${key}: ${value}\n`;
+      }
+    }
+  }
+  return result;
+}
 
 /**
  * Load the pnpm workspace catalog.
