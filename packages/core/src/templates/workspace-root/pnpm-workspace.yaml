@@ -2,6 +2,10 @@ packages:
   - "packages/*"
   - "apps/*"
 
+overrides:
+  "@assistant-ui/store": "0.2.13"
+  "@assistant-ui/tap": "^0.5.14"
+
 onlyBuiltDependencies:
   - "@swc/core"
   - better-sqlite3
