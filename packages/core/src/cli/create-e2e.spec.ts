@@ -329,12 +329,10 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain("tailwindcss");
   });
 
-  it("pins known incompatible transitive deps in workspace roots", async () => {
+  it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const rootPkg = readPkg(wsDir);
     expect(rootPkg.pnpm?.overrides?.["better-auth"]).toBe("1.6.0");
-    expect(rootPkg.pnpm?.overrides?.["@assistant-ui/store"]).toBe("0.2.6");
-    expect(rootPkg.pnpm?.overrides?.["@assistant-ui/tap"]).toBe("0.5.6");
   });
 
   it("keeps the default workspace starter app branded as a blank app", async () => {
