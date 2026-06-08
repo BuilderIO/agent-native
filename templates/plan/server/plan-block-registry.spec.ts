@@ -149,7 +149,6 @@ describe("plan block agent vocabulary export", () => {
       "diff",
       "file-tree",
       "json-explorer",
-      "annotated-code",
       "question-form",
       "visual-questions",
       "table",
