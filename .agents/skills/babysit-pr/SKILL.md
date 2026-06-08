@@ -44,17 +44,17 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
    >
    > **Never filter comments by a "since <timestamp>" window.** A forward-looking timestamp silently skips rounds that were posted *before* your last reply (e.g. a round that landed between the first review and when you replied), and "0 new since X" reads as "all addressed" when it is not. This exact mistake left two whole review rounds unanswered on PR #1097 (2026-06-08).
 
-   Instead, determine coverage by **reply state**: list every top-level review comment that does **not** yet have a reply, across all pages and all rounds:
+   Instead, determine coverage by **reply state**: list every top-level review comment that does **not** yet have a reply, across all pages and all rounds. Stream every comment with `--jq '.[]'` (concatenates cleanly across pages), then slurp:
    ```bash
-   gh api --paginate repos/{owner}/{repo}/pulls/$ARGUMENTS/comments | jq -s '
-     add as $all
-     | ([ $all[] | .in_reply_to_id // empty ]) as $replied
-     | $all[]
-     | select((.in_reply_to_id // null) == null)        # top-level comments only
-     | select(($replied | index(.id)) | not)            # …that have no reply yet
-     | {id, user: .user.login, path, line: (.line // .original_line), snippet: (.body[0:200])}'
+   gh api --paginate repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[]' \
+     | jq -s '
+       ([ .[] | .in_reply_to_id // empty ]) as $replied
+       | .[]
+       | select((.in_reply_to_id // null) == null)              # top-level comments only
+       | select(.id as $id | ($replied | index($id)) | not)     # …with no reply yet
+       | {id, user: .user.login, path, line: (.line // .original_line), snippet: (.body[0:200])}'
    ```
-   If that command prints anything, there is unaddressed feedback — fix or reply to each (see "Responding to feedback") before you consider the PR clean. Also re-read the latest review **summary** bodies each tick (bots restate their findings here):
+   (Bind the id with `.id as $id` first — `index(.id)` would evaluate `.id` against the `$replied` array, not the comment, and error out.) If that command prints anything, there is unaddressed feedback — fix or reply to each (see "Responding to feedback") before you consider the PR clean. Also re-read the latest review **summary** bodies each tick (bots restate their findings here):
    ```bash
    gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews --jq '.[] | select(.body != null and .body != "") | {user: .user.login, state, submitted_at, body: .body[0:1000]}'
    ```
