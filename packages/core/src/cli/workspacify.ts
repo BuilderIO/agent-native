@@ -98,8 +98,11 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   // 2) Remove standalone-only files that would confuse the workspace layout.
   for (const f of [
     "learnings.defaults.md",
-    // If the template shipped its own workspace marker / stray monorepo
-    // files, strip them here too.
+    // pnpm-workspace.yaml marks a directory as a pnpm workspace root.
+    // Leaving it in an app directory nested under a parent workspace causes
+    // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND when the app depends on workspace:*
+    // packages (e.g. @<scope>/shared). Overrides belong at the workspace root.
+    "pnpm-workspace.yaml",
   ]) {
     const p = path.join(appDir, f);
     if (fs.existsSync(p)) fs.unlinkSync(p);
