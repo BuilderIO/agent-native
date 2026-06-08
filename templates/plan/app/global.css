@@ -808,7 +808,11 @@
   color: var(--plan-muted);
 }
 
-.plan-rich-markdown-editor .an-rich-md-prose .an-code-block pre {
+/* The node-view wrapper owns the surface (border + `--plan-code` bg), so the
+   inner <pre> is transparent. Scoped via `.an-rich-md-prose` (not a specific
+   editor wrapper) so it applies in every plan editor surface. Token colors come
+   from the shared `.an-rich-md-prose pre code .hljs-*` palette in core. */
+.an-rich-md-prose .an-code-block pre {
   margin: 0;
   padding: 0.85rem 1.1rem;
   border: 0;
@@ -867,73 +871,6 @@
 
 .an-code-block__option.is-active {
   color: hsl(var(--primary));
-}
-
-/* Syntax tokens for the editor's lowlight highlighter (hljs-* classes). */
-.an-code-block .hljs-comment,
-.an-code-block .hljs-quote {
-  color: var(--plan-muted);
-  font-style: italic;
-}
-.an-code-block .hljs-keyword,
-.an-code-block .hljs-selector-tag {
-  color: hsl(280 60% 62%);
-}
-.an-code-block .hljs-string,
-.an-code-block .hljs-addition {
-  color: hsl(140 45% 45%);
-}
-.dark .an-code-block .hljs-string,
-.dark .an-code-block .hljs-addition {
-  color: hsl(140 40% 62%);
-}
-.an-code-block .hljs-number,
-.an-code-block .hljs-literal {
-  color: hsl(28 75% 50%);
-}
-.dark .an-code-block .hljs-number,
-.dark .an-code-block .hljs-literal {
-  color: hsl(30 80% 62%);
-}
-.an-code-block .hljs-built_in,
-.an-code-block .hljs-type {
-  color: hsl(190 65% 42%);
-}
-.dark .an-code-block .hljs-built_in,
-.dark .an-code-block .hljs-type {
-  color: hsl(190 65% 58%);
-}
-.an-code-block .hljs-title,
-.an-code-block .hljs-section {
-  color: hsl(210 70% 50%);
-}
-.dark .an-code-block .hljs-title,
-.dark .an-code-block .hljs-section {
-  color: hsl(210 70% 66%);
-}
-.an-code-block .hljs-name,
-.an-code-block .hljs-selector-id,
-.an-code-block .hljs-selector-class {
-  color: hsl(350 60% 52%);
-}
-.dark .an-code-block .hljs-name,
-.dark .an-code-block .hljs-selector-id,
-.dark .an-code-block .hljs-selector-class {
-  color: hsl(350 65% 64%);
-}
-.an-code-block .hljs-attr,
-.an-code-block .hljs-attribute {
-  color: hsl(35 65% 48%);
-}
-.dark .an-code-block .hljs-attr,
-.dark .an-code-block .hljs-attribute {
-  color: hsl(40 70% 62%);
-}
-.an-code-block .hljs-meta {
-  color: var(--plan-muted);
-}
-.an-code-block .hljs-deletion {
-  color: hsl(0 60% 52%);
 }
 
 .plan-callout {

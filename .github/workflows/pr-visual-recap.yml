@@ -17,9 +17,11 @@ name: PR Visual Recap
 #  - The recap is INFORMATIONAL ONLY. It is not a required check and failures
 #    surface as an explanatory sticky comment, never a red X on unrelated code.
 #  - Backend is selectable with the `VISUAL_RECAP_AGENT` repo variable
-#    (claude | codex; default claude). `RECAP_CLI` overrides the CLI invocation
-#    (default `npx -y @agent-native/core@latest`); the framework repo sets it to
-#    `pnpm exec tsx packages/core/src/cli/index.ts` to dogfood the local source.
+#    (claude | codex; default claude). The CLI invocation is auto-detected:
+#    local source inside this monorepo, the published @agent-native/core
+#    elsewhere — no repo variable needed.
+#  - Only two secrets are required: PLAN_RECAP_TOKEN (publish) and the chosen
+#    backend's API key. PLAN_RECAP_APP_URL defaults to the hosted plan app.
 #  - Nothing here is deterministic: the skill's instructions drive the recap.
 
 on:
@@ -38,7 +40,6 @@ concurrency:
 
 env:
   VISUAL_RECAP_AGENT: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
-  RECAP_CLI: ${{ vars.RECAP_CLI || 'npx -y @agent-native/core@latest' }}
 
 jobs:
   # --------------------------------------------------------------------------
@@ -56,7 +57,8 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           # Presence-only signals — we never expose the secret VALUES to the gate.
-          HAS_PLAN: ${{ secrets.PLAN_RECAP_TOKEN != '' && secrets.PLAN_RECAP_APP_URL != '' }}
+          # PLAN_RECAP_APP_URL defaults to the hosted app, so only the token is required.
+          HAS_PLAN: ${{ secrets.PLAN_RECAP_TOKEN != '' }}
           HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
           AGENT: ${{ env.VISUAL_RECAP_AGENT }}
@@ -83,7 +85,7 @@ jobs:
 
             // Publish secret must be configured — otherwise this is a no-op so the
             // workflow can be merged before secrets exist.
-            if (process.env.HAS_PLAN !== 'true') reasons.push('plan publish secret not configured');
+            if (process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
 
             // The chosen backend's API key must be present.
             const agent = (process.env.AGENT || 'claude').toLowerCase();
@@ -107,7 +109,7 @@ jobs:
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     env:
-      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
+      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || 'https://plan.agent-native.com' }}
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -125,6 +127,16 @@ jobs:
           cache: "pnpm"
 
       - run: pnpm install --frozen-lockfile
+
+      # Resolve the CLI invocation once: dogfood local source inside this
+      # monorepo, otherwise the published package. No repo variable needed.
+      - name: Resolve recap CLI
+        run: |
+          if [ -f packages/core/src/cli/index.ts ]; then
+            echo "RECAP_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
+          else
+            echo "RECAP_CLI=npx -y @agent-native/core@latest" >> "$GITHUB_ENV"
+          fi
 
       # Collect a BOUNDED diff between the PR base and head. We exclude lockfiles,
       # build output, and snapshots (noise), and cap the byte size — over the cap

@@ -67,13 +67,14 @@ function optionalArg(
 /* GitHub Action install (used by `skills add … --with-github-action`)        */
 /* -------------------------------------------------------------------------- */
 
-/** GitHub secrets/variables the installed PR Visual Recap workflow needs. */
+/** GitHub secrets the installed PR Visual Recap workflow needs. */
 export const PR_VISUAL_RECAP_SETUP: string[] = [
-  "PLAN_RECAP_APP_URL  (secret) — hosted plan app base, e.g. https://plan.agent-native.com",
-  "PLAN_RECAP_TOKEN    (secret) — bearer token from `agent-native connect`",
-  "ANTHROPIC_API_KEY   (secret) — for the default Claude Code backend",
-  "OPENAI_API_KEY      (secret) — only if you set VISUAL_RECAP_AGENT=codex",
-  "VISUAL_RECAP_AGENT  (variable, optional) — claude (default) | codex",
+  "Required secrets:",
+  "  PLAN_RECAP_TOKEN   — bearer token from `agent-native connect`",
+  "  ANTHROPIC_API_KEY  — the LLM key for the default Claude Code backend",
+  "Optional (only if you change defaults):",
+  "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
+  "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
 ];
 
 /** Write .github/workflows/pr-visual-recap.yml into a repo. */
