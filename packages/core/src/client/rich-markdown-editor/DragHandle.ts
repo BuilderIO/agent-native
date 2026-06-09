@@ -202,6 +202,21 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
       clientX >= candidate.block.rect.left &&
       clientX <= candidate.block.rect.right,
   );
+  // The grip renders in a narrow band just LEFT of each block (≈24px). A block
+  // must OWN that band so moving the cursor onto its grip keeps showing (and
+  // lets you press) that block's grip — otherwise, for a column block whose grip
+  // sits in the gutter/inter-column gap, the "gutter → largest editor" rule
+  // below would flip the hover to the columns container and the grip would
+  // vanish out from under the cursor, making inner column blocks impossible to
+  // drag. The band is narrow, so it does not collide with the neighbouring
+  // column's content (the right column's grip lives in the inter-column gap,
+  // left of its own content but right of the left column's content).
+  const GRIP_HOVER_ZONE_PX = 28;
+  const overGrip = candidates.filter(
+    (candidate) =>
+      clientX >= candidate.block.rect.left - GRIP_HOVER_ZONE_PX &&
+      clientX < candidate.block.rect.left,
+  );
   const rightOfLeftEdge = candidates.filter(
     (candidate) => clientX >= candidate.block.rect.left,
   );
@@ -209,7 +224,12 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     registration: DragHandleRegistration;
     block: HoverBlock;
   } | null;
-  const innerPool = overContent.length > 0 ? overContent : rightOfLeftEdge;
+  const innerPool =
+    overContent.length > 0
+      ? overContent
+      : overGrip.length > 0
+        ? overGrip
+        : rightOfLeftEdge;
   if (innerPool.length > 0) {
     innerPool.sort(
       (a, b) => editorArea(a.registration) - editorArea(b.registration),
