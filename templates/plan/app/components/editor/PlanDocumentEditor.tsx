@@ -559,10 +559,20 @@ function repaintDropViews(
   // in the ROOT document, so rebuild the whole root editor instead of patching
   // regions that are gone. (Cross-region structural moves already stay out of
   // per-editor undo history, so a non-historical root rebuild is consistent.)
+  // eslint-disable-next-line no-console
+  console.log("[vmove-rv] repaint", {
+    hasRoot: !!rootView,
+    regions: Array.from(views).map((v) => {
+      const i = nestedRegionInfoForView(v);
+      return i ? regionBlocksForInfo(nextBlocks, i) === null : "root";
+    }),
+  });
   if (rootView) {
     for (const view of views) {
       const info = nestedRegionInfoForView(view);
       if (info && regionBlocksForInfo(nextBlocks, info) === null) {
+        // eslint-disable-next-line no-console
+        console.log("[vmove-rv] rebuild-root");
         replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
         return;
       }
@@ -669,6 +679,8 @@ export function PlanDocumentEditor({
   const rootViewRef = useRef<EditorView | null>(null);
   const handleEditorReady = useCallback((editor: Editor) => {
     rootViewRef.current = editor.view;
+    // eslint-disable-next-line no-console
+    console.log("[vmove-rv] ready", !!editor.view);
   }, []);
 
   // Adopt external `content` changes (agent patches, source edits) unless the
