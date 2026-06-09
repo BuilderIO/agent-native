@@ -76,6 +76,51 @@ describe("ApiEndpointBlock", () => {
     expect(container.querySelector("pre")).toBeNull();
   });
 
+  it("renders a valid-JSON request body with the explorer even when its content type is not JSON", () => {
+    // The request body must use the SAME interactive JSON explorer as responses
+    // whenever the example parses as JSON — driven by parseability, not the
+    // declared content type. A WebSocket-upgrade request, for example, declares a
+    // non-`application/json` content type but still carries a JSON payload; it
+    // must NOT fall through to the static code block.
+    act(() => {
+      root.render(
+        <ApiEndpointRead
+          blockId="api-ws"
+          ctx={{}}
+          data={{
+            method: "GET",
+            path: "/_agent-native/realtime",
+            request: {
+              contentType: "Upgrade: websocket",
+              example: JSON.stringify({
+                type: "subscribe",
+                channel: "plan_123",
+                cursor: 0,
+              }),
+            },
+          }}
+        />,
+      );
+    });
+
+    const endpointToggle = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded='false']",
+    );
+    act(() => {
+      endpointToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Interactive explorer chrome present, JSON keys rendered, and NO static
+    // `<pre>` fallback even though the content type is not `application/json`.
+    expect(container.textContent).toContain("Expand all");
+    expect(container.textContent).toContain("Collapse all");
+    expect(container.textContent).toContain('"type"');
+    expect(container.textContent).toContain('"channel"');
+    expect(container.querySelector("pre")).toBeNull();
+  });
+
   it("renders a JSONC (commented) example with the JSON explorer", () => {
     // The second endpoint in a recap often carries example bodies annotated with
     // `//` comments. Those must still earn the collapsible explorer (comments are

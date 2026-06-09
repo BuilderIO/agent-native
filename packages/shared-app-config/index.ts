@@ -62,6 +62,8 @@ export const FRAME_PORT = 3334;
 export interface FrameSettings {
   /** Whether the frame is enabled */
   enabled: boolean;
+  /** Whether to show the Agent-Native Code tab in Desktop */
+  showCodeTab: boolean;
   /** Load frame from localhost (dev) or production URL (prod) */
   mode: "dev" | "prod";
   /** Production URL for the frame (if deployed) */

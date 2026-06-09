@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.44.4
+
+### Patch Changes
+
+- 5a18db9: Remove the special background tint from the question-form submit footer.
+- 5a18db9: Hide JSON explorer bulk actions until hover and disable redundant actions.
+- 5a18db9: Keep question-form send menus compact and copy-first without edit-by-prompt chrome.
+- 5a18db9: Remember the user's unified/split diff view preference in localStorage.
+- 5a18db9: Reduce plan code font sizing.
+- 5a18db9: Lock annotated-code hover popovers to the first line of a multi-line annotation range.
+
 ## 0.44.3
 
 ### Patch Changes

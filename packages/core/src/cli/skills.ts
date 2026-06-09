@@ -1568,11 +1568,12 @@ evidence:
 
 - A \`file-tree\` of the changed files with each entry's \`change\` flag, so the
   reviewer sees the footprint of the work at a glance.
-- The split \`diff\` of the KEY changed files, grouped under a \`## Key changes\`
+- The \`diff\` of the KEY changed files, grouped under a \`## Key changes\`
   \`rich-text\` heading in a single vertical \`tabs\` block (file labels as the left
   rail), with a one-line \`summary\` and a few \`annotations\` on each — so the
   reviewer can drop from the high-altitude shape straight into the load-bearing
-  code.
+  code. Leave \`mode\` unset so each diff renders unified — the default — because a
+  tab panel is too narrow for split's side-by-side gutters to stay legible.
 
 Skip the diff appendix only for a genuinely tiny change that reviews faster as
 plain diff (see "When To Use"); for any change worth recapping, the file-tree and
@@ -1616,7 +1617,226 @@ architecture boxes. The following bar is shared, word for word, with
 wireframe quality, and applies to a recap's standalone \`wireframe\` /
 \`WireframeBlock\` / \`<Screen>\` exactly as it applies to a plan's canvas artboard.
 
-${WIREFRAME_QUALITY_CORE}
+<!-- SHARED-CORE:wireframe-quality START -->
+
+**A wireframe is an HTML mockup. The renderer owns the look; you write the
+content.** Set \`data.html\` to a self-contained, semantic HTML fragment of the
+screen and set \`data.surface\`. The renderer owns the surface footprint/aspect,
+the dark/light theme, the hand-drawn font, and the rough.js sketch overlay — you
+never write \`<html>\`/\`<body>\`/\`<script>\`/\`<style>\` tags, font-family, hex colors,
+or any width/height/coordinates. You write real HTML layout and real product
+content; the renderer styles and roughens it.
+
+**A wireframe block's data is an HTML screen plus a surface:**
+
+\`\`\`json
+{
+  "surface": "browser",
+  "html": "<div style=\\"display:flex;flex-direction:column;gap:10px;padding:16px;height:100%\\"><h1>Sign in</h1><p class=\\"wf-muted\\">Use your work email to continue.</p><div class=\\"wf-card\\" style=\\"display:flex;flex-direction:column;gap:10px\\"><label>Email<input value=\\"jane@acme.co\\" /></label><label>Password<input value=\\"••••••••\\" /></label><label style=\\"display:flex;align-items:center;gap:8px\\"><input type=\\"checkbox\\" checked /> Remember me</label><button class=\\"primary\\">Sign in</button></div><a href=\\"#\\">Forgot password?</a></div>"
+}
+\`\`\`
+
+**Write PLAIN semantic HTML and let the renderer style it.** Bare elements
+(\`h1\`/\`h2\`/\`h3\`, \`p\`, \`button\`, \`input\`, \`<input type="checkbox">\`, \`a\`, \`hr\`)
+are auto-themed — no classes needed. Helper classes carry the rest:
+
+- \`.wf-card\` / \`.wf-box\` — a bordered, padded container (a panel, a list item).
+- \`.wf-pill\` / \`.wf-chip\` — a rounded tag or filter; add \`.accent\`
+  (\`<span class="wf-pill accent">\`) for the accent-filled variant.
+- \`.wf-muted\` — secondary/muted text (or use \`<small>\`).
+- \`button.primary\` or any element with \`[data-primary]\` — the accent-filled
+  primary button.
+
+**Use the \`--wf-*\` tokens for any custom color, never hex.** The renderer flips
+these on light/dark, so reading them is what keeps a mockup correct in both
+themes. For any inline border, background, or text color, reference a token:
+\`style="border:1.4px solid var(--wf-line)"\`. The tokens are \`--wf-ink\` (text),
+\`--wf-muted\` (secondary text), \`--wf-line\` (borders/dividers), \`--wf-paper\`
+(page background), \`--wf-card\` (raised surface), \`--wf-accent\` /
+\`--wf-accent-fg\` / \`--wf-accent-soft\` (brand action), \`--wf-warn\`, \`--wf-ok\`,
+and \`--wf-radius\`. Never hard-code a hex color and never set \`font-family\` — the
+renderer owns the sketch/clean font.
+
+**Lay out with inline \`style\` flex/grid.** You write the real layout —
+\`display:flex; flex-direction:column; gap:10px; padding:16px\` and so on — and the
+renderer never repositions anything. Compose the actual product: reproduce the
+current screen, then show the modification. Real labels, real counts, real dates,
+real button text grounded in the screen you read; not lorem or gray bars.
+
+**Surface presets — match the real footprint, never default to desktop+mobile.**
+Pick the \`surface\` that matches what the user will actually see:
+
+- \`browser\`: a web page that needs a browser chrome frame around it.
+- \`desktop\`: a full desktop app page or app shell.
+- \`mobile\`: a phone screen, only when the work is genuinely mobile.
+- \`popover\`: a small floating menu, dropdown, or inline popover.
+- \`panel\`: a side panel, inspector, or sidebar widget.
+
+A sidebar popover renders as a small surface, not a desktop page and a phone
+frame. Do not emit \`desktop\` + \`mobile\` variants unless responsive behavior
+actually changes the layout. For a component or widget, show one broader
+app-context frame only when placement affects understanding, then the focused
+component states.
+
+**Model the actual component shell for small surfaces.** A rendered UI change
+belongs in a wireframe; reserve \`diagram\` for architecture, dependency, state,
+or data-flow relationships. Popovers, dropdown menus, command palettes, and
+context menus use \`surface: "popover"\` unless the surrounding page placement is
+the point of the change. Dialogs, sheets, inspectors, sidebars, and long
+property panels use the matching \`panel\` / \`desktop\` surface as appropriate.
+Show the real chrome: trigger or anchor when it matters, title/header row,
+top-right actions, separators, fields, options, selected states, body content,
+and footer actions that are visible in the workflow.
+
+**Modify, don't redesign.** When the task changes an existing screen, reproduce
+the current screen's real layout and footprint FIRST, then change only the delta
+and call it out with a single annotation. Do not restack the page into a new
+layout. For net-new surfaces, compose from the real app shell.
+
+**Classify mockup scope before implementation.** Before turning a plan mockup
+into source code, decide whether each artboard represents the whole page/app
+shell, a route body inside an existing shell, or a component/sub-surface. If an
+artboard includes navigation, sidebars, auth banners, or a signup/login form,
+map those pieces to the real shared shell/auth components instead of nesting the
+entire mockup inside the current page. When a mockup references the product's
+standard signup/login page, find and reuse that existing implementation; do not
+approximate it from the wireframe.
+
+**Zoom in on sub-surfaces, don't redraw the page.** For a small sub-surface (a
+popover, menu, dialog, toast), show the full screen once, then add a small
+separate artboard whose \`html\` contains ONLY that sub-surface — do not re-draw
+the whole page around it, and do not scale a duplicate up. Pick the matching
+\`surface\` (e.g. \`popover\`) so the footprint is right; never widen a popover to
+page width.
+
+**Loading / skeleton states.** Set \`data.skeleton: true\` on the wireframe and
+fill the \`html\` with neutral, textless placeholder geometry — boxes and bars
+built as \`<div>\`s with \`background:var(--wf-line)\` and explicit heights/widths,
+no labels or copy. The renderer drops borders, sketch, and color into the
+skeleton register automatically. Never escape to a \`custom-html\` document block
+to fake a loader.
+
+**Editing an existing mockup.** To change one element, text, or color in an
+existing html mockup, do NOT regenerate the frame — call \`update-visual-plan\`
+with \`contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
+replace }] }]\`. Each \`find\` is a unique snippet of the current html (read it
+first with \`get-visual-plan\`); set \`all: true\` on an edit to replace every
+occurrence. The result is re-sanitized.
+
+**Treat the wireframe border as part of the visible design.** Always wrap HTML
+wireframe content in a root container with real inner padding before drawing
+cards, fields, pills, labels, or controls. Use at least 14-16px of padding,
+\`box-sizing: border-box\`, \`height: 100%\`, and \`gap\` between child rows so the
+first row never sits flush against the screen border. Keep text away from
+borders: every container, field, button, menu item, and annotation needs enough
+padding and line-height to read cleanly in the rendered Plan view.
+
+**Lay out children safely so they never collide.** Use HTML flex/grid with
+\`gap\`, \`min-width: 0\`, and sensible overflow. Avoid negative margins, absolute
+positioning, or fixed child widths that can collide when the renderer switches
+between light/dark, sketch/clean, or different zoom levels.
+
+**Do not wrap intentionally single-line labels.** For toolbars, tab rails,
+breadcrumbs, chip/filter rows, branch and file names, file chips, and code
+filenames — any deliberately single-line row — do not let long text wrap. Put
+\`white-space: nowrap\` on the row (and \`overflow: hidden; text-overflow: ellipsis\`
+on the individual labels that can grow), so the wireframe demonstrates the actual
+layout behavior instead of producing ugly stacked or vertical text. Use
+horizontally scrollable or clipped rails for overflow.
+
+**Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic HTML to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, let the nav stack flex to fill (\`flex:1\`) and add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+
+**Persistent chrome bars span the full frame width.** Top bars, app headers,
+toolbars, and bottom tab/nav bars are full-width chrome, not centered content.
+Lay each one out as a single flex row that fills the frame
+(\`style="display:flex;align-items:center;width:100%"\`) and push trailing actions
+to the right edge with a flex spacer (\`<div style="flex:1"></div>\`) between the
+leading group and the trailing group — never center a bar inside a narrow,
+centered block, and never let it collapse to the width of its contents. In a
+Before/After pair the bar stays full-width in BOTH states even when one state has
+fewer controls; the spacer absorbs the difference so the remaining controls hold
+their edge alignment instead of sliding to the center.
+
+**Pin bottom bars to the bottom of the frame.** For mobile tab bars, footers, and
+any persistent bottom action row, make the frame itself a flex column at
+\`height:100%\` (\`style="display:flex;flex-direction:column;height:100%"\`), give the
+scrolling body \`flex:1\` so it absorbs the slack, and place the bar as the LAST
+child of the frame (or set \`margin-top:auto\` on it). The bar then sits flush at
+the bottom of the surface instead of floating directly under the content with an
+empty band beneath it.
+
+**Before / after must be comparable.** When showing a state change, preserve the
+unchanged controls in both states so the reviewer can see exactly what moved or
+appeared; do not show an added control as a generic box floating elsewhere in
+the surface. Place the new/changed affordance where the implementation puts it —
+for example, a new \`Edit with AI\` action in a popover header belongs in the
+top-right header slot, aligned with the title, not in the body or footer. Use
+the same frame size, scale, outer padding, border radius, and visual density on
+both sides unless the change itself alters those properties, and let the frame
+height fit the content rather than leaving a tall empty lower half.
+
+**Name the states with the column header, never inside the frame.** Put the two
+states in a \`columns\` block and set each column's \`label\` to \`Before\` and
+\`After\` — the renderer draws that label as an \`h4\` heading above each frame. Do
+NOT bake a \`Before\`/\`After\` pill, title, or heading into the wireframe \`html\`: a
+label placed inside reads as part of the product UI, lands in a random corner,
+and clutters the comparison. The column header is the one and only place the
+state name belongs.
+
+**Let the surface choose side-by-side vs. stacked.** The \`columns\` renderer lays
+narrow surfaces (\`mobile\`, \`popover\`, \`panel\`) out side by side, and
+automatically stacks wide surfaces (\`desktop\`, \`browser\`) vertically at full
+document width so a large frame is never crushed into a half-width column and
+cropped. Author both wireframes with the real \`surface\` and the matching
+\`Before\`/\`After\` column labels; do not hand-stack the pair into separate
+top-level wireframes or duplicate the state name as body content.
+
+**Good example — a contacts list, surface \`browser\`.** A small, real screen
+composed from the helper classes and tokens, layout in inline flex, no fonts or
+hex colors:
+
+\`\`\`html
+<div
+  style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"
+>
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <h1>Contacts</h1>
+    <button class="primary">New contact</button>
+  </div>
+  <div style="display:flex;gap:6px">
+    <span class="wf-pill accent">All 128</span>
+    <span class="wf-pill">Favorites</span>
+    <span class="wf-pill">Archived</span>
+  </div>
+  <div
+    class="wf-card"
+    style="display:flex;flex-direction:column;gap:0;padding:0"
+  >
+    <div
+      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line)"
+    >
+      <div
+        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
+      ></div>
+      <div style="flex:1">
+        <strong>Jane Cooper</strong><br /><small>jane@acme.co</small>
+      </div>
+      <span class="wf-pill">Lead</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
+      <div
+        style="width:32px;height:32px;border-radius:999px;background:var(--wf-accent-soft)"
+      ></div>
+      <div style="flex:1">
+        <strong>Marcus Lee</strong><br /><small>marcus@globex.io</small>
+      </div>
+      <span class="wf-pill">Customer</span>
+    </div>
+  </div>
+</div>
+\`\`\`
+
+<!-- SHARED-CORE:wireframe-quality END -->
 
 Use the standard \`WireframeBlock\` / \`<Screen>\` format so the Plan viewer owns the
 surface frame, theme, and sketchy/clean toggle. HTML wireframes are appropriate
@@ -1703,13 +1923,16 @@ the actual diff:
 - **Compatibility-sensitive change** → short \`rich-text\` notes beside the
   relevant \`data-model\` / \`api-endpoint\` block. Name the changed field,
   endpoint, or behavior and mark whether it is breaking, risky, or non-breaking;
-  pair that note with a split \`diff\` for the literal lines.
-- **Any meaningful code hunk** → \`diff\` with \`mode: "split"\`, carrying the real
-  \`before\` / \`after\` text and the \`filename\` / \`language\`. Split mode is the
-  default for a recap because before/after legibility is the whole point. Give
-  every \`diff\` a one-line \`summary\` saying what the hunk changes and why; it
-  renders as a description above the code so the reviewer reads intent first.
-  Never leave a diff unlabeled.
+  pair that note with a \`diff\` for the literal lines.
+- **Any meaningful code hunk** → \`diff\` carrying the real \`before\` / \`after\` text
+  and the \`filename\` / \`language\`. Leave \`mode\` unset: unified is the default and
+  the right choice for a recap, since recap diffs almost always sit inside a
+  width-constrained container (a vertical-tabs panel or a comparison column)
+  where split's two line-number gutters cut the code off. Reach for \`mode:
+  "split"\` only for a standalone, full-document-width diff where side-by-side
+  genuinely helps. Give every \`diff\` a one-line \`summary\` saying what the hunk
+  changes and why; it renders as a description above the code so the reviewer
+  reads intent first. Never leave a diff unlabeled.
   For the KEY changed files, attach \`annotations\` to the \`diff\` so the recap
   calls out what each important hunk does — this is the headline affordance for
   annotating the key files updated. Each annotation is
@@ -1721,17 +1944,18 @@ the actual diff:
   \`rich-text\` heading block whose markdown is \`## Key changes\`, then place the
   \`diff\` blocks under it in a reusable \`tabs\` block with
   \`orientation: "vertical"\` so file labels form a left rail and the selected
-  file's split diff renders on the right. Let that heading label the section — do
-  NOT also set a \`title\` on the \`tabs\` block. Keep each tab label to the file
-  path or a short basename plus directory hint.
+  file's diff renders unified on the right. Leave each diff's \`mode\` unset — the
+  tab panel is too narrow for split — and let the unified default carry it. Let
+  that heading label the section — do NOT also set a \`title\` on the \`tabs\` block.
+  Keep each tab label to the file path or a short basename plus directory hint.
   If the recap ends with more than one supporting diff, that trailing diff
   appendix should be one vertical \`tabs\` block under its own \`## Key changes\`
   heading, not a stack of separate \`diff\` blocks.
 - **Brand-new file or a substantial added block with no meaningful "before"** →
-  \`annotated-code\` rather than a one-sided split \`diff\`. Carry the real new code
+  \`annotated-code\` rather than a one-sided \`diff\`. Carry the real new code
   with its \`filename\` / \`language\` and anchor a few high-signal notes to the lines
   that matter (\`{ lines: "12" | "12-18"; label?; note }\`) so the reviewer reads
-  what the new code does, not code for code's sake. Keep split \`diff\` for true
+  what the new code does, not code for code's sake. Keep \`diff\` for true
   before/after hunks where the removed lines still carry meaning, and group
   several annotated walkthroughs in a vertical \`tabs\` block the same way diffs are
   grouped.
@@ -1744,7 +1968,7 @@ the actual diff:
   or a short state/flow sequence. Use realistic UI surfaces: for a popover
   change, show a popover with its title row, top-right actions, options/fields,
   and any opened prompt/menu anchored to the correct trigger. Keep the body lean:
-  the wireframe carries the UI story, while the file tree and split \`diff\`
+  the wireframe carries the UI story, while the file tree and \`diff\`
   blocks carry implementation evidence.
 - **Architecture or data-flow shift** → \`diagram\` with \`data.html\` / \`data.css\`
   as a two-panel before/after, layered, or swimlane layout, or \`mermaid\` for a
@@ -1764,6 +1988,350 @@ the actual diff:
   the objective the diff served, the key decisions visible in it, and the risks a
   reviewer should weigh. This is the only place the model writes freely.
 
+## Block MDX reference
+
+This is the authoritative tag + prop shape for every importable block. Author the
+recap source against THESE tags and props — do not guess from the conceptual
+names above (the conceptual name like \`api-endpoint\` is NOT the JSX tag). A wrong
+tag or prop shape either 500s the import with a ZodError or, for an unrecognized
+capitalized tag, now **fails the import with a clear "Unknown plan block" error**
+(it used to silently render as raw \`<JsonExplorer …>\` text — that footgun is
+fixed). Every block also takes the shared envelope attributes \`id\` (REQUIRED,
+unique across the whole plan), and optional \`title\`, \`summary\`, \`editable\` —
+those are omitted from the per-block prop lists below.
+
+The complete set of real block tags is exactly: \`RichText\`, \`FileTree\`,
+\`DataModel\`, \`Endpoint\`, \`Diff\`, \`AnnotatedCode\`, \`WireframeBlock\` (body
+\`<Screen>\` + wireframe-kit children), \`Columns\`/\`Column\`, \`TabsBlock\`, \`Callout\`,
+\`Diagram\`, \`Mermaid\`, \`Json\`, \`HtmlBlock\`, \`Table\`, \`Checklist\`, \`Code\`,
+\`OpenApi\`. Any other capitalized tag at the block level is rejected on import.
+
+Quick tag map (conceptual name → real JSX tag):
+
+| Conceptual | Real tag | Conceptual | Real tag |
+| --- | --- | --- | --- |
+| api-endpoint | \`Endpoint\` | diff | \`Diff\` |
+| data-model | \`DataModel\` | annotated-code | \`AnnotatedCode\` |
+| file-tree | \`FileTree\` | code | \`Code\` |
+| mermaid | \`Mermaid\` | rich-text | \`RichText\` |
+| diagram | \`Diagram\` | callout | \`Callout\` |
+| json-explorer | \`Json\` | columns | \`Columns\` (cols are \`Column\`) |
+| openapi-spec | \`OpenApi\` | tabs | \`TabsBlock\` |
+| wireframe | \`WireframeBlock\` (body \`<Screen>\`) | table | \`Table\` |
+| custom-html | \`HtmlBlock\` | checklist | \`Checklist\` |
+
+### Common mistakes (these now error on import)
+
+These WRONG tags used to be swallowed as raw text. Common synonyms are now
+auto-corrected to the canonical tag on import; anything not in this map is
+rejected with a "did you mean" hint. Always author with the canonical tag —
+do not rely on the aliases.
+
+| WRONG tag | → use |
+| --- | --- |
+| \`JsonExplorer\` | \`Json\` |
+| \`Tabs\` (or a nested \`Tab\` child) | \`TabsBlock\` (tabs are ONE JSON \`tabs={[…]}\` prop — there is NO nested \`<Tab>\` element) |
+| \`ApiEndpoint\` | \`Endpoint\` |
+| \`DiffBlock\` | \`Diff\` |
+| \`AnnotatedCodeBlock\` | \`AnnotatedCode\` |
+| \`Wireframe\` | \`WireframeBlock\` |
+
+Lowercase HTML tags inside \`RichText\`/markdown prose (\`<div>\`, \`<span>\`,
+\`<code>\`, \`<br>\`, …) are always fine — only capitalized component-style tags at
+the block level are validated.
+
+### \`Endpoint\` (API / route)
+
+Tag is \`Endpoint\` — NOT \`ApiEndpoint\`. Required attrs: \`method\`, \`path\`. Optional
+attrs: \`summary\` (the short title — NOT \`title\`), \`auth\`, \`deprecated\` (bool),
+\`change\`, \`params\`, \`request\`, \`responses\`. The prose \`description\` is the MDX
+**children** (body between the tags), NOT an attribute.
+
+- \`method\` ∈ \`GET | POST | PUT | PATCH | DELETE | HEAD | OPTIONS\`. For a
+  WebSocket upgrade use \`GET\`.
+- \`change\` (and per-param/per-response \`change\`) ∈ \`added | modified | removed | renamed\`.
+- \`params={[{ name, in, type?, required?, description?, change?, was? }]}\` where
+  \`in\` ∈ \`path | query | header | body\`.
+- \`request={{ contentType?, example? }}\` — \`example\` is a JSON **string**, not a
+  nested object.
+- \`responses={[{ status, description?, example?, change? }]}\` — each \`example\` is
+  a JSON **string** (the renderer parses it into the collapsible JsonExplorer).
+  Give each distinct message shape (e.g. success vs error, or separate WS frame
+  types) its OWN response entry, not one merged body.
+
+\`\`\`mdx
+<Endpoint
+  id="ep-create-task"
+  method="POST"
+  path="/api/tasks"
+  summary="Create a task"
+  request={{ contentType: "application/json", example: '{"title":"Ship recap"}' }}
+  responses={[{ status: "201", description: "Created", example: '{"id":"t_1","title":"Ship recap"}' }]}
+>
+
+Creates a task scoped to the caller's org.
+
+</Endpoint>
+\`\`\`
+
+### \`DataModel\` (schema / ER)
+
+Tag is \`DataModel\`. Required attr: \`entities\` (>= 1). Optional attr: \`relations\`.
+There is NO top-level \`fields=\` attribute — fields live inside each entity. There
+is NO per-field \`required\` or \`description\` key; fold either into \`note\`.
+
+- \`entities={[{ id, name, note?, change?, fields: [...] }]}\` — \`id\` is referenced
+  by relations.
+- each field: \`{ name, type?, pk?, fk?, nullable?, default?, note?, change?, was? }\`.
+  \`pk\`/\`nullable\` are booleans; \`fk\` is a string target like \`"User.id"\`;
+  \`change\` ∈ \`added | modified | removed | renamed\`; \`was\` is the prior value
+  when \`change\` is \`modified\`.
+- \`relations={[{ from, to, kind?, label? }]}\` (optional — the renderer infers
+  simple \`1-n\` from \`fk\` when omitted); \`kind\` ∈ \`1-1 | 1-n | n-n\`.
+
+\`\`\`mdx
+<DataModel
+  id="dm-tasks"
+  entities={[
+    {
+      id: "task",
+      name: "Task",
+      fields: [
+        { name: "id", type: "uuid", pk: true },
+        { name: "title", type: "text" },
+        { name: "status", type: "text", change: "added", note: "open|done" }
+      ]
+    }
+  ]}
+/>
+\`\`\`
+
+### \`FileTree\` (changed files)
+
+Tag is \`FileTree\`. Required attr: \`entries\` (>= 1). Optional attr: \`title\`. The
+tree is built from the leaf \`path\`s — do NOT pass an ASCII tree in children; the
+block is self-closing.
+
+- \`entries={[{ path, change?, note?, snippet?, language? }]}\` — \`path\` is
+  slash-delimited; \`change\` ∈ \`added | modified | removed | renamed\`. Add a
+  \`snippet\` (with optional \`language\`) only when it says something the path does
+  not.
+
+\`\`\`mdx
+<FileTree
+  id="ft-changed"
+  title="Files touched"
+  entries={[
+    { path: "server/routes/tasks.ts", change: "modified", note: "add POST handler" },
+    { path: "server/db/schema.ts", change: "modified" },
+    { path: "tests/tasks.test.ts", change: "added" }
+  ]}
+/>
+\`\`\`
+
+### \`Mermaid\` (graph)
+
+Tag is \`Mermaid\` — this is its OWN block, separate from \`Diagram\`. Required attr:
+\`source\` (the diagram text). Optional attr: \`caption\`. Do NOT put mermaid text
+inside a \`Diagram\` block, and do NOT use \`<Diagram mermaid={...}>\` — that is not a
+real prop and will not render.
+
+\`\`\`mdx
+<Mermaid
+  id="mm-flow"
+  source={\`flowchart LR
+  Client --> API
+  API --> DB\`}
+  caption="Request path"
+/>
+\`\`\`
+
+### \`Diagram\` (HTML/SVG or node graph)
+
+Tag is \`Diagram\`. The whole payload is ONE \`data\` attribute:
+\`data={{ html?, css?, caption?, nodes?, edges?, notes? }}\`. It requires either
+\`html\` (an inert HTML/SVG fragment) OR at least one node — a \`Diagram\` with
+neither fails validation. This is for architecture / data-flow / dependency
+relationships, NOT rendered UI (use a wireframe for UI) and NOT mermaid (use
+\`Mermaid\`). Use \`.diagram-*\` primitives + \`--wf-*\` tokens in \`html\`/\`css\`; never
+hex colors or \`font-family\`.
+
+\`\`\`mdx
+<Diagram
+  id="dg-arch"
+  data={{
+    nodes: [
+      { id: "ui", label: "UI" },
+      { id: "api", label: "API" },
+      { id: "db", label: "DB" }
+    ],
+    edges: [
+      { from: "ui", to: "api" },
+      { from: "api", to: "db" }
+    ]
+  }}
+/>
+\`\`\`
+
+### \`Json\` (JSON explorer)
+
+Tag is \`Json\`. Required attr: \`json\` — a **string** containing the JSON.
+Optional attrs: \`title\`, \`collapsedDepth\` (number, default 2).
+
+\`\`\`mdx
+<Json
+  id="json-config"
+  title="Resolved config"
+  json={'{"flags":{"recap":true},"limit":50}'}
+/>
+\`\`\`
+
+### \`Diff\` (before/after)
+
+Tag is \`Diff\`. Required attrs: \`before\`, \`after\` (multiline source strings).
+Optional attrs: \`filename\`, \`language\`, \`mode\` (\`unified | split\`), \`annotations\`.
+Leave \`mode\` unset: it defaults to **unified**, which reads cleanly at any width
+and is what recap diffs want — they almost always live inside a width-constrained
+container (a vertical-tabs panel or a comparison column) where split's two
+line-number gutters cut the code off. Only set \`mode: "split"\` for a standalone,
+full-document-width diff where side-by-side genuinely helps. The reader always
+exposes a Unified/Split toggle (when there is room), so a viewer can switch
+either way regardless of the authored default. Give every diff a \`summary\` (the
+shared envelope attr) so the reviewer reads intent first.
+
+- \`annotations={[{ side?, lines, label?, note }]}\` — \`side\` ∈ \`before | after\`
+  (default \`after\`); \`lines\` is a 1-based ref like \`"13"\` or \`"13-15"\`.
+
+\`\`\`mdx
+<Diff
+  id="diff-handler"
+  filename="server/routes/tasks.ts"
+  language="ts"
+  summary="Add the POST /api/tasks handler"
+  before={\`router.get("/api/tasks", list);\`}
+  after={\`router.get("/api/tasks", list);\\nrouter.post("/api/tasks", create);\`}
+  annotations={[{ side: "after", lines: "2", label: "New route", note: "Creates a task" }]}
+/>
+\`\`\`
+
+### \`AnnotatedCode\` (new-file walkthrough)
+
+Tag is \`AnnotatedCode\`. Required attr: \`code\` (multiline string). Optional attrs:
+\`filename\`, \`language\`, \`annotations\`. Use this for a brand-new file with no
+meaningful "before".
+
+- \`annotations={[{ lines, label?, note }]}\` — 1-based \`lines\` ref (no \`side\`,
+  unlike \`Diff\`).
+
+\`\`\`mdx
+<AnnotatedCode
+  id="ac-create"
+  filename="server/tasks/create.ts"
+  language="ts"
+  code={\`export async function create(input: NewTask) {\\n  return db.tasks.insert(input);\\n}\`}
+  annotations={[{ lines: "1-3", label: "Handler", note: "Inserts and returns the row" }]}
+/>
+\`\`\`
+
+### \`RichText\` (prose)
+
+Tag is \`RichText\`. The markdown is the MDX **children** (body between the tags),
+NOT an attribute. Use \`## Key changes\` here as the heading above a grouped diff
+\`TabsBlock\`.
+
+\`\`\`mdx
+<RichText id="rt-why">
+
+## Why
+
+Adds a create endpoint so the agent can author tasks directly.
+
+</RichText>
+\`\`\`
+
+### \`Callout\` (tone note)
+
+Tag is \`Callout\`. Optional attr: \`tone\` ∈ \`info | decision | risk | warning | success\`.
+The body markdown is the MDX **children**, NOT an attribute.
+
+\`\`\`mdx
+<Callout id="co-risk" tone="risk">
+
+The new column is non-nullable with no default — existing rows need a backfill.
+
+</Callout>
+\`\`\`
+
+### \`Columns\` (side-by-side)
+
+Tag is \`Columns\`; each column is a nested \`<Column label="...">\` whose body is
+markdown and/or block components. 1–4 columns. Use labels \`Before\` / \`After\` for
+structured comparisons.
+
+\`\`\`mdx
+<Columns id="cols-schema">
+<Column label="Before">
+
+\`status\` did not exist.
+
+</Column>
+<Column label="After">
+
+<DataModel id="dm-after" entities={[{ id: "task", name: "Task", fields: [{ name: "status", type: "text", change: "added" }] }]} />
+
+</Column>
+</Columns>
+\`\`\`
+
+### \`TabsBlock\` (tab rail)
+
+Tag is \`TabsBlock\` — NOT \`Tabs\`, and there is NO nested \`<Tab>\` element. Required
+attr: \`tabs\` (1–12). Optional attr: \`orientation\` (\`horizontal | vertical\`; use
+\`vertical\` for a file rail). The whole \`tabs\` array (including nested child
+blocks) is ONE JSON prop; do NOT nest the tabs or their child blocks as MDX
+elements. Label the section with a preceding \`## Key changes\` \`RichText\` heading
+rather than a \`title\` on the block.
+
+\`\`\`mdx
+<TabsBlock
+  id="tabs-key"
+  orientation="vertical"
+  tabs={[
+    { id: "t-route", label: "routes/tasks.ts", blocks: [ /* Diff block objects */ ] },
+    { id: "t-schema", label: "db/schema.ts", blocks: [ /* Diff block objects */ ] }
+  ]}
+/>
+\`\`\`
+
+### \`WireframeBlock\` + \`<Screen>\` (UI)
+
+Tag is \`WireframeBlock\`; its body is a single \`<Screen surface ... >\` subtree
+(this is nested MDX, not a flat prop). On \`<Screen>\`, \`html\` must be a
+single-quoted string or a static template literal — NEVER a dynamic expression
+(\`html={someVar}\` throws on import). \`surface\` ∈
+\`desktop | mobile | popover | panel | browser\`. Optional \`<Screen>\` attrs:
+\`renderMode\` (\`wireframe | design\`), \`caption\`, \`css\`, \`skeleton\`. See the
+Wireframe Quality core above for the HTML rules.
+
+\`\`\`mdx
+<WireframeBlock id="wf-tasks">
+<Screen surface="browser" html={'<div style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"><h1>Tasks</h1><button class="primary">New task</button></div>'} />
+</WireframeBlock>
+\`\`\`
+
+### Other blocks
+
+- \`HtmlBlock\` (custom-html) — flat attrs \`html\` (required, bounded fragment),
+  \`css?\`, \`caption?\`. Prefer a wireframe for UI; this is an escape hatch.
+- \`Table\` — flat attrs \`columns={["A","B"]}\` and \`rows={[["1","2"]]}\` (both arrays
+  of strings), optional \`density\` (\`compact | normal | relaxed\`).
+- \`Checklist\` — flat attr \`items={[{ id, label, checked?, note? }]}\`.
+- \`Code\` — flat attrs \`code\` (required string), \`language?\`, \`filename?\`,
+  \`caption?\`, \`maxLines?\`. For a multi-file rail use a \`TabsBlock\` of \`Code\`
+  blocks.
+- \`OpenApi\` — flat attrs \`spec\` (required JSON string of a whole OpenAPI/Swagger
+  doc), \`title?\`. The whole-document counterpart to \`Endpoint\`.
+
 ## Before / After Is The Headline
 
 The recap's center of gravity is the before/after comparison. For document-body
@@ -1775,8 +2343,11 @@ comparisons there are two primitives, and they cover the whole need together:
   shape against the new shape in one glance. This is the right primitive for
   "the schema went from X to Y" or "the endpoint contract changed like this."
   Do not use \`columns\` simply to compact or group a list of API endpoints.
-- **\`diff\` with \`mode: "split"\`** — for **code**. The split renders the literal
-  removed and added lines side by side. Use it for the actual hunks.
+- **\`diff\`** — for **code**. It renders the literal removed and added lines. Use
+  it for the actual hunks. Leave \`mode\` unset so it renders unified (the default,
+  legible at any width); reserve \`mode: "split"\` for a standalone full-width diff
+  where side-by-side genuinely helps — never inside a tabs panel or column, where
+  split's doubled gutters cut the code off.
 
 For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state
@@ -1786,8 +2357,8 @@ explanation. The Wireframe Quality core owns the before/after layout choice —
 the \`columns\` renderer keeps narrow surfaces side by side and auto-stacks wide
 \`desktop\`/\`browser\` frames vertically; never hand-build a side-by-side
 wireframe layout in \`custom-html\`. For document-body
-comparisons, there is no other multi-column primitive — \`columns\` plus split
-\`diff\` are the whole comparison vocabulary. Do not hand-build side-by-side
+comparisons, there is no other multi-column primitive — \`columns\` plus the
+\`diff\` block are the whole comparison vocabulary. Do not hand-build side-by-side
 layouts in \`custom-html\`, and do not stack two \`data-model\` blocks vertically
 and call it a comparison when \`columns\` exists to put them side by side.
 
@@ -2069,6 +2640,10 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "visual-plan",
     extraSkills: {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
+      "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
+      "ui-plan": UI_PLAN_SKILL_MD,
+      "prototype-plan": PROTOTYPE_PLAN_SKILL_MD,
+      "plan-design": PLAN_DESIGN_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
@@ -2084,7 +2659,7 @@ export const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -2101,6 +2676,34 @@ export const BUILT_IN_APP_SKILLS = {
           description:
             "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review.",
         },
+        {
+          id: "ui-plan",
+          action: "create-ui-plan",
+          path: "/plans",
+          description:
+            "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below.",
+        },
+        {
+          id: "prototype-plan",
+          action: "create-prototype-plan",
+          path: "/plans",
+          description:
+            "Create a prototype-first Agent-Native plan with a functional live prototype above the document.",
+        },
+        {
+          id: "plan-design",
+          action: "create-plan-design",
+          path: "/plans",
+          description:
+            "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab.",
+        },
+        {
+          id: "visual-questions",
+          action: "create-visual-questions",
+          path: "/plans",
+          description:
+            "Create a rich visual intake questionnaire for explicit /visual-questions workflows.",
+        },
       ],
       skills: [
         {
@@ -2112,6 +2715,26 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-recap",
           visibility: "exported",
           exportAs: "visual-recap",
+        },
+        {
+          path: "skills/visual-questions",
+          visibility: "exported",
+          exportAs: "visual-questions",
+        },
+        {
+          path: "skills/ui-plan",
+          visibility: "exported",
+          exportAs: "ui-plan",
+        },
+        {
+          path: "skills/prototype-plan",
+          visibility: "exported",
+          exportAs: "prototype-plan",
+        },
+        {
+          path: "skills/plan-design",
+          visibility: "exported",
+          exportAs: "plan-design",
         },
       ],
       hostAdapters: [
@@ -2193,6 +2816,13 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-recaps": "visual-plans",
   "code-review-recap": "visual-plans",
   "code-review-recaps": "visual-plans",
+  "ui-plan": "visual-plans",
+  "prototype-plan": "visual-plans",
+  "plan-design": "visual-plans",
+  "plan-designs": "visual-plans",
+  "design-plan": "visual-plans",
+  "design-plans": "visual-plans",
+  "visual-questions": "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
@@ -2217,6 +2847,10 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "visual-plan",
     "visual-recap",
     "code-review-recap",
+    "ui-plan",
+    "prototype-plan",
+    "plan-design",
+    "visual-questions",
     "html-plan",
     "plannotate",
   ],

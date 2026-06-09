@@ -49,6 +49,7 @@ interface AppSettingsProps {
   onClose: () => void;
   onAppsChanged: (apps: AppConfig[]) => void;
   onAddAppClick?: () => void;
+  onFrameSettingsChanged?: (settings: FrameSettings) => void;
   onCodeAgentProvidersChanged?: () => void;
 }
 
@@ -489,6 +490,7 @@ export default function AppSettings({
   onClose,
   onAppsChanged,
   onAddAppClick,
+  onFrameSettingsChanged,
   onCodeAgentProvidersChanged,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -523,9 +525,12 @@ export default function AppSettings({
   // Load frame settings
   useEffect(() => {
     if (window.electronAPI?.frame) {
-      window.electronAPI.frame.load().then(setFrameSettings);
+      window.electronAPI.frame.load().then((settings) => {
+        setFrameSettings(settings);
+        onFrameSettingsChanged?.(settings);
+      });
     }
-  }, []);
+  }, [onFrameSettingsChanged]);
 
   const refreshProviderSettings = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -594,19 +599,38 @@ export default function AppSettings({
     return () => window.clearInterval(timer);
   }, [refreshRemoteStatus]);
 
-  const handleFrameToggle = useCallback(async (enabled: boolean) => {
-    if (window.electronAPI?.frame) {
-      const updated = await window.electronAPI.frame.update({ enabled });
-      setFrameSettings(updated);
-    }
-  }, []);
+  const handleFrameToggle = useCallback(
+    async (enabled: boolean) => {
+      if (window.electronAPI?.frame) {
+        const updated = await window.electronAPI.frame.update({ enabled });
+        setFrameSettings(updated);
+        onFrameSettingsChanged?.(updated);
+      }
+    },
+    [onFrameSettingsChanged],
+  );
 
-  const handleFrameModeToggle = useCallback(async (mode: "dev" | "prod") => {
-    if (window.electronAPI?.frame) {
-      const updated = await window.electronAPI.frame.update({ mode });
-      setFrameSettings(updated);
-    }
-  }, []);
+  const handleFrameModeToggle = useCallback(
+    async (mode: "dev" | "prod") => {
+      if (window.electronAPI?.frame) {
+        const updated = await window.electronAPI.frame.update({ mode });
+        setFrameSettings(updated);
+        onFrameSettingsChanged?.(updated);
+      }
+    },
+    [onFrameSettingsChanged],
+  );
+
+  const handleCodeTabToggle = useCallback(
+    async (showCodeTab: boolean) => {
+      if (window.electronAPI?.frame) {
+        const updated = await window.electronAPI.frame.update({ showCodeTab });
+        setFrameSettings(updated);
+        onFrameSettingsChanged?.(updated);
+      }
+    },
+    [onFrameSettingsChanged],
+  );
 
   const handleRemoteToggle = useCallback(async (enabled: boolean) => {
     const api = window.electronAPI?.codeAgents;
@@ -725,9 +749,10 @@ export default function AppSettings({
       ) {
         const updated = await window.electronAPI.frame.update({ mode });
         setFrameSettings(updated);
+        onFrameSettingsChanged?.(updated);
       }
     },
-    [apps, frameSettings, onAppsChanged],
+    [apps, frameSettings, onAppsChanged, onFrameSettingsChanged],
   );
 
   const allMode: "dev" | "prod" | null = (() => {
@@ -829,6 +854,34 @@ export default function AppSettings({
           {!providerSettings && providerLoadMessage && (
             <div className="settings-provider-message">
               {providerLoadMessage}
+            </div>
+          )}
+
+          {frameSettings && (
+            <div className="settings-code-tab-card">
+              <div className="settings-code-tab-copy">
+                <span className="settings-mode-card-title">Code tab</span>
+                <span className="settings-mode-card-status">
+                  Show Agent-Native Code in the sidebar.
+                </span>
+              </div>
+              <label
+                className="settings-toggle"
+                title={
+                  frameSettings.showCodeTab
+                    ? "Hide the Code tab"
+                    : "Show the Code tab"
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={frameSettings.showCodeTab}
+                  onChange={(event) =>
+                    handleCodeTabToggle(event.target.checked)
+                  }
+                />
+                <span className="settings-toggle-track" />
+              </label>
             </div>
           )}
 

@@ -16,6 +16,7 @@ import {
   IconDots,
   IconTrash,
   IconExternalLink,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,11 +47,16 @@ import {
   getCurrentDraftBodyFromEditor,
   splitQuotedContent,
 } from "./compose-draft-context";
-import { RecipientInput } from "./RecipientInput";
+import {
+  RecipientInput,
+  computeRecipientMove,
+  type RecipientField,
+} from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { AttachmentStrip } from "./AttachmentStrip";
+import { cn } from "@/lib/utils";
 
 export interface InlineReplyHandle {
   focusEditor: () => void;
@@ -86,6 +92,9 @@ export const InlineReplyComposer = forwardRef<
   const [showQuoted, setShowQuoted] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
+  const [showCcBcc, setShowCcBcc] = useState(() =>
+    Boolean(draft.cc?.trim() || draft.bcc?.trim()),
+  );
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const addOptimisticReply = useAddOptimisticReply();
@@ -111,6 +120,10 @@ export const InlineReplyComposer = forwardRef<
       });
     }, 100);
   }, []);
+
+  useEffect(() => {
+    if (draft.cc?.trim() || draft.bcc?.trim()) setShowCcBcc(true);
+  }, [draft.cc, draft.bcc]);
 
   // Resolve recipient display names from thread messages
   const recipientDisplay = useMemo(() => {
@@ -301,6 +314,92 @@ export const InlineReplyComposer = forwardRef<
     setGenerateOpen(false);
   };
 
+  const toggleCcBcc = () => {
+    const next = !showCcBcc;
+    setShowCcBcc(next);
+    if (!next) return;
+
+    const partial: Partial<ComposeState> = {};
+    if (draft.cc === undefined) partial.cc = "";
+    if (draft.bcc === undefined) partial.bcc = "";
+    if (Object.keys(partial).length > 0) onUpdate(draft.id, partial);
+  };
+
+  const moveRecipient = (
+    value: string,
+    from: RecipientField,
+    to: RecipientField,
+  ) => {
+    if (from === to) return;
+    const moved = computeRecipientMove(
+      draft[from] ?? "",
+      draft[to] ?? "",
+      value,
+    );
+    const partial: Partial<ComposeState> = {};
+    partial[from] = moved.from;
+    partial[to] = moved.to;
+    onUpdate(draft.id, partial);
+  };
+
+  const recipientFields = (
+    <>
+      <div className="flex items-center border-b border-border/30 px-4 pb-2">
+        <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+          To
+        </span>
+        <RecipientInput
+          value={draft.to}
+          onChange={(val) => onUpdate(draft.id, { to: val })}
+          autoFocus={draft.mode === "forward"}
+          field="to"
+          onMoveRecipient={moveRecipient}
+        />
+        <button
+          type="button"
+          aria-label={showCcBcc ? "Hide Cc and Bcc" : "Show Cc and Bcc"}
+          aria-expanded={showCcBcc}
+          onClick={toggleCcBcc}
+          className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <IconChevronDown
+            className={cn(
+              "h-4 w-4 transition-transform",
+              showCcBcc && "rotate-180",
+            )}
+          />
+        </button>
+      </div>
+
+      {showCcBcc && (
+        <>
+          <div className="flex items-center border-b border-border/30 px-4">
+            <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+              Cc
+            </span>
+            <RecipientInput
+              value={draft.cc ?? ""}
+              onChange={(val) => onUpdate(draft.id, { cc: val })}
+              field="cc"
+              onMoveRecipient={moveRecipient}
+            />
+          </div>
+          <div className="flex items-center border-b border-border/30 px-4">
+            <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+              Bcc
+            </span>
+            <RecipientInput
+              value={draft.bcc ?? ""}
+              onChange={(val) => onUpdate(draft.id, { bcc: val })}
+              field="bcc"
+              onMoveRecipient={moveRecipient}
+            />
+          </div>
+        </>
+      )}
+    </>
+  );
+
   const handleAttachFiles = async (files: File[]) => {
     if (files.length === 0) return;
     try {
@@ -367,16 +466,7 @@ export const InlineReplyComposer = forwardRef<
               <TooltipContent>Pop out to compose window</TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex items-center border-b border-border/30 px-4 pb-2">
-            <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-              To
-            </span>
-            <RecipientInput
-              value={draft.to}
-              onChange={(val) => onUpdate(draft.id, { to: val })}
-              autoFocus
-            />
-          </div>
+          {recipientFields}
         </>
       ) : (
         <>
@@ -401,15 +491,7 @@ export const InlineReplyComposer = forwardRef<
               <TooltipContent>Pop out to compose window</TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex items-center border-b border-border/30 px-4 pb-2">
-            <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-              To
-            </span>
-            <RecipientInput
-              value={draft.to}
-              onChange={(val) => onUpdate(draft.id, { to: val })}
-            />
-          </div>
+          {recipientFields}
         </>
       )}
 

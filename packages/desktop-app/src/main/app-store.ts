@@ -95,6 +95,7 @@ interface ShortcutStore {
 function defaultFrameSettings(): FrameSettings {
   return {
     enabled: true,
+    showCodeTab: false,
     mode: app.isPackaged ? "prod" : "dev",
   };
 }

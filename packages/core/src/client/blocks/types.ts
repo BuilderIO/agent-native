@@ -185,6 +185,8 @@ export interface BlockRenderContext {
     onOpenChange?: (open: boolean) => void;
     trigger: React.ReactNode;
     children: React.ReactNode;
+    /** Compact action menus omit host block-edit chrome such as edit-by-prompt. */
+    variant?: "panel" | "menu";
     /** Metadata for host-provided contextual controls such as the edit-by-prompt CTA. */
     blockId?: string;
     blockType?: string;

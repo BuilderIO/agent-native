@@ -264,6 +264,61 @@ const BLOCK_COMPONENTS = new Set([
   "VisualQuestions",
 ]);
 
+// Forgiving parse: common WRONG block tags map to the canonical tag so an
+// aliased element goes through the EXACT same block parse path (attrs, children,
+// JSON props) as the real tag instead of being silently swallowed into prose.
+// Resolution happens once, before dispatch (see `parseBlock`). Keep this list in
+// sync with the "Common mistakes" section of the visual-recap skill.
+//
+// Note on tabs: `TabsBlock` encodes its tabs (labels + nested child blocks) as a
+// single JSON `tabs={[…]}` prop — there is NO nested-MDX tab-child element in
+// this dialect. So `Tabs` aliases to `TabsBlock`, and a stray `<Tab>` is a
+// genuinely unknown block (it fails loud with a "did you mean TabsBlock?" hint).
+const BLOCK_TAG_ALIASES: Record<string, string> = {
+  JsonExplorer: "Json",
+  Tabs: "TabsBlock",
+  ApiEndpoint: "Endpoint",
+  DiffBlock: "Diff",
+  AnnotatedCodeBlock: "AnnotatedCode",
+  Wireframe: "WireframeBlock",
+};
+
+function resolveBlockTagAlias(name: string): string {
+  return BLOCK_TAG_ALIASES[name] ?? name;
+}
+
+function normalizeBlockAliasNode(node: MdxNode, rawName: string): MdxNode {
+  const name = resolveBlockTagAlias(rawName);
+  if (name === rawName) return node;
+
+  let attributes = node.attributes;
+  if (rawName === "JsonExplorer") {
+    const hasJson = attributes?.some(
+      (attr) => attr.type === "mdxJsxAttribute" && attr.name === "json",
+    );
+    const dataAttr = attributes?.find(
+      (attr) => attr.type === "mdxJsxAttribute" && attr.name === "data",
+    );
+    if (!hasJson && dataAttr) {
+      const dataValue = attributeValue(dataAttr);
+      const jsonValue =
+        typeof dataValue === "string"
+          ? dataValue
+          : JSON.stringify(dataValue ?? null);
+      attributes = [
+        ...(attributes ?? []),
+        {
+          type: "mdxJsxAttribute",
+          name: "json",
+          value: jsonValue,
+        },
+      ];
+    }
+  }
+
+  return { ...node, name, attributes };
+}
+
 function mdxProcessor() {
   return unified().use(remarkParse).use(remarkMdx).use(remarkStringify, {
     bullet: "-",
@@ -764,8 +819,90 @@ const WIREFRAME_ONLY_COMPONENTS = new Set<string>([
   ...Object.keys(COMPONENT_TO_NODE),
 ]);
 
+// Capitalized component tags that are legitimately NESTED inside a block (not a
+// standalone block themselves) — so the block-level fail-loud check does not
+// flag them. `Column` lives inside `Columns`; the wireframe kit (`Screen` + kit
+// nodes) lives inside `WireframeBlock`/`Artboard` and is handled by its own
+// loud check above. Canvas-only structural tags are not reached here (canvas.mdx
+// has its own parser) but are included for completeness.
+const NESTED_BLOCK_CHILD_COMPONENTS = new Set<string>([
+  "Column",
+  ...WIREFRAME_ONLY_COMPONENTS,
+  // canvas.mdx structural tags (defensive — not normally seen in plan.mdx)
+  "DesignBoard",
+  "Section",
+  "Artboard",
+  "Annotation",
+  "Connector",
+  "LegacyWireframe",
+  // prototype.mdx structural tags
+  "Prototype",
+  "PrototypeScreen",
+  "PrototypeTransition",
+]);
+
+// Every capitalized tag the plan.mdx parser recognizes as a real block: the
+// registry tags (canonical block library) unioned with the legacy
+// `BLOCK_COMPONENTS` switch. Used to fail loud on genuinely unknown blocks and
+// to build the "Known blocks" list + "did you mean" hint.
+function knownBlockTags(): string[] {
+  return [
+    ...new Set<string>([...planMdxRegistry.tags(), ...BLOCK_COMPONENTS]),
+  ].sort();
+}
+
+// Case-insensitive edit distance — small, dependency-free, only used to suggest
+// the nearest known/alias tag in the fail-loud error message.
+function editDistance(a: string, b: string): number {
+  const s = a.toLowerCase();
+  const t = b.toLowerCase();
+  const rows = s.length + 1;
+  const cols = t.length + 1;
+  const dp: number[] = Array.from({ length: cols }, (_, j) => j);
+  for (let i = 1; i < rows; i += 1) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j < cols; j += 1) {
+      const tmp = dp[j];
+      dp[j] =
+        s[i - 1] === t[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[cols - 1];
+}
+
+function suggestBlockTag(name: string): string | undefined {
+  const candidates = [...knownBlockTags(), ...Object.keys(BLOCK_TAG_ALIASES)];
+  let best: string | undefined;
+  let bestScore = Infinity;
+  for (const candidate of candidates) {
+    const score = editDistance(name, candidate);
+    if (score < bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  // Only suggest a reasonably close match (≤ 1/3 of the name's length, min 3).
+  const threshold = Math.max(3, Math.ceil(name.length / 3));
+  if (best && bestScore <= threshold) {
+    // If the closest match is an alias, point at the canonical tag it resolves to.
+    return resolveBlockTagAlias(best);
+  }
+  return undefined;
+}
+
 function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
-  const name = elementName(node);
+  const rawName = elementName(node);
+  // Forgiving parse: resolve common WRONG tags to the canonical tag BEFORE any
+  // dispatch, so an aliased element parses through the exact same path as the
+  // real block (attrs, children, JSON props). We work on a shallow clone with
+  // the canonical `name` so every downstream branch sees the resolved tag.
+  const dispatchNode: MdxNode = rawName
+    ? normalizeBlockAliasNode(node, rawName)
+    : node;
+  const name = dispatchNode.name;
+  node = dispatchNode;
   if (name === "Columns") {
     const parsed = parseReadableColumnsBlock(node, idContext);
     if (parsed) return parsed;
@@ -794,7 +931,34 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
       return { ...base, type: parsed.type, data: parsed.data } as PlanBlock;
     }
   }
-  if (!name || !BLOCK_COMPONENTS.has(name)) return null;
+  if (!name || !BLOCK_COMPONENTS.has(name)) {
+    // Fail loud: a block-level JSX element with a capitalized (component-style)
+    // tag that is NOT a known block, NOT an alias, and NOT a valid nested child
+    // must THROW rather than silently rendering as raw text (the catastrophic
+    // bug this guards against). Lowercase HTML tags (`<div>`, `<span>`, `<br>`,
+    // …) inside RichText/markdown prose are fine — only capitalized component
+    // tags are validated. Non-JSX nodes (paragraphs, headings, lists) keep
+    // returning null so they flush into the surrounding rich-text block.
+    const isJsxElement =
+      node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement";
+    const isComponentTag = !!rawName && /^[A-Z]/.test(rawName);
+    if (
+      isJsxElement &&
+      isComponentTag &&
+      name &&
+      !NESTED_BLOCK_CHILD_COMPONENTS.has(name)
+    ) {
+      const known = knownBlockTags().join(", ");
+      const suggestion = suggestBlockTag(rawName);
+      const hint = suggestion ? ` Did you mean <${suggestion}>?` : "";
+      throw new Error(
+        `Unknown plan block <${rawName}> (plan.mdx).${hint} Known blocks: ${known}. ` +
+          `If you meant a different block, use its exact tag. Lowercase HTML tags ` +
+          `inside RichText are fine; capitalized component tags must be real blocks.`,
+      );
+    }
+    return null;
+  }
   const base = baseBlock(node);
   if (name === "RichText") {
     return {

@@ -54,6 +54,46 @@ describe("db/client dialect detection", () => {
   });
 });
 
+describe("getMigrationDatabaseUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("strips the -pooler suffix from a real Neon pooler host", async () => {
+    // Exact pooler URL shape from templates/plan/.env (region segment .c-7.).
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    );
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(
+      "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    );
+  });
+
+  it("leaves an already-direct Neon host unchanged", async () => {
+    const direct =
+      "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require";
+    vi.stubEnv("DATABASE_URL", direct);
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(direct);
+  });
+
+  it("leaves a non-Neon Postgres URL unchanged", async () => {
+    const other = "postgresql://user:pass@db.example.com:5432/app";
+    vi.stubEnv("DATABASE_URL", other);
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(other);
+  });
+
+  it("leaves a sqlite file: URL unchanged", async () => {
+    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe("file:./data/app.db");
+  });
+});
+
 describe("getDbExec", () => {
   afterEach(() => {
     vi.resetModules();
