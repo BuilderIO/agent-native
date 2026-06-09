@@ -75,7 +75,10 @@ pub fn handle_meeting_menu_click(app: &AppHandle, menu_id: &str) -> bool {
         let _ = window.show();
         let _ = window.set_focus();
     }
-    let _ = app.emit("meetings:open", serde_json::json!({ "meetingId": id }));
+    let _ = app.emit(
+        "meetings:start-transcription",
+        serde_json::json!({ "meetingId": id, "joinUrl": null, "reason": "tray" }),
+    );
     true
 }
 

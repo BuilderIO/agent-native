@@ -19,7 +19,7 @@ interface FinalPayload {
   segments?: Segment[];
 }
 
-interface FinalLine {
+export interface FinalLine {
   text: string;
   source: Source;
   startMs?: number;
@@ -46,11 +46,29 @@ function formatTimestamp(ms: number): string {
  * partial for each source is rendered separately so the two streams don't
  * clobber each other.
  */
-export function LiveTranscript() {
-  const [finals, setFinals] = useState<FinalLine[]>([]);
+export function LiveTranscript({
+  onLinesChange,
+  initialLines,
+}: {
+  onLinesChange?: (lines: FinalLine[]) => void;
+  initialLines?: FinalLine[];
+} = {}) {
+  const [finals, setFinals] = useState<FinalLine[]>(initialLines ?? []);
   const [micPartial, setMicPartial] = useState("");
   const [sysPartial, setSysPartial] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (onLinesChange) onLinesChange(finals);
+  }, [finals, onLinesChange]);
+
+  // When the pill context changes (new meeting) or preloaded lines arrive,
+  // replace finals. New voice events will append on top after this.
+  useEffect(() => {
+    setFinals(initialLines ?? []);
+    setMicPartial("");
+    setSysPartial("");
+  }, [initialLines]);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
