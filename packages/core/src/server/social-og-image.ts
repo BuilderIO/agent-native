@@ -8,6 +8,7 @@ import {
 } from "h3";
 import { resolveBuiltInAuthMarketing } from "./auth-marketing.js";
 import { getAppName } from "./app-name.js";
+import { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 
 export interface AgentNativeOgImageInput {
   appName?: string | null;
@@ -28,8 +29,7 @@ const BRAND_BLUE = "#00B5FF";
 const BRAND_MINT = "#48FFE4";
 const BG = "#000000";
 const FG = "#f5f5f5";
-const FONT_FAMILY =
-  "Inter, Liberation Sans, Arial, Helvetica, system-ui, sans-serif";
+const FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const DEFAULT_ACCENT_TEXT = "100% free and open source";
 
 const LOGO_MARK = `
@@ -295,7 +295,10 @@ export function renderAgentNativeOgImageSvg(
       y: titleY,
       fontSize: titleLayout.fontSize,
       lineHeight: titleLayout.lineHeight,
-      weight: 850,
+      // resvg's fontdb maps font-weight 850 to the Regular face (only 400/700
+      // exist for Liberation Sans); 800 resolves to Bold, the heaviest face we
+      // bundle, which is the intended look for the display title.
+      weight: 800,
       fill: FG,
     })}
     <text x="84" y="${accentY}" font-family="${FONT_FAMILY}" font-size="34" font-weight="800" fill="${BRAND_BLUE}">${escapeSvg(accentText)}</text>
@@ -307,12 +310,19 @@ export async function renderAgentNativeOgImagePng(
   input: AgentNativeOgImageInput = {},
 ): Promise<Uint8Array> {
   const { Resvg } = await import(/* @vite-ignore */ "@resvg/resvg-js");
+  // Feed resvg the embedded Liberation Sans font explicitly. System fonts can't
+  // be relied on: Linux serverless runtimes (Netlify/Lambda) ship neither Arial
+  // nor Inter, so without a bundled font every `<text>` rendered blank.
+  const fontFiles = resolveOgFontFiles();
+  const hasBundledFonts = Boolean(fontFiles?.length);
   const image = new Resvg(renderAgentNativeOgImageSvg(input), {
     fitTo: { mode: "width", value: WIDTH },
     font: {
-      loadSystemFonts: true,
-      defaultFontFamily: "Arial",
-      sansSerifFamily: "Arial",
+      loadSystemFonts: !hasBundledFonts,
+      ...(hasBundledFonts ? { fontFiles } : {}),
+      defaultFontFamily: OG_FONT_FAMILY,
+      serifFamily: OG_FONT_FAMILY,
+      sansSerifFamily: OG_FONT_FAMILY,
     },
   }).render();
   return image.asPng();

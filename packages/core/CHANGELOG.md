@@ -1,5 +1,48 @@
 # @agent-native/core
 
+## 0.44.1
+
+### Patch Changes
+
+- 9c5ba15: Block-library refinements: `ApiEndpointBlock`, `AnnotatedCodeBlock`, `DiffBlock`,
+  and the `diagram` block (with added test coverage), plus shared `blocks.css`
+  adjustments. No public API changes — these tighten rendering and styling of the
+  shared plan/content blocks that live in core.
+- 9c5ba15: Fix blank text in the default social/OG preview image (`/_agent-native/og-image.png`).
+  Linux serverless runtimes (Netlify/Lambda) ship neither Arial nor Inter, so resvg
+  had no font to render with and every `<text>` element came out empty — the card
+  showed only the logo and grid. The renderer now bundles Liberation Sans (a
+  metric-compatible Arial replacement) embedded as base64 and passes it to resvg via
+  `fontFiles`, independent of host system fonts. Also fixes the display title
+  rendering thin: resvg's fontdb maps `font-weight: 850` to Regular, so the title now
+  uses `800`, which resolves to Bold.
+- 9c5ba15: Composer: pasting an HTML document now behaves like uploading that `.html` file.
+  Page-sized pastes already convert to a "Pasted text" attachment chip, but the
+  composer only ever read the clipboard's `text/plain` flavor and labelled the chip
+  a generic `pasted-text-*.txt`. When a user pasted HTML to host as an extension,
+  the agent received a nondescript text blob — so instead of reading it verbatim via
+  `contentFromAttachment`, it re-emitted the markup inline as a tool argument, which
+  cut off mid-stream on large files and degenerated into a continuation loop (the
+  chat "spun for a while"). Uploading the same content as a file worked because the
+  file carried the real HTML with a recognizable name/type.
+
+  `TiptapComposer`'s paste handler now captures the clipboard's `text/html` flavor
+  and, when the pasted content is an HTML document/source, stores it as a real
+  `pasted-text-*.html` attachment (`text/html`) with the markup preserved verbatim —
+  so paste and file-upload travel the identical attachment rail. Plain prose and
+  code stay `.txt` (the detection keys off the pasted content, not the `text/html`
+  flavor, so editor syntax-highlight markup and Google Docs formatting don't
+  mis-promote plain code/prose to HTML).
+
+- 9c5ba15: Capture LLM token usage and a derived cost estimate for PR Visual Recaps. The
+  recap workflow now emits machine-readable usage from the Claude Code / Codex run
+  and a new `agent-native recap usage` CLI subcommand parses it (normalizing the
+  Anthropic-vs-OpenAI cache-token accounting asymmetry) and attaches it to the
+  published recap. `recordUsage` gains optional `refId` (idempotent
+  replace-on-rewrite) and `costCentsX100` (store a provider-reported cost
+  verbatim) fields plus a `ref_id` column, and the model pricing table gains
+  OpenAI `gpt-5` / `gpt-5.5` rows so Codex recaps are not priced as Sonnet.
+
 ## 0.44.0
 
 ### Minor Changes

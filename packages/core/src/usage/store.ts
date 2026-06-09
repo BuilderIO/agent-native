@@ -78,6 +78,20 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /haiku/i,
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
+  // OpenAI / Codex models (cents per 1M tokens). Without these, a Codex recap
+  // model like "gpt-5.5" falls through to the default (Sonnet) row and is
+  // mispriced. Published rates as of 2026-06; OpenAI bills cached input at a
+  // discount and has no separate cache-write token charge, so cacheWrite is 0
+  // (recap usage passes 0 cache-write anyway). The /gpt-5\.5/ row must precede
+  // /gpt-5/ since the latter also matches "gpt-5.5".
+  {
+    match: /gpt-5\.5/i,
+    pricing: { input: 500, output: 3000, cacheRead: 50, cacheWrite: 0 },
+  },
+  {
+    match: /gpt-5/i,
+    pricing: { input: 125, output: 1000, cacheRead: 12.5, cacheWrite: 0 },
+  },
   // default → sonnet pricing
   {
     match: /.*/,
@@ -103,6 +117,18 @@ export interface UsageRecord {
   label?: string;
   /** Optional template/app name (e.g. "mail"). Falls back to AGENT_APP / APP_NAME env. */
   app?: string;
+  /**
+   * Stable id of the thing this usage belongs to (e.g. a recap plan id). When
+   * set, any prior row(s) with the same (label, refId) are deleted before
+   * insert, so re-recording the same run overwrites instead of double-counting.
+   */
+  refId?: string;
+  /**
+   * Precomputed cost in centicents (1/100¢). When provided, it is stored
+   * verbatim instead of being derived from tokens — e.g. to mirror a
+   * provider-reported dollar cost so two surfaces agree exactly.
+   */
+  costCentsX100?: number;
 }
 
 let _initPromise: Promise<void> | undefined;
@@ -123,6 +149,7 @@ async function ensureUsageTable(): Promise<void> {
           model TEXT NOT NULL DEFAULT '',
           label TEXT NOT NULL DEFAULT 'chat',
           app TEXT NOT NULL DEFAULT '',
+          ref_id TEXT NOT NULL DEFAULT '',
           created_at ${intType()} NOT NULL
         )
       `);
@@ -135,6 +162,7 @@ async function ensureUsageTable(): Promise<void> {
         ["cache_write_tokens", `${intType()} NOT NULL DEFAULT 0`],
         ["label", `TEXT NOT NULL DEFAULT 'chat'`],
         ["app", `TEXT NOT NULL DEFAULT ''`],
+        ["ref_id", `TEXT NOT NULL DEFAULT ''`],
       ];
       for (const [col, def] of additions) {
         try {
@@ -225,6 +253,8 @@ export async function recordUsage(
     model: modelName,
     label,
     app,
+    refId,
+    costCentsX100,
   } = record;
 
   // Skip no-op writes (e.g. a stream aborted before any tokens flowed)
@@ -232,21 +262,31 @@ export async function recordUsage(
 
   await ensureUsageTable();
   const client = getDbExec();
-  const costX100 = calculateCost(
-    inTok,
-    outTok,
-    modelName,
-    cacheReadTokens,
-    cacheWriteTokens,
-  );
-  const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   const resolvedApp =
     app ?? process.env.AGENT_APP ?? process.env.APP_NAME ?? "";
   const resolvedLabel = label ?? "chat";
+  const resolvedRef = refId ?? "";
+
+  // Replace any prior usage for this (label, refId) so re-recording the same
+  // run — e.g. a recap regenerated on a PR re-push — overwrites instead of
+  // double-counting. No-op when refId is unset (the common per-call path).
+  if (resolvedRef) {
+    await client.execute({
+      sql: `DELETE FROM token_usage WHERE label = ? AND ref_id = ?`,
+      args: [resolvedLabel, resolvedRef],
+    });
+  }
+
+  // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
+  // otherwise derive it from tokens via the pricing table.
+  const costX100 =
+    costCentsX100 ??
+    calculateCost(inTok, outTok, modelName, cacheReadTokens, cacheWriteTokens);
+  const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   await client.execute({
     sql: `INSERT INTO token_usage
-      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, model, label, app, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, model, label, app, ref_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       ownerEmail,
@@ -258,6 +298,7 @@ export async function recordUsage(
       modelName,
       resolvedLabel,
       resolvedApp,
+      resolvedRef,
       Date.now(),
     ],
   });

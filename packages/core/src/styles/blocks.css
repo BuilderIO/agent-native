@@ -31,6 +31,22 @@
      large prose size. The plan template overrides this var in its own
      `global.css`; this is the cross-app default. */
   --plan-code-size: 0.75rem;
+
+  /* AUTHORITATIVE code-body size for DENSE in-document code surfaces (diff rows,
+     annotated-code lines, API JSON examples, code-tabs, the `code` primitive
+     read surface). The catch-all below forces every such surface to this size
+     with `!important`, so dense document code is sized from ONE place no matter
+     which component renders it or what inline/utility/template size it would
+     otherwise pick up.
+
+     This is deliberately DECOUPLED from `--plan-code-size`: the plan template
+     raises `--plan-code-size` to 1rem for its free-standing prose-scale code,
+     which made dense surfaces (annotated diffs, API JSON) read far too large —
+     the user's recurring complaint. By pinning dense code to its own small,
+     comfortable size here, those surfaces stay compact and scannable in every
+     app while a free-standing snippet can still follow `--plan-code-size`.
+     Resize ALL dense document code at once by overriding this var. */
+  --plan-doc-code-size: 0.8125rem;
 }
 
 .dark {
@@ -39,6 +55,101 @@
   --an-callout-risk: 0 84% 67%;
   --an-callout-warning: 28 96% 60%;
   --an-callout-success: 142 60% 52%;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   AUTHORITATIVE code-surface font-size catch-all.
+
+   THE single source of truth for how big monospace code renders inside plan
+   document content. Historically the size was set per-surface — a Tailwind
+   arbitrary `[font-size:var(--plan-code-size)]` on diff/annotated-code rows
+   (specificity 0,1,0), the plan template's `.plan-code-surface pre` rule
+   (0,2,0), the editor node-view `.an-rich-md-prose .an-code-block pre` rule
+   (0,3,0), etc. Because those live in different files at different specificities
+   (and the plan template raises `--plan-code-size` to 1rem), one surface could
+   render large while another stayed small: the recurring "code is too big in
+   the annotated diff / API JSON" whack-a-mole.
+
+   This rule ends it. It scopes to plan document content via a ZERO-specificity
+   `:where()` wrapper, then targets EVERY code surface — shiki/lowlight `<pre>`
+   and `<code>`, the `.plan-shiki` wrapper, the shared `.plan-code-surface`
+   scroll body, the editor `.an-code-block`, and an explicit
+   `[data-code-surface]` hook the dense block components stamp on their code
+   containers — and forces `font-size: var(--plan-doc-code-size)` with
+   `!important`. The `!important` + the `[data-code-surface]` attribute leaf
+   (specificity contribution 0,1,0 inside `:is()`, but `!important` is what
+   decides the cascade) guarantees it WINS over every per-surface size above,
+   including the plan template's later-loaded `.plan-code-surface pre` and the
+   inline Tailwind arbitrary class — no surface can escape it. Free-standing
+   prose code (inline `code` in body copy) is intentionally NOT in scope: it is
+   matched only when it sits inside one of the code-surface containers.
+
+   Tune `--plan-doc-code-size` (here or per-app) to resize ALL dense document
+   code at once. ════════════════════════════════════════════════════════════ */
+:where(.plan-document-flow, .plan-block, .plan-block-node)
+  :is(
+    [data-code-surface],
+    [data-code-surface] pre,
+    [data-code-surface] code,
+    [data-code-surface] .plan-shiki,
+    .plan-code-surface,
+    .plan-code-surface pre,
+    .plan-code-surface code,
+    .plan-code-surface .plan-shiki,
+    .plan-code-surface .plan-code-surface-scroll,
+    .an-code-block,
+    .an-code-block pre,
+    .an-code-block code
+  ) {
+  font-size: var(--plan-doc-code-size) !important;
+}
+
+/* Syntax-token spans nested INSIDE a highlighted `<pre>`/`<code>` (shiki +
+   lowlight wrap every token in a `<span>`) inherit the forced size, so a stray
+   per-token size can never reintroduce a large glyph. Scoped to spans under
+   pre/code only — NOT every span in the surface — so the in-code annotation
+   marker pips (their own tiny `text-[9px]`) and other chrome keep their size. */
+:where(.plan-document-flow, .plan-block, .plan-block-node)
+  :is([data-code-surface], .plan-code-surface, .an-code-block)
+  :is(pre, code)
+  span {
+  font-size: inherit !important;
+}
+
+/* Universal guarantee (NOT gated on a plan-document ancestor): the dense code
+   block components — annotated-code, diff, api-endpoint — stamp
+   `data-code-surface` / `.an-code-block` on their code containers. Force the
+   dense size on those WHEREVER they render, so the standard annotated/diff
+   component can never show oversized code on any surface (embedded panels,
+   non-plan-document hosts, etc.), not just inside `.plan-document-flow`. The
+   `var(--plan-doc-code-size, 0.8125rem)` fallback covers hosts that don't define
+   the token. */
+:is(
+  [data-code-surface],
+  [data-code-surface] pre,
+  [data-code-surface] code,
+  [data-code-surface] .plan-shiki,
+  .an-code-block,
+  .an-code-block pre,
+  .an-code-block code
+) {
+  font-size: var(--plan-doc-code-size, 0.8125rem) !important;
+}
+:is([data-code-surface], .an-code-block) :is(pre, code) span {
+  font-size: inherit !important;
+}
+
+/* COMPREHENSIVE NET — the final backstop so "code is too big" can't reappear in
+   a NEW place. Every code/data/JSON component opts into monospace via the
+   `.font-mono` utility (12+ block components, incl. the JSON-explorer tree which
+   renders as div/span — NOT pre/code — and so escaped every earlier rule). Force
+   the dense doc-code size on any `.font-mono` inside plan content, and on the
+   code-block component hooks wherever they render. Annotation marker pips are NOT
+   font-mono, so they keep their tiny size; inline prose `code` is styled by the
+   prose plugin (no `.font-mono` class), so body copy is unaffected. */
+:where(.plan-document-flow, .plan-block, .plan-block-node) .font-mono,
+:is([data-code-surface], .an-code-block) .font-mono {
+  font-size: var(--plan-doc-code-size, 0.8125rem) !important;
 }
 
 /* Small, muted eyebrow label above a block (block title). */

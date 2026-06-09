@@ -237,33 +237,35 @@
   font-family: var(--doc-font, inherit);
 }
 
+/* Top-level blocks are separated by WHITESPACE, not divider lines — a clean
+ * vertical rhythm reads far better than fencing every block off with a
+ * full-width rule (and avoids a line ever landing between a section's
+ * heading/description and its body). The generous top margin is the only
+ * separator; no border, no extra divider padding. The one structural divider
+ * the document keeps is the header's bottom border (the title block). */
 .plan-document-flow > .plan-block,
 .plan-document-flow > .plan-callout,
 .plan-document-flow > .plan-questions-block,
 .plan-document-flow > .an-block-panel,
 .plan-document-flow > .plan-block-node {
-  margin-top: 3.5rem;
-  padding-top: 2.25rem;
-  border-top: 1px solid var(--plan-line);
+  margin-top: 3.25rem;
 }
 
-/* The document header already owns a bottom divider; don't double it with the
- * first block's top border/spacing. */
+/* The header already owns a bottom divider + spacing; the first block sits a
+ * touch closer to it (no need for the full inter-block gap). */
 .plan-document-flow > :first-child {
   margin-top: 2.25rem;
-  padding-top: 0;
-  border-top: 0;
 }
 
 /* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
- * (Swagger / Stripe house style) — not a stack of full-width cards each fenced
- * off by the generic block divider + 3.5rem gap. When an api-endpoint block
- * directly follows another (read-mode `.plan-block` or editable-mode
- * `.plan-block-node`, both tagged `data-block-type="api-endpoint"`), drop the
- * top border, the inter-block margin, and the divider padding so the rows abut.
- * The first endpoint of a run keeps the normal divider/gap above it (it still
+ * (Swagger / Stripe house style) — not a stack of full-width cards each set off
+ * by the generic inter-block gap. When an api-endpoint block directly follows
+ * another (read-mode `.plan-block` or editable-mode `.plan-block-node`, both
+ * tagged `data-block-type="api-endpoint"`), drop the inter-block margin so the
+ * rows abut. The first endpoint of a run keeps the normal gap above it (it still
  * matches the generic rule), and a non-endpoint block after the run keeps normal
- * spacing too — only endpoint-after-endpoint collapses. */
+ * spacing too — only endpoint-after-endpoint collapses. (`padding-top` /
+ * `border-top` are zeroed defensively; the generic rule no longer sets them.) */
 .plan-document-flow
   > [data-block-type="api-endpoint"]
   + [data-block-type="api-endpoint"] {
@@ -494,7 +496,9 @@
     border-top-color: var(--plan-line);
     border-left-color: var(--plan-line);
     border-right-color: var(--plan-line);
-    background-color: var(--plan-block);
+    /* Match the page (document) surface, not the card fill, so the flyout reads
+     * as a continuation of the page rather than a raised card. */
+    background-color: var(--plan-document);
   }
 
   .plan-document-files:has(.plan-block[data-files-expanded])
