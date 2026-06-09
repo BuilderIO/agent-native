@@ -68,9 +68,23 @@ export interface DragHandleOptions {
 
 const dragHandleKey = new PluginKey("dragHandle");
 const HOVER_SIDE_OUTSET_REM = 8;
-const SIDE_DROP_ZONE_RATIO = 0.28;
-const SIDE_DROP_ZONE_MIN_PX = 48;
-const SIDE_DROP_ZONE_MAX_PX = 140;
+// Notion-style side drop: drag a block to a neighbour's LEFT/RIGHT region and it
+// builds (or joins) a column layout instead of reordering. The activation region
+// has to be GENEROUS or the gesture is dead for a real human — a natural drag
+// releases somewhere over the block's body, nowhere near a thin edge sliver. The
+// old values (28% of width, capped at 140px, AND only the vertical middle 60%)
+// left a wide ~820px plan block with two ~17%-of-width edge slivers in a 35px-tall
+// band as the ONLY column targets — ~66% of the block (the whole centre) plus the
+// top/bottom only ever reordered, so "drag side by side" essentially never made
+// columns. Now each side claims ~a third of the width across the FULL block
+// height, with a middle band always preserved for before/after reorder.
+const SIDE_DROP_ZONE_RATIO = 0.33;
+const SIDE_DROP_ZONE_MIN_PX = 56;
+const SIDE_DROP_ZONE_MAX_PX = 320;
+// Never let the two side zones swallow the whole block: keep at least the middle
+// ~10% of the width as the before/after reorder band so dropping over the centre
+// still moves the block above/below the target (Notion keeps reorder reachable).
+const SIDE_DROP_ZONE_MAX_WIDTH_FRACTION = 0.45;
 const DRAG_HANDLE_MENU_STYLE_ID = "an-rich-md-drag-menu-styles";
 const DRAG_HANDLE_MENU_WIDTH = 220;
 const DRAG_HANDLE_MENU_GAP = 6;
@@ -861,26 +875,27 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       let placement: DragHandleDropPlacement;
       const withinBlockY =
         clientY >= block.rect.top && clientY <= block.rect.bottom;
-      const withinSideDropBand =
-        clientY >= block.rect.top + block.rect.height * 0.2 &&
-        clientY <= block.rect.bottom - block.rect.height * 0.2;
-      const sideZoneWidth = clamp(
-        block.rect.width * SIDE_DROP_ZONE_RATIO,
-        SIDE_DROP_ZONE_MIN_PX,
-        SIDE_DROP_ZONE_MAX_PX,
+      // Side (column) zones span the FULL block height — only the horizontal
+      // position decides column-vs-reorder. Restricting to the vertical middle
+      // (the old 0.2 band) made the already-tiny edge slivers nearly unhittable.
+      const sideZoneWidth = Math.min(
+        clamp(
+          block.rect.width * SIDE_DROP_ZONE_RATIO,
+          SIDE_DROP_ZONE_MIN_PX,
+          SIDE_DROP_ZONE_MAX_PX,
+        ),
+        block.rect.width * SIDE_DROP_ZONE_MAX_WIDTH_FRACTION,
       );
 
       if (
         registration.handleDrop &&
         withinBlockY &&
-        withinSideDropBand &&
         clientX <= block.rect.left + sideZoneWidth
       ) {
         placement = "left";
       } else if (
         registration.handleDrop &&
         withinBlockY &&
-        withinSideDropBand &&
         clientX >= block.rect.right - sideZoneWidth
       ) {
         placement = "right";
@@ -987,12 +1002,26 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const editorRect = target.view.dom.getBoundingClientRect();
 
       session.dropTarget = target;
-      if (target.placement === "left" || target.placement === "right") {
-        const left =
+      // A column (side) drop and a reorder (before/after) drop both draw the
+      // `.notion-drop-indicator`, but they mean very different things, so the
+      // column case carries a modifier class apps style distinctly (a bolder,
+      // glowing vertical bar) — without a clear cue a human can't tell they've
+      // entered column-build mode before releasing.
+      const isColumnDrop =
+        target.placement === "left" || target.placement === "right";
+      session.dropLine.classList.toggle(
+        "notion-drop-indicator--column",
+        isColumnDrop,
+      );
+      if (isColumnDrop) {
+        // A vertical bar centred on the seam at the target's left/right edge,
+        // spanning the block's full height.
+        const SIDE_BAR_WIDTH = 4;
+        const seam =
           target.placement === "left" ? target.rect.left : target.rect.right;
-        session.dropLine.style.left = `${left - wrapperRect.left}px`;
+        session.dropLine.style.left = `${seam - wrapperRect.left - SIDE_BAR_WIDTH / 2}px`;
         session.dropLine.style.top = `${target.rect.top - wrapperRect.top}px`;
-        session.dropLine.style.width = "3px";
+        session.dropLine.style.width = `${SIDE_BAR_WIDTH}px`;
         session.dropLine.style.height = `${target.rect.height}px`;
         return;
       }

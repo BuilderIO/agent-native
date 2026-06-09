@@ -489,10 +489,10 @@ const SIGN: Record<DiffRowKind, string> = {
 };
 
 const LINE_NO_CLASS =
-  "select-none px-2 py-0 text-right font-mono text-[12px] leading-5 text-muted-foreground tabular-nums";
+  "select-none px-2 py-0 text-right font-mono [font-size:var(--plan-code-size)] leading-5 text-muted-foreground tabular-nums";
 
 const DIFF_LINE_CLASS =
-  "block min-w-max flex-1 whitespace-pre px-2 py-0 font-mono text-[12px] leading-5 text-foreground";
+  "block min-w-max flex-1 whitespace-pre px-2 py-0 font-mono [font-size:var(--plan-code-size)] leading-5 text-foreground";
 
 const DEFAULT_VISIBLE_DIFF_LINES = 15;
 const MAX_DIFF_LCS_CELLS = 1_000_000;
@@ -845,7 +845,7 @@ function UnifiedView({
   let runIndex = 0;
   return (
     <div className="overflow-x-auto">
-      <div className="w-max min-w-full font-mono text-[13px] leading-5">
+      <div className="w-max min-w-full font-mono [font-size:var(--plan-code-size)] leading-5">
         {segments.map((segment, idx) => {
           if ("collapsed" in segment) {
             const key = runIndex++;
@@ -1034,7 +1034,7 @@ function SplitView({
   );
   const cellProps = { language, markersForRow, activeIndex, onActiveChange };
   return (
-    <div className="flex w-full bg-background font-mono text-[12px] leading-5">
+    <div className="flex w-full bg-background font-mono [font-size:var(--plan-code-size)] leading-5">
       <div className="min-w-0 flex-1 overflow-x-auto border-r border-border">
         <div className="inline-block min-w-full">
           {displayedPairs.map((pair, idx) => (

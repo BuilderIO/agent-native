@@ -96,6 +96,25 @@ export default function MobileDocsNav() {
                         >
                           {item.label}
                         </Link>
+                        {item.children ? (
+                          <ul className="list-none p-0">
+                            {item.children.map((child) => {
+                              const childActive = child.to === currentItem.to;
+                              return (
+                                <li key={child.to}>
+                                  <Link
+                                    data-an-prefetch="render"
+                                    to={child.to}
+                                    className={`mobile-docs-nav-link mobile-docs-nav-sublink ${childActive ? "is-active" : ""}`}
+                                    onClick={() => setOpen(false)}
+                                  >
+                                    {child.label}
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
                       </li>
                     );
                   })}

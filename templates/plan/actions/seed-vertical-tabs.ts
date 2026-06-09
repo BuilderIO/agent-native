@@ -572,10 +572,12 @@ export default defineAction({
     } as never)) as { planId: string };
 
     const planId = result.planId;
-    // Make it public so it opens at /plans/<id> without a session.
+    // Keep it PRIVATE so the local single-user identity (which an unauthenticated
+    // localhost browser resolves to) stays the owner and can EDIT it. Marking it
+    // public would flip the browser into a read-only public-viewer session.
     await getDb()
       .update(schema.plans)
-      .set({ visibility: "public" })
+      .set({ visibility: "private" })
       .where(eq(schema.plans.id, planId));
 
     console.log("SEEDED_PLAN_ID:", planId);

@@ -1,20 +1,17 @@
 import { z } from "zod";
-import {
-  markdown,
-  type BlockMdxConfig,
-} from "@agent-native/core/blocks/server";
+import { markdown } from "../schema-form/introspect.js";
+import type { BlockMdxConfig } from "../types.js";
 
 /**
- * Pure (React-free) part of the callout block: its data schema and MDX
- * round-trip config. Shared by the server MDX adapter (`plan-mdx.ts`) and the
- * client spec (`callout.tsx`). Keeping this React-free means importing it into a
- * server module never pulls React into the Nitro/SSR bundle.
+ * Pure (React-free) part of the shared `callout` block: its data schema and MDX
+ * round-trip config. Lives in core so BOTH apps' server/shared registries
+ * (`plan-block-registry.ts`, `nfm-registry.ts`) and the client spec
+ * (`callout.tsx`) consume one definition. Keeping it React-free means importing
+ * it into a server module never pulls React into the Nitro/SSR bundle.
  *
- * The schema MUST stay data-compatible with the `callout` branch of
- * `planBlockSchema` (tone enum + non-empty body), and the MDX `tag` +
- * attribute/children shape MUST match the legacy `<Callout tone>…body…</Callout>`
- * encoding (`plan-mdx.ts` `serializeBlock`/`parseBlock`) so stored `.mdx`
- * round-trips byte-compatibly.
+ * The MDX `tag` + attribute/children shape MUST match the legacy
+ * `<Callout tone>…body…</Callout>` encoding so stored `.mdx` round-trips
+ * byte-compatibly (the block originated in the plan template before moving here).
  */
 
 export type CalloutTone = "info" | "decision" | "risk" | "warning" | "success";

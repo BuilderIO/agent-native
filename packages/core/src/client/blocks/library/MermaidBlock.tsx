@@ -209,7 +209,7 @@ function MermaidDiagram({
   if (state.error) {
     return (
       <div className="mt-2 space-y-2">
-        <pre className="overflow-auto rounded-lg border border-plan-line bg-plan-code px-3 py-2 font-mono text-sm text-plan-code-text">
+        <pre className="overflow-auto rounded-lg border border-plan-line bg-plan-code px-3 py-2 font-mono [font-size:var(--plan-code-size)] text-plan-code-text">
           {source}
         </pre>
         <p className="text-sm text-plan-muted">

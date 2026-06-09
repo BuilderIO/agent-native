@@ -371,8 +371,6 @@ function originOf(url: string): string {
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const headShort = (env.HEAD_SHA || "").slice(0, 7);
-  const aid =
-    "_A visual recap is an aid, not a replacement for reviewing the diff._";
   const lines: string[] = [MARKER];
 
   if (env.SUPPRESSED === "true") {
@@ -390,8 +388,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Reason: \`${reason}\`. Updated for \`${headShort}\`.`);
-    lines.push("");
-    lines.push(aid);
     return lines.join("\n");
   }
 
@@ -406,8 +402,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Updated for \`${headShort}\`.`);
-    lines.push("");
-    lines.push(aid);
     return lines.join("\n");
   }
 
@@ -432,8 +426,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Updated for \`${headShort}\`.`);
-    lines.push("");
-    lines.push(aid);
     return lines.join("\n");
   }
 
@@ -461,7 +453,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
   }
   lines.push("");
-  lines.push(`Updated for \`${headShort}\`. ${aid}`);
+  lines.push(`Updated for \`${headShort}\`.`);
   lines.push("");
   lines.push(`<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
@@ -599,7 +591,7 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
   try {
     browser = await chromium!.launch({ args: ["--no-sandbox"] });
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 900 },
+      viewport: { width: 1450, height: 1450 },
       deviceScaleFactor: 2,
     });
     if (attachToken) {
@@ -639,7 +631,21 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    await page.screenshot({ path: out, fullPage: true });
+    // Zoom out slightly so more content fits, then scroll past the main title.
+    await page.evaluate(() => {
+      (document.documentElement as HTMLElement).style.zoom = "80%";
+    });
+    await page.evaluate(() => {
+      const firstH2 = document.querySelector("h2");
+      if (firstH2) {
+        firstH2.scrollIntoView({ block: "start" });
+        window.scrollBy(0, -24);
+      } else {
+        const h1 = document.querySelector("h1");
+        if (h1) window.scrollBy(0, h1.getBoundingClientRect().bottom + 32);
+      }
+    });
+    await page.screenshot({ path: out });
     captured = true;
     await browser.close();
   } catch (err) {

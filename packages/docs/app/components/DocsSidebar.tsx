@@ -13,9 +13,20 @@ function isItemActive(itemPath: string, pathname: string) {
   return normalizePath(pathname) === itemPath;
 }
 
+function sectionContainsActive(
+  section: (typeof NAV_SECTIONS)[number],
+  pathname: string,
+) {
+  return section.items.some(
+    (item) =>
+      isItemActive(item.to, pathname) ||
+      item.children?.some((child) => isItemActive(child.to, pathname)),
+  );
+}
+
 function getActiveSectionTitle(pathname: string) {
   const activeSectionIndex = NAV_SECTIONS.findIndex((section) =>
-    section.items.some((item) => isItemActive(item.to, pathname)),
+    sectionContainsActive(section, pathname),
   );
 
   if (activeSectionIndex <= ALWAYS_OPEN_SECTION_INDEX) {
@@ -128,6 +139,30 @@ export default function DocsSidebar() {
                         >
                           {item.label}
                         </Link>
+                        {item.children ? (
+                          <ul className="docs-sidebar-subitems">
+                            {item.children.map((child) => {
+                              const childActive = isItemActive(
+                                child.to,
+                                location.pathname,
+                              );
+                              return (
+                                <li key={child.to}>
+                                  <Link
+                                    data-an-prefetch={
+                                      isOpen ? "render" : undefined
+                                    }
+                                    to={child.to}
+                                    className={`sidebar-link sidebar-sublink${childActive ? " is-active" : ""}`}
+                                    tabIndex={isOpen ? undefined : -1}
+                                  >
+                                    {child.label}
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
                       </li>
                     );
                   })}

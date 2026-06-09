@@ -37,6 +37,7 @@ import {
   IconSun,
   IconX,
   IconSend,
+  IconSearch,
   IconRefresh,
   IconRestore,
 } from "@tabler/icons-react";
@@ -4272,50 +4273,56 @@ function PlanLoadError({
 
   // "Not found" here almost always means an identity or origin mismatch, not a
   // genuinely missing plan — the access resolver deliberately conflates the two
-  // (it won't leak whether a private plan exists). The single most useful thing
-  // we CAN show, without leaking anything, is who you're currently signed in as
-  // on this server, plus the reminder that plans are scoped per account AND per
-  // origin (hosted vs a localhost dev port are different databases).
+  // (it won't leak whether a private plan exists). So present it like a GitHub
+  // 404: it isn't a crash, the plan just isn't visible to you here, and signing
+  // in (or switching account/server) may be all that's needed. Anything else is
+  // a real load failure, kept distinct so we don't mislabel it as "not found".
+  const notFound = /not found/i.test(message);
   const signedIn = Boolean(viewerEmail);
 
   return (
     <div className="flex h-full items-center justify-center bg-background p-8">
       <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 text-left shadow-sm">
         <div className="flex items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
-            <IconAlertTriangle className="size-5" />
-          </div>
+          {notFound ? (
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground">
+              <IconSearch className="size-5" />
+            </div>
+          ) : (
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
+              <IconAlertTriangle className="size-5" />
+            </div>
+          )}
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight">
-              Plan did not load
+              {notFound ? "Plan not found" : "Plan did not load"}
             </h2>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              {message}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {signedIn ? (
-                <>
-                  You&rsquo;re signed in as{" "}
-                  <span className="font-medium text-foreground">
-                    {viewerEmail}
-                  </span>
-                  . Plans are private per account and per server — if this one
-                  was created under a different account, or on another server
-                  (e.g. the hosted app vs this localhost), it won&rsquo;t appear
-                  here.
-                </>
-              ) : (
-                <>
-                  You&rsquo;re{" "}
-                  <span className="font-medium text-foreground">
-                    not signed in
-                  </span>{" "}
-                  on this server, so private plans are hidden. Sign in to view
-                  it — or it may live on a different server (e.g. the hosted
-                  app).
-                </>
-              )}
-            </p>
+            {notFound ? (
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {signedIn ? (
+                  <>
+                    Plans are private per account and server — it may belong to
+                    a different account, or live on another server (e.g. the
+                    hosted app, not this localhost). Signed in as{" "}
+                    <span className="font-medium text-foreground">
+                      {viewerEmail}
+                    </span>
+                    .
+                  </>
+                ) : (
+                  <>
+                    Plans are private, so you may need to{" "}
+                    <span className="font-medium text-foreground">sign in</span>{" "}
+                    to view this one — or it may live on another server (e.g.
+                    the hosted app).
+                  </>
+                )}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {message}
+              </p>
+            )}
             {planId && (
               <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
                 {planId}
