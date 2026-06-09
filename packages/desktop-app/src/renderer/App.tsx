@@ -690,7 +690,8 @@ export default function App() {
     );
   }
 
-  const isCodeAgentsActive = activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
+  const isCodeAgentsActive =
+    showCodeAgentsTab && activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
 
   // Keep app webviews warm once visited so switching apps feels like browser
   // tabs: the guest page remains alive offscreen and keeps its runtime state.
@@ -799,7 +800,9 @@ export default function App() {
           onTabChange={handleSidebarTabChange}
           onAddAppClick={() => setShowAddApp(true)}
           isCodeAgentsActive={isCodeAgentsActive}
-          onCodeAgentsClick={handleCodeAgentsClick}
+          onCodeAgentsClick={
+            showCodeAgentsTab ? handleCodeAgentsClick : undefined
+          }
           onSettingsClick={() => setShowSettings(true)}
         />
         <div
@@ -844,6 +847,7 @@ export default function App() {
           apps={apps}
           onClose={() => setShowSettings(false)}
           onAppsChanged={handleAppsChanged}
+          onFrameSettingsChanged={handleFrameSettingsChanged}
           onCodeAgentProvidersChanged={() => setRefreshKey((n) => n + 1)}
           onAddAppClick={() => {
             setShowSettings(false);
