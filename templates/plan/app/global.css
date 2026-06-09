@@ -1005,6 +1005,12 @@
   overflow: hidden;
   pointer-events: none;
   color: var(--plan-code-text);
+  /* This is a <pre>; a base `pre {}` style leaks in a gray bg + border (the
+     "lighter gray box + inner border"). Override so it's flat — the single
+     .plan-code-editing border is the only chrome. */
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
 }
 
 .plan-code-editor-input {
@@ -1157,7 +1163,15 @@
 .plan-callout {
   max-width: 860px;
   border-left: 3px solid hsl(var(--ring));
+  padding-block: 0.9rem;
   padding-left: 1.25rem;
+}
+
+/* The body editor/reader carries a default `mt-4`; inside a callout the block's
+ * own vertical padding owns the top rhythm, so drop that leading margin. A label,
+ * when present, keeps its own `margin-bottom` for the label→body gap. */
+.plan-callout > .plan-rich-markdown-editor {
+  margin-top: 0;
 }
 
 /* Tone styling: `data-tone` is set by the callout reader/editor (it defaults to
@@ -1789,6 +1803,34 @@
 .plan-nested-document-editor > .an-rich-md-prose {
   min-height: 4rem;
   padding: 0.125rem 0;
+}
+
+/* The top-level and nested editable document editors are NOT wrapped in
+ * `.plan-rich-markdown-editor`, so their prose would otherwise fall back to the
+ * core 0.95rem / em-scaled-heading defaults — smaller than the read view and the
+ * inline callout/rich-text editors, which use the canonical 1.0625rem body.
+ * Mirror the read-view body + heading sizing here so edit and read modes match
+ * and inline callouts no longer read larger than the surrounding copy. */
+.plan-document-editor > .an-rich-md-prose,
+.plan-nested-document-editor > .an-rich-md-prose {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+.plan-document-editor > .an-rich-md-prose h1,
+.plan-nested-document-editor > .an-rich-md-prose h1 {
+  font-size: 1.75rem;
+}
+.plan-document-editor > .an-rich-md-prose h2,
+.plan-nested-document-editor > .an-rich-md-prose h2 {
+  font-size: 1.45rem;
+}
+.plan-document-editor > .an-rich-md-prose h3,
+.plan-nested-document-editor > .an-rich-md-prose h3 {
+  font-size: 1.2rem;
+}
+.plan-document-editor > .an-rich-md-prose h4,
+.plan-nested-document-editor > .an-rich-md-prose h4 {
+  font-size: 1.05rem;
 }
 
 /* Inline custom blocks inside the document flow get their own breathing room;

@@ -1177,6 +1177,23 @@ function ImageBlock({
     setEditOpen(open);
   };
 
+  // Auto-focus the "Describe a change…" prompt once the edit popover mounts. The
+  // popover portals out and the deferred/guarded open can race Radix's own
+  // auto-focus, so focus it explicitly (a few retries to win the open animation).
+  useEffect(() => {
+    if (!editOpen) return;
+    const focusPrompt = () =>
+      document
+        .querySelector<HTMLTextAreaElement>(
+          ".an-block-edit-popover textarea[placeholder^='Describe a change']",
+        )
+        ?.focus();
+    const timers = [40, 140, 280].map((ms) =>
+      window.setTimeout(focusPrompt, ms),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [editOpen]);
+
   const commitData = (data: PlanImageData) => onChange?.({ ...block, data });
 
   async function handleReplaceFile(event: React.ChangeEvent<HTMLInputElement>) {
