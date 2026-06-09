@@ -15,18 +15,29 @@ const PASTED_TEXT_FILENAME_PREFIX = "pasted-text-";
 const HTML_SOURCE_SIGNAL =
   /<!doctype\s+html|<html[\s>]|<\/[a-z][a-z0-9-]*\s*>|<(?:body|head|div|span|section|main|header|footer|nav|article|aside|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6]|p|a|img|button|input|textarea|select|form|label|script|style|link|meta|svg|canvas|template)\b/i;
 
+// A real HTML *document* announces itself with a doctype / html / head / body.
+// When one of these is present we keep the HTML classification even if an inline
+// <script> contains JS keywords — it's a genuine page.
+const HTML_DOCUMENT_SIGNAL =
+  /<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]/i;
+
 // JSX/TSX source contains the same `</div>`/`<span>` tags as an HTML document,
-// so the HTML signal alone misfiles a pasted React/TS component as an `.html`
-// artifact (the agent then mishandles it as a hostable document instead of
-// source). These markers appear in JS/TS/JSX source but not in a plain HTML
-// document — `className=` (JSX uses it; HTML uses `class=`), ES module
-// import/export, arrow functions, and TS type annotations.
+// so the HTML tag signal alone misfiles a pasted React/TS component (even a bare
+// function component) as an `.html` artifact — the agent then mishandles it as a
+// hostable document instead of source. These markers appear in JS/TS/JSX source
+// but not in a plain HTML *fragment*: `className=` (JSX uses it; HTML uses
+// `class=`), ES module import/export, arrow functions, TS type/React annotations,
+// React hooks, and the basic JS declaration/return keywords that make up a
+// component body.
 const CODE_SOURCE_SIGNAL =
-  /\bclassName=|\b(?:import|export)\b[^\n]*\bfrom\b|\bexport\s+(?:default|const|let|function|class|type|interface)\b|=>\s*[({]|:\s*React\.|\buse[A-Z]\w*\(/;
+  /\bclassName=|\bimport\b|\bexport\b|=>|:\s*React\.|\buse[A-Z]\w*\(|\b(?:function|const|let|var|return|class|interface|type|enum)\b/;
 
 function looksLikeHtml(value: string): boolean {
   if (!value || !HTML_SOURCE_SIGNAL.test(value)) return false;
-  // Don't treat JSX/TS source (which also has tags) as an HTML document.
+  // A self-announcing HTML document stays HTML even if it embeds a <script>.
+  if (HTML_DOCUMENT_SIGNAL.test(value)) return true;
+  // Otherwise it's a bare fragment — if it carries JS/TS/JSX code signals,
+  // treat it as source code, not an HTML attachment.
   if (CODE_SOURCE_SIGNAL.test(value)) return false;
   return true;
 }
