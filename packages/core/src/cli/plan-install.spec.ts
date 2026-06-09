@@ -46,6 +46,34 @@ import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
 let tmpDir: string;
 let origCwd: string;
 
+const PLANS_INSTALL_SKILLS: Array<[string, string]> = [
+  ["visual-plan", VISUAL_PLANS_SKILL_MD],
+  ["visual-recap", VISUAL_RECAP_SKILL_MD],
+  ["visual-questions", VISUAL_QUESTIONS_SKILL_MD],
+  ["ui-plan", UI_PLAN_SKILL_MD],
+  ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
+  ["plan-design", PLAN_DESIGN_SKILL_MD],
+];
+
+const PLANS_INSTALL_SKILL_NAMES = PLANS_INSTALL_SKILLS.map(([name]) => name);
+
+const PLANS_INSTALL_ALIASES = [
+  "visual-plans",
+  "visual-recap",
+  "visual-recaps",
+  "code-review-recap",
+  "code-review-recaps",
+  "ui-plan",
+  "prototype-plan",
+  "plan-design",
+  "plan-designs",
+  "design-plan",
+  "design-plans",
+  "visual-questions",
+  "plannotate",
+  "html-plan",
+];
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-install-"));
   origCwd = process.cwd();
@@ -303,70 +331,30 @@ describe("Plans skills install — materialized output", () => {
     const { result, captured, npxCalls } =
       await materializeViaAlias("visual-plan");
     expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual([
-      "visual-plan",
-      "visual-recap",
-      "visual-questions",
-      "ui-plan",
-      "prototype-plan",
-      "plan-design",
-    ]);
+    expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
     );
     expect(npxCalls).toBeGreaterThan(0);
 
-    const expected: Array<[string, string]> = [
-      ["visual-plan", VISUAL_PLANS_SKILL_MD],
-      ["visual-recap", VISUAL_RECAP_SKILL_MD],
-      ["visual-questions", VISUAL_QUESTIONS_SKILL_MD],
-      ["ui-plan", UI_PLAN_SKILL_MD],
-      ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
-      ["plan-design", PLAN_DESIGN_SKILL_MD],
-    ];
-    for (const [name, constant] of expected) {
+    for (const [name, constant] of PLANS_INSTALL_SKILLS) {
       // The materialized file the user receives must be byte-identical to the
       // shipped constant.
       expect(captured[name], `materialized ${name}/SKILL.md`).toBe(constant);
     }
     // No extra surprise skills materialized.
-    expect(Object.keys(captured).sort()).toEqual([
-      "plan-design",
-      "prototype-plan",
-      "ui-plan",
-      "visual-plan",
-      "visual-questions",
-      "visual-recap",
-    ]);
+    expect(Object.keys(captured).sort()).toEqual(
+      [...PLANS_INSTALL_SKILL_NAMES].sort(),
+    );
   });
 
   it("normalizes every Plans alias to the same hosted Plans skill", async () => {
-    for (const alias of [
-      "visual-plans",
-      "visual-recap",
-      "visual-recaps",
-      "code-review-recap",
-      "code-review-recaps",
-      "ui-plan",
-      "prototype-plan",
-      "plan-design",
-      "plan-designs",
-      "design-plan",
-      "design-plans",
-      "visual-questions",
-      "plannotate",
-      "html-plan",
-    ]) {
+    for (const alias of PLANS_INSTALL_ALIASES) {
       const { result } = await materializeViaAlias(alias);
       expect(result.id, `alias ${alias}`).toBe("visual-plans");
-      expect(result.skillNames, `alias ${alias} skills`).toEqual([
-        "visual-plan",
-        "visual-recap",
-        "visual-questions",
-        "ui-plan",
-        "prototype-plan",
-        "plan-design",
-      ]);
+      expect(result.skillNames, `alias ${alias} skills`).toEqual(
+        PLANS_INSTALL_SKILL_NAMES,
+      );
     }
   });
 
