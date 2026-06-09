@@ -1031,6 +1031,16 @@
   color: var(--plan-muted);
 }
 
+/* Collapsed long snippet: fade the clipped bottom into the page background
+   (the surface is transparent), with the shared .plan-code-surface-toggle below. */
+.plan-code-editor-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--plan-document) 92%);
+}
+
 .plan-code-caption {
   margin-top: 0.5rem;
   font-size: 0.8rem;
