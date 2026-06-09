@@ -103,13 +103,36 @@ async function grabGrip(page: Page, sourceSel: string) {
   const source = page.locator(sourceSel).first();
   await expect(source).toBeVisible({ timeout: 15_000 });
   await source.scrollIntoViewIfNeeded();
-  await source.hover();
-  await page.waitForTimeout(150);
-  const grip = page.locator(".drag-handle:visible").first();
-  await expect(grip).toBeVisible({ timeout: 8_000 });
-  const g = await grip.boundingBox();
-  expect(g, "grip box").toBeTruthy();
-  return g!;
+  const box = await source.boundingBox();
+  expect(box, "source box").toBeTruthy();
+  // Hover near the source's LEFT content (where its grip resolves), not the
+  // element center — a center hover on a wide block can resolve a different
+  // editor, and a nested flush-left block shares its container's gutter.
+  const hoverX = box!.x + Math.min(30, box!.width / 2);
+  const hoverY = box!.y + box!.height / 2;
+  await page.mouse.move(hoverX, hoverY);
+  await page.waitForTimeout(80);
+  await page.mouse.move(hoverX + 1, hoverY);
+  await page.waitForTimeout(160);
+  // Several grips can be visible (container + columns); pick the one on the
+  // SOURCE's row, not DOM-order `.first()`, so we drag the intended block.
+  const grips = page.locator(".drag-handle:visible");
+  await expect(grips.first()).toBeVisible({ timeout: 8_000 });
+  const count = await grips.count();
+  let best: { x: number; y: number; width: number; height: number } | null =
+    null;
+  let bestDy = Infinity;
+  for (let i = 0; i < count; i += 1) {
+    const g = await grips.nth(i).boundingBox();
+    if (!g) continue;
+    const dy = Math.abs(g.y + g.height / 2 - hoverY);
+    if (dy < bestDy) {
+      bestDy = dy;
+      best = g;
+    }
+  }
+  expect(best, "grip box").toBeTruthy();
+  return best!;
 }
 
 async function pressAndMove(
@@ -120,14 +143,21 @@ async function pressAndMove(
 ) {
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
+  // Cross the >4px threshold so the drag session actually begins, then let it
+  // settle before steering to the target.
   await page.mouse.move(
     grip.x + grip.width / 2 + 8,
     grip.y + grip.height / 2 + 8,
     { steps: 4 },
   );
+  await page.waitForTimeout(40);
   await page.mouse.move(x, y, { steps: 22 });
+  // Two stationary passes so the final drop target (and its indicator) resolve
+  // before the caller releases — the drop reads the LAST resolved target.
   await page.mouse.move(x, y, { steps: 6 });
-  await page.waitForTimeout(140);
+  await page.waitForTimeout(120);
+  await page.mouse.move(x, y);
+  await page.waitForTimeout(120);
 }
 
 /** Side drop: drop on the left/right edge of `targetSel` to make/extend columns. */
