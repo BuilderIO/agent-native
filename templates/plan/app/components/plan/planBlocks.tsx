@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   IconCheck,
   IconPencil,
@@ -24,7 +23,6 @@ import {
   type BlockAiFieldActionProps,
 } from "@agent-native/core/blocks";
 import {
-  PromptComposer,
   sendToAgentChat,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
@@ -1033,8 +1031,8 @@ export function createPlanBlockRenderContext(options: {
           data-plan-interactive
           className="an-block-edit-popover relative flex max-h-[calc(100vh-32px)] w-[min(42rem,calc(100vw-32px))] flex-col gap-3 overflow-y-auto"
         >
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 truncate text-sm font-semibold text-foreground">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 truncate pt-0.5 text-sm font-semibold text-foreground">
               {title}
             </div>
             {blockId && blockType ? (

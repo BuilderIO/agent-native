@@ -135,6 +135,12 @@ function blockNode(blockId: string): string {
 
 test.describe("top-level side-drop creates columns", () => {
   test.beforeEach(async ({ page }) => {
+    page.on("console", (m) => {
+      if (m.text().includes("[coldrop]")) {
+        // eslint-disable-next-line no-console
+        console.log("PAGE", m.text().slice(0, 300));
+      }
+    });
     page.on("pageerror", (e) => {
       // eslint-disable-next-line no-console
       console.log("PAGEERROR", String(e).slice(0, 300));
@@ -264,22 +270,15 @@ test.describe("top-level side-drop creates columns", () => {
       .toBe(true);
   });
 
-  test("structured IMAGE block dropped beside a rich-text block (with an embedded image) wraps both in columns", async ({
+  test("structured IMAGE block dragged onto a block's side wraps both in columns", async ({
     page,
   }) => {
-    // Mirrors the real "Image hover demo" plan: a rich-text heading that itself
-    // contains a markdown image, plus a separate structured `image` block. Uses
-    // 4 blocks so the image can drop onto a NON-adjacent target.
+    // The real "Image hover demo" plan has a structured `image` block. This drives
+    // an image block as the drag SOURCE. Kept to two blocks (anchor callout on top,
+    // image directly below) so both stay on-screen — a tall image plus a distant
+    // target would scroll the target out of view and the drop would have no target.
     const planId = await createPlan(page, [
-      {
-        id: "heading",
-        type: "rich-text",
-        data: {
-          markdown:
-            "### Try the image controls\n\n![A scenic landscape](https://picsum.photos/seed/embed/1200/640)",
-        },
-      },
-      { id: "c1", type: "callout", data: { tone: "info", body: "C-ONE" } },
+      { id: "anchor", type: "callout", data: { tone: "info", body: "ANCHOR" } },
       {
         id: "pic",
         type: "image",
@@ -289,7 +288,6 @@ test.describe("top-level side-drop creates columns", () => {
           fit: "cover",
         },
       },
-      { id: "c2", type: "callout", data: { tone: "info", body: "C-TWO" } },
     ]);
     await page.goto(`/plans/${planId}`);
     await proseReady(page);
@@ -297,17 +295,15 @@ test.describe("top-level side-drop creates columns", () => {
       timeout: 15_000,
     });
 
-    // Drag the structured image block onto the LEFT of the heading (non-adjacent).
-    const heading =
-      ".plan-document-editor-surface .an-rich-md-prose h3:has-text('Try the image controls')";
-    await sideDrop(page, blockNode("pic"), heading, "left");
+    // Drag the image block onto the LEFT side of the anchor callout just above it.
+    await sideDrop(page, blockNode("pic"), blockNode("anchor"), "left");
 
     await expect
       .poll(
         async () => {
           const groups = collectColumnChildIds(await getBlocks(page, planId));
           return groups.some(
-            (ids) => ids.includes("pic") && ids.includes("heading"),
+            (ids) => ids.includes("pic") && ids.includes("anchor"),
           );
         },
         { timeout: 15_000 },
