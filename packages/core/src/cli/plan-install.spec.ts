@@ -240,6 +240,8 @@ describe(
  * ───────────────────────────────────────────────────────────────────────── */
 
 describe("Plans skills install — materialized output", () => {
+  const PLANS_INSTALL_SKILL_NAMES = ["visual-plan", "visual-recap"];
+
   /**
    * Run a Plans install via `alias`, capturing each materialized SKILL.md's
    * contents from inside the runCommand callback. The CLI writes the skills to
@@ -303,14 +305,7 @@ describe("Plans skills install — materialized output", () => {
     const { result, captured, npxCalls } =
       await materializeViaAlias("visual-plan");
     expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual([
-      "visual-plan",
-      "visual-recap",
-      "visual-questions",
-      "ui-plan",
-      "prototype-plan",
-      "plan-design",
-    ]);
+    expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
     );
@@ -319,10 +314,6 @@ describe("Plans skills install — materialized output", () => {
     const expected: Array<[string, string]> = [
       ["visual-plan", VISUAL_PLANS_SKILL_MD],
       ["visual-recap", VISUAL_RECAP_SKILL_MD],
-      ["visual-questions", VISUAL_QUESTIONS_SKILL_MD],
-      ["ui-plan", UI_PLAN_SKILL_MD],
-      ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
-      ["plan-design", PLAN_DESIGN_SKILL_MD],
     ];
     for (const [name, constant] of expected) {
       // The materialized file the user receives must be byte-identical to the
@@ -330,45 +321,53 @@ describe("Plans skills install — materialized output", () => {
       expect(captured[name], `materialized ${name}/SKILL.md`).toBe(constant);
     }
     // No extra surprise skills materialized.
-    expect(Object.keys(captured).sort()).toEqual([
-      "plan-design",
-      "prototype-plan",
-      "ui-plan",
-      "visual-plan",
-      "visual-questions",
-      "visual-recap",
-    ]);
+    expect(Object.keys(captured).sort()).toEqual(
+      [...PLANS_INSTALL_SKILL_NAMES].sort(),
+    );
   });
 
   it("normalizes every Plans alias to the same hosted Plans skill", async () => {
     for (const alias of [
       "visual-plans",
+      "visual-plan",
       "visual-recap",
       "visual-recaps",
       "code-review-recap",
       "code-review-recaps",
-      "ui-plan",
-      "prototype-plan",
-      "plan-design",
-      "plan-designs",
-      "design-plan",
-      "design-plans",
-      "visual-questions",
       "plannotate",
       "html-plan",
     ]) {
       const { result } = await materializeViaAlias(alias);
       expect(result.id, `alias ${alias}`).toBe("visual-plans");
-      expect(result.skillNames, `alias ${alias} skills`).toEqual([
-        "visual-plan",
-        "visual-recap",
-        "visual-questions",
-        "ui-plan",
-        "prototype-plan",
-        "plan-design",
-      ]);
+      expect(result.skillNames, `alias ${alias} skills`).toEqual(
+        PLANS_INSTALL_SKILL_NAMES,
+      );
     }
   });
+
+  it.each(["ui-plan", "prototype-plan", "plan-design", "visual-questions"])(
+    "no longer accepts %s as a Plans install alias",
+    async (removedAlias) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
+      await expect(
+        addAgentNativeSkill(
+          parseSkillsArgs([
+            "add",
+            removedAlias,
+            "--client",
+            "codex",
+            "--scope",
+            "project",
+          ]),
+          {
+            baseDir: root,
+            runCommand: async () => 0,
+          },
+        ),
+      ).rejects.toThrow(/Unknown skill or manifest path/);
+      fs.rmSync(root, { recursive: true, force: true });
+    },
+  );
 
   it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
     const { captured } = await materializeViaAlias("visual-plan");
