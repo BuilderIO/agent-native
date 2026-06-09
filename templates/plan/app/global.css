@@ -255,6 +255,44 @@
   border-top: 0;
 }
 
+/* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
+ * (Swagger / Stripe house style) — not a stack of full-width cards each fenced
+ * off by the generic block divider + 3.5rem gap. When an api-endpoint block
+ * directly follows another (read-mode `.plan-block` or editable-mode
+ * `.plan-block-node`, both tagged `data-block-type="api-endpoint"`), drop the
+ * top border, the inter-block margin, and the divider padding so the rows abut.
+ * The first endpoint of a run keeps the normal divider/gap above it (it still
+ * matches the generic rule), and a non-endpoint block after the run keeps normal
+ * spacing too — only endpoint-after-endpoint collapses. */
+.plan-document-flow
+  > [data-block-type="api-endpoint"]
+  + [data-block-type="api-endpoint"] {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Flush card chrome: merge each endpoint's card with the one above it so a run
+ * shares a single outline instead of stacking doubled borders + rounded corners.
+ * Square the inner joins, pull each follower up 1px to overlap the shared edge,
+ * and round only the run's outer corners (first card's top, last card's bottom).
+ * `:has()` is supported in every browser the recap renders in. */
+.plan-document-flow
+  > [data-block-type="api-endpoint"]
+  + [data-block-type="api-endpoint"]
+  .an-api-endpoint-card {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.plan-document-flow
+  > [data-block-type="api-endpoint"]:has(+ [data-block-type="api-endpoint"])
+  .an-api-endpoint-card {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 .plan-document-flow .an-rich-md-prose > h1,
 .plan-document-flow .an-rich-md-prose > h2,
 .plan-document-flow .an-rich-md-prose > h3,

@@ -275,9 +275,19 @@ export function ApiEndpointRead({
     Boolean(data.auth);
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    // `data-block-type` lets the document flow detect a RUN of consecutive
+    // api-endpoint blocks and collapse the divider + gap between them (see
+    // `.plan-document-flow` rules in the plan template's global.css), so a list
+    // of endpoints reads as one tight scannable group instead of separate
+    // full-width cards. `an-api-endpoint-card` is the flush-able card surface
+    // those rules round/merge at the run's edges.
+    <section
+      className="plan-block"
+      data-block-id={blockId}
+      data-block-type="api-endpoint"
+    >
       {title && <div className="plan-block-label">{title}</div>}
-      <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-block">
+      <div className="an-api-endpoint-card overflow-hidden rounded-xl border border-plan-line bg-plan-block">
         {/* Collapsed summary row — the whole row toggles. */}
         <button
           type="button"

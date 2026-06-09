@@ -312,7 +312,7 @@ function HighlightedCodeTextarea({
       <pre
         ref={highlightLayerRef}
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre px-3 py-2 font-mono text-xs leading-5"
+        className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre px-3 py-2 font-mono [font-size:var(--plan-code-size)] leading-5"
         data-code-tabs-highlight-layer
       >
         <code>
@@ -325,7 +325,7 @@ function HighlightedCodeTextarea({
         spellCheck={false}
         wrap="off"
         className={cn(
-          "relative z-10 block min-h-[140px] w-full resize-y overflow-auto rounded-md border-0 bg-transparent px-3 py-2 font-mono text-xs leading-5 caret-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed",
+          "relative z-10 block min-h-[140px] w-full resize-y overflow-auto rounded-md border-0 bg-transparent px-3 py-2 font-mono [font-size:var(--plan-code-size)] leading-5 caret-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed",
           value ? "text-transparent" : "text-muted-foreground",
         )}
         value={value}

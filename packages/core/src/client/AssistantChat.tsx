@@ -3740,19 +3740,6 @@ import {
 } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
-function EmptyStateSuggestionSkeleton() {
-  return (
-    <div
-      className="flex w-full max-w-[280px] flex-col gap-1.5"
-      aria-hidden="true"
-    >
-      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
-      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
-      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
-    </div>
-  );
-}
-
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -3812,14 +3799,15 @@ const AssistantChatInner = forwardRef<
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
-  const { suggestions: resolvedSuggestions, isLoading: suggestionsLoading } =
-    useAgentDynamicSuggestionsResult({
+  const { suggestions: resolvedSuggestions } = useAgentDynamicSuggestionsResult(
+    {
       staticSuggestions: suggestions,
       dynamicSuggestions,
       browserTabId,
       scope: contextScope,
       enabled: messages.length === 0,
-    });
+    },
+  );
   const messageListResetKey = useMemo(
     () => messages.map((message) => message.id).join("|"),
     [messages],

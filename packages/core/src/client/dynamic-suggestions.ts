@@ -421,14 +421,7 @@ export function useAgentDynamicSuggestionsResult(
         ? dedupeSuggestions(options.staticSuggestions)
         : undefined;
     }
-    // While the suggestion context is still loading, fall back to static
-    // suggestions so a new chat shows chips instantly instead of waiting on
-    // app-state reads. Dynamic suggestions merge in once context resolves.
-    if (context === null) {
-      return options.staticSuggestions
-        ? dedupeSuggestions(options.staticSuggestions)
-        : undefined;
-    }
+    if (context === null) return undefined;
 
     const ctx = context;
     const dynamic = config.getSuggestions

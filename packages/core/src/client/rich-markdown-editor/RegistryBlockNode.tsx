@@ -395,6 +395,10 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       className="plan-block-node"
       data-block-id={blockId}
+      // Mirror the block type onto the wrapper so the document flow can detect a
+      // RUN of consecutive blocks of the same type (e.g. api-endpoint) and
+      // collapse the divider + gap between them, matching the read-only path.
+      data-block-type={blockType || undefined}
       data-plan-block-selected={props.selected ? "" : undefined}
       data-notion-incompatible={incompatibleWithNotion ? "" : undefined}
       onMouseDownCapture={selectNode}

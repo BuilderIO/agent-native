@@ -75,4 +75,43 @@ describe("ApiEndpointBlock", () => {
     expect(container.textContent).not.toContain('"diagram"');
     expect(container.querySelector("pre")).toBeNull();
   });
+
+  it("tags each endpoint so a run of consecutive endpoints renders flush", () => {
+    // Render two endpoints back-to-back the way the document flow does. The tight
+    // list look (no divider/gap between adjacent endpoints, merged flush cards)
+    // is driven by CSS that keys off `data-block-type="api-endpoint"` on the
+    // block section plus the `.an-api-endpoint-card` surface. Assert the renderer
+    // emits both markers so consecutive endpoints can be detected and merged —
+    // and that there is NO per-block separator element between the two sections.
+    act(() => {
+      root.render(
+        <>
+          <ApiEndpointRead
+            blockId="api-1"
+            ctx={{}}
+            data={{ method: "GET", path: "/users", summary: "List users" }}
+          />
+          <ApiEndpointRead
+            blockId="api-2"
+            ctx={{}}
+            data={{ method: "POST", path: "/users", summary: "Create user" }}
+          />
+        </>,
+      );
+    });
+
+    const sections = container.querySelectorAll<HTMLElement>(
+      'section[data-block-type="api-endpoint"]',
+    );
+    expect(sections).toHaveLength(2);
+    // Both endpoints expose the run marker and the flush-able card surface.
+    sections.forEach((section) => {
+      expect(section.classList.contains("plan-block")).toBe(true);
+      expect(section.querySelector(".an-api-endpoint-card")).toBeTruthy();
+    });
+    // The two endpoint sections are immediate siblings — no divider/separator
+    // node is injected between them; the run-collapse is purely CSS on the
+    // adjacent `data-block-type="api-endpoint"` pair.
+    expect(sections[0]?.nextElementSibling).toBe(sections[1]);
+  });
 });

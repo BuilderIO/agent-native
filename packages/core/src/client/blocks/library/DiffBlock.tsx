@@ -739,7 +739,7 @@ function DiffRead({
   return (
     <section
       ref={containerRef}
-      className="plan-block group/diff-block"
+      className="relative plan-block group/diff-block"
       data-block-id={blockId}
     >
       {title && <div className="plan-block-label">{title}</div>}
@@ -748,8 +748,8 @@ function DiffRead({
           {summary}
         </p>
       )}
-      {/* Code surface spans the full width; annotations render inline (below
-          their line) rather than in a side rail, so nothing competes for width. */}
+      {/* Code surface spans the full width; an annotated line shows its note as
+          a hover popover pinned in the right margin, so nothing competes for it. */}
       <div className="overflow-hidden rounded-md border border-border bg-background">
         {/* Header: filename, path, +/− counts, mode toggle. */}
         <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
@@ -806,7 +806,7 @@ function DiffRead({
             rowLimit={rowLimit}
             markersForRow={markersForRow}
             activeIndex={activeIndex}
-            onActiveChange={setActiveIndex}
+            onActiveChange={handleActiveChange}
           />
         ) : (
           <UnifiedView
@@ -817,8 +817,7 @@ function DiffRead({
             markersForRow={markersForRow}
             anchoredRow={anchoredRow}
             activeIndex={activeIndex}
-            onActiveChange={setActiveIndex}
-            ctx={ctx}
+            onActiveChange={handleActiveChange}
           />
         )}
         {!unchanged && shouldLimitRows && (
@@ -841,6 +840,14 @@ function DiffRead({
           </button>
         )}
       </div>
+      {activeAnnotation && popoverTop != null && (
+        <AnnotationPopover
+          item={activeAnnotation}
+          top={popoverTop}
+          onActiveChange={handleActiveChange}
+          ctx={ctx}
+        />
+      )}
     </section>
   );
 }
@@ -935,13 +942,11 @@ function UnifiedView({
   anchoredRow,
   activeIndex,
   onActiveChange,
-  ctx,
 }: {
   rows: DiffRow[];
   language: string;
   expanded: Set<number>;
   onToggleRun: (index: number) => void;
-  ctx: BlockRenderContext;
 } & RowAnnotationProps) {
   const segments = useMemo(
     () => segmentRows(rows, anchoredRow),
@@ -959,29 +964,6 @@ function UnifiedView({
     onActiveChange,
     showMarkerColumn,
   };
-  // A diff row plus any notes anchored to it: each annotation renders ONE
-  // full-width inline note directly under the FIRST line of its range (matched
-  // by `isMarkerRangeStart`), so the row's numbered pip and its note read as a
-  // single GitHub-style unit and the note never repeats down a multi-line span.
-  const renderRow = (row: DiffRow, key: string) => {
-    const notes = markersForRow(row).filter((marker) =>
-      isMarkerRangeStart(row, marker),
-    );
-    return (
-      <div key={key}>
-        <UnifiedRow row={row} {...rowProps} />
-        {notes.map((item) => (
-          <InlineAnnotationNote
-            key={`note-${item.index}`}
-            item={item}
-            active={item.index === activeIndex}
-            onActiveChange={onActiveChange}
-            ctx={ctx}
-          />
-        ))}
-      </div>
-    );
-  };
   let runIndex = 0;
   return (
     <div className="overflow-x-auto">
@@ -998,13 +980,17 @@ function UnifiedView({
                   onClick={() => onToggleRun(key)}
                 />
                 {open &&
-                  segment.rows.map((row, ri) =>
-                    renderRow(row, `run-${key}-${ri}`),
-                  )}
+                  segment.rows.map((row, ri) => (
+                    <UnifiedRow
+                      key={`run-${key}-${ri}`}
+                      row={row}
+                      {...rowProps}
+                    />
+                  ))}
               </div>
             );
           }
-          return renderRow(segment, String(idx));
+          return <UnifiedRow key={idx} row={segment} {...rowProps} />;
         })}
       </div>
     </div>
@@ -1031,6 +1017,7 @@ function UnifiedRow({
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   return (
     <div
+      data-annot-row={startMarker ? startMarker.index : undefined}
       className={cn(
         "flex min-h-5 min-w-full",
         ROW_BG[row.kind],
@@ -1081,6 +1068,54 @@ function MarkerCell({
         <AnnotationGutterMarker marker={startMarker.marker} active={active} />
       )}
     </span>
+  );
+}
+
+/**
+ * The hover popover for a diff annotation, pinned in the diff's right margin and
+ * vertically centered on the annotated line (`top` is measured by the caller).
+ * It shows the marker pip, line range, optional label, and the markdown note —
+ * beside the code instead of interrupting the diff flow — and keeps the
+ * annotation active while hovered so the pointer can travel from line to note.
+ */
+function AnnotationPopover({
+  item,
+  top,
+  onActiveChange,
+  ctx,
+}: {
+  item: ResolvedAnnotation<DiffAnnotation>;
+  top: number;
+  onActiveChange: (index: number | null) => void;
+  ctx: BlockRenderContext;
+}) {
+  return (
+    <div
+      role="tooltip"
+      style={{ top }}
+      onMouseEnter={() => onActiveChange(item.index)}
+      onMouseLeave={() => onActiveChange(null)}
+      className="absolute right-2 z-20 w-[min(17rem,calc(100%-3rem))] -translate-y-1/2 rounded-lg border border-amber-400/70 bg-background px-3 py-2.5 shadow-xl dark:border-amber-300/45"
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <AnnotationGutterMarker marker={item.marker} active />
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {rangeLabel(item)}
+        </span>
+        {item.annotation.label && (
+          <span className="text-[13px] font-semibold text-foreground">
+            {item.annotation.label}
+          </span>
+        )}
+      </div>
+      <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-foreground/85">
+        {ctx.renderMarkdown ? (
+          ctx.renderMarkdown(item.annotation.note)
+        ) : (
+          <p>{item.annotation.note}</p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1241,6 +1276,7 @@ function SplitCell({
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   return (
     <div
+      data-annot-row={startMarker ? startMarker.index : undefined}
       className={cn(
         "flex min-h-5 min-w-full",
         ROW_BG[row.kind],
@@ -1274,7 +1310,8 @@ function SplitCell({
 
 /* ── Edit (panel) ──────────────────────────────────────────────────────────── */
 
-const codeAreaClass = "min-h-[140px] font-mono text-xs leading-5";
+const codeAreaClass =
+  "min-h-[140px] font-mono [font-size:var(--plan-code-size)] leading-5";
 
 function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
   const patch = (next: Partial<DiffData>) => onChange({ ...data, ...next });
