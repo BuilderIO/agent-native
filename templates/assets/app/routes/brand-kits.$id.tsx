@@ -1065,7 +1065,7 @@ export default function LibraryPage() {
           if (dragCounterRef.current === 1) setIsDragOver(true);
         }}
         onDragLeave={() => {
-          dragCounterRef.current -= 1;
+          dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
           if (dragCounterRef.current === 0) setIsDragOver(false);
         }}
         onDragOver={(e: DragEvent<HTMLDivElement>) => {
