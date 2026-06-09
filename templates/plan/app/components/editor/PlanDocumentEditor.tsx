@@ -485,6 +485,45 @@ function insertBlockBeside(
  * columns. Same-region reorders never reach here (handleDrop defers those to the
  * editor's own reorder).
  */
+/**
+ * Notion parity: a `columns` block only exists to hold ≥2 side-by-side columns.
+ * After a drag empties a column (collapsed by {@link removeBlockFromTree}) the
+ * container can be left with a single column — in Notion that dissolves back to
+ * full-width blocks. This pass unwraps any columns block that drops to one column
+ * (splicing its blocks in place) and removes a columns block that loses them all.
+ * Applied to the FINAL tree only, never mid-move, so container lookups during the
+ * remove→insert steps still see the un-normalized tree.
+ */
+function normalizeColumnBlocks(blocks: PlanBlock[]): PlanBlock[] {
+  return blocks.flatMap((block) => {
+    if (block.type === "tabs") {
+      return [
+        {
+          ...block,
+          data: {
+            tabs: block.data.tabs.map((tab) => ({
+              ...tab,
+              blocks: normalizeColumnBlocks(tab.blocks),
+            })),
+          },
+        } as PlanBlock,
+      ];
+    }
+    if (block.type === "columns") {
+      const columns = block.data.columns
+        .map((column) => ({
+          ...column,
+          blocks: normalizeColumnBlocks(column.blocks),
+        }))
+        .filter((column) => column.blocks.length > 0);
+      if (columns.length === 0) return [];
+      if (columns.length === 1) return columns[0].blocks;
+      return [{ ...block, data: { columns } } as PlanBlock];
+    }
+    return [block];
+  });
+}
+
 function applyVerticalMove(
   blocks: PlanBlock[],
   request: {
@@ -741,8 +780,9 @@ export function PlanDocumentEditor({
       }
       if (!nextBlocks) return false;
 
-      commit(nextBlocks);
-      repaintDropViews(context, nextBlocks);
+      const normalized = normalizeColumnBlocks(nextBlocks);
+      commit(normalized);
+      repaintDropViews(context, normalized);
       return true;
     },
     [],
