@@ -1489,7 +1489,12 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         // leaving the app stuck on the ClientOnly spinner after sign-in.
         // Serve them as native ESM instead; workspaceNodeModulesAllow above
         // lets pnpm-resolved transitive deps load in workspace apps.
-        ...(hasDep("recharts", cwd) ? ["recharts", "es-toolkit"] : []),
+        // recharts is also a direct dep of @agent-native/core, so apps that
+        // depend on core transitively carry recharts even if they don't list
+        // it directly. Check both to cover the transitive case.
+        ...(hasDep("recharts", cwd) || hasDep("@agent-native/core", cwd)
+          ? ["recharts", "es-toolkit"]
+          : []),
         ...(options.optimizeDeps?.exclude ?? []),
       ],
     },
