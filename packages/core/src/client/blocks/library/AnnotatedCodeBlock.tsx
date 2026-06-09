@@ -155,14 +155,20 @@ function AnnotatedCodeRead({
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
       {hasAnnotations ? (
-        <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]">
-          {codeSurface}
-          <AnnotationNoteRail
-            items={resolved}
-            activeIndex={activeIndex}
-            onActiveChange={setActiveIndex}
-            ctx={ctx}
-          />
+        // The side rail stays for annotated-code, but responds to the block's
+        // OWN width via a container query: side-by-side when there's room,
+        // stacked below the code (single-column grid) when the container is
+        // narrow — e.g. nested inside a vertical-tabs content column.
+        <div className="@container/code">
+          <div className="grid items-start gap-3 @xl/code:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]">
+            {codeSurface}
+            <AnnotationNoteRail
+              items={resolved}
+              activeIndex={activeIndex}
+              onActiveChange={setActiveIndex}
+              ctx={ctx}
+            />
+          </div>
         </div>
       ) : (
         codeSurface

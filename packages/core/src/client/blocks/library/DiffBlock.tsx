@@ -879,11 +879,13 @@ function UnifiedView({
   anchoredRow,
   activeIndex,
   onActiveChange,
+  ctx,
 }: {
   rows: DiffRow[];
   language: string;
   expanded: Set<number>;
   onToggleRun: (index: number) => void;
+  ctx: BlockRenderContext;
 } & RowAnnotationProps) {
   const segments = useMemo(
     () => segmentRows(rows, anchoredRow),
@@ -901,6 +903,29 @@ function UnifiedView({
     onActiveChange,
     showMarkerColumn,
   };
+  // A diff row plus any notes anchored to it: each annotation renders ONE
+  // full-width inline note directly under the FIRST line of its range (matched
+  // by `isMarkerRangeStart`), so the row's numbered pip and its note read as a
+  // single GitHub-style unit and the note never repeats down a multi-line span.
+  const renderRow = (row: DiffRow, key: string) => {
+    const notes = markersForRow(row).filter((marker) =>
+      isMarkerRangeStart(row, marker),
+    );
+    return (
+      <div key={key}>
+        <UnifiedRow row={row} {...rowProps} />
+        {notes.map((item) => (
+          <InlineAnnotationNote
+            key={`note-${item.index}`}
+            item={item}
+            active={item.index === activeIndex}
+            onActiveChange={onActiveChange}
+            ctx={ctx}
+          />
+        ))}
+      </div>
+    );
+  };
   let runIndex = 0;
   return (
     <div className="overflow-x-auto">
@@ -917,17 +942,13 @@ function UnifiedView({
                   onClick={() => onToggleRun(key)}
                 />
                 {open &&
-                  segment.rows.map((row, ri) => (
-                    <UnifiedRow
-                      key={`run-${key}-${ri}`}
-                      row={row}
-                      {...rowProps}
-                    />
-                  ))}
+                  segment.rows.map((row, ri) =>
+                    renderRow(row, `run-${key}-${ri}`),
+                  )}
               </div>
             );
           }
-          return <UnifiedRow key={idx} row={segment} {...rowProps} />;
+          return renderRow(segment, String(idx));
         })}
       </div>
     </div>

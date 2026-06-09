@@ -557,4 +557,78 @@ test.describe("top-level side-drop creates columns", () => {
     const blocks = await getBlocks(page, planId);
     expect(blocks.some((b) => b.type === "columns")).toBe(false);
   });
+
+  test("dragging a NON-FIRST paragraph of a multi-paragraph text block moves the WHOLE block into a column", async ({
+    page,
+  }) => {
+    // Regression for the silent text-side-drop failure: a rich-text block expands
+    // to a run of prose nodes and only the FIRST carries runId, so the 2nd/3rd
+    // paragraph resolved to a fresh id the columns tree couldn't find and the drop
+    // no-op'd. Resolving by position now maps any paragraph to its whole block.
+    const planId = await createPlan(page, [
+      {
+        id: "para",
+        type: "rich-text",
+        data: { markdown: "PARA one line.\n\nPARA two line." },
+      },
+      { id: "sep", type: "callout", data: { tone: "info", body: "sep" } },
+      { id: "anchor", type: "callout", data: { tone: "info", body: "ANCHOR" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("anchor"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Source is the SECOND paragraph (no runId) of the multi-paragraph block.
+    const para2 = ".plan-document-editor-surface p:has-text('PARA two line')";
+    await dropAtFraction(page, para2, blockNode("anchor"), 0.72, 0.5);
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          // The whole `para` block (both paragraphs) must land in the column.
+          return groups.some(
+            (ids) => ids.includes("para") && ids.includes("anchor"),
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
+
+  test("dropping a structured block onto a NON-FIRST paragraph of a text block creates columns", async ({
+    page,
+  }) => {
+    // The same position-resolution gap on the TARGET side (not text-specific):
+    // dropping a callout onto a text block's 2nd paragraph used to fail because
+    // the target resolved to a fresh id not in the tree.
+    const planId = await createPlan(page, [
+      { id: "c", type: "callout", data: { tone: "info", body: "DRAGME" } },
+      { id: "sep", type: "callout", data: { tone: "info", body: "sep" } },
+      {
+        id: "txt",
+        type: "rich-text",
+        data: { markdown: "TXT one line.\n\nTXT two line." },
+      },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("c"))).toBeVisible({ timeout: 15_000 });
+
+    // Target is the SECOND paragraph of the text block.
+    const txt2 = ".plan-document-editor-surface p:has-text('TXT two line')";
+    await dropAtFraction(page, blockNode("c"), txt2, 0.72, 0.5);
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          return groups.some((ids) => ids.includes("c") && ids.includes("txt"));
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
 });

@@ -72,7 +72,7 @@ function tabButtonClass(
   return cn(
     "rounded-lg border border-transparent text-sm font-semibold transition-colors",
     orientation === "vertical"
-      ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left md:w-full md:max-w-none"
+      ? "min-w-0 max-w-72 shrink-0 px-3 py-2 text-left @xl/tabs:w-full @xl/tabs:max-w-none"
       : "shrink-0 whitespace-nowrap px-4 py-2",
     selected
       ? "bg-primary/5 text-foreground dark:bg-primary/10"
@@ -101,7 +101,7 @@ function TabRail({
     <div
       className={cn(
         vertical
-          ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto md:mb-0 md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+          ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto @xl/tabs:mb-0 @xl/tabs:max-h-[62vh] @xl/tabs:flex-col @xl/tabs:overflow-x-hidden @xl/tabs:overflow-y-auto @xl/tabs:pr-2"
           : "mb-8 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto",
       )}
       role="tablist"
@@ -142,31 +142,33 @@ export function TabsBlockReader({
   return (
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
-      <div
-        className={cn(
-          vertical &&
-            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
-        )}
-      >
-        <TabRail
-          tabs={data.tabs}
-          activeId={active?.id}
-          onSelect={setActiveId}
-          orientation={orientation}
-        />
-        {active && (
-          <div className={cn(vertical && "min-w-0")}>
-            {active.blocks.map((child) => (
-              <div key={child.id}>
-                {ctx.renderBlock?.({
-                  block: child,
-                  editing: false,
-                  compactVisuals: compact,
-                })}
-              </div>
-            ))}
-          </div>
-        )}
+      <div className={cn(vertical && "@container/tabs")}>
+        <div
+          className={cn(
+            vertical &&
+              "grid min-w-0 gap-5 @xl/tabs:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] @xl/tabs:items-start",
+          )}
+        >
+          <TabRail
+            tabs={data.tabs}
+            activeId={active?.id}
+            onSelect={setActiveId}
+            orientation={orientation}
+          />
+          {active && (
+            <div className={cn(vertical && "min-w-0")}>
+              {active.blocks.map((child) => (
+                <div key={child.id}>
+                  {ctx.renderBlock?.({
+                    block: child,
+                    editing: false,
+                    compactVisuals: compact,
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -241,24 +243,27 @@ export function TabsBlockEditor({
   // (`TabsBlockReader`) owns its own section because read mode renders the spec
   // directly.
   return (
-    <div className="min-w-0" data-tabs-edit-block={blockId}>
+    <div
+      className={cn("min-w-0", vertical && "@container/tabs")}
+      data-tabs-edit-block={blockId}
+    >
       <div
         className={cn(
           vertical &&
-            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
+            "grid min-w-0 gap-5 @xl/tabs:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] @xl/tabs:items-start",
         )}
       >
         <div
           className={cn(
             "flex min-w-0 items-start gap-2",
-            vertical ? "mb-5 md:mb-0" : "mb-8 w-full",
+            vertical ? "mb-5 @xl/tabs:mb-0" : "mb-8 w-full",
           )}
         >
           <div
             className={cn(
               "flex min-w-0 flex-1 gap-1",
               vertical
-                ? "flex-nowrap overflow-x-auto md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+                ? "flex-nowrap overflow-x-auto @xl/tabs:max-h-[62vh] @xl/tabs:flex-col @xl/tabs:overflow-x-hidden @xl/tabs:overflow-y-auto @xl/tabs:pr-2"
                 : "w-full flex-nowrap items-center overflow-x-auto",
             )}
             role="tablist"
@@ -301,7 +306,7 @@ export function TabsBlockEditor({
               return (
                 <div
                   key={tab.id}
-                  className="group/tab relative flex min-w-0 max-w-72 shrink-0 md:w-full md:max-w-none"
+                  className="group/tab relative flex min-w-0 max-w-72 shrink-0 @xl/tabs:w-full @xl/tabs:max-w-none"
                 >
                   {tabButton}
                   {editable && selected && (
