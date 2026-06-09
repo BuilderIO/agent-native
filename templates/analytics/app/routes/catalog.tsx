@@ -202,7 +202,7 @@ function TemplateCard({
 export default function TemplateCatalogRoute() {
   const [category, setCategory] =
     useState<(typeof CATEGORY_TABS)[number]>("All");
-  const [installingId, setInstallingId] = useState<string | null>(null);
+  const [installingIds, setInstallingIds] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const install = useActionMutation("install-dashboard-template");
   const { data, isLoading } = useActionQuery(
@@ -224,7 +224,7 @@ export default function TemplateCatalogRoute() {
   ).length;
 
   async function installTemplate(template: DashboardTemplate) {
-    setInstallingId(template.id);
+    setInstallingIds((prev) => new Set(prev).add(template.id));
     try {
       const result = (await install.mutateAsync({
         templateId: template.id,
@@ -240,7 +240,11 @@ export default function TemplateCatalogRoute() {
           : `Couldn't install ${template.name}`,
       );
     } finally {
-      setInstallingId(null);
+      setInstallingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(template.id);
+        return next;
+      });
     }
   }
 
@@ -262,7 +266,7 @@ export default function TemplateCatalogRoute() {
             setCategory(next as (typeof CATEGORY_TABS)[number])
           }
         >
-          <TabsList className="grid w-full grid-cols-4 md:w-auto">
+          <TabsList className="grid w-full grid-cols-5 md:w-auto">
             {CATEGORY_TABS.map((item) => (
               <TabsTrigger key={item} value={item} className="text-xs">
                 {item}
@@ -296,7 +300,7 @@ export default function TemplateCatalogRoute() {
             <TemplateCard
               key={template.id}
               template={template}
-              installing={installingId === template.id}
+              installing={installingIds.has(template.id)}
               onInstall={() => void installTemplate(template)}
               onOpen={(dashboardId) => navigate(`/adhoc/${dashboardId}`)}
             />
