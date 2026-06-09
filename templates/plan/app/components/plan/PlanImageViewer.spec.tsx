@@ -70,6 +70,30 @@ describe("PlanImageViewer", () => {
     ).toBeTruthy();
   });
 
+  it("keeps edit inside the same ⋯ group — no separate edit button — when onEdit is given", () => {
+    render(
+      <PlanImageViewer
+        src="https://cdn.example.com/cat.png"
+        alt="A cat"
+        onEdit={() => {}}
+        onReplace={() => {}}
+      />,
+    );
+
+    // The hover action group must contain exactly two buttons: the zoom button
+    // and the ⋯ options trigger. The edit affordance lives INSIDE the ⋯ menu, so
+    // it must not add a third (separate) button — matching inline markdown images.
+    const actions = container.querySelector(".plan-image__actions");
+    expect(actions).toBeTruthy();
+    expect(actions!.querySelectorAll("button")).toHaveLength(2);
+    expect(
+      container.querySelector('[aria-label="View full size"]'),
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[aria-label="Image options"]'),
+    ).toBeTruthy();
+  });
+
   it("renders a full-width block layout when `block` is set", () => {
     render(
       <PlanImageViewer

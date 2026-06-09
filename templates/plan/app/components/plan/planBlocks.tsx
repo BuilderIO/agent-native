@@ -1058,7 +1058,7 @@ export function createPlanBlockRenderContext(options: {
   return ctx;
 }
 
-function PlanAiBlockAction({
+export function PlanAiBlockAction({
   label,
   blockId,
   blockType,

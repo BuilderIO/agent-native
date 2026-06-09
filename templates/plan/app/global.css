@@ -1784,6 +1784,20 @@
   margin: 2rem 0;
 }
 
+/* Markdown images (inside prose) normally carry their vertical margin on the
+ * <img> itself. That margin sits INSIDE the `.plan-image` wrapper, so the
+ * absolutely-positioned hover actions (top-right) float into the gap above the
+ * image instead of sitting flush on it. Move the spacing onto the wrapper so the
+ * image fills it from the top edge and the controls sit flush — matching the
+ * structured image block, whose image has no intrinsic margin. */
+.an-rich-md-prose .plan-image > img {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.an-rich-md-prose .plan-image {
+  margin-block: 0.75rem;
+}
+
 .plan-nested-document-editor .plan-block-node {
   position: relative;
   margin: 1rem 0;

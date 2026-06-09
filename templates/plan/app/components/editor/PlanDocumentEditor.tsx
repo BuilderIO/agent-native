@@ -547,12 +547,6 @@ export function PlanDocumentEditor({
 
   const handleDrop = useMemo<DragHandleOptions["handleDrop"]>(
     () => (data: unknown, context: DragHandleDropContext) => {
-      // eslint-disable-next-line no-console
-      console.log("[coldrop] fired", {
-        placement: context.placement,
-        sourceView: !!context.sourceView,
-        view: !!context.view,
-      });
       if (context.placement !== "left" && context.placement !== "right") {
         return false;
       }
@@ -567,14 +561,6 @@ export function PlanDocumentEditor({
         (isTransferredPlanBlock(data) ? data : null) ??
         planBlockFromPmNode(context.sourceNode, sourceBlocks);
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
-      // eslint-disable-next-line no-console
-      console.log("[coldrop] resolved", {
-        sourceBlockId: sourceBlock?.id,
-        sourceType: sourceBlock?.type,
-        targetBlockId: targetBlock?.id,
-        targetType: targetBlock?.type,
-        topLevelIds: currentBlocks.map((b) => b.id),
-      });
       if (!sourceBlock || !targetBlock) return false;
 
       const targetRegion = nestedRegionInfoForView(context.view);
@@ -592,12 +578,6 @@ export function PlanDocumentEditor({
         side: context.placement,
         containerBlockId: targetRegion?.containerBlockId,
         regionId: targetRegion?.regionId,
-      });
-      // eslint-disable-next-line no-console
-      console.log("[coldrop] applyColumnSideDrop", {
-        produced: !!nextBlocks,
-        nextLen: nextBlocks?.length,
-        nextTypes: nextBlocks?.map((b) => b.type),
       });
       if (!nextBlocks) return false;
 

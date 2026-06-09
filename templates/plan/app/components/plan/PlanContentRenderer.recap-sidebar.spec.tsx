@@ -78,6 +78,8 @@ describe("PlanContentRenderer recap files sidebar", () => {
           content={recapContent()}
           isRecap
           editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
         />,
       );
     });
@@ -116,7 +118,12 @@ describe("PlanContentRenderer recap files sidebar", () => {
   it("leaves non-recap plans unchanged (no files sidebar, no hide style)", () => {
     act(() => {
       root.render(
-        <PlanContentRenderer content={recapContent()} editingDisabled />,
+        <PlanContentRenderer
+          content={recapContent()}
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
       );
     });
 

@@ -52,6 +52,9 @@ import {
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import { PlanImageViewer } from "./PlanImageViewer";
+// `PlanAiBlockAction` is a hoisted function export, so this import is safe
+// despite the planBlocks ↔ DocumentArea module cycle (used only at render time).
+import { PlanAiBlockAction } from "./planBlocks";
 
 /**
  * Renders the document flow: dispatches a single plan block to its block
@@ -275,6 +278,7 @@ export function PlanBlockView({
         block={block}
         onChange={onChange}
         editingDisabled={editingDisabled}
+        planId={planId}
       />
     );
   }
@@ -1157,10 +1161,12 @@ function ImageBlock({
   block,
   onChange,
   editingDisabled = false,
+  planId,
 }: {
   block: Extract<PlanBlock, { type: "image" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
   editingDisabled?: boolean;
+  planId?: string | null;
 }) {
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
   const editable = !!onChange && !editingDisabled;
@@ -1227,9 +1233,26 @@ function ImageBlock({
       )}
       {editable && (
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="max-w-md" data-plan-interactive>
+          {/* `an-block-edit-popover` lets PlanAiBlockAction's "Edit with AI"
+              sub-popover portal INTO this dialog (so its outside-click stays
+              inside), matching the registered-block edit popovers. */}
+          <DialogContent
+            className="an-block-edit-popover max-w-md"
+            data-plan-interactive
+          >
             <DialogHeader>
-              <DialogTitle>Image details</DialogTitle>
+              <div className="flex items-center justify-between gap-3 pr-6">
+                <DialogTitle>Image details</DialogTitle>
+                <PlanAiBlockAction
+                  label="Image"
+                  blockId={block.id}
+                  blockType="image"
+                  blockTitle={block.title}
+                  blockSummary={block.summary}
+                  blockData={block.data}
+                  planId={planId}
+                />
+              </div>
             </DialogHeader>
             <SchemaBlockEditor
               data={block.data}

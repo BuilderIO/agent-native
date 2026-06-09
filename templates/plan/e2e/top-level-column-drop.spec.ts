@@ -177,6 +177,18 @@ test.describe("top-level side-drop creates columns", () => {
         { timeout: 15_000 },
       )
       .toBe(true);
+
+    // CRITICAL: the columns must also RENDER in the live editor WITHOUT a reload.
+    // The user looks at the screen — if data updates but the editor does not
+    // repaint the new columns block, they perceive "dropping does not create
+    // columns". Two side-by-side nested column regions must appear in place.
+    await expect(
+      page.locator(".plan-nested-document-editor-region"),
+    ).toHaveCount(2, { timeout: 8_000 });
+    await page.screenshot({
+      path: "test-results/coldrop-live-render.png",
+      fullPage: true,
+    });
   });
 
   test("callout dropped on a rich-text block's side wraps both in columns", async ({
@@ -186,7 +198,7 @@ test.describe("top-level side-drop creates columns", () => {
       {
         id: "lead",
         type: "rich-text",
-        data: { markdown: "Lead paragraph to drop beside." },
+        data: { markdown: "LEADPARA drop beside me." },
       },
       { id: "mid", type: "callout", data: { tone: "info", body: "MIDDLE" } },
       { id: "tail", type: "callout", data: { tone: "info", body: "TAIL" } },
@@ -197,19 +209,58 @@ test.describe("top-level side-drop creates columns", () => {
       timeout: 15_000,
     });
 
-    // Drag the trailing callout onto the right side of the lead RICH-TEXT block.
-    await sideDrop(
-      page,
-      blockNode("tail"),
-      ".plan-document-editor-surface .an-rich-md-prose",
-      "right",
-    );
+    // Drag the trailing callout onto the RIGHT side of the LEAD rich-text
+    // paragraph specifically (not the whole prose surface, whose midpoint would
+    // land on the middle block's adjacent seam).
+    const leadPara =
+      ".plan-document-editor-surface .an-rich-md-prose p:has-text('LEADPARA')";
+    await sideDrop(page, blockNode("tail"), leadPara, "right");
 
     await expect
       .poll(
         async () => {
           const groups = collectColumnChildIds(await getBlocks(page, planId));
-          return groups.some((ids) => ids.includes("tail"));
+          return groups.some(
+            (ids) => ids.includes("lead") && ids.includes("tail"),
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
+
+  test("rich-text block dragged onto a callout's side wraps both in columns", async ({
+    page,
+  }) => {
+    // Source is a RICH-TEXT (prose) block — exercises source-id resolution
+    // through planBlockFromPmNode on a prose node, not a planBlock NodeView.
+    const planId = await createPlan(page, [
+      {
+        id: "para",
+        type: "rich-text",
+        data: { markdown: "DRAGME paragraph source." },
+      },
+      { id: "c1", type: "callout", data: { tone: "info", body: "C-ONE" } },
+      { id: "c2", type: "callout", data: { tone: "info", body: "C-TWO" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("c2"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Drag the lead PARAGRAPH onto the LEFT side of the LAST callout (non-adjacent).
+    const para =
+      ".plan-document-editor-surface .an-rich-md-prose p:has-text('DRAGME')";
+    await sideDrop(page, para, blockNode("c2"), "left");
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          return groups.some(
+            (ids) => ids.includes("para") && ids.includes("c2"),
+          );
         },
         { timeout: 15_000 },
       )
