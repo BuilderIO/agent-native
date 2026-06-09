@@ -571,9 +571,30 @@ function repaintDropViews(
     for (const view of views) {
       const info = nestedRegionInfoForView(view);
       if (info && regionBlocksForInfo(nextBlocks, info) === null) {
-        // eslint-disable-next-line no-console
-        console.log("[vmove-rv] rebuild-root");
-        replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
+        try {
+          const before = rootView.state.doc.childCount;
+          const doc = rootView.state.schema.nodeFromJSON(
+            blocksToProseJSON(nextBlocks),
+          );
+          const tr = rootView.state.tr.replaceWith(
+            0,
+            rootView.state.doc.content.size,
+            doc.content,
+          );
+          tr.setMeta("addToHistory", false);
+          tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
+          rootView.dispatch(tr.scrollIntoView());
+          // eslint-disable-next-line no-console
+          console.log("[vmove-rv] rebuild-root ok", {
+            before,
+            after: rootView.state.doc.childCount,
+            destroyed: (rootView as unknown as { isDestroyed?: boolean })
+              .isDestroyed,
+          });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.log("[vmove-rv] rebuild-root THREW", String(err));
+        }
         return;
       }
     }
