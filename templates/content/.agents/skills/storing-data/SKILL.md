@@ -14,7 +14,7 @@ metadata:
 
 All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. Do not store durable app data in the filesystem.
 
-When you add a data model, a list, or a read path, also follow [`performance`](../performance/SKILL.md): project only the columns a list renders, index the columns hot queries filter/sort on, and avoid query waterfalls — so apps stay fast as data grows.
+When you add a data model, a list, or a read path, also follow the `performance` skill: project only the columns a list renders, index the columns hot queries filter/sort on, and avoid query waterfalls — so apps stay fast as data grows.
 
 ## How It Works
 

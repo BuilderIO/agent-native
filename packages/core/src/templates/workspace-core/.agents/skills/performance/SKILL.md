@@ -21,8 +21,8 @@ shared and growing — table. So default to **projected columns**, **indexed
 hot-path queries**, and **parallel/batched** fetches. These rules are
 provider-agnostic: they hold on SQLite, Postgres, or any managed SQL backend.
 
-This skill is about the data and load path. See [`storing-data`] for the schema
-and migration mechanics it references, and [`real-time-sync`] for how updates
+This skill is about the data and load path. See the `storing-data` skill for the schema
+and migration mechanics it references, and the `real-time-sync` skill for how updates
 already reach the UI without polling.
 
 ## 1. Project columns — never `SELECT *` on a list
@@ -62,7 +62,7 @@ A list/index query should select only the columns the list actually renders.
 Indexes are added through the **versioned migration array** in
 `server/plugins/db.ts` as `CREATE INDEX IF NOT EXISTS …` — not through a
 schema-level `index()` helper (the framework applies indexes via migrations; see
-[`storing-data`]). Add an index for any column a hot query **filters or sorts**
+the `storing-data` skill). Add an index for any column a hot query **filters or sorts**
 on. The recurring ones:
 
 - **Ownable tables** → `(owner_email, org_id, <the list's ORDER BY column>)`.
@@ -108,7 +108,7 @@ index the growing tables first.
 
 ## 5. Poll cheaply; compute once
 
-- Updates already reach the UI through [`real-time-sync`] (`useDbSync` / SSE).
+- Updates already reach the UI through the `real-time-sync` skill (`useDbSync` / SSE).
   Don't add an aggressive `refetchInterval` that re-runs a heavy list/read every
   couple of seconds. If you must poll, use a **wide interval** and a **cheap**
   endpoint.
@@ -139,6 +139,3 @@ index the growing tables first.
 - [ ] Client fires independent queries in parallel, not a waterfall.
 - [ ] No heavy recompute on every read; no aggressive polling of heavy endpoints.
 - [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
-
-[`storing-data`]: ../storing-data/SKILL.md
-[`real-time-sync`]: ../real-time-sync/SKILL.md
