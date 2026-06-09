@@ -139,6 +139,3 @@ index the growing tables first.
 - [ ] Client fires independent queries in parallel, not a waterfall.
 - [ ] No heavy recompute on every read; no aggressive polling of heavy endpoints.
 - [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
-
-[`storing-data`]: ../storing-data/SKILL.md
-[`real-time-sync`]: ../real-time-sync/SKILL.md

@@ -433,7 +433,7 @@ export function PlanContentRenderer({
                 as="h1"
                 value={content.title || fallbackTitle}
                 editable={metadataEditable}
-                className="max-w-3xl text-[2rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.5rem]"
+                className="max-w-3xl text-[1.8rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.25rem]"
                 placeholder="Untitled plan"
                 onCommit={(title) => onMetadataChange?.({ title })}
               />

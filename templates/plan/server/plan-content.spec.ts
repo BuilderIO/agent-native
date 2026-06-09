@@ -819,6 +819,45 @@ describe("back-compat parsing and migration", () => {
     }
   });
 
+  it("migrates a retired decision block into a decision-tone callout", () => {
+    const legacy = {
+      version: 2,
+      title: "Old plan",
+      brief: "Has a decision block from before it was retired.",
+      blocks: [
+        {
+          id: "dec-1",
+          type: "decision",
+          data: {
+            question: "Which approach?",
+            options: [
+              {
+                id: "o1",
+                label: "Ship shared blocks",
+                detail: "One source of truth.",
+                recommended: true,
+              },
+              { id: "o2", label: "Keep copies", detail: "More drift." },
+            ],
+          },
+        },
+      ],
+    };
+    // Stored decision blocks must keep loading (the schema no longer has a
+    // `decision` member) by migrating to a callout, not failing the whole plan.
+    const parsed = parsePlanContent(JSON.stringify(legacy));
+    expect(parsed).not.toBeNull();
+    const block = parsed?.blocks.find((b) => b.id === "dec-1");
+    expect(block?.type).toBe("callout");
+    if (block?.type === "callout") {
+      expect(block.data.tone).toBe("decision");
+      expect(block.data.body).toContain("Which approach?");
+      expect(block.data.body).toContain("Ship shared blocks");
+      expect(block.data.body).toContain("recommended");
+      expect(block.data.body).toContain("Keep copies");
+    }
+  });
+
   it("accepts a v1 content version without erasing the body", () => {
     const parsed = parsePlanContent(
       JSON.stringify({
