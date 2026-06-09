@@ -2049,34 +2049,6 @@ export const BUILT_IN_APP_SKILLS = {
           description:
             "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review.",
         },
-        {
-          id: "visual-questions",
-          action: "create-visual-questions",
-          path: "/plans",
-          description:
-            "Create a visual intake questionnaire before generating or updating an Agent-Native plan.",
-        },
-        {
-          id: "ui-plan",
-          action: "create-ui-plan",
-          path: "/plans",
-          description:
-            "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below.",
-        },
-        {
-          id: "prototype-plan",
-          action: "create-prototype-plan",
-          path: "/plans",
-          description:
-            "Create a prototype-first Agent-Native plan with a functional live prototype above the document.",
-        },
-        {
-          id: "plan-design",
-          action: "create-plan-design",
-          path: "/plans",
-          description:
-            "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab.",
-        },
       ],
       skills: [
         {
@@ -2088,26 +2060,6 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-recap",
           visibility: "exported",
           exportAs: "visual-recap",
-        },
-        {
-          path: "skills/visual-questions",
-          visibility: "exported",
-          exportAs: "visual-questions",
-        },
-        {
-          path: "skills/ui-plan",
-          visibility: "exported",
-          exportAs: "ui-plan",
-        },
-        {
-          path: "skills/prototype-plan",
-          visibility: "exported",
-          exportAs: "prototype-plan",
-        },
-        {
-          path: "skills/plan-design",
-          visibility: "exported",
-          exportAs: "plan-design",
         },
       ],
       hostAdapters: [
@@ -2189,17 +2141,6 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-recaps": "visual-plans",
   "code-review-recap": "visual-plans",
   "code-review-recaps": "visual-plans",
-  "visual-questions": "visual-plans",
-  "visual-question": "visual-plans",
-  "ui-plan": "visual-plans",
-  "ui-plans": "visual-plans",
-  "prototype-plan": "visual-plans",
-  "prototype-plans": "visual-plans",
-  "plan-design": "visual-plans",
-  "plan-designs": "visual-plans",
-  "design-plan": "visual-plans",
-  "design-plans": "visual-plans",
-  prototype: "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
@@ -2224,10 +2165,6 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "visual-plan",
     "visual-recap",
     "code-review-recap",
-    "visual-questions",
-    "ui-plan",
-    "prototype-plan",
-    "plan-design",
     "html-plan",
     "plannotate",
   ],

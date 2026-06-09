@@ -7,14 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { addAgentNativeSkill, parseSkillsArgs, runSkills } from "./skills.js";
 
 const tmpRoots: string[] = [];
-const PLANS_SKILL_NAMES = [
-  "visual-plan",
-  "visual-recap",
-  "visual-questions",
-  "ui-plan",
-  "prototype-plan",
-  "plan-design",
-];
+const PLANS_SKILL_NAMES = ["visual-plan", "visual-recap"];
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -237,19 +230,15 @@ describe("agent-native skills", () => {
           "visual-plan",
           "--skill",
           "visual-recap",
-          "--skill",
-          "visual-questions",
-          "--skill",
-          "ui-plan",
-          "--skill",
-          "prototype-plan",
-          "--skill",
-          "plan-design",
           "-a",
           "codex",
           "-y",
         ]),
       );
+      expect(commands[0].args).not.toContain("visual-questions");
+      expect(commands[0].args).not.toContain("ui-plan");
+      expect(commands[0].args).not.toContain("prototype-plan");
+      expect(commands[0].args).not.toContain("plan-design");
       expect(result.mcpUrl).toBe(
         "https://plan.agent-native.com/_agent-native/mcp",
       );
@@ -265,140 +254,29 @@ describe("agent-native skills", () => {
     }
   });
 
-  it("accepts ui-plan as a Plans UI-first alias", async () => {
-    const root = tmpDir();
-    const commands: { cmd: string; args: string[] }[] = [];
+  it.each(["ui-plan", "prototype-plan", "plan-design", "visual-questions"])(
+    "no longer accepts %s as a Plans install alias",
+    async (removedAlias) => {
+      const root = tmpDir();
 
-    const result = await addAgentNativeSkill(
-      parseSkillsArgs([
-        "add",
-        "ui-plan",
-        "--client",
-        "codex",
-        "--scope",
-        "project",
-      ]),
-      {
-        baseDir: root,
-        runCommand: async (cmd, args) => {
-          commands.push({ cmd, args });
-          return 0;
-        },
-      },
-    );
-
-    expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining([
-        "--skill",
-        "visual-plan",
-        "--skill",
-        "visual-recap",
-        "--skill",
-        "visual-questions",
-        "--skill",
-        "ui-plan",
-        "--skill",
-        "prototype-plan",
-        "--skill",
-        "plan-design",
-      ]),
-    );
-    expect(result.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-  });
-
-  it("accepts plan-design as a Plans full-fidelity design alias", async () => {
-    const root = tmpDir();
-    const commands: { cmd: string; args: string[] }[] = [];
-
-    const result = await addAgentNativeSkill(
-      parseSkillsArgs([
-        "add",
-        "plan-design",
-        "--client",
-        "codex",
-        "--scope",
-        "project",
-      ]),
-      {
-        baseDir: root,
-        runCommand: async (cmd, args) => {
-          commands.push({ cmd, args });
-          return 0;
-        },
-      },
-    );
-
-    expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining([
-        "--skill",
-        "visual-plan",
-        "--skill",
-        "visual-recap",
-        "--skill",
-        "visual-questions",
-        "--skill",
-        "ui-plan",
-        "--skill",
-        "prototype-plan",
-        "--skill",
-        "plan-design",
-      ]),
-    );
-    expect(result.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-  });
-
-  it("accepts visual-questions as a Plans intake alias", async () => {
-    const root = tmpDir();
-    const commands: { cmd: string; args: string[] }[] = [];
-
-    const result = await addAgentNativeSkill(
-      parseSkillsArgs([
-        "add",
-        "visual-questions",
-        "--client",
-        "codex",
-        "--scope",
-        "project",
-      ]),
-      {
-        baseDir: root,
-        runCommand: async (cmd, args) => {
-          commands.push({ cmd, args });
-          return 0;
-        },
-      },
-    );
-
-    expect(result.id).toBe("visual-plans");
-    expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining([
-        "--skill",
-        "visual-plan",
-        "--skill",
-        "visual-recap",
-        "--skill",
-        "visual-questions",
-        "--skill",
-        "ui-plan",
-        "--skill",
-        "prototype-plan",
-        "--skill",
-        "plan-design",
-      ]),
-    );
-    expect(result.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
-  });
+      await expect(
+        addAgentNativeSkill(
+          parseSkillsArgs([
+            "add",
+            removedAlias,
+            "--client",
+            "codex",
+            "--scope",
+            "project",
+          ]),
+          {
+            baseDir: root,
+            runCommand: async () => 0,
+          },
+        ),
+      ).rejects.toThrow(/Unknown skill or manifest path/);
+    },
+  );
 
   it("keeps exported Plans skill copies aligned with template skills", () => {
     const root = workspaceRoot();
