@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   type Dispatch,
+  type DragEvent,
   type SetStateAction,
   useEffect,
   useRef,
@@ -316,6 +317,8 @@ export default function LibraryPage() {
   const [paletteDraft, setPaletteDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refreshingVariantRunIdsRef = useRef<Set<string>>(new Set());
+  const dragCounterRef = useRef(0);
+  const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
 
   useEffect(() => {
@@ -1053,7 +1056,34 @@ export default function LibraryPage() {
         />
       ) : null}
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div
+        className="relative flex-1 overflow-y-auto px-6 py-5"
+        onDragEnter={(e: DragEvent<HTMLDivElement>) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          dragCounterRef.current += 1;
+          if (dragCounterRef.current === 1) setIsDragOver(true);
+        }}
+        onDragLeave={() => {
+          dragCounterRef.current -= 1;
+          if (dragCounterRef.current === 0) setIsDragOver(false);
+        }}
+        onDragOver={(e: DragEvent<HTMLDivElement>) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        }}
+        onDrop={(e: DragEvent<HTMLDivElement>) => {
+          e.preventDefault();
+          dragCounterRef.current = 0;
+          setIsDragOver(false);
+          void upload(e.dataTransfer.files);
+        }}
+      >
+        {isDragOver && (
+          <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
+            <IconUpload className="h-10 w-10 text-primary" />
+            <span className="text-base font-semibold text-primary">Drop to upload</span>
+          </div>
+        )}
         <section className="mb-5 space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1173,6 +1203,7 @@ export default function LibraryPage() {
               emptyTitle="Upload reference assets"
               emptyBody="Add images, clips, product shots, logos, and style references so the agent can match your brand."
               onEmptyClick={() => fileInputRef.current?.click()}
+              onDrop={(files) => void upload(files)}
               selectedIds={selectedAssetIds}
               onSelectedIdsChange={setSelectedAssetIds}
               onOptimisticDelete={markAssetsOptimisticallyDeleted}
@@ -2363,6 +2394,7 @@ function AssetGrid({
   emptyTitle,
   emptyBody,
   onEmptyClick,
+  onDrop,
   selectedIds,
   onSelectedIdsChange,
   onOptimisticDelete,
@@ -2374,6 +2406,7 @@ function AssetGrid({
   emptyTitle: string;
   emptyBody: string;
   onEmptyClick: () => void;
+  onDrop?: (files: FileList) => void;
   selectedIds: Set<string>;
   onSelectedIdsChange: Dispatch<SetStateAction<Set<string>>>;
   onOptimisticDelete?: (ids: string[]) => void;
@@ -2492,6 +2525,8 @@ function AssetGrid({
     return (
       <button
         onClick={onEmptyClick}
+        onDragOver={(e) => { if (onDrop && e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+        onDrop={(e) => { if (!onDrop) return; e.preventDefault(); e.stopPropagation(); onDrop(e.dataTransfer.files); }}
         className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
