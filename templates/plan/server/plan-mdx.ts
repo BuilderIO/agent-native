@@ -736,11 +736,29 @@ function baseBlock(node: MdxNode) {
   };
 }
 
+// Wireframe component tags (`Screen` plus every kit component like
+// `FrameScreen`/`Row`/`Btn`/…). These are only valid INSIDE a `<WireframeBlock>`
+// (plan.mdx) or an `<Artboard>` (canvas.mdx). If one appears as a standalone
+// block-level node it is a malformed wireframe — we must fail loudly rather than
+// let it fall through into rich-text and render as raw `<Screen .../>` source.
+const WIREFRAME_ONLY_COMPONENTS = new Set<string>([
+  "Screen",
+  ...Object.keys(COMPONENT_TO_NODE),
+]);
+
 function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const name = elementName(node);
   if (name === "Columns") {
     const parsed = parseReadableColumnsBlock(node, idContext);
     if (parsed) return parsed;
+  }
+  // Fail loud: a bare wireframe element (`<Screen .../>` or a stray kit node) at
+  // the block level is a malformed wireframe. Wrap it in `<WireframeBlock>` (or
+  // an `<Artboard>` in canvas.mdx). Never silently emit it as raw text.
+  if (name && WIREFRAME_ONLY_COMPONENTS.has(name)) {
+    throw new Error(
+      `Malformed wireframe: <${name}> must be nested inside a <WireframeBlock> (plan.mdx) or <Artboard> (canvas.mdx), not used as a standalone block.`,
+    );
   }
   // Registry-first: a registered MDX tag parses through its spec. The shared
   // attribute reader resolves props the same way the legacy readers do, and the
