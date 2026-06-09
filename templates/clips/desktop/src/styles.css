@@ -4133,6 +4133,38 @@ body[data-clips-route="recording-pill"] #root {
   color: rgba(244, 244, 245, 0.4);
 }
 
+.pill-pane-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pill-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(244, 244, 245, 0.5);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.pill-copy-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f4f5;
+}
+
+.pill-copy-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* In the split, the transcript area should fill its pane below the label. */
 .pill-split-pane .pill-transcript-area {
   flex: 1;

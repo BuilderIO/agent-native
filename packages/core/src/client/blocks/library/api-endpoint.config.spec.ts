@@ -134,6 +134,7 @@ describe("api-endpoint block — mdx round-trip", () => {
       "summary",
       "auth",
       "deprecated",
+      "change",
       "params",
       "request",
       "responses",
@@ -180,5 +181,53 @@ describe("api-endpoint block — mdx round-trip", () => {
       "Health check endpoint.",
     );
     expect(back.description).toBe("Health check endpoint.");
+  });
+
+  it("round-trips diff state at all three levels (route, param, response)", () => {
+    const diffEndpoint: ApiEndpointData = {
+      method: "POST",
+      path: "/api/v2/widgets",
+      // Root: the whole route is new.
+      change: "added",
+      params: [
+        // Modified param carrying its prior value via `was`.
+        {
+          name: "kind",
+          in: "query",
+          type: "string",
+          required: true,
+          change: "modified",
+          was: "optional",
+        },
+        { name: "color", in: "query", type: "string", change: "added" },
+      ],
+      responses: [
+        { status: "201", description: "Created", change: "added" },
+        // A newly-added conflict response.
+        { status: "409", description: "Conflict", change: "added" },
+      ],
+    };
+    const attrs = compactAttrs(apiEndpointMdx.toAttrs(diffEndpoint));
+    const back = apiEndpointMdx.fromAttrs(reader(attrs), "");
+    const validated = apiEndpointSchema.parse(back);
+    expect(validated).toEqual(diffEndpoint);
+    // Spot-check each level survived.
+    expect(validated.change).toBe("added");
+    expect(validated.params?.[0]).toMatchObject({
+      change: "modified",
+      was: "optional",
+    });
+    expect(validated.responses?.[1]).toMatchObject({
+      status: "409",
+      change: "added",
+    });
+  });
+
+  it("drops an unknown root change value on decode", () => {
+    const back = apiEndpointMdx.fromAttrs(
+      reader({ method: "GET", path: "/x", change: "bogus" }),
+      "",
+    );
+    expect(back.change).toBeUndefined();
   });
 });

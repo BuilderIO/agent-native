@@ -80,7 +80,7 @@ const prototypeTransitionSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a prototype-first Agent-Native plan for /prototype-plan: a functional top prototype viewer, static mocks in the document where useful, implementation notes, comments, sharing, export, and agent handoff. Prototype screen HTML is declarative, stateful through safe Alpine-like directives, and uses data-goto only for true screen navigation; no scripts.",
+    "Create a prototype-first Agent-Native plan for /prototype-plan: a functional top prototype viewer, static mocks in the document where useful, implementation notes, comments, sharing, export, and agent handoff. Prototype screen HTML is declarative, stateful through safe Alpine-like directives, and uses data-goto only for true screen navigation; no scripts. The only supported output is the published plan this tool returns — never deliver the plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
   schema: z
     .object({
       title: z.string().optional().describe("Short prototype plan title"),

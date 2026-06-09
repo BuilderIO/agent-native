@@ -73,8 +73,24 @@ export default defineAction({
 
     if (!nav?.planId || nav.view === "plans") {
       try {
+        // Only the summary columns — never the large html/markdown/content
+        // blobs — so the agent's screen context stays lean.
         const rows = await getDb()
-          .select()
+          .select({
+            id: schema.plans.id,
+            title: schema.plans.title,
+            brief: schema.plans.brief,
+            kind: schema.plans.kind,
+            status: schema.plans.status,
+            source: schema.plans.source,
+            repoPath: schema.plans.repoPath,
+            currentFocus: schema.plans.currentFocus,
+            hostedPlanId: schema.plans.hostedPlanId,
+            hostedPlanUrl: schema.plans.hostedPlanUrl,
+            createdAt: schema.plans.createdAt,
+            updatedAt: schema.plans.updatedAt,
+            approvedAt: schema.plans.approvedAt,
+          })
           .from(schema.plans)
           .where(
             accessFilter(

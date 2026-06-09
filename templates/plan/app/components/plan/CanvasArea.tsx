@@ -278,19 +278,36 @@ export function CanvasArea({
   );
 
   useEffect(() => {
-    if (hasSavedViewport || canvas.mode !== "design") return;
+    if (hasSavedViewport) return;
     const element = viewportRef.current;
-    const firstFrame = frames[0];
-    if (!element || !firstFrame) return;
-    const frameWidth =
-      firstFrame.width ?? SURFACE_SIZE[surfaceOf(firstFrame)].width;
-    const frameHeight =
-      firstFrame.height ?? SURFACE_SIZE[surfaceOf(firstFrame)].height;
+    if (!element || frames.length === 0) return;
+    // Center the whole content on first view, regardless of canvas mode. The
+    // bounding box of every frame is fit to the viewport (capped at the default
+    // zoom) and centered horizontally, so plans open with their items centered
+    // instead of pinned to the left by DEFAULT_VIEW.pan.x.
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const frame of frames) {
+      const surface = surfaceOf(frame);
+      const width = frame.width ?? SURFACE_SIZE[surface].width;
+      const height = frame.height ?? SURFACE_SIZE[surface].height;
+      const x = frame.x ?? 96;
+      const y = frame.y ?? 96;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + width > maxX) maxX = x + width;
+      if (y + height > maxY) maxY = y + height;
+    }
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+    const margin = 48;
     const zoom = clamp(
       Math.min(
         DEFAULT_VIEW.zoom,
-        (element.clientWidth - 48) / frameWidth,
-        (element.clientHeight - 48) / frameHeight,
+        (element.clientWidth - margin * 2) / contentWidth,
+        (element.clientHeight - margin * 2) / contentHeight,
       ),
       MIN_ZOOM,
       MAX_ZOOM,
@@ -298,15 +315,10 @@ export function CanvasArea({
     setView({
       zoom,
       pan: {
-        x: Math.max(
-          16,
-          (element.clientWidth - frameWidth * zoom) / 2 -
-            (firstFrame.x ?? 96) * zoom,
-        ),
+        x: (element.clientWidth - contentWidth * zoom) / 2 - minX * zoom,
         y: Math.max(
           24,
-          (element.clientHeight - frameHeight * zoom) / 2 -
-            (firstFrame.y ?? 96) * zoom,
+          (element.clientHeight - contentHeight * zoom) / 2 - minY * zoom,
         ),
       },
     });

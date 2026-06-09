@@ -1,0 +1,22 @@
+{
+  "name": "agent-native-apps",
+  "description": "Agent-Native app-backed skills that bundle instructions, MCP connectors, and UI surfaces.",
+  "owner": { "name": "Agent-Native" },
+  "plugins": [
+    {
+      "name": "agent-native-visual-plans",
+      "displayName": "Agent-Native Plan",
+      "description": "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
+      "source": "./.agents/plugins/agent-native-visual-plans",
+      "autoUpdate": true,
+      "homepage": "https://plan.agent-native.com",
+      "keywords": [
+        "agent-native",
+        "visual-plans",
+        "mcp",
+        "skills",
+        "app-backed-skill"
+      ]
+    }
+  ]
+}

@@ -60,6 +60,13 @@ export interface CalendarEvent {
     }>;
     conferenceSolution?: { name: string; iconUri?: string };
   };
+  /**
+   * Client-only hint set on a draft event when the user has chosen to add a
+   * video conference that will be provisioned when the event is created. Lets
+   * the UI show the conferencing row as already attached instead of a
+   * "will be added later" placeholder. Never sent to or returned by the server.
+   */
+  pendingConferenceProvider?: "meet" | "zoom";
   attachments?: Array<{
     fileUrl: string;
     title: string;

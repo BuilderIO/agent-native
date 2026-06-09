@@ -114,3 +114,123 @@ describe("DiffBlock", () => {
     ]);
   });
 });
+
+describe("DiffBlock annotations", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  function render(data: {
+    before: string;
+    after: string;
+    mode?: "unified" | "split";
+    annotations?: Array<{
+      side?: "before" | "after";
+      lines: string;
+      label?: string;
+      note: string;
+    }>;
+  }) {
+    act(() => {
+      root.render(
+        <DiffRead
+          blockId="diff-anno"
+          ctx={{}}
+          data={{ filename: "src/example.ts", ...data }}
+        />,
+      );
+    });
+  }
+
+  it("renders the note rail and a numbered marker for an after-side annotation", () => {
+    render({
+      before: "const a = 1\nconst b = 2",
+      after: "const a = 1\nconst b = 3",
+      annotations: [{ lines: "2", label: "Changed", note: "b is now three." }],
+    });
+
+    // The note text and its marker number both appear.
+    expect(container.textContent).toContain("b is now three.");
+    expect(container.textContent).toContain("Changed");
+    expect(container.textContent).toContain("Line 2");
+    // The marker pip "1" shows on the row AND on the rail card.
+    const ones = container.textContent?.match(/\b1\b/g) ?? [];
+    expect(ones.length).toBeGreaterThan(0);
+  });
+
+  it("shows a multi-line annotation's marker only on the first line of its range", () => {
+    render({
+      before: "",
+      after: "const a = 1\nconst b = 2\nconst c = 3\nconst d = 4\nconst e = 5",
+      annotations: [{ lines: "2-4", label: "Block", note: "Three lines." }],
+    });
+
+    // The range resolved across multiple lines…
+    expect(container.textContent).toContain("Lines 2–4");
+
+    // …yet the numbered pip renders exactly twice: once in the code gutter (the
+    // first line of the span) and once on the rail card — NOT once per line.
+    const pips = Array.from(
+      container.querySelectorAll("span[aria-hidden]"),
+    ).filter((el) => el.textContent?.trim() === "1");
+    expect(pips).toHaveLength(2);
+  });
+
+  it("renders unchanged when there are no annotations (back-compat)", () => {
+    render({
+      before: "x",
+      after: "y",
+    });
+    // No rail wrapper grid and no annotation note.
+    expect(container.querySelector(".grid")).toBeNull();
+  });
+
+  it("keeps an annotated unchanged line visible even inside a collapsed run", () => {
+    // 20 identical context lines, then a change at the end. Line 5 (context,
+    // deep inside the collapsed run) is annotated and must stay reachable.
+    const context = Array.from(
+      { length: 20 },
+      (_, index) => `line-${String(index + 1).padStart(2, "0")}`,
+    );
+    const before = [...context, "tail-old"].join("\n");
+    const after = [...context, "tail-new"].join("\n");
+
+    render({
+      before,
+      after,
+      annotations: [
+        { side: "before", lines: "5", note: "An anchored unchanged line." },
+      ],
+    });
+
+    // The annotated context line is rendered despite the collapse.
+    expect(container.textContent).toContain("line-05");
+    expect(container.textContent).toContain("An anchored unchanged line.");
+  });
+
+  it("does not crash when a line ref is out of range", () => {
+    expect(() =>
+      render({
+        before: "a",
+        after: "b",
+        annotations: [{ lines: "999", note: "Out of range, skipped." }],
+      }),
+    ).not.toThrow();
+    // An unresolved annotation drops out of the rail entirely.
+    expect(container.textContent).not.toContain("Out of range, skipped.");
+  });
+});

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconCheck,
   IconChevronDown,
@@ -9,6 +9,7 @@ import {
   IconSend,
   IconX,
 } from "@tabler/icons-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -20,14 +21,22 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { RichMarkdownCollabUser } from "@agent-native/core/client";
+import {
+  uploadEditorImage,
+  type RichMarkdownCollabUser,
+} from "@agent-native/core/client";
 import {
   BlockView,
+  SchemaBlockEditor,
   blockEditSurface,
   useOptionalBlockRegistry,
 } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import type { PlanBlock, PlanQuestion } from "@shared/plan-content";
+import {
+  imageDataSchema,
+  type PlanBlock,
+  type PlanQuestion,
+} from "@shared/plan-content";
 import {
   KitWireframeBlock,
   SketchDiagram,
@@ -35,6 +44,7 @@ import {
 } from "./wireframe/Wireframe";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
+import { PlanImageViewer } from "./PlanImageViewer";
 
 /**
  * Renders the document flow: dispatches a single plan block to its block
@@ -253,7 +263,14 @@ export function PlanBlockView({
     );
   }
   if (block.type === "image") {
-    return <ImageBlock block={block} />;
+    return (
+      <ImageBlock
+        block={block}
+        onChange={onChange}
+        editingDisabled={editingDisabled}
+        planId={planId}
+      />
+    );
   }
   if (block.type === "decision") {
     return (
@@ -1122,27 +1139,148 @@ function HighlightedCode({
 }
 
 /* ── Image block ───────────────────────────────────────────────────────── */
+
+type PlanImageData = Extract<PlanBlock, { type: "image" }>["data"];
+
 function ImageBlock({
   block,
+  onChange,
+  editingDisabled = false,
+  planId,
 }: {
   block: Extract<PlanBlock, { type: "image" }>;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
+  editingDisabled?: boolean;
+  planId?: string | null;
 }) {
+  const blockRegistry = useOptionalBlockRegistry();
+  const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
+  const editable = !!onChange && !editingDisabled;
+  const [editOpen, setEditOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Opening the edit popover from the ⋯ dropdown item hits a Radix race: closing
+  // the dropdown restores focus to its trigger, which the just-opened popover
+  // reads as a focus-outside and instantly dismisses. Defer the open one
+  // macrotask (so the dropdown closes first) AND ignore any close that arrives in
+  // the first moments after opening (the focus-restore bounce).
+  const editOpenedAtRef = useRef(0);
+  const openEdit = () => {
+    window.setTimeout(() => {
+      editOpenedAtRef.current = Date.now();
+      setEditOpen(true);
+    }, 0);
+  };
+  const handleEditOpenChange = (open: boolean) => {
+    if (!open && Date.now() - editOpenedAtRef.current < 350) return;
+    setEditOpen(open);
+  };
+
+  // Auto-focus the "Describe a change…" prompt once the edit popover mounts. The
+  // popover portals out and the deferred/guarded open can race Radix's own
+  // auto-focus, so focus it explicitly (a few retries to win the open animation).
+  useEffect(() => {
+    if (!editOpen) return;
+    const focusPrompt = () =>
+      document
+        .querySelector<HTMLTextAreaElement>(
+          ".an-block-edit-popover textarea[placeholder^='Describe a change']",
+        )
+        ?.focus();
+    const timers = [40, 140, 280].map((ms) =>
+      window.setTimeout(focusPrompt, ms),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [editOpen]);
+
+  const commitData = (data: PlanImageData) => onChange?.({ ...block, data });
+
+  async function handleReplaceFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    const toastId = toast.loading("Replacing image…");
+    try {
+      const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
+      commitData({
+        ...block.data,
+        url: nextSrc,
+        alt: block.data.alt || nextAlt || "image",
+      });
+      toast.success("Image replaced.", { id: toastId });
+    } catch (error) {
+      console.error("Image replace failed:", error);
+      toast.error("Could not replace the image.", { id: toastId });
+    }
+  }
+
+  // Reuse the EXACT edit surface registry blocks use — the shared
+  // `renderEditSurface` popover (the schema form + the auto-focusing top-right
+  // "Edit with AI" prompt) — pulled from the block-render context. No bespoke
+  // edit UI and no `planBlocks` import (so no module cycle). It's opened from the
+  // image's own ⋯ overlay, so the block keeps a single hover overlay with no
+  // separate corner pencil.
+  const editSurface =
+    editable && ctx?.renderEditSurface
+      ? ctx.renderEditSurface({
+          title: "Image",
+          open: editOpen,
+          onOpenChange: handleEditOpenChange,
+          blockId: block.id,
+          blockType: "image",
+          blockTitle: block.title,
+          blockSummary: block.summary,
+          blockData: block.data,
+          trigger: (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-2 top-2 block size-0"
+            />
+          ),
+          children: (
+            <SchemaBlockEditor
+              data={block.data}
+              schema={imageDataSchema}
+              onChange={(next) => commitData(next as PlanImageData)}
+              editable
+              blockId={block.id}
+              ctx={ctx}
+            />
+          ),
+        })
+      : null;
+
   return (
-    <section className="plan-block" data-block-id={block.id}>
+    <section className="plan-block relative" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
+      {editable && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={handleReplaceFile}
+        />
+      )}
       {src ? (
-        <img
+        <PlanImageViewer
           src={src}
           alt={block.data.alt}
           loading="lazy"
-          className={cn(
-            "mt-4 max-h-[640px] w-full rounded-xl border border-plan-line bg-plan-block",
+          block
+          className="mt-4"
+          imgClassName={cn(
+            "max-h-[640px] w-full rounded-lg",
             block.data.fit === "cover" ? "object-cover" : "object-contain",
           )}
+          onEdit={editable ? openEdit : undefined}
+          onReplace={editable ? () => fileInputRef.current?.click() : undefined}
         />
       ) : (
-        <div className="mt-4 flex h-48 items-center justify-center rounded-xl border border-dashed border-plan-line bg-plan-block text-plan-muted">
+        <div className="mt-4 flex h-48 items-center justify-center rounded-lg border border-dashed border-plan-line bg-plan-block text-plan-muted">
           <IconPhoto className="mr-2 size-5" />
           {block.data.alt}
         </div>
@@ -1150,6 +1288,7 @@ function ImageBlock({
       {block.data.caption && (
         <p className="mt-3 text-sm text-plan-muted">{block.data.caption}</p>
       )}
+      {editSurface}
     </section>
   );
 }

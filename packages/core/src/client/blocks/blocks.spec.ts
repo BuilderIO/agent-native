@@ -40,7 +40,7 @@ function calloutSpec(): BlockSpec<{ tone?: "info" | "risk"; body: string }> {
 }
 
 describe("block registry", () => {
-  it("registers by type and tag, and rejects duplicates", () => {
+  it("registers by type and tag", () => {
     const registry = new BlockRegistry();
     registerBlocks(registry, [calloutSpec()]);
     expect(registry.has("callout")).toBe(true);
@@ -48,9 +48,26 @@ describe("block registry", () => {
     expect(registry.get("callout")?.label).toBe("Callout");
     expect(registry.getByTag("Callout")?.type).toBe("callout");
     expect([...registry.tags()]).toEqual(["Callout"]);
-    expect(() => registry.register(calloutSpec())).toThrow(
-      /already registered/,
-    );
+  });
+
+  it("overrides on re-registration (last wins) instead of throwing", () => {
+    const registry = new BlockRegistry();
+    registerBlocks(registry, [calloutSpec()]);
+    // Re-registering the same type must not throw; it replaces the prior spec.
+    expect(() =>
+      registry.register({ ...calloutSpec(), label: "Callout v2" }),
+    ).not.toThrow();
+    expect(registry.get("callout")?.label).toBe("Callout v2");
+    // Still a single tag entry (no orphan) after the override.
+    expect([...registry.tags()]).toEqual(["Callout"]);
+
+    // Re-registering with a changed MDX tag drops the stale tag mapping.
+    registry.register({
+      ...calloutSpec(),
+      mdx: { ...calloutSpec().mdx, tag: "Note" },
+    });
+    expect(registry.getByTag("Note")?.type).toBe("callout");
+    expect(registry.hasTag("Callout")).toBe(false);
   });
 
   it("lists only specs flagged as Notion-compatible", () => {

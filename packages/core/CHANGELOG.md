@@ -1,5 +1,276 @@
 # @agent-native/core
 
+## 0.43.0
+
+### Minor Changes
+
+- 4682bb6: Move the full plan-specific block set into the shared core block library so any
+  app that registers the library (plan, content, future templates) gets every rich
+  block — not just plan.
+  - New shared library blocks: `callout`, `decision`, `question-form`,
+    `visual-questions`, `diagram`, and `wireframe` (plus the wireframe kit
+    primitives in `library/wireframe-kit.tsx`). Each ships a React-free
+    `*.config.ts` (schema + MDX) and a `*.tsx` (`Read`/`Edit` + spec), is added to
+    both `libraryBlockSpecs` (client) and `libraryBlockConfigs` (server), and is
+    exported from the blocks entry. They are decoupled from the plan app: no
+    `@/components/ui` / shadcn imports (popovers go through `ctx.renderEditSurface`),
+    and HTML-bearing blocks self-sanitize via the new
+    `library/sanitize-html.ts` (DOM-based in the browser, regex fallback on the
+    server) instead of relying on a host-wired hook.
+  - The shared block CSS "contract" now lives in core `styles/blocks.css`
+    (imported by `agent-native.css`): the generic block label/columns/code-surface/
+    prose/annotation rules, the `text/bg/border-plan-*` color utilities, the
+    app-neutral `an-callout` tone styling, and the wireframe-kit + inline-diagram
+    styling. Colors resolve against shadcn theme tokens (`--foreground`,
+    `--muted-foreground`, `--border`, `--muted`) — or, for the migrated wireframe/
+    diagram CSS, against plan vars with theme-token fallbacks — so the blocks render
+    in any app using that app's palette. Because `blocks.css` loads before a
+    template's `global.css`, the plan template's existing rules still win there, so
+    plan renders unchanged.
+  - `BlockRenderContext` gains an optional `onQuestionFormSubmit(summary)` hook so
+    the shared question-form/visual-questions blocks can route answers back to the
+    host without importing app-specific submit wiring.
+  - `BlockRegistry.register` now OVERRIDES on a duplicate block `type`/`tag`
+    (last-registration-wins) instead of throwing. This lets an app override a
+    shared library block with its own variant and makes module-level registration
+    idempotent under dev HMR (which could otherwise re-run a registration module
+    against a surviving registry and crash with "Block type … is already
+    registered"). A stale MDX-tag mapping is dropped when a re-registered type
+    changes its tag.
+
+  Plan's local registration of these blocks (client + server) is removed in favor
+  of the shared library copies; plan now registers no app-only blocks.
+
+### Patch Changes
+
+- 4682bb6: Make the Notion-style side drop (drag a block to a neighbour's left/right edge to
+  build columns) reliably hittable for a real human in the `DragHandle` extension.
+
+  The side (column) activation region was a thin edge sliver in the vertical
+  middle: 28% of the block width capped at 140px, AND only the middle 60% of the
+  height. On a typical ~820px plan block that left two ~17%-wide edge zones in a
+  35px-tall band as the only column targets — the entire centre and the top/bottom
+  slivers reordered instead. A natural "drag beside" gesture released over the
+  block body, so it almost always reordered and "dragging side by side never made
+  columns" (and even when the indicator flashed, a human's release drifted out of
+  the tiny zone before mouse-up).
+  - Each side zone now claims ~a third of the block width (`SIDE_DROP_ZONE_RATIO`
+    0.28 → 0.33, max cap 140 → 320px, min 48 → 56px) and is clamped to at most 45%
+    of the width so a centre before/after reorder lane always survives.
+  - Side zones now span the FULL block height (the vertical-middle-only band is
+    removed) — only the horizontal position decides column-vs-reorder.
+  - The drop indicator gets a `notion-drop-indicator--column` modifier class and is
+    drawn as a thicker (4px) vertical bar centred on the seam, so apps can style
+    column-build mode distinctly from the thin horizontal reorder line.
+
+  Editors that do not opt into `handleDrop` (e.g. the content editor) are
+  unaffected — side placements stay gated on `handleDrop` existing.
+
+  Also fixes the drag grip disappearing before you can grab blocks that are not
+  flush with the page's left gutter (a right column, a tab body). Their grip sits
+  in a gap the neighbour's wide forgiving hover zone also claims, so moving the
+  cursor from the block body toward its grip re-picked hover to the neighbour and
+  the grip vanished mid-approach. A grip keepalive now holds the shown grip while
+  the cursor travels left of that block's content toward its glyph (bounded to the
+  block's own row), so the grip stays grabbable — without changing the
+  innermost-wins or gutter-grab behaviour over content.
+
+- 4682bb6: Refine the `file-tree` block for the recap "Files touched" rail. Folder/file
+  rows and the summary title drop a touch (14px → 13px) so the dense explorer
+  reads a step below body text. The block now sets `data-files-expanded` on its
+  root while a file's note/snippet is the reader's active focus, which the plan
+  left rail uses to widen into a flyout over the document and collapse back to a
+  slim rail when focus leaves or the last open file is closed.
+- 4682bb6: Plan renderer + skill polish from review feedback:
+  - `checklist` block read view now wraps long item labels instead of clipping
+    them off the right edge (`min-w-0 flex-1` body, `shrink-0` marker,
+    `break-words`), and tightens the inter-item gap from `gap-3` to `gap-2`.
+  - Plan skill `DOCUMENT_QUALITY_CORE` (shared by `/visual-plan` and `/ui-plan`)
+    now states that the bottom `question-form` is the ONLY place that enumerates
+    open questions — a one-line pointer in the overview is fine, but the question
+    list must not be reproduced as a second "Open Questions" section earlier in
+    the document.
+
+## 0.42.0
+
+### Minor Changes
+
+- 58676e6: `app-skill` packer now generates auto-updating plugin manifests so installed plugins pick up skill changes without a manual re-pack: Claude Code marketplace entries set `autoUpdate: true` (with commit-SHA plugin versioning) and Codex plugin versions embed a content hash of the bundled skills plus the MCP endpoint. This backs distributing the Agent-Native Plan app (and any app-backed skill) as a one-install Claude Code / Codex marketplace plugin that bundles the skills and the hosted MCP connector together.
+
+### Patch Changes
+
+- 58676e6: Fix fresh-install scaffold builds failing on `@assistant-ui/tap/react-shim`.
+  Newly published `@assistant-ui/store@0.2.14` bumped its `@assistant-ui/tap` peer
+  to `^0.6.0` and started importing the `@assistant-ui/tap/react-shim` subpath,
+  which exists **only** in tap 0.6.0. But `@assistant-ui/react@0.12.x` (our pin)
+  still depends on `@assistant-ui/tap@^0.5.x`, so the single hoisted tap resolves
+  to 0.5.14 — which has no `react-shim` export. A lockfile-less `pnpm install`
+  (the scaffold E2E CI job and any freshly-created app) floated `store` to 0.2.14
+  and the calendar build then failed under Rolldown/Vite with:
+
+  ```
+  "./react-shim" is not exported … from package @assistant-ui/tap
+  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  calendar@ build: `agent-native build`
+  ```
+
+  Pin `@assistant-ui/store` to `0.2.13` (the latest release that still peers
+  `@assistant-ui/tap@^0.5.x` and does not import `react-shim`) and add an explicit
+  `@assistant-ui/tap@^0.5.14` so the whole `@assistant-ui/*` family resolves to a
+  self-consistent, tap-0.5.x generation (react 0.12.28 · store 0.2.13 · core
+  0.1.17 · tap 0.5.14) on a clean install. No app-code changes — assistant-ui
+  is consumed exactly as before.
+
+- 58676e6: Before/after comparisons in plans and visual recaps now label their states with
+  the column header instead of a pill baked into the wireframe, and wide frames
+  stack instead of cropping.
+  - The `columns` block renders each column's `label` (e.g. `Before` / `After`) as
+    a small `<h4 class="plan-columns-label">` heading **above** that column, in
+    both the read and edit surfaces. The state name lives outside the content, so
+    authors no longer write a `Before`/`After` pill inside a child wireframe's
+    mockup (where it read as part of the product UI and landed in a random corner).
+  - A comparison whose columns hold a wide wireframe (`surface: "desktop"` or
+    `"browser"`) now lays out as a single vertical stack at full document width
+    instead of two half-width cells, so a large frame is never squeezed and
+    cropped. Narrow surfaces (`mobile`, `popover`, `panel`) stay side by side.
+  - The `visual-plan` / `ui-plan` / `visual-recap` skills' shared Wireframe Quality
+    core is updated to teach this: name states with the column header (never inside
+    the frame) and let the surface choose side-by-side vs. stacked.
+
+- 58676e6: Rich-markdown drag handle: make container blocks (`columns`, and any nested-region
+  block) draggable to reorder again. Each column inside a `columns` block mounts its
+  own nested editor that tiles the container's full footprint and extends an 8rem
+  forgiving hover zone into the container's left-margin gutter. The grip's
+  "smallest editor wins" hover arbitration therefore handed the gutter to the inner
+  column editor everywhere, so the outer `columns` block (e.g. a before/after
+  wireframe pair in a visual plan) could never be selected or dragged.
+
+  Hover arbitration now splits candidates by cursor position: over a block's body
+  the innermost (smallest) editor still wins so nested blocks stay grabbable from
+  their content, but in the shared left-margin gutter where the grip lives the
+  outermost (largest) editor wins so the container can be picked up and reordered.
+  Sibling non-container blocks are unaffected.
+
+- 58676e6: `create-extension` and `update-extension` can now host a large pasted file by
+  reference. When a user pastes a big HTML/Alpine file and asks to host it as an
+  extension, the model passes `contentFromAttachment` (the pasted attachment's
+  name, or the literal `"latest"`) instead of copying the whole file into the
+  `content` tool argument. The server resolves it from the turn's attachments —
+  which the agent loop now threads into each action's `ActionRunContext` — so the
+  model never re-emits thousands of tokens of pasted content.
+
+  Re-emitting a large paste as `content` was the root cause of the
+  create-extension continuation loop the repetition guard mitigates; this removes
+  the need to regurgitate it at all. The inline `content` path is unchanged.
+
+- 58676e6: Registry block-node legacy-block editing. Legacy (unregistered) document blocks
+  can now either:
+  - render their own self-contained edit overlay via a `legacyBlockSelfEdits`
+    side-map predicate — the node view renders the block in edit mode and adds NO
+    separate corner edit surface (no pencil/JSON/form popover), so the block owns a
+    single control overlay (e.g. an image block with one hover toolbar); or
+  - supply a schema-driven form editor via the `renderLegacyBlockEditor` side-map
+    hook, rendered in the block-edit popover instead of the raw-JSON fallback.
+
+  The raw-JSON fallback editor's Save button is also right-aligned instead of
+  stretching full-width.
+
+- 58676e6: Fix dragging blocks by the grip when they live inside a container block
+  (columns/tabs). A container block's node view runs its `onMouseDownCapture`
+  block-select handler in its own React root, so its `stopPropagation()` halted the
+  native `mousedown` before it ever reached an inner editor's drag-handle grip —
+  nested column blocks could not be picked up at all, so dragging a block OUT of a
+  column, BETWEEN columns, or onto another block to make new columns silently did
+  nothing. Two parts: `clickedInteractiveChild` now treats the drag handle and any
+  target inside a nested editor region as interactive (so the container spares a
+  mousedown meant for an inner grip), and the grip's icon is now
+  `pointer-events:none` so a real mouse-down — which lands on the SVG, not the grip
+  `div` — resolves to the grip itself instead of being swallowed.
+
+  Also adds an optional `onEditorReady` callback to the shared rich-markdown editor
+  so a host can capture the root editor view (used by the plan editor to rebuild
+  the document when a column move dissolves its container).
+
+- 58676e6: PR Visual Recap: make the Codex backend actually work in CI. Two fixes:
+  1. **Auth.** The `Run agent (Codex)` step now pipes `OPENAI_API_KEY` into
+     `codex login --with-api-key` (writing `~/.codex/auth.json`) before
+     `codex exec`, instead of relying on the bare environment variable. On the
+     `gpt-5.5` WebSocket transport Codex was dropping the `Authorization` header on
+     the `wss` path and its HTTPS fallback, so every recap failed with `401 Missing
+bearer or basic authentication in header` and the PR comment reported
+     "generation failed".
+  2. **Sandbox + approvals.** `codex exec` now runs with
+     `--dangerously-bypass-approvals-and-sandbox` instead of
+     `--sandbox workspace-write`. Codex's bundled bubblewrap sandbox cannot
+     initialize on the GitHub runner, so every shell command failed at startup and
+     the agent could not read `recap.diff`; and under an approval gate the
+     write-side plan MCP call (`create-visual-recap`) was auto-cancelled. The
+     runner is itself an ephemeral throwaway sandbox, so this is the documented CI
+     invocation.
+
+  Both fixes land in the in-repo workflow and the bundled copy the CLI writes into
+  consumer repos (kept byte-identical by the recap sync test).
+
+- 58676e6: PR Visual Recap: restore the inline screenshot in the sticky PR comment. The
+  recap's PNG upload to `POST /_agent-native/recap-image` was silently failing, so
+  `recap shot` returned an empty `imageUrl` and the comment fell back to a
+  link-only body.
+
+  Root cause: h3 v2's `readRawBody(event, false)` resolves a bare `Uint8Array`,
+  not a Node `Buffer`. The route then called Buffer-only methods on it — the PNG
+  magic-byte check (`Buffer#equals`) _threw_ (`.equals` doesn't exist on a
+  `Uint8Array`), surfacing as a 500 so the CLI saw `!res.ok`; and even past that,
+  the store's `png.toString("base64")` would have silently mis-encoded the bytes
+  (a bare `Uint8Array` ignores the encoding argument). The upload route now
+  normalizes the body to a `Buffer` once before the magic-byte check and storage,
+  so both the raw `image/png` and JSON `{ pngBase64 }` paths persist the exact
+  bytes uploaded.
+
+  `recap shot`'s image-upload helper now also logs the HTTP status / response
+  snippet to stderr on failure (stdout still carries only the machine-readable
+  JSON the workflow parses), so a future upload failure is debuggable from the CI
+  log instead of vanishing into a null `imageUrl`. The route's unit test mock now
+  mirrors h3 v2 by handing the handler a real `Uint8Array`, which would have
+  caught the original regression.
+
+- 58676e6: Recap code-diff blocks: fix duplicate/loading tab content, render per-diff
+  descriptions, and steer recaps toward a labeled "Key changes" section.
+  - **Diff `summary` now renders as a description above the code** (previously a
+    trailing note below it), so a one-line "what this hunk changes and why" reads
+    before the diff — the natural order for a review recap.
+  - **`visual-recap` skill** now instructs the recap generator to give every
+    `diff` a one-line `summary`, and to introduce a group of file diffs with a
+    `## Key changes` rich-text heading rather than relying on a `tabs` block title.
+    All four skill copies stay byte-identical (guarded by `skills.sync.spec.ts`).
+
+  These pair with a plan-template fix where switching tabs in a vertical `tabs`
+  block (the recap "Key changes" diff rail) reused one nested editor instance, so
+  its content reconciler skipped re-applying the newly-selected tab — surfacing as
+  "every tab shows the same diff" and a stuck "Loading diff block…". The nested
+  editor is now keyed per container region so each tab remounts with its own
+  content.
+
+- 58676e6: Agent chat now bails out of a degenerate repetition loop quickly instead of
+  burning the entire auto-continuation budget. When the model gets stuck
+  re-streaming the same narration every continuation without ever finishing a
+  tool (the classic "paste a large HTML file and ask to host it as an extension"
+  failure), it previously counted each repeat as progress and ran all 32 transient
+  continuations — re-sending the large pasted payload each round — before surfacing
+  a generic `connection_error`. A new repetition guard detects the non-advancing
+  loop and stops after a few rounds with a clear, actionable message, and the
+  `create-extension` large-payload nudge now also fires on mid-stream cutoffs
+  (`stream_ended`), not just run timeouts.
+- 58676e6: The `/visual-plan` skill now prescribes a gated, read-only, non-blocking
+  adversarial self-review before handoff: surface the plan first, then spawn one
+  skeptical reviewer (concurrently, against the written plan only — no
+  re-research) for high-stakes architecture/backend/data/multi-file plans, apply
+  clear-cut fixes via `update-visual-plan` patches, and route genuine judgment
+  calls back to the user. Plan Discipline also gains a reuse-first instruction
+  (name what each step reuses before what it adds) and a "decide the hard-to-
+  reverse bets first" instruction (settle wire format, public ids, data-model
+  shape, auth, and ownership before scoping to the smallest first cut). The
+  guidance is byte-synced across the shipped skill constant, the template copy,
+  and the exported mirror.
+
 ## 0.41.1
 
 ### Patch Changes

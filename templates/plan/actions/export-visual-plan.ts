@@ -25,7 +25,7 @@ export default defineAction({
   },
   run: async (args) => {
     const bundle = await loadPlanBundle(args.planId);
-    const path = planPath(bundle.plan.id);
+    const path = planPath(bundle.plan.id, bundle.plan.kind);
     const mdx = await exportPlanContentToMdxFolder({
       content: bundle.plan.content,
       title: bundle.plan.title,

@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  IconCheck,
   IconChevronDown,
   IconChevronUp,
+  IconCopy,
   IconExternalLink,
   IconGripHorizontal,
   IconLoader2,
@@ -13,7 +15,7 @@ import {
   IconPlayerStopFilled,
 } from "@tabler/icons-react";
 
-import { LiveTranscript } from "./live-transcript";
+import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
 type PillMode = "meeting" | "clip";
@@ -54,6 +56,10 @@ export function RecordingPill() {
   const ctxRef = useRef<PillContext>({ mode: "clip" });
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const transcriptLinesRef = useRef<FinalLine[]>([]);
+  const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
+  const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
   const [notes, setNotes] = useState("");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -127,11 +133,12 @@ export function RecordingPill() {
         // disabled and a stale fallback timer can fire mid-session.
         setStopping(false);
         setError(null);
-        // Reset notes state for the new session.
+        // Reset notes and transcript state for the new session.
         setNotes("");
         setSaving(false);
         setSaveError(false);
         setSavedAt(null);
+        setPreloadedLines([]);
         pendingNotesRef.current = null;
         // Only clear the meeting id when leaving meeting mode. In meeting mode
         // clips:meeting-notes-init is the authoritative setter — resetting here
@@ -168,6 +175,12 @@ export function RecordingPill() {
           }
         },
       ),
+    );
+    trackListen(
+      listen<{ lines: FinalLine[] }>("clips:transcript-preload", (ev) => {
+        const lines = ev.payload?.lines;
+        if (lines?.length) setPreloadedLines(lines);
+      }),
     );
     // Unified auto-save signal from the popover — fires after either the
     // transcript or the notes are persisted. Drives the single "Auto-saved"
@@ -452,6 +465,28 @@ export function RecordingPill() {
     }
   }
 
+  // Stable callback for LiveTranscript to push locked-in lines up. Stable
+  // identity matters — it's a dep of an effect inside LiveTranscript.
+  const handleTranscriptLines = useCallback((lines: FinalLine[]) => {
+    transcriptLinesRef.current = lines;
+    setHasTranscriptLines(lines.length > 0);
+  }, []);
+
+  const handleCopyTranscript = async () => {
+    const lines = transcriptLinesRef.current;
+    if (!lines.length) return;
+    const text = lines
+      .map((l) => `${l.source === "system" ? "Them" : "Me"}: ${l.text}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setTranscriptCopied(true);
+      setTimeout(() => setTranscriptCopied(false), 1500);
+    } catch {
+      // ignore — clipboard may be unavailable in this window
+    }
+  };
+
   // Immediately persist any pending (debounced) note edit. Used on blur and on
   // unmount so notes typed in the last ~800ms before stopping aren't dropped.
   const flushNotesNow = () => {
@@ -619,9 +654,29 @@ export function RecordingPill() {
           {ctx.mode === "meeting" ? (
             <div className="pill-split">
               <div className="pill-split-pane">
-                <div className="pill-pane-label">Transcript</div>
+                <div className="pill-pane-label pill-pane-label-row">
+                  <span>Transcript</span>
+                  <button
+                    type="button"
+                    data-no-drag
+                    className="pill-copy-btn"
+                    onClick={handleCopyTranscript}
+                    disabled={!hasTranscriptLines}
+                    aria-label="Copy transcript"
+                    title="Copy transcript"
+                  >
+                    {transcriptCopied ? (
+                      <IconCheck size={12} />
+                    ) : (
+                      <IconCopy size={12} />
+                    )}
+                  </button>
+                </div>
                 <div className="pill-transcript-area">
-                  <LiveTranscript />
+                  <LiveTranscript
+                    onLinesChange={handleTranscriptLines}
+                    initialLines={preloadedLines}
+                  />
                 </div>
               </div>
               <div className="pill-split-divider" />
@@ -659,7 +714,10 @@ export function RecordingPill() {
             </div>
           ) : (
             <div className="pill-transcript-area">
-              <LiveTranscript />
+              <LiveTranscript
+                onLinesChange={handleTranscriptLines}
+                initialLines={preloadedLines}
+              />
             </div>
           )}
           {ctx.mode === "meeting" ? (

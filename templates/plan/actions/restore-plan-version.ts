@@ -127,7 +127,7 @@ export default defineAction({
           title: bundle.plan.title,
           brief: bundle.plan.brief,
           content: bundle.plan.content,
-          url: planPath(bundle.plan.id),
+          url: planPath(bundle.plan.id, bundle.plan.kind),
         })
       : null;
 
@@ -136,8 +136,8 @@ export default defineAction({
       planId: bundle.plan.id,
       restoredVersionId: version.id,
       html: buildPlanHtml(bundle),
-      path: planPath(bundle.plan.id),
-      url: planPath(bundle.plan.id),
+      path: planPath(bundle.plan.id, bundle.plan.kind),
+      url: planPath(bundle.plan.id, bundle.plan.kind),
       ...(local?.written ? { localFiles: local } : {}),
     };
   },

@@ -1404,6 +1404,69 @@ function seedReadOnlyToolResultsFromHistory(
 }
 
 /**
+ * Counts how many times each write (non-read-only) tool call was interrupted
+ * before returning a result in the continuation history. When a connection
+ * drops mid-tool-execution the client sends a placeholder result
+ * ("Interrupted before this tool returned a result.") so the model knows
+ * what was attempted. If the same write tool is called again with identical
+ * input in the next continuation, this count prevents infinite retry loops.
+ */
+const INTERRUPTED_TOOL_RESULT_MARKER =
+  "Interrupted before this tool returned a result.";
+const MAX_WRITE_TOOL_INTERRUPTIONS = 2;
+
+function seedWriteToolInterruptionsFromHistory(
+  messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
+): Map<string, number> {
+  const interruptions = new Map<string, number>();
+  if (!isInternalContinuationTurn(messages)) return interruptions;
+
+  // Only count interruptions from the CURRENT logical turn — the continuation
+  // chain after the most recent user message. `messages` on an internal
+  // continuation is `...structuredHistory` (prior turns) + the current turn, so
+  // scanning the whole array would let an interrupted write from an earlier
+  // turn inflate the retry budget of an identical (name + input) write in a
+  // later turn, tripping `repeated_write_tool_interruption` immediately.
+  let turnStart = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      turnStart = i;
+      break;
+    }
+  }
+  const turnMessages = messages.slice(turnStart);
+
+  const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
+  for (const message of turnMessages) {
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type !== "tool-call") continue;
+        const entry = actions[part.name];
+        if (entry?.readOnly === true) continue;
+        pendingToolCalls.set(part.id, { name: part.name, input: part.input });
+      }
+      continue;
+    }
+
+    for (const part of message.content) {
+      if (part.type !== "tool-result") continue;
+      const call = pendingToolCalls.get(part.toolCallId);
+      if (!call) continue;
+      if (
+        typeof part.content === "string" &&
+        part.content.includes(INTERRUPTED_TOOL_RESULT_MARKER)
+      ) {
+        const key = toolCallCacheKey(call.name, call.input);
+        interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  return interruptions;
+}
+
+/**
  * Convert ActionEntry registry to EngineTool array.
  */
 export function actionsToEngineTools(
@@ -1508,6 +1571,14 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /**
+   * Attachments submitted with this turn (pasted text, files, images), passed
+   * through to each tool's `ActionRunContext.attachments` so actions can
+   * consume a large pasted artifact by reference instead of having the model
+   * re-emit it as a tool argument. See `create-extension`'s
+   * `contentFromAttachment`.
+   */
+  attachments?: AgentChatAttachment[];
   reasoningEffort?: ReasoningEffort;
   providerOptions?: any;
   maxOutputTokens?: number;
@@ -1552,6 +1623,10 @@ export async function runAgentLoop(opts: {
     actions,
   );
   const duplicateReadOnlyToolCalls = new Map<string, number>();
+  const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
+    messages,
+    actions,
+  );
   const bufferTextUntilFinalGuard = Boolean(opts.finalResponseGuard);
   let finalGuardRetries = 0;
   let iterations = 0;
@@ -1911,6 +1986,44 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      // Guard against write tools that have been interrupted too many times in
+      // this turn (connection drop mid-execution → agent retries → repeat).
+      // A write tool that keeps failing likely has a timeout / large-payload
+      // problem; retrying indefinitely creates duplicates and confuses users.
+      if (!actionEntry.readOnly) {
+        const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
+        const priorInterruptions =
+          writeToolInterruptions.get(writeCacheKey) ?? 0;
+        if (priorInterruptions >= MAX_WRITE_TOOL_INTERRUPTIONS) {
+          const result =
+            `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s) in this session — ` +
+            `likely a connection timeout with a large payload. Please start a new chat and try again, ` +
+            `or split the request into smaller pieces.`;
+          send({
+            type: "tool_start",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
+          });
+          send({ type: "tool_done", tool: toolCall.name, result });
+          recordToolResult(result, true);
+          requestedActionStop ??= {
+            message:
+              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) in a row. ` +
+              `This usually means the connection timed out while processing a large request. ` +
+              `Please start a new chat and try again, or break the request into smaller parts.`,
+            errorCode: "repeated_write_tool_interruption",
+          };
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            isError: true,
+          };
+        }
+      }
+
       send({
         type: "tool_start",
         tool: toolCall.name,
@@ -1968,6 +2081,7 @@ export async function runAgentLoop(opts: {
             userEmail: getRequestUserEmail(),
             orgId: getRequestOrgId() ?? null,
             caller: "tool",
+            attachments: opts.attachments,
           }),
           new Promise<never>((_, reject) => {
             timeoutSignal.addEventListener("abort", () =>
@@ -3170,6 +3284,7 @@ export function createProductionAgentHandler(
           signal,
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          attachments: requestAttachments,
           reasoningEffort,
           providerOptions: options.providerOptions,
           executionMode: requestMode,

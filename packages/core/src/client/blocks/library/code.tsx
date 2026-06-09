@@ -1,17 +1,21 @@
 import {
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ChangeEvent,
   type UIEvent,
 } from "react";
-import { IconCheck, IconCode, IconCopy } from "@tabler/icons-react";
+import { IconCheck, IconCode, IconCopy, IconPencil } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui/popover.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
-import { CodeSurface } from "./HighlightedCode.js";
+import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 import {
   highlightCode,
   inferLanguageFromFilename,
@@ -120,22 +124,110 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
 
 /* ── Edit (single border, no resize, auto-grow, hover chrome) ──────────────── */
 
+const SETTINGS_INPUT =
+  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+/** Hover "settings" (pencil) → popover to edit the filename + max-lines cap. */
+function CodeSettingsPopover({
+  filename,
+  maxLines,
+  onFilenameChange,
+  onMaxLinesChange,
+}: {
+  filename?: string;
+  maxLines?: number;
+  onFilenameChange: (filename: string | undefined) => void;
+  onMaxLinesChange: (maxLines: number | undefined) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-plan-interactive
+          aria-label="Code block settings"
+          title="Code block settings"
+          className="plan-code-chip"
+        >
+          <IconPencil className="size-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        className="w-64 p-0"
+        data-plan-interactive
+      >
+        <div className="border-b border-border px-3 py-2 text-sm font-semibold text-foreground">
+          Code block
+        </div>
+        <div className="grid gap-3 p-3">
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Filename
+            </span>
+            <input
+              type="text"
+              data-plan-interactive
+              className={SETTINGS_INPUT}
+              placeholder="src/file.ts"
+              value={filename ?? ""}
+              onChange={(event) =>
+                onFilenameChange(event.target.value || undefined)
+              }
+            />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Max lines before expand
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              data-plan-interactive
+              className={SETTINGS_INPUT}
+              placeholder={`${DEFAULT_CODE_MAX_LINES} (default) · 0 = no limit`}
+              value={maxLines ?? ""}
+              onChange={(event) => {
+                const raw = event.target.value.trim();
+                const parsed = raw === "" ? undefined : Number(raw);
+                onMaxLinesChange(
+                  parsed === undefined || Number.isNaN(parsed)
+                    ? undefined
+                    : Math.max(0, Math.min(2000, Math.floor(parsed))),
+                );
+              }}
+            />
+          </label>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function CodeEditorSurface({
   code,
   language,
   filename,
+  maxLines,
   editable,
   onCodeChange,
   onLanguageChange,
+  onFilenameChange,
+  onMaxLinesChange,
 }: {
   code: string;
   language?: string;
   filename?: string;
+  maxLines?: number;
   editable: boolean;
   onCodeChange: (code: string) => void;
   onLanguageChange: (language: string | undefined) => void;
+  onFilenameChange: (filename: string | undefined) => void;
+  onMaxLinesChange: (maxLines: number | undefined) => void;
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [expanded, setExpanded] = useState(false);
   const highlightLayerRef = useRef<HTMLPreElement>(null);
   const selectId = useId();
   const resolvedLanguage =
@@ -144,14 +236,18 @@ function CodeEditorSurface({
     () => highlightCode(code, resolvedLanguage),
     [resolvedLanguage, code],
   );
-
-  // Auto-grow to content height — no drag-to-resize handle.
-  useLayoutEffect(() => {
-    const node = textareaRef.current;
-    if (!node) return;
-    node.style.height = "auto";
-    node.style.height = `${node.scrollHeight}px`;
-  }, [code]);
+  // Size the editor to its content by line count — deterministic, no layout
+  // measurement. `wrap="off"` means one row per line. Long snippets collapse to
+  // `cap` lines behind a "Show N more lines" toggle, matching the read surface
+  // and the file-tree block. `maxLines` omitted ⇒ DEFAULT (40); `0` ⇒ never
+  // collapse (show everything).
+  const lineCount = code ? code.split("\n").length : 1;
+  const cap =
+    maxLines == null ? DEFAULT_CODE_MAX_LINES : maxLines > 0 ? maxLines : null;
+  const collapsible = cap != null && lineCount > cap;
+  const collapsed = collapsible && !expanded;
+  const hiddenLines = collapsible ? lineCount - (cap as number) : 0;
+  const rows = collapsed ? (cap as number) : lineCount + 1;
 
   const syncScroll = (event: UIEvent<HTMLTextAreaElement>) => {
     const layer = highlightLayerRef.current;
@@ -191,6 +287,14 @@ function CodeEditorSurface({
               </option>
             ))}
           </select>
+          {editable && (
+            <CodeSettingsPopover
+              filename={filename}
+              maxLines={maxLines}
+              onFilenameChange={onFilenameChange}
+              onMaxLinesChange={onMaxLinesChange}
+            />
+          )}
           <CopyButton value={code} />
         </span>
       </div>
@@ -206,10 +310,10 @@ function CodeEditorSurface({
           </code>
         </pre>
         <textarea
-          ref={textareaRef}
           data-plan-interactive
           spellCheck={false}
           wrap="off"
+          rows={Math.max(3, rows)}
           className="plan-code-editor-input"
           value={code}
           disabled={!editable}
@@ -218,7 +322,22 @@ function CodeEditorSurface({
           }
           onScroll={syncScroll}
         />
+        {collapsed && (
+          <div className="plan-code-editor-fade" aria-hidden="true" />
+        )}
       </div>
+      {collapsible && (
+        <button
+          type="button"
+          data-plan-interactive
+          className="plan-code-surface-toggle"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {collapsed
+            ? `Show ${hiddenLines} more line${hiddenLines === 1 ? "" : "s"}`
+            : "Show less"}
+        </button>
+      )}
     </div>
   );
 }
@@ -230,9 +349,12 @@ function CodeEdit({ data, onChange, editable }: BlockEditProps<CodeData>) {
         code={data.code}
         language={data.language}
         filename={data.filename}
+        maxLines={data.maxLines}
         editable={editable}
         onCodeChange={(code) => onChange({ ...data, code })}
         onLanguageChange={(language) => onChange({ ...data, language })}
+        onFilenameChange={(filename) => onChange({ ...data, filename })}
+        onMaxLinesChange={(maxLines) => onChange({ ...data, maxLines })}
       />
       {editable && (
         <input

@@ -5,6 +5,7 @@ import {
   IconArrowLeft,
   IconCheck,
   IconClock,
+  IconCopy,
   IconDeviceDesktop,
   IconDots,
   IconEdit,
@@ -13,7 +14,7 @@ import {
   IconNotes,
   IconTrash,
   IconUsers,
-  IconVideo,
+  IconWand,
 } from "@tabler/icons-react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
   AttendeeStack,
@@ -316,6 +318,7 @@ export default function MeetingDetailRoute() {
   const { isDesktopApp } = useDesktopPromo();
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [transcriptCopied, setTranscriptCopied] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
 
@@ -541,8 +544,26 @@ export default function MeetingDetailRoute() {
   const segments = meeting.segmentsJson ?? [];
   const recordingDuration = formatDurationMs(meeting.recordingDurationMs);
 
+  const handleCopyTranscript = async () => {
+    if (!segments.length) return;
+    const text = segments
+      .map((s) => {
+        const label = s.speaker || (s.source === "system" ? "Them" : "Me");
+        return `${label}: ${s.text}`;
+      })
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setTranscriptCopied(true);
+      toast.success("Transcript copied");
+      setTimeout(() => setTranscriptCopied(false), 1500);
+    } catch {
+      toast.error("Couldn't copy transcript");
+    }
+  };
+
   return (
-    <div className="p-6 max-w-6xl mx-auto w-full">
+    <div className="p-6 max-w-6xl mx-auto w-full flex flex-col min-h-0 flex-1">
       <PageHeader>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -674,7 +695,7 @@ export default function MeetingDetailRoute() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mb-6">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mb-6 shrink-0">
         <span className="inline-flex items-center gap-1">
           <IconClock className="h-3.5 w-3.5" />
           {formatDateTime(meeting.scheduledStart)}
@@ -706,72 +727,142 @@ export default function MeetingDetailRoute() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] lg:grid-rows-[minmax(0,1fr)] gap-6 flex-1 min-h-0">
         {/* Two-tone canvas: user notes (black) + AI summary/bullets (gray) */}
         <div
           className={cn(
-            "rounded-lg border border-border bg-background min-h-[480px] flex flex-col",
+            "rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col",
             notesJustArrived && "animate-in fade-in duration-500",
           )}
         >
-          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-            <div className="flex items-center gap-1.5 text-xs font-medium">
-              <IconNotes className="h-3.5 w-3.5" />
-              Notes
+          <Tabs
+            defaultValue="notes"
+            className="flex min-h-0 flex-1 flex-col gap-0"
+          >
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
+              <TabsList className="h-8 gap-1 bg-transparent p-0">
+                <TabsTrigger
+                  value="notes"
+                  className="h-7 px-2.5 text-xs data-[state=active]:bg-muted"
+                >
+                  My notes
+                </TabsTrigger>
+                <TabsTrigger
+                  value="ai"
+                  className="h-7 gap-1 px-2.5 text-xs data-[state=active]:bg-muted"
+                >
+                  <IconWand className="h-3 w-3" />
+                  AI notes
+                </TabsTrigger>
+                <TabsTrigger
+                  value="actions"
+                  className="h-7 px-2.5 text-xs data-[state=active]:bg-muted"
+                >
+                  Action items
+                  {actionItems.length > 0 && (
+                    <span className="ml-1 text-muted-foreground">
+                      {actionItems.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+              {finalize.isPending && (
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                  Working…
+                </span>
+              )}
             </div>
-            {finalize.isPending && (
-              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                <IconLoader2 className="h-3 w-3 animate-spin" />
-                Working…
-              </span>
-            )}
-          </div>
-          <CanvasEditor
-            summaryMd={meeting.summaryMd ?? ""}
-            bullets={bullets.map((b) => b.text)}
-            actionItems={actionItems}
-            userNotesMd={meeting.userNotesMd ?? ""}
-            onUserNotesChange={handleUserNotesChange}
-            onSummaryChange={handleSummaryChange}
-            onTransferAiToUser={handleTransferAiToUser}
-            renderBullet={(b, i) => (
-              <BulletLink
-                bullet={b}
-                segments={segments}
-                onJumpTo={handleJumpToSegment}
-              >
-                <div className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
-                  <span>•</span>
-                  <span className="flex-1">{b}</span>
-                </div>
-              </BulletLink>
-            )}
-          />
-          {actionItems.length > 0 && (
-            <div className="border-t border-border px-6 py-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                Action items
-              </h3>
-              <ActionItemsByPerson
-                items={actionItems}
-                onToggle={handleToggleActionItem}
+
+            <TabsContent
+              value="notes"
+              className="mt-0 min-h-0 flex-1 overflow-y-auto"
+            >
+              <CanvasEditor
+                view="user"
+                userNotesMd={meeting.userNotesMd ?? ""}
+                onUserNotesChange={handleUserNotesChange}
               />
-            </div>
-          )}
+            </TabsContent>
+
+            <TabsContent
+              value="ai"
+              className="mt-0 min-h-0 flex-1 overflow-y-auto"
+            >
+              <CanvasEditor
+                view="ai"
+                summaryMd={meeting.summaryMd ?? ""}
+                bullets={bullets.map((b) => b.text)}
+                onSummaryChange={handleSummaryChange}
+                onTransferAiToUser={handleTransferAiToUser}
+                renderBullet={(b) => (
+                  <BulletLink
+                    bullet={b}
+                    segments={segments}
+                    onJumpTo={handleJumpToSegment}
+                  >
+                    <div className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
+                      <span>•</span>
+                      <span className="flex-1">{b}</span>
+                    </div>
+                  </BulletLink>
+                )}
+              />
+            </TabsContent>
+
+            <TabsContent
+              value="actions"
+              className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4"
+            >
+              {actionItems.length > 0 ? (
+                <ActionItemsByPerson
+                  items={actionItems}
+                  onToggle={handleToggleActionItem}
+                />
+              ) : (
+                <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
+                  No action items yet. They appear here after notes are
+                  generated from a transcript.
+                </p>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Transcript pane — chat-bubble layout */}
-        <div className="rounded-lg border border-border bg-background min-h-[480px] flex flex-col">
-          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5 sticky top-0 bg-background z-10">
+        <div className="rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5 bg-background">
             <div className="flex items-center gap-1.5 text-xs font-medium">
               <IconNotes className="h-3.5 w-3.5" />
               Transcript
             </div>
-            {meeting.transcriptStatus === "ready" && (
-              <span className="text-[10px] text-muted-foreground">
-                {segments.length} segments
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {meeting.transcriptStatus === "ready" && (
+                <span className="text-[10px] text-muted-foreground">
+                  {segments.length} segments
+                </span>
+              )}
+              {segments.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 cursor-pointer"
+                      aria-label="Copy transcript"
+                      onClick={handleCopyTranscript}
+                    >
+                      {transcriptCopied ? (
+                        <IconCheck className="h-3.5 w-3.5 text-green-600" />
+                      ) : (
+                        <IconCopy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy full transcript</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
           <TranscriptBubbles
             segments={segments}

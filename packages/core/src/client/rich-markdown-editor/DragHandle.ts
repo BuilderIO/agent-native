@@ -68,9 +68,23 @@ export interface DragHandleOptions {
 
 const dragHandleKey = new PluginKey("dragHandle");
 const HOVER_SIDE_OUTSET_REM = 8;
-const SIDE_DROP_ZONE_RATIO = 0.28;
-const SIDE_DROP_ZONE_MIN_PX = 48;
-const SIDE_DROP_ZONE_MAX_PX = 140;
+// Notion-style side drop: drag a block to a neighbour's LEFT/RIGHT region and it
+// builds (or joins) a column layout instead of reordering. The activation region
+// has to be GENEROUS or the gesture is dead for a real human — a natural drag
+// releases somewhere over the block's body, nowhere near a thin edge sliver. The
+// old values (28% of width, capped at 140px, AND only the vertical middle 60%)
+// left a wide ~820px plan block with two ~17%-of-width edge slivers in a 35px-tall
+// band as the ONLY column targets — ~66% of the block (the whole centre) plus the
+// top/bottom only ever reordered, so "drag side by side" essentially never made
+// columns. Now each side claims ~a third of the width across the FULL block
+// height, with a middle band always preserved for before/after reorder.
+const SIDE_DROP_ZONE_RATIO = 0.33;
+const SIDE_DROP_ZONE_MIN_PX = 56;
+const SIDE_DROP_ZONE_MAX_PX = 320;
+// Never let the two side zones swallow the whole block: keep at least the middle
+// ~10% of the width as the before/after reorder band so dropping over the centre
+// still moves the block above/below the target (Notion keeps reorder reachable).
+const SIDE_DROP_ZONE_MAX_WIDTH_FRACTION = 0.45;
 const DRAG_HANDLE_MENU_STYLE_ID = "an-rich-md-drag-menu-styles";
 const DRAG_HANDLE_MENU_WIDTH = 220;
 const DRAG_HANDLE_MENU_GAP = 6;
@@ -138,11 +152,19 @@ type DragHandleRegistration = {
   findHoverBlock?: (clientX: number, clientY: number) => HoverBlock | null;
   showHoverBlock?: (block: HoverBlock) => void;
   hideHover?: () => void;
+  /** The currently displayed grip's bounding rect, or null when hidden. */
+  gripRect?: () => DOMRect | null;
 };
 
 const dragHandleRegistrations = new Set<DragHandleRegistration>();
 let dragHandleGlobalHoverListeners = 0;
 let activeDragRegistration: DragHandleRegistration | null = null;
+// The registration whose grip is currently shown. Used to keep that grip alive
+// while the cursor travels from a block's body to its grip, even when the grip
+// sits in a contested gap (an inter-column gap or a tab body's left offset)
+// where another editor's wide forgiving zone would otherwise re-win the hover
+// and hide the grip out from under the approaching cursor.
+let activeHoverRegistration: DragHandleRegistration | null = null;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -157,6 +179,7 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     for (const registration of dragHandleRegistrations) {
       registration.hideHover?.();
     }
+    activeHoverRegistration = null;
     return;
   }
 
@@ -178,15 +201,107 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     }
   }
 
-  candidates.sort(
-    (a, b) => editorArea(a.registration) - editorArea(b.registration),
+  // Grip keepalive. Once a block's grip is showing, hold it while the cursor
+  // travels LEFT of that block's content toward its grip glyph — within the
+  // block's own vertical row and no further left than the glyph itself. This is
+  // what makes grips grabbable for blocks that are NOT flush with the page's
+  // left gutter (a right column, a tab body): their grip sits in a gap that the
+  // neighbour's wide forgiving zone also claims, so the normal picker would flip
+  // hover to the neighbour mid-approach and the grip would vanish before the
+  // cursor reaches it. The keepalive only bridges the body→grip gap — it does
+  // NOT fire while the cursor is over content (so the innermost/nested picking
+  // and gutter-grab rules below still decide there) and the row guard stops it
+  // from sticking the grip across vertical moves to another block's row.
+  if (activeHoverRegistration) {
+    const held = candidates.find(
+      (candidate) => candidate.registration === activeHoverRegistration,
+    );
+    const grip = activeHoverRegistration.gripRect?.();
+    if (
+      held &&
+      grip &&
+      clientY >= held.block.rect.top &&
+      clientY < held.block.rect.bottom &&
+      clientX >= grip.left - 4 &&
+      clientX < held.block.rect.left
+    ) {
+      for (const registration of dragHandleRegistrations) {
+        if (registration !== held.registration) registration.hideHover?.();
+      }
+      held.registration.showHoverBlock?.(held.block);
+      return;
+    }
+  }
+
+  // Pick which editor owns the grip when several register a hover block at this
+  // point. Nested region editors (e.g. each column inside a `columns` block) tile
+  // their container's whole footprint AND extend a wide forgiving zone
+  // (HOVER_SIDE_OUTSET_REM) into its left-margin gutter, so a pure
+  // "smallest editor wins" rule lets an inner block beat the container everywhere
+  // and leaves the container itself impossible to grab. Split candidates by where
+  // the cursor sits relative to each block:
+  //   - Over a block's body (clientX at/after its left edge) the innermost
+  //     (smallest) editor wins, so nested blocks stay grabbable from their content.
+  //   - In the shared left-margin gutter (clientX left of every candidate's
+  //     content, where the grip lives) the outermost (largest) editor wins, so the
+  //     container block can be picked up and reordered.
+  // Prefer the candidate whose block actually sits UNDER the cursor
+  // horizontally. Without this, a left column's forgiving side zone reaches
+  // across the inter-column gap, ties the right column's editor on area, and
+  // wins — so hovering a right-column block shows the grip for the LEFT block
+  // (and right-column blocks appear to have no grip at all). `overContent`
+  // restricts to blocks the cursor is genuinely within; `rightOfLeftEdge` keeps
+  // the gutter-grab behaviour; fully left of every block → the container wins.
+  const overContent = candidates.filter(
+    (candidate) =>
+      clientX >= candidate.block.rect.left &&
+      clientX <= candidate.block.rect.right,
   );
-  const active = candidates[0] ?? null;
+  // The grip renders in a narrow band just LEFT of each block (≈24px). A block
+  // must OWN that band so moving the cursor onto its grip keeps showing (and
+  // lets you press) that block's grip — otherwise, for a column block whose grip
+  // sits in the gutter/inter-column gap, the "gutter → largest editor" rule
+  // below would flip the hover to the columns container and the grip would
+  // vanish out from under the cursor, making inner column blocks impossible to
+  // drag. The band is narrow, so it does not collide with the neighbouring
+  // column's content (the right column's grip lives in the inter-column gap,
+  // left of its own content but right of the left column's content).
+  const GRIP_HOVER_ZONE_PX = 28;
+  const overGrip = candidates.filter(
+    (candidate) =>
+      clientX >= candidate.block.rect.left - GRIP_HOVER_ZONE_PX &&
+      clientX < candidate.block.rect.left,
+  );
+  const rightOfLeftEdge = candidates.filter(
+    (candidate) => clientX >= candidate.block.rect.left,
+  );
+  let active: {
+    registration: DragHandleRegistration;
+    block: HoverBlock;
+  } | null;
+  const innerPool =
+    overContent.length > 0
+      ? overContent
+      : overGrip.length > 0
+        ? overGrip
+        : rightOfLeftEdge;
+  if (innerPool.length > 0) {
+    innerPool.sort(
+      (a, b) => editorArea(a.registration) - editorArea(b.registration),
+    );
+    active = innerPool[0];
+  } else {
+    candidates.sort(
+      (a, b) => editorArea(b.registration) - editorArea(a.registration),
+    );
+    active = candidates[0] ?? null;
+  }
 
   for (const registration of dragHandleRegistrations) {
     if (registration !== active?.registration) registration.hideHover?.();
   }
   active?.registration.showHoverBlock?.(active.block);
+  activeHoverRegistration = active?.registration ?? null;
 };
 
 const handleGlobalHoverMove = (event: MouseEvent) => {
@@ -802,26 +917,27 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       let placement: DragHandleDropPlacement;
       const withinBlockY =
         clientY >= block.rect.top && clientY <= block.rect.bottom;
-      const withinSideDropBand =
-        clientY >= block.rect.top + block.rect.height * 0.2 &&
-        clientY <= block.rect.bottom - block.rect.height * 0.2;
-      const sideZoneWidth = clamp(
-        block.rect.width * SIDE_DROP_ZONE_RATIO,
-        SIDE_DROP_ZONE_MIN_PX,
-        SIDE_DROP_ZONE_MAX_PX,
+      // Side (column) zones span the FULL block height — only the horizontal
+      // position decides column-vs-reorder. Restricting to the vertical middle
+      // (the old 0.2 band) made the already-tiny edge slivers nearly unhittable.
+      const sideZoneWidth = Math.min(
+        clamp(
+          block.rect.width * SIDE_DROP_ZONE_RATIO,
+          SIDE_DROP_ZONE_MIN_PX,
+          SIDE_DROP_ZONE_MAX_PX,
+        ),
+        block.rect.width * SIDE_DROP_ZONE_MAX_WIDTH_FRACTION,
       );
 
       if (
         registration.handleDrop &&
         withinBlockY &&
-        withinSideDropBand &&
         clientX <= block.rect.left + sideZoneWidth
       ) {
         placement = "left";
       } else if (
         registration.handleDrop &&
         withinBlockY &&
-        withinSideDropBand &&
         clientX >= block.rect.right - sideZoneWidth
       ) {
         placement = "right";
@@ -890,12 +1006,22 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       target: DropTarget | null,
     ) => {
       const sourceEnd = session.sourcePos + session.sourceNodeSize;
+      const isSideDrop =
+        target?.placement === "left" || target?.placement === "right";
       if (
         !target ||
         (target.view === session.view &&
-          (target.pos === session.sourcePos ||
-            target.pos === sourceEnd ||
-            (target.pos > session.sourcePos && target.pos < sourceEnd)))
+          (isSideDrop
+            ? // A side drop only ever builds columns; the ProseMirror seam
+              // position is irrelevant. The only no-op is dropping a block on
+              // ITS OWN side — adjacent *different* blocks must still form
+              // columns (otherwise dropping onto an immediate neighbour's
+              // facing edge silently does nothing, which reads as "side drop
+              // works sometimes").
+              target.targetPos === session.sourcePos
+            : target.pos === session.sourcePos ||
+              target.pos === sourceEnd ||
+              (target.pos > session.sourcePos && target.pos < sourceEnd)))
       ) {
         session.dropTarget = null;
         session.dropLine?.remove();
@@ -918,12 +1044,26 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const editorRect = target.view.dom.getBoundingClientRect();
 
       session.dropTarget = target;
-      if (target.placement === "left" || target.placement === "right") {
-        const left =
+      // A column (side) drop and a reorder (before/after) drop both draw the
+      // `.notion-drop-indicator`, but they mean very different things, so the
+      // column case carries a modifier class apps style distinctly (a bolder,
+      // glowing vertical bar) — without a clear cue a human can't tell they've
+      // entered column-build mode before releasing.
+      const isColumnDrop =
+        target.placement === "left" || target.placement === "right";
+      session.dropLine.classList.toggle(
+        "notion-drop-indicator--column",
+        isColumnDrop,
+      );
+      if (isColumnDrop) {
+        // A vertical bar centred on the seam at the target's left/right edge,
+        // spanning the block's full height.
+        const SIDE_BAR_WIDTH = 4;
+        const seam =
           target.placement === "left" ? target.rect.left : target.rect.right;
-        session.dropLine.style.left = `${left - wrapperRect.left}px`;
+        session.dropLine.style.left = `${seam - wrapperRect.left - SIDE_BAR_WIDTH / 2}px`;
         session.dropLine.style.top = `${target.rect.top - wrapperRect.top}px`;
-        session.dropLine.style.width = "3px";
+        session.dropLine.style.width = `${SIDE_BAR_WIDTH}px`;
         session.dropLine.style.height = `${target.rect.height}px`;
         return;
       }
@@ -947,7 +1087,13 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       el.setAttribute("aria-haspopup", "menu");
       el.setAttribute("aria-expanded", "false");
       el.title = "Open block menu or drag to reorder";
-      el.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      // The icon must not be its own hit target: a real mouse-down inside a
+      // nested editor (a column) lands on the SVG, and a container block's
+      // capture-phase block-select handler (RegistryBlockNode) only spares the
+      // grip DIV — so a press on the icon gets swallowed and the block can't be
+      // dragged out of / between columns. `pointer-events:none` makes every
+      // press in the grip area resolve to the DIV instead.
+      el.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="pointer-events:none">
         <circle cx="5.5" cy="3" r="1.5"/><circle cx="10.5" cy="3" r="1.5"/>
         <circle cx="5.5" cy="8" r="1.5"/><circle cx="10.5" cy="8" r="1.5"/>
         <circle cx="5.5" cy="13" r="1.5"/><circle cx="10.5" cy="13" r="1.5"/>
@@ -1030,12 +1176,18 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         const sourceEnd = session.sourcePos + session.sourceNodeSize;
         const target = session.dropTarget;
         const dropPos = target.pos;
+        const isSideDrop =
+          target.placement === "left" || target.placement === "right";
 
         if (
           target.view !== session.view ||
-          (dropPos !== sourceStart &&
-            dropPos !== sourceEnd &&
-            !(dropPos > sourceStart && dropPos < sourceEnd))
+          (isSideDrop
+            ? // Side drop (column build): proceed for any block that isn't the
+              // source itself, including the source's immediate neighbour.
+              target.targetPos !== sourceStart
+            : dropPos !== sourceStart &&
+              dropPos !== sourceEnd &&
+              !(dropPos > sourceStart && dropPos < sourceEnd))
         ) {
           const sourceNode = session.view.state.doc.nodeAt(sourceStart);
           if (sourceNode) {
@@ -1191,6 +1343,10 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               findForgivingBlock(editorView, clientX, clientY),
             showHoverBlock: (block) => showHandleForBlock(editorView, block),
             hideHover: () => hideHandle(),
+            gripRect: () =>
+              handle && handle.style.display !== "none"
+                ? handle.getBoundingClientRect()
+                : null,
           };
           currentRegistration = registration;
           dragHandleRegistrations.add(registration);
@@ -1268,6 +1424,9 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               dragHandleRegistrations.delete(registration);
               if (activeDragRegistration === registration) {
                 activeDragRegistration = null;
+              }
+              if (activeHoverRegistration === registration) {
+                activeHoverRegistration = null;
               }
               handle?.remove();
               handle = null;

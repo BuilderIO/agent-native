@@ -1,7 +1,7 @@
 import { IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { NAV_SECTIONS } from "./docsNavItems";
+import { NAV_SECTIONS, type NavItem } from "./docsNavItems";
 
 const ALWAYS_OPEN_SECTION_INDEX = 0;
 
@@ -13,9 +13,49 @@ function isItemActive(itemPath: string, pathname: string) {
   return normalizePath(pathname) === itemPath;
 }
 
+function sectionContainsActive(
+  section: (typeof NAV_SECTIONS)[number],
+  pathname: string,
+) {
+  return section.items.some(
+    (item) =>
+      (item.to ? isItemActive(item.to, pathname) : false) ||
+      item.children?.some((child) =>
+        child.to ? isItemActive(child.to, pathname) : false,
+      ),
+  );
+}
+
+// A nav item with children and no `to` is a chevron-only group header.
+function isGroupItem(item: NavItem) {
+  return !item.to && Boolean(item.children?.length);
+}
+
+function groupClipId(label: string) {
+  return `docs-sidebar-group-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
+// The label of the group whose child matches the active route, if any — used
+// to auto-open that group (mirrors getActiveSectionTitle for sections).
+function getActiveGroupLabel(pathname: string) {
+  for (const section of NAV_SECTIONS) {
+    for (const item of section.items) {
+      if (
+        isGroupItem(item) &&
+        item.children?.some((child) =>
+          child.to ? isItemActive(child.to, pathname) : false,
+        )
+      ) {
+        return item.label;
+      }
+    }
+  }
+  return null;
+}
+
 function getActiveSectionTitle(pathname: string) {
   const activeSectionIndex = NAV_SECTIONS.findIndex((section) =>
-    section.items.some((item) => isItemActive(item.to, pathname)),
+    sectionContainsActive(section, pathname),
   );
 
   if (activeSectionIndex <= ALWAYS_OPEN_SECTION_INDEX) {
@@ -31,9 +71,13 @@ export default function DocsSidebar() {
   const [openSectionTitle, setOpenSectionTitle] = useState<string | null>(() =>
     getActiveSectionTitle(location.pathname),
   );
+  const [openGroupLabel, setOpenGroupLabel] = useState<string | null>(() =>
+    getActiveGroupLabel(location.pathname),
+  );
 
   useEffect(() => {
     setOpenSectionTitle(getActiveSectionTitle(location.pathname));
+    setOpenGroupLabel(getActiveGroupLabel(location.pathname));
   }, [location.pathname]);
 
   useEffect(() => {
@@ -117,17 +161,85 @@ export default function DocsSidebar() {
               >
                 <ul className="docs-sidebar-section-items">
                   {section.items.map((item) => {
-                    const active = isItemActive(item.to, location.pathname);
+                    const isGroup = isGroupItem(item);
+                    const active = item.to
+                      ? isItemActive(item.to, location.pathname)
+                      : false;
+                    // Groups expand/collapse; non-group children (if any ever
+                    // exist) always render open.
+                    const groupOpen = isGroup
+                      ? openGroupLabel === item.label
+                      : true;
+                    const clipId = isGroup
+                      ? groupClipId(item.label)
+                      : undefined;
+                    const childrenTabbable = isOpen && groupOpen;
                     return (
-                      <li key={item.to}>
-                        <Link
-                          data-an-prefetch={isOpen ? "render" : undefined}
-                          to={item.to}
-                          className={`sidebar-link${active ? " is-active" : ""}`}
-                          tabIndex={isOpen ? undefined : -1}
-                        >
-                          {item.label}
-                        </Link>
+                      <li key={item.label}>
+                        {isGroup ? (
+                          <button
+                            type="button"
+                            className="sidebar-link sidebar-group-trigger"
+                            aria-expanded={groupOpen}
+                            aria-controls={clipId}
+                            tabIndex={isOpen ? undefined : -1}
+                            onClick={() =>
+                              setOpenGroupLabel((current) =>
+                                current === item.label ? null : item.label,
+                              )
+                            }
+                          >
+                            <span>{item.label}</span>
+                            <IconChevronRight
+                              size={16}
+                              stroke={1.75}
+                              className={`docs-sidebar-chevron${groupOpen ? " is-open" : ""}`}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        ) : (
+                          <Link
+                            data-an-prefetch={isOpen ? "render" : undefined}
+                            to={item.to!}
+                            className={`sidebar-link${active ? " is-active" : ""}`}
+                            tabIndex={isOpen ? undefined : -1}
+                          >
+                            {item.label}
+                          </Link>
+                        )}
+                        {item.children ? (
+                          <div
+                            id={clipId}
+                            className="docs-sidebar-section-items-clip"
+                            data-state={groupOpen ? "open" : "closed"}
+                            aria-hidden={groupOpen ? undefined : true}
+                            inert={groupOpen ? undefined : true}
+                          >
+                            <ul className="docs-sidebar-subitems">
+                              {item.children.map((child) => {
+                                const childActive = child.to
+                                  ? isItemActive(child.to, location.pathname)
+                                  : false;
+                                return (
+                                  <li key={child.to ?? child.label}>
+                                    <Link
+                                      data-an-prefetch={
+                                        childrenTabbable ? "render" : undefined
+                                      }
+                                      to={child.to!}
+                                      className={`sidebar-link sidebar-sublink${childActive ? " is-active" : ""}`}
+                                      tabIndex={
+                                        childrenTabbable ? undefined : -1
+                                      }
+                                    >
+                                      {child.label}
+                                    </Link>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        ) : null}
                       </li>
                     );
                   })}

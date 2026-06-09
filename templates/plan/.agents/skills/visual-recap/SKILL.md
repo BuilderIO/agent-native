@@ -19,6 +19,26 @@ schema, API, file, and architecture changes become the same `data-model`,
 now they summarize work that exists. A reviewer scans the shape of the change
 before spending attention on the literal lines.
 
+## Always Publish As An Agent-Native Plan — Never Inline
+
+The deliverable is ALWAYS a published Agent-Native Plan, created with the
+`create-visual-recap` tool on the `plan` MCP server. NEVER hand the recap to the
+user as inline chat content — not Markdown prose, not an ASCII sketch, not a
+table, not a fenced "wireframe", not a "here's the recap" summary. A recap's
+entire value is the hosted, interactive, annotatable plan; an inline summary is
+not a recap, it is the thing a recap replaces. The only supported output is to
+publish the plan and return its absolute URL.
+
+If the `plan` MCP server's tools are not available, do NOT improvise an inline
+recap as a fallback. The usual cause is a connector that did not finish
+connecting this session (it registers zero tools), NOT necessarily an auth
+problem — so do not assume the user must authenticate. Stop and tell the user
+how to restore it: reconnect the plan MCP server (in Claude Code, run `/mcp` and
+reconnect, or restart the session); only if it is genuinely unauthenticated, run
+`agent-native connect <plan-app-url>` or re-authenticate via `/mcp`. Then publish
+once the tool is reachable. Falling back to inline content is a defect, not a
+degraded mode.
+
 ## When To Use
 
 Build a recap when a PR or commit is large, multi-file, or touches schema, API
@@ -235,13 +255,23 @@ for example, a new `Edit with AI` action in a popover header belongs in the
 top-right header slot, aligned with the title, not in the body or footer. Use
 the same frame size, scale, outer padding, border radius, and visual density on
 both sides unless the change itself alters those properties, and let the frame
-height fit the content rather than leaving a tall empty lower half. Choose the
-before/after layout by geometry: use a `columns` block labeled `Before`/`After`
-when each state stays legible side by side; stack `Before` then `After`
-vertically in normal document flow when the surface is very wide, when
-full-width scanning matters, or when columns would shrink or crop the detail.
-Label each state visibly (for example, a header pill) so cropped screenshots
-stay unambiguous.
+height fit the content rather than leaving a tall empty lower half.
+
+**Name the states with the column header, never inside the frame.** Put the two
+states in a `columns` block and set each column's `label` to `Before` and
+`After` — the renderer draws that label as an `h4` heading above each frame. Do
+NOT bake a `Before`/`After` pill, title, or heading into the wireframe `html`: a
+label placed inside reads as part of the product UI, lands in a random corner,
+and clutters the comparison. The column header is the one and only place the
+state name belongs.
+
+**Let the surface choose side-by-side vs. stacked.** The `columns` renderer lays
+narrow surfaces (`mobile`, `popover`, `panel`) out side by side, and
+automatically stacks wide surfaces (`desktop`, `browser`) vertically at full
+document width so a large frame is never crushed into a half-width column and
+cropped. Author both wireframes with the real `surface` and the matching
+`Before`/`After` column labels; do not hand-stack the pair into separate
+top-level wireframes or duplicate the state name as body content.
 
 **Good example — a contacts list, surface `browser`.** A small, real screen
 composed from the helper classes and tokens, layout in inline flex, no fonts or
@@ -306,25 +336,42 @@ text-match screenshot is not enough; visually inspect the captured image.
 ## Open And Report The Recap
 
 After creating the recap, link the reviewer to the rendered plan with an
-**absolute URL**. Never make the primary link a local `plan.mdx` file, a local
+**absolute URL on the origin whose database actually holds the plan**. That
+origin is the Plan MCP server you just created the recap through — NOT whatever
+dev server you happen to know is running. The create tool returns the correct
+link; report THAT. Never make the primary link a local `plan.mdx` file, a local
 mirror folder, or a relative path such as `/plans/<id>`.
+
+A recap lives only in the database of the MCP that created it. A separately
+running local dev server (e.g. `http://localhost:8081`) has its OWN database and
+will NOT contain a recap created through the hosted MCP, so a hand-built
+`localhost` link returns "Plan not found". This is the most common recap
+mistake — do not guess an origin you have not confirmed shares the MCP's data.
 
 Resolve the URL in this order:
 
-1. When creating a recap for local edits and a running local/dev Plan app origin
-   is known, prefer that local origin even if `plan.mdx` includes a hosted
-   `visualUrl`, e.g. `http://localhost:8081/plans/<id>`.
-2. Use the absolute `visualUrl` exported in `plan.mdx` frontmatter when present,
-   e.g. `https://plan.agent-native.com/plans/<id>`.
-3. If the action returns only a relative `url`/`path` and the running app origin
-   is known, construct an absolute URL from that origin, e.g.
-   `http://localhost:5173/plans/<id>`.
-4. If only the plan id is available, build the hosted absolute URL
-   `https://plan.agent-native.com/plans/<id>` and say if that URL was inferred.
+1. Use the absolute URL the create tool RETURNS — `openLink.webUrl`, else the
+   `visualUrl` in the returned `plan.mdx` frontmatter, else `url`/`path`
+   resolved against the MCP server's own origin (for the hosted MCP that is
+   `https://plan.agent-native.com`). This always points at the database that has
+   the plan.
+2. Use a `localhost`/dev origin ONLY when the recap was created through a Plan
+   MCP bound to that same origin — i.e. that MCP's url is
+   `http://localhost:<port>/_agent-native/mcp`. Creating through the hosted MCP
+   and linking to localhost is the exact mismatch that 404s.
+3. If only a plan id is available, build the MCP origin's absolute URL
+   (hosted: `https://plan.agent-native.com/plans/<id>`) and say it was inferred.
+
+If the user wants to review on localhost but the recap was created through the
+hosted MCP, say so plainly: the local dev server cannot see it. To view a recap
+on localhost (e.g. to exercise un-deployed local renderer changes), they must
+connect a LOCAL Plan MCP (`http://localhost:<port>/_agent-native/mcp`) and
+re-create the recap through it so it lands in the local database; offer to do
+that rather than handing over a localhost URL that will not resolve.
 
 When running in Codex and the Browser/in-app side browser tools are available,
-open the absolute recap URL there automatically after creation. Still include the
-same absolute URL in the final response. Local mirror files like
+open the returned absolute recap URL there automatically after creation. Still
+include the same absolute URL in the final response. Local mirror files like
 `plans/<slug>/plan.mdx` may be mentioned only as secondary source-control
 artifacts, not as the main way to open the recap.
 
@@ -334,12 +381,17 @@ Map each kind of change to the block that carries it, derived mechanically from
 the actual diff:
 
 - **Schema / migration change** → `data-model` for the resulting entities,
-  fields, and relations, plus a `diff` with `mode: "split"` for the literal SQL
-  or schema text that changed. The `data-model` shows the new shape; the split
-  `diff` shows exactly what moved.
+  fields, and relations. Flag what moved per field/entity with
+  `change: "added" | "modified" | "removed" | "renamed"`, and for a changed type
+  set `was` to the prior value (e.g. the old column type) — grounded in the real
+  migration diff. That diff-aware `data-model` is the headline; reach for a split
+  `diff` of the literal SQL only when the exact statement still matters, not by
+  default.
 - **API / action / route change** → `api-endpoint` with the method, path,
-  params, request, and responses as they are after the change. Mark removed
-  endpoints with `deprecated: true` and explain in prose.
+  params, request, and responses as they are after the change. Flag each changed
+  param/response with `change` (and `was` on a param whose type/shape changed),
+  and set `change` on the endpoint root for a wholly added or removed route. Mark
+  removed endpoints with `deprecated: true` and explain in prose.
   Keep multiple API endpoints in the normal single-column document flow unless
   they are an explicit before/after contract comparison.
 - **Compatibility-sensitive change** → short `rich-text` notes beside the
@@ -348,14 +400,35 @@ the actual diff:
   pair that note with a split `diff` for the literal lines.
 - **Any meaningful code hunk** → `diff` with `mode: "split"`, carrying the real
   `before` / `after` text and the `filename` / `language`. Split mode is the
-  default for a recap because before/after legibility is the whole point.
-  When several key files each need a substantial diff, group those `diff` blocks
-  in a reusable `tabs` block with `orientation: "vertical"` so file labels form a
-  left rail and the selected file's split diff renders on the right. Keep each
-  tab label to the file path or a short basename plus directory hint.
+  default for a recap because before/after legibility is the whole point. Give
+  every `diff` a one-line `summary` saying what the hunk changes and why; it
+  renders as a description above the code so the reviewer reads intent first.
+  Never leave a diff unlabeled.
+  For the KEY changed files, attach `annotations` to the `diff` so the recap
+  calls out what each important hunk does — this is the headline affordance for
+  annotating the key files updated. Each annotation is
+  `{ side?: "before" | "after"; lines: "13" | "13-15"; label?: string; note }`
+  and anchors to the AFTER-side line numbers by default (set `side: "before"` to
+  point at removed lines). Keep it to a few high-signal notes per file, not one
+  per line.
+  When several key files each need a substantial diff, introduce the group with a
+  `rich-text` heading block whose markdown is `## Key changes`, then place the
+  `diff` blocks under it in a reusable `tabs` block with
+  `orientation: "vertical"` so file labels form a left rail and the selected
+  file's split diff renders on the right. Let that heading label the section — do
+  NOT also set a `title` on the `tabs` block. Keep each tab label to the file
+  path or a short basename plus directory hint.
   If the recap ends with more than one supporting diff, that trailing diff
-  appendix should be one vertical `tabs` block, not a stack of separate `diff`
-  blocks.
+  appendix should be one vertical `tabs` block under its own `## Key changes`
+  heading, not a stack of separate `diff` blocks.
+- **Brand-new file or a substantial added block with no meaningful "before"** →
+  `annotated-code` rather than a one-sided split `diff`. Carry the real new code
+  with its `filename` / `language` and anchor a few high-signal notes to the lines
+  that matter (`{ lines: "12" | "12-18"; label?; note }`) so the reviewer reads
+  what the new code does, not code for code's sake. Keep split `diff` for true
+  before/after hunks where the removed lines still carry meaning, and group
+  several annotated walkthroughs in a vertical `tabs` block the same way diffs are
+  grouped.
 - **Files added / removed / renamed** → `file-tree` with each entry's `change`
   flag (`added`, `removed`, `modified`, `renamed`) and a short `note`; attach a
   `snippet` only when one tells the reviewer something the path does not.
@@ -403,9 +476,10 @@ For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state
 sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
-explanation. The Wireframe Quality core owns the before/after layout choice
-(side-by-side `columns` vs. vertical stack, picked by geometry); never
-hand-build a side-by-side wireframe layout in `custom-html`. For document-body
+explanation. The Wireframe Quality core owns the before/after layout choice —
+the `columns` renderer keeps narrow surfaces side by side and auto-stacks wide
+`desktop`/`browser` frames vertically; never hand-build a side-by-side
+wireframe layout in `custom-html`. For document-body
 comparisons, there is no other multi-column primitive — `columns` plus split
 `diff` are the whole comparison vocabulary. Do not hand-build side-by-side
 layouts in `custom-html`, and do not stack two `data-model` blocks vertically

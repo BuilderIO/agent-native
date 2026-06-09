@@ -361,6 +361,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      roughjs:
+        specifier: 4.6.6
+        version: 4.6.6
       shiki:
         specifier: ^4.0.2
         version: 4.0.2

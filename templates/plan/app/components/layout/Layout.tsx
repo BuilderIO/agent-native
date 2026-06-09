@@ -27,8 +27,14 @@ function routeOwnsToolbar(pathname: string): boolean {
   return pathname.startsWith("/extensions") || isPlanDetailRoute(pathname);
 }
 
+// Recaps are a kind of plan: `/plans/:id` and `/recaps/:id` both render
+// PlansPage and share the immersive full-screen reader, so the layout must
+// treat them identically (matching `viewForPath` in use-navigation-state.ts).
+// Without `/recaps/` here, recap routes never owned their toolbar and never
+// went immersive — they were stuck in app view and the full-screen toggle did
+// nothing.
 function isPlanDetailRoute(pathname: string): boolean {
-  return /^\/plans\/[^/]+/.test(pathname);
+  return /^\/(plans|recaps)\/[^/]+/.test(pathname);
 }
 
 export function Layout({ children }: LayoutProps) {

@@ -1,8 +1,11 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { ActionRunContext } from "../action.js";
+import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
 import {
   createExtension,
   deleteExtension,
+  findRecentDuplicateExtension,
   getHiddenExtensionIdsForCurrentUser,
   getExtension,
   getExtensionHistoryVersion,
@@ -227,7 +230,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "create-extension": {
       tool: {
         description:
-          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. Call this action exactly once per requested extension. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data('name', () => ({...})) and reference it with x-data=\"name\" — do NOT cram methods, template literals, or branching logic into an inline x-data=\"{...}\" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object's initial state. If the extension's value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in Settings → Secrets if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.",
+          'Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. Call this action exactly once per requested extension. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in Settings → Secrets if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
         parameters: {
           type: "object",
           properties: {
@@ -243,27 +246,69 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             content: {
               type: "string",
               description:
-                "Self-contained Alpine.js HTML body snippet. The iframe canvas already has modest default padding, so avoid duplicate outer padding unless the design needs it. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) for native theming. Do not include a full app build, React code, or source files.",
+                "Self-contained Alpine.js HTML body snippet. The iframe canvas already has modest default padding, so avoid duplicate outer padding unless the design needs it. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) for native theming. Do not include a full app build, React code, or source files. Required UNLESS you pass contentFromAttachment instead.",
+            },
+            contentFromAttachment: {
+              type: "string",
+              description:
+                'Host a pasted/attached file verbatim WITHOUT re-typing it. Set this to the name of an attachment on the current turn (e.g. "pasted-text-1718000000000-ab12cd.txt") or the literal "latest" for the most recent pasted block; the server resolves it into the extension content. Use this instead of `content` whenever the user pasted a large file to host — it avoids re-emitting thousands of tokens. When set, leave `content` empty.',
             },
             icon: {
               type: "string",
               description: "Optional icon name or short label.",
             },
           },
-          required: ["name", "content"],
+          required: ["name"],
         },
       },
-      run: async (args) => {
+      run: async (args, ctx) => {
         const name = String(args?.name ?? "").trim();
-        const content = String(args?.content ?? "").trim();
         if (!name) return "Error: name is required.";
+        const resolved = resolveExtensionContent(args, ctx);
+        if ("error" in resolved) return resolved.error;
+        const content = resolved.content.trim();
         if (!content) return "Error: content is required.";
+        const description = String(args?.description ?? "").trim();
+        const icon = args?.icon ? String(args.icon) : undefined;
+
+        // Idempotency: if an identical extension was created in the last 5
+        // minutes (e.g. a connection drop caused the agent to retry this tool
+        // call), return the existing one instead of creating a duplicate.
+        // Keyed on the FULL create inputs (name + content + description + icon),
+        // so two creates that differ in ANY of them are treated as distinct
+        // rather than silently collapsed — only a byte-identical re-create (the
+        // retry case) recovers the existing row.
+        const existing = await findRecentDuplicateExtension({
+          name,
+          content,
+          description,
+          icon,
+        });
+        if (existing) {
+          const existingPath = extensionPath(existing.id, existing.name);
+          try {
+            await writeAppState("navigate", {
+              view: "extensions",
+              extensionId: existing.id,
+              path: existingPath,
+              _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            });
+          } catch {
+            // Non-fatal — agent can still mention the path in its reply.
+          }
+          return {
+            ok: true,
+            extension: { ...existing, path: existingPath },
+            path: existingPath,
+            next: `Extension was already created in this session (recovered from a connection retry). The user is being navigated to it — no further navigation tool calls needed.`,
+          };
+        }
 
         const extension = await createExtension({
           name,
-          description: String(args?.description ?? "").trim(),
+          description,
           content,
-          icon: args?.icon ? String(args.icon) : undefined,
+          icon,
         });
         const path = extensionPath(extension.id, extension.name);
 
@@ -295,7 +340,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "update-extension": {
       tool: {
         description:
-          "Update an existing sandboxed Alpine.js mini-app extension. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly; do not list extensions first just to find the current id. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML.",
+          'Update an existing sandboxed Alpine.js mini-app extension. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly; do not list extensions first just to find the current id. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML. To replace the whole body with a large pasted file, pass contentFromAttachment (the attachment name, or "latest") instead of copying the file into `content` — that avoids re-emitting thousands of tokens.',
         parameters: {
           type: "object",
           properties: {
@@ -316,6 +361,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               type: "string",
               description:
                 "Optional full replacement Alpine.js HTML body snippet.",
+            },
+            contentFromAttachment: {
+              type: "string",
+              description:
+                'Optional full replacement sourced from a pasted/attached file on the current turn, by attachment name (or the literal "latest" for the most recent pasted block). Use instead of `content` when replacing the whole body with a large pasted file so you do not have to re-type it. Ignored when `content` is provided.',
             },
             patches: {
               type: "string",
@@ -345,13 +395,32 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           required: ["id"],
         },
       },
-      run: async (args) => {
+      run: async (args, ctx) => {
         const id = String(args?.id ?? "").trim();
         if (!id) return "Error: id is required.";
 
+        // Full-replacement content can come inline (`content`) or by reference
+        // (`contentFromAttachment`) so the model never has to re-type a large
+        // pasted file. Inline wins only when NON-EMPTY — the docstring tells
+        // callers to leave `content` empty when using `contentFromAttachment`,
+        // so an empty/blank `content` must fall through to the attachment
+        // instead of blanking the extension (mirrors resolveExtensionContent).
+        let replacementContent =
+          typeof args?.content === "string" && args.content.trim().length > 0
+            ? args.content
+            : undefined;
+        if (
+          replacementContent === undefined &&
+          args?.contentFromAttachment !== undefined
+        ) {
+          const resolved = resolveExtensionContent(args, ctx);
+          if ("error" in resolved) return resolved.error;
+          replacementContent = resolved.content;
+        }
+
         let result = null;
         const hasContentUpdate =
-          args?.content !== undefined ||
+          replacementContent !== undefined ||
           args?.patches !== undefined ||
           args?.edits !== undefined ||
           args?.format !== undefined;
@@ -365,8 +434,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             return "Error: edits must be a JSON array of supported extension edit operations.";
           }
           result = await updateExtensionContent(id, {
-            content:
-              args?.content !== undefined ? String(args.content) : undefined,
+            content: replacementContent,
             patches,
             edits,
             format: coerceBoolean(args?.format),
@@ -759,6 +827,116 @@ function summarizeDeletedExtension(row: ExtensionRow) {
     ownerEmail: row.ownerEmail,
     visibility: row.visibility,
   };
+}
+
+/**
+ * Filename prefix the composer stamps on a "Pasted text" attachment chip
+ * (`createPastedTextFile` in `client/composer/pasted-text.ts`). The agent sees
+ * these as `<attachment name="pasted-text-…">` blocks, so a model hosting a
+ * pasted file can reference it by that name via `contentFromAttachment`.
+ */
+const PASTED_TEXT_ATTACHMENT_PREFIX = "pasted-text-";
+
+/** Keyword refs that mean "use the most recent pasted block above". */
+const LATEST_ATTACHMENT_KEYWORDS = new Set([
+  "latest",
+  "last",
+  "paste",
+  "pasted",
+  "pasted-text",
+  "attachment",
+  "above",
+]);
+
+/** Strip the `<attachment …>\n…\n</attachment>` wrapper if one is present. */
+function unwrapAttachmentEnvelope(text: string): string {
+  const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
+  return match ? match[1] : text;
+}
+
+/**
+ * Resolve the HTML body for create/update-extension from either the inline
+ * `content` argument or a `contentFromAttachment` handle pointing at a pasted /
+ * uploaded text attachment on the current turn. The by-reference path lets the
+ * model host a large pasted file without re-emitting it as a tool argument —
+ * which frequently gets cut off mid-stream and triggers a continuation loop.
+ *
+ * Resolution is forgiving: an exact attachment-name match wins, then a keyword
+ * ("latest"/"pasted"/…) or a near-miss name falls back to the most recent
+ * pasted-text attachment (or the only text attachment).
+ */
+function resolveExtensionContent(
+  args: Record<string, string> | undefined,
+  ctx: ActionRunContext | undefined,
+): { content: string } | { error: string } {
+  const inline = args?.content !== undefined ? String(args.content) : undefined;
+  if (inline !== undefined && inline.trim().length > 0) {
+    return { content: inline };
+  }
+
+  const ref =
+    args?.contentFromAttachment !== undefined
+      ? String(args.contentFromAttachment).trim()
+      : "";
+  if (!ref) {
+    return {
+      error:
+        "Error: provide either content (inline Alpine.js HTML) or contentFromAttachment (the name of a pasted/attached file to host verbatim).",
+    };
+  }
+
+  const textAttachments = (ctx?.attachments ?? []).filter(
+    (att): att is AgentChatAttachment & { text: string } =>
+      typeof att.text === "string" && att.text.trim().length > 0,
+  );
+  if (textAttachments.length === 0) {
+    return {
+      error:
+        "Error: contentFromAttachment was set but this turn has no readable text attachment. Re-send the file as an attachment, or pass the HTML inline via content.",
+    };
+  }
+
+  const lower = ref.toLowerCase();
+  let match = textAttachments.find(
+    (att) => (att.name ?? "").trim().toLowerCase() === lower,
+  );
+  if (!match) {
+    const pasted = textAttachments.filter((att) =>
+      (att.name ?? "").startsWith(PASTED_TEXT_ATTACHMENT_PREFIX),
+    );
+    const pool = pasted.length > 0 ? pasted : textAttachments;
+    if (
+      LATEST_ATTACHMENT_KEYWORDS.has(lower) ||
+      pasted.length === 1 ||
+      textAttachments.length === 1
+    ) {
+      match = pool[pool.length - 1];
+    }
+  }
+
+  if (!match) {
+    const names = textAttachments
+      .map((att) => att.name || "(unnamed)")
+      .join(", ");
+    return {
+      error: `Error: no attachment matched contentFromAttachment="${ref}". Available text attachments: ${names}. Pass one of those names exactly, or "latest" for the most recent pasted block.`,
+    };
+  }
+
+  const resolved = unwrapAttachmentEnvelope(match.text);
+  // Fail fast instead of hosting corrupted content. The client caps an
+  // outbound attachment at MAX_OUTBOUND_ATTACHMENT_CHARS (200k) and appends a
+  // trailing notice ending "...omitted from the submitted attachment.]" (see
+  // truncateOutboundAttachment in agent-chat-adapter.ts). Hosting that verbatim
+  // would bake a half file + the notice into the extension body; reject it with
+  // an actionable message so the user shrinks/splits the file instead.
+  if (/omitted from the submitted attachment\.\]\s*$/.test(resolved)) {
+    return {
+      error:
+        "Error: the pasted file is too large to host verbatim (it was truncated above 200,000 characters before reaching the server, so hosting it would corrupt the extension). Reduce the file or split it into smaller extensions, then try again.",
+    };
+  }
+  return { content: resolved };
 }
 
 function coerceBoolean(value: unknown): boolean {
