@@ -61,19 +61,19 @@ export async function createAssetFromBuffer(input: {
 }): Promise<typeof schema.assets.$inferSelect> {
   const id = input.id ?? nanoid();
   const mediaType = input.mediaType ?? mediaTypeFromMime(input.mimeType);
-  const info =
+  const [info, thumb] = await Promise.all([
     mediaType === "image"
-      ? await imageInfo(input.buffer)
-      : {
+      ? imageInfo(input.buffer)
+      : Promise.resolve({
           width: null,
           height: null,
           mimeType: input.mimeType,
           sizeBytes: input.buffer.byteLength,
-        };
-  const thumb =
+        }),
     mediaType === "image" && input.thumbnailObjectKey === undefined
-      ? await makeThumbnail(input.buffer)
-      : null;
+      ? makeThumbnail(input.buffer)
+      : Promise.resolve(null),
+  ]);
   const ext = extFromMime(input.mimeType);
   const originalFilename = `libraries/${input.libraryId}/assets/${id}/original.${ext}`;
   const thumbnailFilename = thumb
