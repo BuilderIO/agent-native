@@ -287,6 +287,10 @@ export default function App() {
         request.app === MIGRATION_APP_ID ||
         request.app === CODE_AGENTS_SURFACE_ID
       ) {
+        if (!showCodeAgentsTab) {
+          setShowSettings(true);
+          return false;
+        }
         setCodeAgentsOpenRequest({
           goalId:
             goal?.id ??
@@ -340,8 +344,21 @@ export default function App() {
       });
       return true;
     },
-    [activateApp, enabledApps, loading],
+    [activateApp, enabledApps, loading, showCodeAgentsTab],
   );
+
+  useEffect(() => {
+    if (showCodeAgentsTab || activeSidebarAppId !== CODE_AGENTS_SURFACE_ID) {
+      return;
+    }
+
+    const nextApp = appDefs.find((app) => !app.placeholder) ?? appDefs[0];
+    if (nextApp) {
+      activateApp(nextApp.id);
+    } else {
+      setActiveSidebarAppId("");
+    }
+  }, [activateApp, activeSidebarAppId, appDefs, showCodeAgentsTab]);
 
   const handleTabSelect = useCallback(
     (tabId: string) => {
