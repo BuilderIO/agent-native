@@ -32,6 +32,7 @@ import {
 } from "@shared/plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
+import { PlanImageNode } from "../plan/PlanImageNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
 import { PlanBlockView } from "../plan/DocumentArea";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";

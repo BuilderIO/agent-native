@@ -23,11 +23,7 @@
     "longDescription": "Agent-Native Plan packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill.",
     "developerName": "Agent-Native",
     "category": "Productivity",
-    "capabilities": [
-      "Interactive",
-      "Read",
-      "Write"
-    ],
+    "capabilities": ["Interactive", "Read", "Write"],
     "websiteURL": "https://plan.agent-native.com",
     "defaultPrompt": [
       "Open Agent-Native Plan where useful",
