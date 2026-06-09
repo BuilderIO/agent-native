@@ -607,13 +607,12 @@ function DiffRead({
     [data.annotations, beforeLineCount, afterLineCount],
   );
   const hasAnnotations = hasRailAnnotations(resolved);
-  // Effective render mode. Annotated diffs always render unified so a marked
-  // line and its right-margin popover line up cleanly; and any diff in a
-  // container narrower than SPLIT_MIN_WIDTH falls back to unified so split's
-  // doubled gutters never crush the code. `canSplit` also gates the mode toggle
-  // so it is hidden whenever split is unavailable.
+  // Effective render mode. The right-margin popover works in both unified and
+  // split, so annotations no longer force a mode; only a container narrower than
+  // SPLIT_MIN_WIDTH falls back to unified so split's doubled gutters never crush
+  // the code. `canSplit` also gates the mode toggle (hidden when unavailable).
   const narrow = containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
-  const canSplit = !hasAnnotations && !narrow;
+  const canSplit = !narrow;
   const effectiveMode: DiffMode = canSplit ? mode : "unified";
 
   // Annotation popover (diff): a marked line shows its note as a hover popover

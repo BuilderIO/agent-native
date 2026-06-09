@@ -707,6 +707,24 @@ function stringAttr(node: MdxNode, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * Resolve a `<Screen>`/wireframe string attribute that must be a string when
+ * present. Absent → undefined; present but not a string (number, object, or an
+ * expression that can't be statically evaluated) → THROW, so a malformed
+ * wireframe fails the import instead of silently dropping the value.
+ */
+function requiredStringAttr(node: MdxNode, name: string): string | undefined {
+  const attr = findAttribute(node, name);
+  if (!attr) return undefined;
+  const value = attributeValue(attr);
+  if (typeof value !== "string") {
+    throw new Error(
+      `Wireframe <Screen> attribute "${name}" must resolve to a string, got ${typeof value}. Use a quoted string or a static template literal.`,
+    );
+  }
+  return value;
+}
+
 function numberAttr(node: MdxNode, name: string): number | undefined {
   const value = attributeValue(findAttribute(node, name));
   return typeof value === "number" ? value : undefined;
@@ -961,8 +979,8 @@ function parseScreen(
       "renderMode",
     ) as PlanWireframeBlock["data"]["renderMode"],
     caption: stringAttr(node, "caption"),
-    html: stringAttr(node, "html"),
-    css: stringAttr(node, "css"),
+    html: requiredStringAttr(node, "html"),
+    css: requiredStringAttr(node, "css"),
     skeleton: boolAttr(node, "skeleton"),
     screen: (node.children ?? [])
       .map((child, index) =>

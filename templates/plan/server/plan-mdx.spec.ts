@@ -657,6 +657,57 @@ version: 2
     );
   });
 
+  it("resolves a template-literal html attribute on <Screen> to a string", async () => {
+    const parsed = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Template literal html"
+version: 2
+---
+
+<WireframeBlock id="tl-wireframe" title="Template literal wireframe">
+  <Screen surface="browser" html={\`<div>hi</div>\`} />
+</WireframeBlock>
+`,
+    });
+    const wireframe = parsed.blocks.find(
+      (block) => block.id === "tl-wireframe",
+    );
+    expect(wireframe?.type).toBe("wireframe");
+    if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
+    expect(wireframe.data.surface).toBe("browser");
+    expect(wireframe.data.html).toBe("<div>hi</div>");
+  });
+
+  it("throws on a template-literal html attribute that interpolates ${…}", async () => {
+    await expect(
+      parsePlanMdxFolder({
+        "plan.mdx": `---
+title: "Interpolated template literal"
+version: 2
+---
+
+<WireframeBlock id="interp-wireframe">
+  <Screen surface="browser" html={\`<div>\${value}</div>\`} />
+</WireframeBlock>
+`,
+      }),
+    ).rejects.toThrow(/template literal|\$\{/i);
+  });
+
+  it("throws on a standalone bare <Screen> instead of emitting raw text", async () => {
+    await expect(
+      parsePlanMdxFolder({
+        "plan.mdx": `---
+title: "Bare screen"
+version: 2
+---
+
+<Screen surface="browser" html={\`<div>hi</div>\`} />
+`,
+      }),
+    ).rejects.toThrow(/Malformed wireframe|WireframeBlock/i);
+  });
+
   it("throws on unsupported MDX attribute expressions", async () => {
     await expect(
       parsePlanMdxFolder({
