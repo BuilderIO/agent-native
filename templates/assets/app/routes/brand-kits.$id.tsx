@@ -639,7 +639,7 @@ export default function LibraryPage() {
   }
 
   async function upload(files: FileList | null, category = "style-only") {
-    if (!files?.length) return;
+    if (!files?.length || uploading) return;
     const selectedFiles = Array.from(files);
     const uploadChunks = chunkAssetUploads(selectedFiles);
     const selectedFolderId =
