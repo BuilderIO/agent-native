@@ -1081,7 +1081,9 @@ export default function LibraryPage() {
         {isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
             <IconUpload className="h-10 w-10 text-primary" />
-            <span className="text-base font-semibold text-primary">Drop to upload</span>
+            <span className="text-base font-semibold text-primary">
+              Drop to upload
+            </span>
           </div>
         )}
         <section className="mb-5 space-y-3">
@@ -2525,8 +2527,16 @@ function AssetGrid({
     return (
       <button
         onClick={onEmptyClick}
-        onDragOver={(e) => { if (onDrop && e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
-        onDrop={(e) => { if (!onDrop) return; e.preventDefault(); e.stopPropagation(); onDrop(e.dataTransfer.files); }}
+        onDragOver={(e) => {
+          if (onDrop && e.dataTransfer.types.includes("Files"))
+            e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (!onDrop) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onDrop(e.dataTransfer.files);
+        }}
         className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
