@@ -433,6 +433,18 @@ function repaintDropViews(
     }
     replaceEditorViewBlocks(view, nextBlocks, { addToHistory: singleEditor });
   }
+  // A mouse drag grips the drag handle, not the prose, so the contenteditable is
+  // usually blurred when the drop lands. Re-focus the editor the block landed in
+  // (single-editor drags only — that view owns the undoable step) so the very
+  // next cmd+z reaches the ProseMirror undo keymap and reverts the move, instead
+  // of doing nothing because focus sat on the page body.
+  if (singleEditor && !context.view.hasFocus()) {
+    try {
+      context.view.focus();
+    } catch {
+      // View may have been torn down mid-remount; focus is best-effort.
+    }
+  }
 }
 
 function resolveBlockDataChange(

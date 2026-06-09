@@ -785,7 +785,7 @@
 .plan-code-surface-scroll {
   position: relative;
   overflow: auto;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
 }
 
@@ -831,7 +831,7 @@
   background: var(--shiki-light-bg, var(--plan-code)) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
 }
 
@@ -993,7 +993,7 @@
   margin: 0;
   padding: 0.85rem 1.1rem;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
   white-space: pre;
   tab-size: 2;
@@ -1117,7 +1117,7 @@
   background: transparent;
   color: var(--plan-code-text);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
   overflow-x: auto;
 }
