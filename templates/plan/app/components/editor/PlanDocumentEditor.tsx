@@ -407,6 +407,104 @@ function applyColumnSideDrop(
   return wrapTopLevelTargetInColumns(removal.blocks, request);
 }
 
+/**
+ * Insert `sourceBlock` immediately before/after the block with `targetBlockId`,
+ * wherever that target lives in the tree (top-level, a tab, or a column). Used
+ * by cross-region vertical moves so a block can be dragged OUT of a column into
+ * the document, BETWEEN columns, or INTO a column by dropping above/below an
+ * existing block there.
+ */
+function insertBlockBeside(
+  blocks: PlanBlock[],
+  targetBlockId: string,
+  sourceBlock: PlanBlock,
+  placement: "before" | "after",
+): { blocks: PlanBlock[]; inserted: boolean } {
+  let inserted = false;
+  const out: PlanBlock[] = [];
+  for (const block of blocks) {
+    if (!inserted && block.id === targetBlockId) {
+      const clone = clonePlanBlock(sourceBlock);
+      if (placement === "before") out.push(clone, block);
+      else out.push(block, clone);
+      inserted = true;
+      continue;
+    }
+    if (!inserted && block.type === "tabs") {
+      let changed = false;
+      const tabs = block.data.tabs.map((tab) => {
+        if (inserted) return tab;
+        const r = insertBlockBeside(
+          tab.blocks,
+          targetBlockId,
+          sourceBlock,
+          placement,
+        );
+        if (r.inserted) {
+          inserted = true;
+          changed = true;
+          return { ...tab, blocks: r.blocks };
+        }
+        return tab;
+      });
+      out.push(changed ? ({ ...block, data: { tabs } } as PlanBlock) : block);
+      continue;
+    }
+    if (!inserted && block.type === "columns") {
+      let changed = false;
+      const columns = block.data.columns.map((column) => {
+        if (inserted) return column;
+        const r = insertBlockBeside(
+          column.blocks,
+          targetBlockId,
+          sourceBlock,
+          placement,
+        );
+        if (r.inserted) {
+          inserted = true;
+          changed = true;
+          return { ...column, blocks: r.blocks };
+        }
+        return column;
+      });
+      out.push(
+        changed ? ({ ...block, data: { columns } } as PlanBlock) : block,
+      );
+      continue;
+    }
+    out.push(block);
+  }
+  return { blocks: out, inserted };
+}
+
+/**
+ * Cross-region vertical move: remove the source from wherever it is, then insert
+ * it before/after the target. The plan owns this structural move (rather than
+ * the DragHandle's generic ProseMirror node transfer) so the block tree — and
+ * empty-column collapse — stays consistent for moves out of / into / between
+ * columns. Same-region reorders never reach here (handleDrop defers those to the
+ * editor's own reorder).
+ */
+function applyVerticalMove(
+  blocks: PlanBlock[],
+  request: {
+    sourceBlock: PlanBlock;
+    targetBlockId: string;
+    placement: "before" | "after";
+  },
+): PlanBlock[] | null {
+  if (request.sourceBlock.id === request.targetBlockId) return null;
+  const removal = removeBlockFromTree(blocks, request.sourceBlock.id);
+  if (!removal.removed) return null;
+  const result = insertBlockBeside(
+    removal.blocks,
+    request.targetBlockId,
+    request.sourceBlock,
+    request.placement,
+  );
+  return result.inserted ? result.blocks : null;
+}
+
 function repaintDropViews(
   context: DragHandleDropContext,
   nextBlocks: PlanBlock[],
@@ -582,9 +680,15 @@ export function PlanDocumentEditor({
 
   const handleDrop = useMemo<DragHandleOptions["handleDrop"]>(
     () => (data: unknown, context: DragHandleDropContext) => {
-      if (context.placement !== "left" && context.placement !== "right") {
-        return false;
-      }
+      const placement = context.placement;
+      const isSide = placement === "left" || placement === "right";
+      const isVertical = placement === "before" || placement === "after";
+      if (!isSide && !isVertical) return false;
+
+      // A vertical drop INSIDE one editor is a plain reorder — let the
+      // DragHandle's native same-editor reorder handle it (keeps undo clean). We
+      // only own CROSS-region structural moves: out of / into / between columns.
+      if (isVertical && context.sourceView === context.view) return false;
 
       const currentBlocks = blocksRef.current;
       const sourceBlocks = blocksForEditorView(
@@ -598,22 +702,33 @@ export function PlanDocumentEditor({
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
       if (!sourceBlock || !targetBlock) return false;
 
-      const targetRegion = nestedRegionInfoForView(context.view);
-      if (targetRegion) {
-        const container = findBlockInTree(
-          currentBlocks,
-          targetRegion.containerBlockId,
-        );
-        if (container?.type !== "columns") return false;
+      let nextBlocks: PlanBlock[] | null;
+      if (isVertical) {
+        // Cross-region move (the editor views differ): relocate the block
+        // structurally so empty source columns collapse and the block lands in
+        // the target's list.
+        nextBlocks = applyVerticalMove(currentBlocks, {
+          sourceBlock,
+          targetBlockId: targetBlock.id,
+          placement: placement as "before" | "after",
+        });
+      } else {
+        const targetRegion = nestedRegionInfoForView(context.view);
+        if (targetRegion) {
+          const container = findBlockInTree(
+            currentBlocks,
+            targetRegion.containerBlockId,
+          );
+          if (container?.type !== "columns") return false;
+        }
+        nextBlocks = applyColumnSideDrop(currentBlocks, {
+          sourceBlock,
+          targetBlockId: targetBlock.id,
+          side: placement as SideDropSide,
+          containerBlockId: targetRegion?.containerBlockId,
+          regionId: targetRegion?.regionId,
+        });
       }
-
-      const nextBlocks = applyColumnSideDrop(currentBlocks, {
-        sourceBlock,
-        targetBlockId: targetBlock.id,
-        side: context.placement,
-        containerBlockId: targetRegion?.containerBlockId,
-        regionId: targetRegion?.regionId,
-      });
       if (!nextBlocks) return false;
 
       commit(nextBlocks);
