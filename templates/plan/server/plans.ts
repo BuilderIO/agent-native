@@ -647,7 +647,24 @@ export function summarizePlan(
 }
 
 export async function summarizePlans(
-  plans: Array<typeof schema.plans.$inferSelect>,
+  plans: Array<
+    Pick<
+      typeof schema.plans.$inferSelect,
+      | "id"
+      | "title"
+      | "brief"
+      | "kind"
+      | "status"
+      | "source"
+      | "repoPath"
+      | "currentFocus"
+      | "hostedPlanId"
+      | "hostedPlanUrl"
+      | "createdAt"
+      | "updatedAt"
+      | "approvedAt"
+    >
+  >,
 ): Promise<PlanSummary[]> {
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);

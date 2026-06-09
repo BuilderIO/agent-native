@@ -582,6 +582,11 @@ so you never emit a block the editor cannot render or round-trip:
 **Open questions live at the bottom as a form when answers would change the
 plan.** Surface answerable unresolved decisions in a final `question-form`
 block titled "Open Questions" so the renderer presents it as a distinct section.
+That bottom form is the ONLY place that enumerates the open questions: never add
+a second "Open Questions" heading, list, or recap of the same questions earlier
+in the document. A one-line pointer in the overview prose ("a few decisions are
+still open — see Open Questions below") is fine, but do not reproduce the
+question list or a parallel questions/decisions section above it.
 Use `single` or `multi` for clear choices, `freeform` for constraints,
 `recommended: true` for the default you would pick, and option `wireframe` /
 `diagram` previews only when the options are not already visible in the top

@@ -11,12 +11,19 @@ export class BlockRegistry {
   private byType = new Map<string, BlockSpec<any>>();
   private byTag = new Map<string, BlockSpec<any>>();
 
+  /**
+   * Register (or re-register) a block spec. Last registration wins: re-registering
+   * an existing block `type` (or MDX `tag`) OVERRIDES the previous spec rather than
+   * throwing. This lets an app intentionally override a shared library block with
+   * its own variant, and makes module-level registration idempotent under dev HMR
+   * (which can re-run a registration module against a registry that survived the
+   * reload). When a re-registered type changes its MDX tag, the stale tag mapping
+   * is dropped so `getByTag` can't return an orphaned spec.
+   */
   register(spec: BlockSpec<any>): void {
-    if (this.byType.has(spec.type)) {
-      throw new Error(`Block type "${spec.type}" is already registered.`);
-    }
-    if (this.byTag.has(spec.mdx.tag)) {
-      throw new Error(`Block MDX tag "${spec.mdx.tag}" is already registered.`);
+    const prevForType = this.byType.get(spec.type);
+    if (prevForType && prevForType.mdx.tag !== spec.mdx.tag) {
+      this.byTag.delete(prevForType.mdx.tag);
     }
     this.byType.set(spec.type, spec);
     this.byTag.set(spec.mdx.tag, spec);

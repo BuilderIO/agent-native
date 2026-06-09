@@ -45,14 +45,14 @@ export function ChecklistBlock({
   return (
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
-      <div className="grid gap-3">
+      <div className="grid gap-2">
         {data.items.map((item) =>
           onToggle ? (
             <button
               key={item.id}
               type="button"
               data-plan-interactive
-              className="flex items-start gap-3 text-left text-plan-muted"
+              className="flex w-full items-start gap-3 text-left text-plan-muted"
               onClick={() => onToggle(item.id)}
             >
               <ChecklistMarker checked={item.checked} />
@@ -61,7 +61,7 @@ export function ChecklistBlock({
           ) : (
             <div
               key={item.id}
-              className="flex items-start gap-3 text-left text-plan-muted"
+              className="flex w-full items-start gap-3 text-left text-plan-muted"
             >
               <ChecklistMarker checked={item.checked} />
               <ChecklistItemBody item={item} />
@@ -77,7 +77,7 @@ function ChecklistMarker({ checked }: { checked?: boolean }) {
   return (
     <span
       className={cn(
-        "mt-1 flex size-5 items-center justify-center rounded border",
+        "mt-1 flex size-5 shrink-0 items-center justify-center rounded border",
         checked
           ? "border-primary bg-primary text-primary-foreground"
           : "border-plan-line",
@@ -90,9 +90,11 @@ function ChecklistMarker({ checked }: { checked?: boolean }) {
 
 function ChecklistItemBody({ item }: { item: ChecklistItem }) {
   return (
-    <span>
-      <span className="block text-plan-text">{item.label}</span>
-      {item.note && <span className="block text-sm">{item.note}</span>}
+    <span className="min-w-0 flex-1">
+      <span className="block break-words text-plan-text">{item.label}</span>
+      {item.note && (
+        <span className="block break-words text-sm">{item.note}</span>
+      )}
     </span>
   );
 }

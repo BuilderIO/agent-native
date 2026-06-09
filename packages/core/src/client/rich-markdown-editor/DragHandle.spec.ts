@@ -530,4 +530,58 @@ describe("DragHandle menu", () => {
       target.editor.destroy();
     }
   });
+
+  it("keeps a non-left-aligned block's grip alive while the cursor approaches it", () => {
+    // A right column / tab body renders its grip in a gap, NOT the page-left
+    // gutter. Moving the cursor from that block's body toward its grip crosses
+    // into the neighbour's wide forgiving zone (and even its content), so the
+    // plain picker flips hover to the neighbour and the grip vanishes before the
+    // cursor reaches it. The keepalive must hold the grip across that approach.
+    // Here the right grip glyph sits at x:320–344 — LEFT of the 28px gutter band
+    // and inside the left region's content [24,336], so without keepalive the
+    // left region wins at x=330 and the right grip disappears.
+    const left = mountEditor(
+      "<p>Left region</p>",
+      {},
+      makeRect({ left: 24, top: 160, width: 312, height: 90 }),
+      document.body,
+      { x: 100, y: 172 },
+    );
+    setRect(
+      left.editor.view.nodeDOM(0) as HTMLElement,
+      makeRect({ left: 24, top: 160, width: 312, height: 24 }),
+    );
+    const right = mountEditor(
+      "<p>Right region</p>",
+      {},
+      makeRect({ left: 360, top: 160, width: 300, height: 90 }),
+      document.body,
+      { x: 500, y: 172 },
+    );
+    setRect(
+      right.editor.view.nodeDOM(0) as HTMLElement,
+      makeRect({ left: 360, top: 160, width: 300, height: 24 }),
+    );
+    // The right block's grip glyph, rendered in the inter-region gap.
+    setRect(
+      right.handle,
+      makeRect({ left: 320, top: 162, width: 24, height: 24 }),
+    );
+
+    try {
+      // Over the right block's body → its grip shows.
+      hoverAt(500, 172);
+      expect(right.handle.style.display).toBe("flex");
+
+      // Cursor moved left onto the right block's grip glyph (x=330). This is
+      // inside the LEFT region's content, so the plain picker would hand hover to
+      // the left region — the keepalive must keep the RIGHT grip visible.
+      hoverAt(330, 172);
+      expect(right.handle.style.display).toBe("flex");
+      expect(left.handle.style.display).toBe("none");
+    } finally {
+      right.editor.destroy();
+      left.editor.destroy();
+    }
+  });
 });

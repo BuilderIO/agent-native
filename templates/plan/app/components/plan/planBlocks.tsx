@@ -29,11 +29,6 @@ import {
 import type { PlanBlock } from "@shared/plan-content";
 import { PlanBlockView, QuestionFormBlock } from "./DocumentArea";
 import {
-  calloutSchema,
-  calloutMdx,
-  type CalloutData,
-} from "@shared/blocks/callout.config";
-import {
   diagramSchema,
   diagramMdx,
   type DiagramData,
@@ -56,7 +51,6 @@ import {
   decisionMdx,
   type DecisionData,
 } from "@shared/blocks/decision.config";
-import { CalloutBlock, CalloutBlockEdit } from "./blocks/CalloutBlock";
 import { DiagramBlock, DiagramBlockEdit } from "./blocks/DiagramBlock";
 import { WireframeBlock, WireframeEditor } from "./blocks/WireframeBlock";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
@@ -705,151 +699,11 @@ function QuestionFormEdit({
  */
 export const planBlockRegistry = new BlockRegistry();
 
-registerBlocks(planBlockRegistry, [
-  // Plan-specific blocks (callout/diagram/wireframe/question-form). The standard
-  // library (checklist, table, code-tabs, html, tabs + the eight dev-doc blocks)
-  // is registered once via `registerLibraryBlocks` below — adding a library block
-  // there lands in plan and content together.
-  defineBlock<CalloutData>({
-    type: "callout",
-    schema: calloutSchema,
-    mdx: calloutMdx,
-    Read: CalloutBlock,
-    Edit: CalloutBlockEdit,
-    placement: ["block"],
-    editSurface: "inline",
-    label: "Callout",
-    description:
-      "An emphasized note with a tone (info/decision/risk/warning/success) and a markdown body.",
-    // `body` is a `markdown(min(1))` field, so a fresh callout needs non-empty
-    // placeholder prose; `tone` defaults to the neutral "info" register.
-    empty: () => ({ tone: "info", body: "Callout text" }),
-  }),
-  defineBlock<DiagramData>({
-    type: "diagram",
-    schema: diagramSchema,
-    mdx: diagramMdx,
-    Read: DiagramBlock,
-    // Diagram editing uses an explicit corner popover in the single-doc editor:
-    // the read diagram stays stable, while the popover exposes html/css/caption
-    // plus legacy node graph JSON for older diagrams.
-    Edit: DiagramBlockEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "Diagram",
-    description:
-      "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
-    // Seed the legacy fallback shape so a fresh block validates while agents can
-    // replace it with html/css when layout quality matters.
-    empty: () => ({ nodes: [{ id: "n1", label: "Module" }], edges: [] }),
-  }),
-  defineBlock<WireframeData>({
-    type: "wireframe",
-    schema: wireframeSchema,
-    mdx: wireframeMdx,
-    Read: WireframeBlock,
-    // The wireframe is canvas / agent-patch edited (node-addressable
-    // `update-wireframe-node` / `replace-wireframe-screen` content patches), not
-    // schema-form edited. The custom Edit reuses the read render so edit mode
-    // does not fall back to the schema auto-editor (which can't render the kit
-    // tree) and preserves today's patch-driven behavior.
-    Edit: WireframeEditor,
-    placement: ["block"],
-    label: "Wireframe",
-    description:
-      "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface frame (desktop/mobile/popover/panel/browser).",
-    // `surface` is the only required field; `screen` defaults to []. Start on the
-    // desktop surface with an empty screen so the canvas/agent can fill it in.
-    empty: () => ({ surface: "desktop", screen: [] }),
-  }),
-  defineBlock<QuestionFormData>({
-    type: "question-form",
-    schema: questionFormSchema,
-    mdx: questionFormMdx,
-    Read: QuestionFormRead,
-    Edit: QuestionFormEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "Question form",
-    description:
-      "An interactive respondent-facing form block for open questions, single-choice or multi-choice option rows, freeform answers, recommended options, and optional wireframe/diagram previews. Edit the question schema from the block panel.",
-    empty: () => ({
-      submitLabel: "Send to agent",
-      questions: [
-        {
-          id: "open-question",
-          title: "What should the agent clarify before revising this plan?",
-          mode: "freeform",
-          placeholder: "Add constraints, preferences, or a decision...",
-        },
-      ],
-    }),
-  }),
-  defineBlock<VisualQuestionsData>({
-    type: "visual-questions",
-    schema: visualQuestionsSchema,
-    mdx: visualQuestionsMdx,
-    Read: VisualQuestionsRead,
-    Edit: QuestionFormEdit,
-    placement: ["block"],
-    editSurface: "panel",
-    label: "Visual questions",
-    description:
-      "A compatibility visual-intake question block that renders the respondent-facing question UI and keeps schema editing in the block panel.",
-    empty: () => ({
-      submitLabel: "Send to agent",
-      questions: [
-        {
-          id: "visual-question",
-          title: "Which direction should this plan take?",
-          mode: "single",
-          options: [
-            {
-              id: "option-a",
-              label: "Direction A",
-              detail: "Keep the current shape and refine it.",
-              recommended: true,
-            },
-            {
-              id: "option-b",
-              label: "Direction B",
-              detail: "Try a larger structural revision.",
-            },
-          ],
-          allowOther: true,
-        },
-      ],
-    }),
-  }),
-  defineBlock<DecisionData>({
-    type: "decision",
-    schema: decisionSchema,
-    mdx: decisionMdx,
-    Read: DecisionRead,
-    Edit: DecisionEdit,
-    placement: ["block"],
-    editSurface: "inline",
-    label: "Decision",
-    description:
-      "A decision prompt with inline-editable option cards and an authored recommended choice.",
-    empty: () => ({
-      question: "Which implementation direction should we take?",
-      options: [
-        {
-          id: "recommended",
-          label: "Recommended path",
-          detail: "Smallest useful slice with clear rollback.",
-          recommended: true,
-        },
-        {
-          id: "alternative",
-          label: "Alternative",
-          detail: "Broader pass that touches more surfaces.",
-        },
-      ],
-    }),
-  }),
-]);
+// All of plan's former plan-specific blocks (callout, diagram, wireframe,
+// question-form, visual-questions, decision) now live in the shared core block
+// library and register via `registerLibraryBlocks` below — so plan and content
+// get them from one place. Plan registers no app-only blocks today.
+registerBlocks(planBlockRegistry, []);
 
 /**
  * Plan's per-block overrides for the shared standard library: the Mermaid

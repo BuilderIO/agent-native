@@ -14,6 +14,9 @@ cd my-app
 pnpm install
 pnpm dev`;
 
+const skillInstallCode = `# Add agent-native planning to a coding agent you already use
+npx @agent-native/core@latest skills add visual-plan`;
+
 function TerminalCommand() {
   const [copied, setCopied] = useState(false);
   const command = "npx @agent-native/core create my-app";
@@ -326,12 +329,88 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Try it with a skill - above templates */}
+        <section className="border-t border-[var(--docs-border)] px-6 py-20">
+          <div className="mb-12 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              Try it with a skill
+            </h2>
+            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              Not ready to scaffold a whole app? Add agent-native superpowers to
+              a coding agent you already use — Claude Code, Codex, or Cursor —
+              with one command. It installs the skills, registers the hosted MCP
+              connector, and signs you in in one step.
+            </p>
+          </div>
+
+          <div className="mx-auto max-w-2xl">
+            <CodeBlock code={skillInstallCode} lang="bash" />
+          </div>
+
+          <div className="mx-auto mt-8 grid max-w-3xl gap-5 sm:grid-cols-2">
+            <div className="rounded-xl border border-[var(--docs-border)] p-6">
+              <h3 className="mb-2 font-mono text-base font-semibold text-[var(--docs-accent)]">
+                /visual-plan
+              </h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Before the agent writes code, it opens a structured, reviewable
+                plan instead of a wall of text — inline diagrams, UI wireframes
+                and prototypes, file-by-file implementation maps, and
+                annotations you can comment on and approve.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--docs-border)] p-6">
+              <h3 className="mb-2 font-mono text-base font-semibold text-[var(--docs-accent)]">
+                /visual-recap
+              </h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                After changes land, it turns a PR or git diff into a
+                high-altitude visual recap — schema, API, and file changes as
+                grounded before/after blocks with a shareable review link,
+                instead of scrolling a raw diff.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-8 text-center">
+            <Link
+              data-an-prefetch="render"
+              to="/docs/skills-guide"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click cta", {
+                  label: "skills_guide",
+                  location: "skills_section",
+                })
+              }
+            >
+              Browse the Skills Guide
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </Link>
+          </div>
+        </section>
+
         {/* Templates - breaks out of max-width on ultra-wide screens */}
         <section id="templates" className="py-20 px-6">
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
               Start with a full featured template
             </h2>
+            <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
+              100% free and open source
+            </p>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
               High-quality, vetted templates that replace tools you're paying
               for — except you own the code and can customize everything. Try

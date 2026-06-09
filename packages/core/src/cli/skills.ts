@@ -34,7 +34,7 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plan|visual-recap|visual-questions|ui-plan|prototype-plan|plan-design|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
@@ -667,6 +667,11 @@ so you never emit a block the editor cannot render or round-trip:
 **Open questions live at the bottom as a form when answers would change the
 plan.** Surface answerable unresolved decisions in a final \`question-form\`
 block titled "Open Questions" so the renderer presents it as a distinct section.
+That bottom form is the ONLY place that enumerates the open questions: never add
+a second "Open Questions" heading, list, or recap of the same questions earlier
+in the document. A one-line pointer in the overview prose ("a few decisions are
+still open — see Open Questions below") is fine, but do not reproduce the
+question list or a parallel questions/decisions section above it.
 Use \`single\` or \`multi\` for clear choices, \`freeform\` for constraints,
 \`recommended: true\` for the default you would pick, and option \`wireframe\` /
 \`diagram\` previews only when the options are not already visible in the top
@@ -2017,17 +2022,13 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "visual-plan",
     extraSkills: {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
-      "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
-      "ui-plan": UI_PLAN_SKILL_MD,
-      "prototype-plan": PROTOTYPE_PLAN_SKILL_MD,
-      "plan-design": PLAN_DESIGN_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
       displayName: "Agent-Native Plan",
       description:
-        "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, optional UI wireframes/prototypes, annotations, feedback, and HTML export.",
+        "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
@@ -2036,7 +2037,7 @@ export const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -2053,34 +2054,6 @@ export const BUILT_IN_APP_SKILLS = {
           description:
             "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review.",
         },
-        {
-          id: "visual-questions",
-          action: "create-visual-questions",
-          path: "/plans",
-          description:
-            "Create a visual intake questionnaire before generating or updating an Agent-Native plan.",
-        },
-        {
-          id: "ui-plan",
-          action: "create-ui-plan",
-          path: "/plans",
-          description:
-            "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below.",
-        },
-        {
-          id: "prototype-plan",
-          action: "create-prototype-plan",
-          path: "/plans",
-          description:
-            "Create a prototype-first Agent-Native plan with a functional live prototype above the document.",
-        },
-        {
-          id: "plan-design",
-          action: "create-plan-design",
-          path: "/plans",
-          description:
-            "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab.",
-        },
       ],
       skills: [
         {
@@ -2092,26 +2065,6 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-recap",
           visibility: "exported",
           exportAs: "visual-recap",
-        },
-        {
-          path: "skills/visual-questions",
-          visibility: "exported",
-          exportAs: "visual-questions",
-        },
-        {
-          path: "skills/ui-plan",
-          visibility: "exported",
-          exportAs: "ui-plan",
-        },
-        {
-          path: "skills/prototype-plan",
-          visibility: "exported",
-          exportAs: "prototype-plan",
-        },
-        {
-          path: "skills/plan-design",
-          visibility: "exported",
-          exportAs: "plan-design",
         },
       ],
       hostAdapters: [
@@ -2193,17 +2146,6 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-recaps": "visual-plans",
   "code-review-recap": "visual-plans",
   "code-review-recaps": "visual-plans",
-  "visual-questions": "visual-plans",
-  "visual-question": "visual-plans",
-  "ui-plan": "visual-plans",
-  "ui-plans": "visual-plans",
-  "prototype-plan": "visual-plans",
-  "prototype-plans": "visual-plans",
-  "plan-design": "visual-plans",
-  "plan-designs": "visual-plans",
-  "design-plan": "visual-plans",
-  "design-plans": "visual-plans",
-  prototype: "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
@@ -2228,10 +2170,6 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "visual-plan",
     "visual-recap",
     "code-review-recap",
-    "visual-questions",
-    "ui-plan",
-    "prototype-plan",
-    "plan-design",
     "html-plan",
     "plannotate",
   ],

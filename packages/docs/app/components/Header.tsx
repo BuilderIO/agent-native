@@ -152,6 +152,15 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
+              to="/skills"
+              className={({ isActive }) =>
+                isActive ? "header-link is-active" : "header-link"
+              }
+            >
+              Skills
+            </NavLink>
+            <NavLink
+              data-an-prefetch="render"
               to="/download"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -237,6 +246,16 @@ export default function Header() {
               onClick={closeMobileMenu}
             >
               Templates
+            </NavLink>
+            <NavLink
+              data-an-prefetch="render"
+              to="/skills"
+              className={({ isActive }) =>
+                isActive ? "header-link is-active" : "header-link"
+              }
+              onClick={closeMobileMenu}
+            >
+              Skills
             </NavLink>
             <NavLink
               data-an-prefetch="render"

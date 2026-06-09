@@ -60,10 +60,6 @@ const KEYWORDS = ["agent-native", APP_ID, "mcp", "skills", "app-backed-skill"];
 const SKILL_SOURCES: { sourceDir: string; exportAs: string }[] = [
   { sourceDir: "visual-plans", exportAs: "visual-plan" },
   { sourceDir: "visual-recap", exportAs: "visual-recap" },
-  { sourceDir: "ui-plan", exportAs: "ui-plan" },
-  { sourceDir: "prototype-plan", exportAs: "prototype-plan" },
-  { sourceDir: "plan-design", exportAs: "plan-design" },
-  { sourceDir: "visual-questions", exportAs: "visual-questions" },
 ];
 
 const bundleRoot = join(

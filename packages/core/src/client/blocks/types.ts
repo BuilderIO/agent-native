@@ -192,6 +192,14 @@ export interface BlockRenderContext {
     blockSummary?: string;
     blockData?: unknown;
   }) => React.ReactNode;
+  /**
+   * Submit a respondent's answers from a `question-form` / `visual-questions`
+   * block back to the host. The app decides how to route the summary (e.g. send
+   * to the inline agent, copy to clipboard). Core blocks call this through the
+   * context so they never import app-specific submit wiring; omit it and the
+   * block degrades to a no-op submit.
+   */
+  onQuestionFormSubmit?: (summary: string) => void;
 }
 
 export interface BlockAiFieldActionProps {
