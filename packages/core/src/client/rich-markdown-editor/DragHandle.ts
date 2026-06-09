@@ -1094,6 +1094,16 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
       removeDragListeners();
 
+      // eslint-disable-next-line no-console
+      console.log("[vmove] finish", {
+        commit,
+        dragging: session.dragging,
+        hasTarget: !!session.dropTarget,
+        placement: session.dropTarget?.placement,
+        sameView: session.dropTarget
+          ? session.dropTarget.view === session.view
+          : null,
+      });
       if (commit && session.dragging && session.dropTarget) {
         const sourceStart = session.sourcePos;
         const sourceEnd = session.sourcePos + session.sourceNodeSize;
@@ -1279,6 +1289,12 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
           handle.addEventListener("mousedown", (e) => {
             e.stopPropagation();
+            // eslint-disable-next-line no-console
+            console.log("[vmove] md", {
+              sel: wrapperSelector,
+              hasCur: !!currentBlock,
+              pos: dragStartPos,
+            });
             if (e.button !== 0) return;
             closeMenu();
             if (!editor.isEditable) {
