@@ -28,11 +28,7 @@ export function useInNarrowContainer(): boolean {
  * pick a container-appropriate default. Idempotent: nesting the provider keeps
  * the flag `true`.
  */
-export function NarrowContainerProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export function NarrowContainerProvider({ children }: { children: ReactNode }) {
   return (
     <NarrowContainerContext.Provider value={true}>
       {children}

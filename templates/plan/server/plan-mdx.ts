@@ -833,9 +833,7 @@ function editDistance(a: string, b: string): number {
     for (let j = 1; j < cols; j += 1) {
       const tmp = dp[j];
       dp[j] =
-        s[i - 1] === t[j - 1]
-          ? prev
-          : 1 + Math.min(prev, dp[j], dp[j - 1]);
+        s[i - 1] === t[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
       prev = tmp;
     }
   }
@@ -869,8 +867,7 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   // real block (attrs, children, JSON props). We work on a shallow clone with
   // the canonical `name` so every downstream branch sees the resolved tag.
   const name = rawName ? resolveBlockTagAlias(rawName) : rawName;
-  const dispatchNode: MdxNode =
-    name === rawName ? node : { ...node, name };
+  const dispatchNode: MdxNode = name === rawName ? node : { ...node, name };
   node = dispatchNode;
   if (name === "Columns") {
     const parsed = parseReadableColumnsBlock(node, idContext);
