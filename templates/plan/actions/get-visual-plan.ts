@@ -23,19 +23,31 @@ export default defineAction({
     title: "Get Visual Plan",
     description: "Read the current visual plan content and annotations.",
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const bundle = await loadPlanBundle(args.id);
+    // The interactive web viewer renders from the structured `content` blocks
+    // and only consumes `html` (with a client-side `buildClientPlanHtml`
+    // fallback). It never reads `mdx` — the source-control export surface is
+    // served on demand by `export-visual-plan`. Building the MDX folder here
+    // Prettier-formats plan.mdx (plus canvas.mdx / prototype.mdx) on *every*
+    // read, and `usePlan` polls this action every 3s, so that cold,
+    // unused-by-the-UI work dominated the time the loading skeleton stayed up.
+    // Skip it for the frontend; agents / HTTP / CLI callers keep the full
+    // contract (mdx + html) they advertise.
+    const includeExports = ctx?.caller !== "frontend";
     return {
       ...bundle,
       planId: bundle.plan.id,
       html: buildPlanHtml(bundle),
-      mdx: await exportPlanContentToMdxFolder({
-        content: bundle.plan.content,
-        title: bundle.plan.title,
-        brief: bundle.plan.brief,
-        planId: bundle.plan.id,
-        url: planPath(bundle.plan.id, bundle.plan.kind),
-      }),
+      mdx: includeExports
+        ? await exportPlanContentToMdxFolder({
+            content: bundle.plan.content,
+            title: bundle.plan.title,
+            brief: bundle.plan.brief,
+            planId: bundle.plan.id,
+            url: planPath(bundle.plan.id, bundle.plan.kind),
+          })
+        : undefined,
     };
   },
   link: ({ args }) => ({
