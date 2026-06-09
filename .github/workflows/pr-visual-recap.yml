@@ -253,18 +253,21 @@ jobs:
       - name: Build recap prompt
         id: prompt
         if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        env:
+          # Pass step outputs through env, NOT via ${{ }} interpolation into the
+          # run body: the plan id is parsed from a PR sticky comment, so a crafted
+          # value interpolated into the script text could break quoting and run
+          # arbitrary shell on the runner that holds the publish/API secrets.
+          # As env vars they are inert data; args are assembled in a bash array
+          # so each is passed as a single quoted token.
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+          DIFF_HUGE: ${{ steps.diff.outputs.huge }}
         run: |
           set -euo pipefail
-          PREV=""
-          if [ -n "${{ steps.prev.outputs.plan_id }}" ]; then PREV="--prev-plan-id ${{ steps.prev.outputs.plan_id }}"; fi
-          HUGE=""
-          if [ "${{ steps.diff.outputs.huge }}" = "true" ]; then HUGE="--huge"; fi
-          $RECAP_CLI recap build-prompt \
-            --diff recap.diff --stat recap.stat \
-            --pr "$PR_NUMBER" --head "$HEAD_SHA" \
-            --app-url "$PLAN_RECAP_APP_URL" \
-            --out recap-prompt.md \
-            $HUGE $PREV
+          ARGS=(--diff recap.diff --stat recap.stat --pr "$PR_NUMBER" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --out recap-prompt.md)
+          if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
+          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          $RECAP_CLI recap build-prompt "${ARGS[@]}"
 
       # Wire the plan MCP server for the chosen backend, then run the agent. The
       # agent follows the skill, calls create-visual-recap + set-resource-visibility,
