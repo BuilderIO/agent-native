@@ -18,6 +18,9 @@ describe("plan-mdx forgiving aliases", () => {
     );
     const block = parsed.blocks.find((b) => b.id === "state-shape");
     expect(block?.type).toBe("json-explorer");
+    expect((block?.data as { json?: string } | undefined)?.json).toBe(
+      JSON.stringify({ foo: 1, bar: [2, 3] }),
+    );
     expect(parsed.blocks.every((b) => b.type !== "rich-text")).toBe(true);
   });
 

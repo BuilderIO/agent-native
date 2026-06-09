@@ -659,7 +659,6 @@ export function ComposeModal({
                 onMoveRecipient={moveRecipient}
               />
               <button
-                tabIndex={-1}
                 onClick={() => {
                   const next = !showCcBcc;
                   setShowCcBcc(next);

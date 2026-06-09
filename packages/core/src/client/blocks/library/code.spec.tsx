@@ -44,7 +44,11 @@ describe("shared code block", () => {
 
     expect(container.querySelector(".plan-code-head")).toBeNull();
     expect(container.querySelector(".plan-code-chrome-float")).toBeTruthy();
-    expect(container.querySelector(".plan-code-caption-input")).toBeNull();
+    const captionInput = container.querySelector<HTMLInputElement>(
+      ".plan-code-caption-input",
+    );
+    expect(captionInput).toBeTruthy();
+    expect(captionInput?.value).toBe("");
     expect(container.textContent).not.toContain("Snippet");
   });
 

@@ -357,7 +357,6 @@ export const InlineReplyComposer = forwardRef<
         />
         <button
           type="button"
-          tabIndex={-1}
           aria-label={showCcBcc ? "Hide Cc and Bcc" : "Show Cc and Bcc"}
           aria-expanded={showCcBcc}
           onClick={toggleCcBcc}

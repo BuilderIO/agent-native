@@ -129,6 +129,19 @@ describe("DiffBlock", () => {
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
   });
 
+  it("does not let stored layout preference override authored split mode", () => {
+    window.localStorage.setItem(DIFF_MODE_STORAGE_KEY, "unified");
+
+    renderDiff({
+      before: "const a = 1",
+      after: "const a = 2",
+      blockId: "diff-authored-split",
+      mode: "split",
+    });
+
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+  });
+
   it("the Unified/Split toggle switches the rendered layout", () => {
     act(() => {
       root.render(

@@ -391,7 +391,7 @@ function CodeEdit({ data, onChange, editable }: BlockEditProps<CodeData>) {
         onFilenameChange={(filename) => onChange({ ...data, filename })}
         onMaxLinesChange={(maxLines) => onChange({ ...data, maxLines })}
       />
-      {editable && data.caption && (
+      {editable && (
         <input
           type="text"
           data-plan-interactive

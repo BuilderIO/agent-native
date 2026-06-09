@@ -287,6 +287,38 @@ function resolveBlockTagAlias(name: string): string {
   return BLOCK_TAG_ALIASES[name] ?? name;
 }
 
+function normalizeBlockAliasNode(node: MdxNode, rawName: string): MdxNode {
+  const name = resolveBlockTagAlias(rawName);
+  if (name === rawName) return node;
+
+  let attributes = node.attributes;
+  if (rawName === "JsonExplorer") {
+    const hasJson = attributes?.some(
+      (attr) => attr.type === "mdxJsxAttribute" && attr.name === "json",
+    );
+    const dataAttr = attributes?.find(
+      (attr) => attr.type === "mdxJsxAttribute" && attr.name === "data",
+    );
+    if (!hasJson && dataAttr) {
+      const dataValue = attributeValue(dataAttr);
+      const jsonValue =
+        typeof dataValue === "string"
+          ? dataValue
+          : JSON.stringify(dataValue ?? null);
+      attributes = [
+        ...(attributes ?? []),
+        {
+          type: "mdxJsxAttribute",
+          name: "json",
+          value: jsonValue,
+        },
+      ];
+    }
+  }
+
+  return { ...node, name, attributes };
+}
+
 function mdxProcessor() {
   return unified().use(remarkParse).use(remarkMdx).use(remarkStringify, {
     bullet: "-",
@@ -866,8 +898,10 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   // dispatch, so an aliased element parses through the exact same path as the
   // real block (attrs, children, JSON props). We work on a shallow clone with
   // the canonical `name` so every downstream branch sees the resolved tag.
-  const name = rawName ? resolveBlockTagAlias(rawName) : rawName;
-  const dispatchNode: MdxNode = name === rawName ? node : { ...node, name };
+  const dispatchNode: MdxNode = rawName
+    ? normalizeBlockAliasNode(node, rawName)
+    : node;
+  const name = dispatchNode.name;
   node = dispatchNode;
   if (name === "Columns") {
     const parsed = parseReadableColumnsBlock(node, idContext);

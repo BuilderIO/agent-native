@@ -580,11 +580,13 @@ function usePreferredDiffMode(authoredMode: DiffMode | undefined) {
   const [mode, setMode] = useState<DiffMode>(authoredMode ?? "unified");
 
   useEffect(() => {
+    if (authoredMode) return;
     const storedMode = readStoredDiffMode();
     if (storedMode) setMode(storedMode);
-  }, []);
+  }, [authoredMode]);
 
   useEffect(() => {
+    if (authoredMode) return;
     if (typeof window === "undefined") return;
 
     const onStorage = (event: StorageEvent) => {
@@ -602,7 +604,7 @@ function usePreferredDiffMode(authoredMode: DiffMode | undefined) {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener(DIFF_MODE_STORAGE_EVENT, onModeChange);
     };
-  }, []);
+  }, [authoredMode]);
 
   const setPreferredMode = useCallback((nextMode: DiffMode) => {
     setMode(nextMode);
@@ -691,16 +693,13 @@ function DiffRead({
   );
   const hasAnnotations = hasRailAnnotations(resolved);
   // Effective render mode. Annotations live in a SEPARATE right-hand rail (not
-  // over the code), so they no longer force a mode; a container narrower than
-  // SPLIT_MIN_WIDTH falls back to unified so split's doubled gutters never crush
-  // the code. We ALSO treat a width-constrained host container (a tabs panel or
-  // a comparison column, via `inNarrowContainer`) as narrow up front — before
-  // the ResizeObserver has measured — so a diff there never flashes split when
-  // no mode was authored. `canSplit` gates the mode toggle (hidden when narrow);
-  // an explicitly authored split still shows the toggle once there's room.
+  // over the code), so they no longer force a mode. When no mode was authored, a
+  // narrow container falls back to unified so split's doubled gutters never
+  // crush the code; an explicitly authored `mode` wins even in a narrow host.
+  // `canSplit` only hides the toggle for auto-mode narrow fallbacks.
   const measuredNarrow =
     containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
-  const narrow = measuredNarrow || (inNarrowContainer && data.mode == null);
+  const narrow = data.mode == null && (measuredNarrow || inNarrowContainer);
   const canSplit = !narrow;
   const effectiveMode: DiffMode = canSplit ? mode : "unified";
 
