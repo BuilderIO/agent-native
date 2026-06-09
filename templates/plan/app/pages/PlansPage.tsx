@@ -1860,12 +1860,13 @@ export function PlansPage() {
   const bundle = planQuery.data;
   const queryClient = useQueryClient();
   // Reflect a structural block edit (drag-to-columns, reorder) into the
-  // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content +
-  // timestamp track the new layout. Without this, the debounced save (600ms) +
-  // 3s poll leave a window where a refetch re-supplies the pre-edit content and
-  // the reconcile reverts the layout, then restores it once the save lands — the
-  // "drop works, then undoes, then comes back" glitch. The bumped `updatedAt`
-  // also makes a lagging poll read as stale (older) so it can't re-apply.
+  // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
+  // tracks the new layout instead of lagging the debounced (600ms) save. This
+  // keeps every reader of the plan content consistent with what the editor shows
+  // the moment the drop lands. The reconcile's own non-collab stale-poll guard is
+  // what actually stops a lagging refetch from reverting the layout, so this does
+  // NOT bump `updatedAt` — leaving the server's timestamp intact so a genuinely
+  // newer agent/external edit still wins.
   const writeBlocksOptimistically = useCallback(
     (blocks: PlanBlock[]) => {
       if (!selectedId) return;
@@ -1878,7 +1879,6 @@ export function PlansPage() {
             plan: {
               ...prev.plan,
               content: { ...prev.plan.content, blocks },
-              updatedAt: new Date().toISOString(),
             },
           };
         },

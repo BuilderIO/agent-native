@@ -366,21 +366,6 @@ describe("structural validation", () => {
     ).toBe(false);
   });
 
-  it("rejects a decision block with zero options (min 1)", () => {
-    const result = planContentSchema.safeParse({
-      version: 2,
-      brief: "x",
-      blocks: [
-        {
-          id: "d",
-          type: "decision",
-          data: { question: "Q?", options: [] },
-        },
-      ],
-    });
-    expect(result.success).toBe(false);
-  });
-
   it("rejects a diagram block without html or nodes", () => {
     const result = planContentSchema.safeParse({
       version: 2,

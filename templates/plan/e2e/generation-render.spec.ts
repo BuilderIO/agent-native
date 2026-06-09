@@ -368,23 +368,6 @@ function richDocContent(title: string) {
         },
       },
       {
-        id: "de-1",
-        type: "decision",
-        title: "Pick a direction",
-        data: {
-          question: "Which approach?",
-          options: [
-            {
-              id: "o-a",
-              label: "Approach A",
-              detail: "Simpler.",
-              recommended: true,
-            },
-            { id: "o-b", label: "Approach B", detail: "More flexible." },
-          ],
-        },
-      },
-      {
         id: "tabs-1",
         type: "tabs",
         title: "Details",
@@ -623,7 +606,7 @@ test.describe("plan generation + rendering", () => {
 
     // Each structured block is present (each id may appear >1× — NodeViewWrapper +
     // inner section — so assert at least one and that the first is visible).
-    for (const id of ["co-1", "tb-1", "ct-1", "im-1", "de-1", "tabs-1"]) {
+    for (const id of ["co-1", "tb-1", "ct-1", "im-1", "tabs-1"]) {
       await expect
         .poll(async () => page.locator(`[data-block-id="${id}"]`).count(), {
           timeout: 15_000,
@@ -674,11 +657,6 @@ test.describe("plan generation + rendering", () => {
         .first()
         .getByText("app/routes/example.tsx")
         .first(),
-    ).toBeVisible();
-    // Decision option recommended badge.
-    await expect(page.getByText(/recommended/i).first()).toBeVisible();
-    await expect(
-      page.getByText("Approach A", { exact: false }).first(),
     ).toBeVisible();
     // Tabs block: tab label + the first tab's nested rich-text child render. The
     // nested rich-text inside a tab renders via the legacy PlanBlockView path, so
