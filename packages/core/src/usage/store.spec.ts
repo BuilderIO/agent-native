@@ -65,6 +65,7 @@ beforeEach(() => {
     model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat',
     app TEXT NOT NULL DEFAULT '',
+    ref_id TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL
   )`);
   delete process.env.AGENT_APP;
@@ -379,5 +380,73 @@ describe("getUsageSummary", () => {
     expect(summary.byApp).toEqual([]);
     expect(summary.byDay).toEqual([]);
     expect(summary.recent).toEqual([]);
+  });
+});
+
+describe("recordUsage refId + cost override", () => {
+  it("replaces a prior row with the same (label, refId) rather than duplicating", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 100,
+      outputTokens: 10,
+      model: "gpt-5.5",
+      label: "visual-recap",
+      refId: "recap-1",
+    });
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 200,
+      outputTokens: 20,
+      model: "gpt-5.5",
+      label: "visual-recap",
+      refId: "recap-1",
+    });
+    const rows = sqlite
+      .prepare(
+        "SELECT input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'recap-1'",
+      )
+      .all() as Array<{ input_tokens: number }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].input_tokens).toBe(200);
+  });
+
+  it("stores a precomputed costCentsX100 verbatim instead of deriving from tokens", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "gpt-5.5",
+      label: "visual-recap",
+      refId: "recap-2",
+      costCentsX100: 4242,
+    });
+    const row = sqlite
+      .prepare(
+        "SELECT cost_cents_x100 AS c FROM token_usage WHERE ref_id = 'recap-2'",
+      )
+      .get() as { c: number };
+    // Derived cost would be 50000 centicents ($5/1M); the override wins.
+    expect(row.c).toBe(4242);
+  });
+
+  it("does not dedup rows that carry no refId", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1,
+      outputTokens: 1,
+      model: "m",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1,
+      outputTokens: 1,
+      model: "m",
+      label: "chat",
+    });
+    const rows = sqlite
+      .prepare("SELECT id FROM token_usage WHERE label = 'chat'")
+      .all();
+    expect(rows).toHaveLength(2);
   });
 });

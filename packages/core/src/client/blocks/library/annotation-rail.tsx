@@ -1,4 +1,12 @@
-import { useMemo, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../../utils.js";
 import type { BlockRenderContext } from "../types.js";
 
@@ -142,7 +150,290 @@ export function AnnotationGutterMarker({
   );
 }
 
-/* ── Note rail ─────────────────────────────────────────────────────────────── */
+/* ── Note card ─────────────────────────────────────────────────────────────── */
+
+/**
+ * One line-anchored note card: marker pip (when `showMarker`), the resolved line
+ * span ("Line 8"), an optional label, and the markdown `note` (via
+ * `ctx.renderMarkdown`). This is the single source of card markup, rendered both
+ * by the visually-hidden a11y/test stack and by the on-hover portal popover.
+ */
+export function AnnotationCard<A extends RailAnnotation>({
+  item,
+  ctx,
+  active = false,
+  showMarker = false,
+  className,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  item: ResolvedAnnotation<A>;
+  ctx: BlockRenderContext;
+  active?: boolean;
+  showMarker?: boolean;
+  className?: string;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={cn(
+        "rounded-lg border px-3.5 py-2.5 transition-colors",
+        active
+          ? "border-amber-400/70 bg-amber-50 dark:border-amber-300/40 dark:bg-amber-300/[0.08]"
+          : "border-plan-line bg-plan-block/40 hover:border-amber-400/50",
+        className,
+      )}
+    >
+      <div
+        className={cn(
+          "flex flex-wrap gap-x-2 gap-y-0.5",
+          showMarker ? "items-center" : "items-baseline",
+        )}
+      >
+        {showMarker && (
+          <AnnotationGutterMarker marker={item.marker} active={active} />
+        )}
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
+          {rangeLabel(item)}
+        </span>
+        {item.annotation.label && (
+          <span className="text-[13px] font-semibold text-plan-text">
+            {item.annotation.label}
+          </span>
+        )}
+      </div>
+      <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-plan-text/85">
+        {ctx.renderMarkdown ? (
+          ctx.renderMarkdown(item.annotation.note)
+        ) : (
+          <p>{item.annotation.note}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Visually-hidden stack of every resolved note. It is NOT a visible column — it
+ * sits in the flow but clipped to a 1px box (the `sr-only` pattern) so the note
+ * text and the per-card marker pips stay in the accessibility tree and in the
+ * DOM (assistive tech can reach them, and tests that read `textContent`/count
+ * pips still see them) WITHOUT painting a persistent rail beside the code. The
+ * visible card appears only on hover via {@link AnnotationHoverCard}.
+ */
+export function AnnotationHiddenStack<A extends RailAnnotation>({
+  items,
+  ctx,
+  showMarker = false,
+}: {
+  items: ResolvedAnnotation<A>[];
+  ctx: BlockRenderContext;
+  showMarker?: boolean;
+}) {
+  const resolved = useMemo(() => items.filter((item) => item.range), [items]);
+  if (resolved.length === 0) return null;
+  return (
+    <div
+      className="absolute size-px overflow-hidden whitespace-nowrap border-0 p-0 [clip:rect(0,0,0,0)] [clip-path:inset(50%)]"
+      data-annotation-hidden-stack
+    >
+      {resolved.map((item) => (
+        <AnnotationCard
+          key={item.index}
+          item={item}
+          ctx={ctx}
+          showMarker={showMarker}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ── Hover popover (portal, anchored RIGHT of the code) ────────────────────── */
+
+/** The geometry the hover card anchors to (in viewport coordinates). */
+export interface AnnotationAnchor {
+  /** Right edge of the code block (where the card should start). */
+  codeRight: number;
+  /** Left edge of the code block (for the below-fallback alignment). */
+  codeLeft: number;
+  /** Vertical center of the hovered line. */
+  lineCenter: number;
+  /** Bottom of the hovered line (for the below-fallback placement). */
+  lineBottom: number;
+}
+
+const HOVER_CARD_WIDTH = 280;
+const HOVER_CARD_GAP = 12;
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * The single on-hover note card, portaled to `document.body` and positioned
+ * `fixed` so it escapes the code block's `overflow` and never reflows the code.
+ *
+ * Placement: by default it sits to the RIGHT of the code block's right edge,
+ * vertically centered on the hovered line — so it never overlaps the code text.
+ * If there isn't room to the right (it would overflow the viewport), it clamps
+ * within the viewport, and if the right gutter is too narrow for the card it
+ * falls back to BELOW the hovered line (left-aligned to the code block). The card
+ * keeps itself open while hovered (`onMouseEnter`/`onMouseLeave` forwarded) so it
+ * stays readable; the caller adds the small hover-intent close delay.
+ */
+export function AnnotationHoverCard<A extends RailAnnotation>({
+  item,
+  anchor,
+  ctx,
+  showMarker = false,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  item: ResolvedAnnotation<A>;
+  anchor: AnnotationAnchor;
+  ctx: BlockRenderContext;
+  showMarker?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Measure the rendered card, then resolve a non-overlapping position: right of
+  // the code if it fits, else clamp into the viewport, else drop below the line.
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const el = cardRef.current;
+    const rect = el?.getBoundingClientRect();
+    const width = rect && rect.width > 0 ? rect.width : HOVER_CARD_WIDTH;
+    const height = rect && rect.height > 0 ? rect.height : 0;
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+
+    const rightLeft = anchor.codeRight + HOVER_CARD_GAP;
+    const fitsRight = rightLeft + width + VIEWPORT_MARGIN <= vw;
+
+    let left: number;
+    let top: number;
+    if (fitsRight) {
+      // Default: to the right of the code, centered on the hovered line.
+      left = rightLeft;
+      top = anchor.lineCenter - height / 2;
+    } else {
+      // No room to the right → drop below the line, aligned to the code's left.
+      left = anchor.codeLeft;
+      top = anchor.lineBottom + HOVER_CARD_GAP;
+    }
+    // Clamp within the viewport so the card is never cut off.
+    left = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(left, vw - width - VIEWPORT_MARGIN),
+    );
+    top = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(top, vh - height - VIEWPORT_MARGIN),
+    );
+    setPos({ top, left });
+  }, [
+    anchor.codeRight,
+    anchor.codeLeft,
+    anchor.lineCenter,
+    anchor.lineBottom,
+    item.index,
+  ]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={cardRef}
+      role="tooltip"
+      data-annotation-hover-card
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="pointer-events-auto fixed z-50"
+      style={{
+        top: pos?.top ?? anchor.lineCenter,
+        left: pos?.left ?? anchor.codeRight + HOVER_CARD_GAP,
+        width: HOVER_CARD_WIDTH,
+        // Hide until measured to avoid a one-frame jump from the fallback spot.
+        visibility: pos ? "visible" : "hidden",
+      }}
+    >
+      <AnnotationCard
+        item={item}
+        ctx={ctx}
+        active
+        showMarker={showMarker}
+        className="shadow-lg shadow-black/10 dark:shadow-black/40"
+      />
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Hover-intent controller for the on-hover note card. Exposes `activeIndex` +
+ * the captured `anchor`, plus `open`/`scheduleClose`/`cancelClose` handlers.
+ *
+ *  - `open(index, anchor)` shows a card immediately (cancels any pending close).
+ *  - `scheduleClose()` hides after a short delay, so moving the pointer from the
+ *    code line across the gap into the card itself keeps it open.
+ *  - `cancelClose()` (call on card mouse-enter) keeps it open while reading.
+ */
+export function useAnnotationHover(delay = 130) {
+  const [active, setActive] = useState<{
+    index: number;
+    anchor: AnnotationAnchor;
+  } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  const open = (index: number, anchor: AnnotationAnchor) => {
+    cancelClose();
+    setActive({ index, anchor });
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    timer.current = setTimeout(() => setActive(null), delay);
+  };
+
+  useEffect(() => () => cancelClose(), []);
+
+  return {
+    activeIndex: active?.index ?? null,
+    anchor: active?.anchor ?? null,
+    open,
+    scheduleClose,
+    cancelClose,
+  } as const;
+}
+
+/**
+ * Build an {@link AnnotationAnchor} from the code block element and the hovered
+ * row element. The card anchors to the code block's RIGHT edge and the row's
+ * vertical center, both in viewport coordinates (so a `fixed` portal lines up).
+ */
+export function anchorFromElements(
+  codeEl: HTMLElement | null,
+  rowEl: HTMLElement | null,
+): AnnotationAnchor | null {
+  if (!codeEl || !rowEl) return null;
+  const code = codeEl.getBoundingClientRect();
+  const row = rowEl.getBoundingClientRect();
+  return {
+    codeRight: code.right,
+    codeLeft: code.left,
+    lineCenter: row.top + row.height / 2,
+    lineBottom: row.bottom,
+  };
+}
 
 /**
  * The responsive list of line-anchored note cards. Each card shows its marker
@@ -150,6 +441,10 @@ export function AnnotationGutterMarker({
  * `note` (via `ctx.renderMarkdown`). Hovering a card sets the active index;
  * `activeIndex` driven from outside lets a hovered code row light its card and
  * vice-versa. Only annotations whose `range` resolved are listed.
+ *
+ * @deprecated Superseded by the on-hover {@link AnnotationHoverCard}; kept for
+ * back-compat with any external importer. Both block read renderers now use the
+ * hover popover anchored to the right of the code instead of a persistent rail.
  */
 export function AnnotationNoteRail<A extends RailAnnotation>({
   items,
@@ -173,114 +468,17 @@ export function AnnotationNoteRail<A extends RailAnnotation>({
   );
   return (
     <div className={cn("flex flex-col gap-2.5", className)}>
-      {sideAnnotations.map((item) => {
-        const isActive = activeIndex === item.index;
-        return (
-          <div
-            key={item.index}
-            onMouseEnter={() => onActiveChange(item.index)}
-            onMouseLeave={() => onActiveChange(null)}
-            className={cn(
-              "rounded-lg border px-3.5 py-2.5 transition-colors",
-              isActive
-                ? "border-amber-400/70 bg-amber-50 dark:border-amber-300/40 dark:bg-amber-300/[0.08]"
-                : "border-plan-line bg-plan-block/40 hover:border-amber-400/50",
-            )}
-          >
-            <div
-              className={cn(
-                "flex flex-wrap gap-x-2 gap-y-0.5",
-                showMarker ? "items-center" : "items-baseline",
-              )}
-            >
-              {showMarker && (
-                <AnnotationGutterMarker
-                  marker={item.marker}
-                  active={isActive}
-                />
-              )}
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
-                {rangeLabel(item)}
-              </span>
-              {item.annotation.label && (
-                <span className="text-[13px] font-semibold text-plan-text">
-                  {item.annotation.label}
-                </span>
-              )}
-            </div>
-            <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-plan-text/85">
-              {ctx.renderMarkdown ? (
-                ctx.renderMarkdown(item.annotation.note)
-              ) : (
-                <p>{item.annotation.note}</p>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ── Inline note (GitHub-style) ─────────────────────────────────────────────── */
-
-/**
- * A single line-anchored note rendered INLINE in the diff flow — full-width,
- * directly under the line it annotates — instead of in a side rail (the
- * GitHub-review affordance). The diff block places one of these after the first
- * row of each annotation's range, so the numbered `①`/`②` row marker and the note
- * read together in one column. It carries the same marker pip, line range,
- * optional label, and markdown `note` as a rail card, and the same two-way hover
- * wiring (`active` / `onActiveChange`) so the row and its note cross-highlight.
- *
- * The outer band is `min-w-full` so the amber wash spans the diff's full scroll
- * width; the content is `sticky left-0` with a readable `max-w` so the note stays
- * pinned and legible while long code lines scroll horizontally beneath it.
- */
-export function InlineAnnotationNote<A extends RailAnnotation>({
-  item,
-  active,
-  onActiveChange,
-  ctx,
-}: {
-  item: ResolvedAnnotation<A>;
-  active: boolean;
-  onActiveChange: (index: number | null) => void;
-  ctx: BlockRenderContext;
-}) {
-  return (
-    <div
-      onMouseEnter={() => onActiveChange(item.index)}
-      onMouseLeave={() => onActiveChange(null)}
-      className={cn(
-        "min-w-full border-y transition-colors",
-        active
-          ? "border-amber-400/60 bg-amber-100/70 dark:border-amber-300/40 dark:bg-amber-300/[0.12]"
-          : "border-amber-400/30 bg-amber-50/70 dark:border-amber-300/20 dark:bg-amber-300/[0.06]",
-      )}
-    >
-      <div className="sticky left-0 flex max-w-[44rem] gap-2.5 whitespace-normal px-3 py-2.5 font-sans">
-        <AnnotationGutterMarker marker={item.marker} active={active} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
-              {rangeLabel(item)}
-            </span>
-            {item.annotation.label && (
-              <span className="text-[13px] font-semibold text-plan-text">
-                {item.annotation.label}
-              </span>
-            )}
-          </div>
-          <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-plan-text/85">
-            {ctx.renderMarkdown ? (
-              ctx.renderMarkdown(item.annotation.note)
-            ) : (
-              <p>{item.annotation.note}</p>
-            )}
-          </div>
-        </div>
-      </div>
+      {sideAnnotations.map((item) => (
+        <AnnotationCard
+          key={item.index}
+          item={item}
+          ctx={ctx}
+          active={activeIndex === item.index}
+          showMarker={showMarker}
+          onMouseEnter={() => onActiveChange(item.index)}
+          onMouseLeave={() => onActiveChange(null)}
+        />
+      ))}
     </div>
   );
 }

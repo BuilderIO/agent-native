@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   IconChevronRight,
   IconColumns,
@@ -10,18 +17,17 @@ import {
 } from "@tabler/icons-react";
 import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
-import type {
-  BlockEditProps,
-  BlockReadProps,
-  BlockRenderContext,
-} from "../types.js";
+import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import {
   AnnotationGutterMarker,
-  InlineAnnotationNote,
+  AnnotationHiddenStack,
+  AnnotationHoverCard,
+  anchorFromElements,
   buildLineMarkerMap,
   hasRailAnnotations,
   resolveAnnotations,
+  useAnnotationHover,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
@@ -493,10 +499,10 @@ const SIGN: Record<DiffRowKind, string> = {
 };
 
 const LINE_NO_CLASS =
-  "select-none px-2 py-0 text-right font-mono [font-size:var(--plan-code-size)] leading-5 text-muted-foreground tabular-nums";
+  "select-none px-2 py-0 text-right font-mono [font-size:var(--plan-doc-code-size)] leading-5 text-muted-foreground tabular-nums";
 
 const DIFF_LINE_CLASS =
-  "block min-w-max flex-1 whitespace-pre px-2 py-0 font-mono [font-size:var(--plan-code-size)] leading-5 text-foreground";
+  "block min-w-max flex-1 whitespace-pre px-2 py-0 font-mono [font-size:var(--plan-doc-code-size)] leading-5 text-foreground";
 
 const DEFAULT_VISIBLE_DIFF_LINES = 15;
 const MAX_DIFF_LCS_CELLS = 1_000_000;
@@ -566,8 +572,13 @@ function DiffRead({
   const [mode, setMode] = useState<DiffMode>(data.mode ?? "unified");
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [showAllRows, setShowAllRows] = useState(false);
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [containerRef, containerWidth] = useContainerWidth<HTMLElement>();
+  // On-hover popover (anchored to the right of the code) replaces the old
+  // persistent rail: nothing is shown when idle. `codeRef` measures the code
+  // box's right edge; `hover` carries the active index + captured geometry.
+  const hover = useAnnotationHover();
+  const { activeIndex } = hover;
+  const codeRef = useRef<HTMLDivElement | null>(null);
 
   const rows = useMemo(
     () => buildRows(diffLines(data.before, data.after)),
@@ -599,14 +610,29 @@ function DiffRead({
     [data.annotations, beforeLineCount, afterLineCount],
   );
   const hasAnnotations = hasRailAnnotations(resolved);
-  // Effective render mode. Annotated diffs always render unified so the inline
-  // notes read in flow (there is no side rail); and any diff in a container
-  // narrower than SPLIT_MIN_WIDTH falls back to unified so split's doubled
-  // gutters never crush the code. `canSplit` also gates the mode toggle so it is
-  // hidden whenever split is unavailable.
+  // Effective render mode. Annotations live in a SEPARATE right-hand rail (not
+  // over the code), so they no longer force a mode; only a container narrower
+  // than SPLIT_MIN_WIDTH falls back to unified so split's doubled gutters never
+  // crush the code. `canSplit` also gates the mode toggle (hidden when narrow).
   const narrow = containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
-  const canSplit = !hasAnnotations && !narrow;
+  const canSplit = !narrow;
   const effectiveMode: DiffMode = canSplit ? mode : "unified";
+
+  // Annotations (diff): NO persistent column. Hovering a marked code line (or
+  // its numbered pip) opens THAT note's card as an on-hover popover anchored to
+  // the RIGHT of the code box, never over the code. The in-code pip stays as the
+  // anchor indicator + active-line highlight. `onRowEnter` captures the code
+  // box's right edge + the hovered row's vertical position to place the card;
+  // `onRowLeave` schedules a short-delay close so the pointer can cross the gap
+  // into the card (which cancels the close while hovered).
+  const onRowEnter = useCallback(
+    (index: number, rowEl: HTMLElement) => {
+      const anchor = anchorFromElements(codeRef.current, rowEl);
+      if (anchor) hover.open(index, anchor);
+    },
+    [hover],
+  );
+  const onRowLeave = useCallback(() => hover.scheduleClose(), [hover]);
   // Side-scoped line → markers maps so a row only lights from its own side.
   const beforeMarkers = useMemo(
     () =>
@@ -648,6 +674,15 @@ function DiffRead({
     return (row: DiffRow) => markersForRow(row).length > 0;
   }, [hasAnnotations, markersForRow]);
 
+  // The resolved annotation whose card is currently shown on hover.
+  const activeItem = useMemo<ResolvedAnnotation<DiffAnnotation> | null>(
+    () =>
+      activeIndex == null
+        ? null
+        : (resolved.find((item) => item.index === activeIndex) ?? null),
+    [activeIndex, resolved],
+  );
+
   const added = rows.filter((r) => r.kind === "added").length;
   const removed = rows.filter((r) => r.kind === "removed").length;
   const unchanged = data.before === data.after;
@@ -680,10 +715,112 @@ function DiffRead({
       return next;
     });
 
+  // The bordered code box. It always spans its full width — annotations surface
+  // as an on-hover popover anchored to this box's right edge, never as a column.
+  // `codeRef` measures that right edge for the popover's placement.
+  const diffBox = (
+    <div
+      ref={codeRef}
+      className="overflow-hidden rounded-md border border-border bg-background"
+    >
+      {/* Header: filename, path, +/− counts, mode toggle. */}
+      <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
+        <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
+        <span
+          className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono"
+          title={data.filename || undefined}
+        >
+          <span className="min-w-0 max-w-[16rem] truncate text-[13px] font-semibold leading-5 text-foreground">
+            {fileParts.basename}
+          </span>
+          {fileParts.directory && (
+            <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/70">
+              {fileParts.directory}
+            </span>
+          )}
+        </span>
+        <span className="ml-1 flex shrink-0 items-center gap-2 font-mono text-xs">
+          <span className="text-emerald-700 dark:text-emerald-300">
+            +{added}
+          </span>
+          <span className="text-destructive">−{removed}</span>
+        </span>
+        {/* Mode toggle only when split is actually available: a narrow
+              container forces unified (split's doubled gutters would crush the
+              code), so the toggle would otherwise be a no-op. Annotations are an
+              on-hover popover now, so they work in both unified and split. */}
+        {canSplit && (
+          <div className="pointer-events-none ml-auto flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background opacity-0 transition-opacity group-hover/diff-block:pointer-events-auto group-hover/diff-block:opacity-100 group-focus-within/diff-block:pointer-events-auto group-focus-within/diff-block:opacity-100">
+            <ModeButton
+              active={mode === "unified"}
+              onClick={() => setMode("unified")}
+              icon={<IconList className="size-3.5" />}
+              label="Unified"
+            />
+            <ModeButton
+              active={mode === "split"}
+              onClick={() => setMode("split")}
+              icon={<IconColumns className="size-3.5" />}
+              label="Split"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Body. */}
+      {unchanged ? (
+        <div className="px-4 py-6 text-center font-mono text-sm text-muted-foreground">
+          No changes
+        </div>
+      ) : effectiveMode === "split" ? (
+        <SplitView
+          rows={rows}
+          language={language}
+          rowLimit={rowLimit}
+          markersForRow={markersForRow}
+          activeIndex={activeIndex}
+          onRowEnter={onRowEnter}
+          onRowLeave={onRowLeave}
+        />
+      ) : (
+        <UnifiedView
+          rows={displayedRows}
+          language={language}
+          expanded={expanded}
+          onToggleRun={toggleRun}
+          markersForRow={markersForRow}
+          anchoredRow={anchoredRow}
+          activeIndex={activeIndex}
+          onRowEnter={onRowEnter}
+          onRowLeave={onRowLeave}
+        />
+      )}
+      {!unchanged && shouldLimitRows && (
+        <button
+          type="button"
+          data-plan-interactive
+          aria-expanded={showAllRows}
+          onClick={() => setShowAllRows((current) => !current)}
+          className="flex h-7 w-full items-center justify-center gap-1.5 border-t border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+        >
+          <IconChevronRight
+            className={cn(
+              "size-3 shrink-0 transition-transform",
+              showAllRows ? "-rotate-90" : "rotate-90",
+            )}
+          />
+          {showAllRows
+            ? "Show fewer"
+            : `Show all ${totalVisibleLineCount} lines`}
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <section
       ref={containerRef}
-      className="plan-block group/diff-block"
+      className="relative plan-block group/diff-block"
       data-block-id={blockId}
     >
       {title && <div className="plan-block-label">{title}</div>}
@@ -692,99 +829,24 @@ function DiffRead({
           {summary}
         </p>
       )}
-      {/* Code surface spans the full width; annotations render inline (below
-          their line) rather than in a side rail, so nothing competes for width. */}
-      <div className="overflow-hidden rounded-md border border-border bg-background">
-        {/* Header: filename, path, +/− counts, mode toggle. */}
-        <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
-          <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
-          <span
-            className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono"
-            title={data.filename || undefined}
-          >
-            <span className="min-w-0 max-w-[16rem] truncate text-[13px] font-semibold leading-5 text-foreground">
-              {fileParts.basename}
-            </span>
-            {fileParts.directory && (
-              <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/70">
-                {fileParts.directory}
-              </span>
-            )}
-          </span>
-          <span className="ml-1 flex shrink-0 items-center gap-2 font-mono text-xs">
-            <span className="text-emerald-700 dark:text-emerald-300">
-              +{added}
-            </span>
-            <span className="text-destructive">−{removed}</span>
-          </span>
-          {/* Mode toggle only when split is actually available: annotated diffs
-              are unified-only (inline notes), and a narrow container forces
-              unified, so the toggle would otherwise be a no-op. */}
-          {canSplit && (
-            <div className="pointer-events-none ml-auto flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background opacity-0 transition-opacity group-hover/diff-block:pointer-events-auto group-hover/diff-block:opacity-100 group-focus-within/diff-block:pointer-events-auto group-focus-within/diff-block:opacity-100">
-              <ModeButton
-                active={mode === "unified"}
-                onClick={() => setMode("unified")}
-                icon={<IconList className="size-3.5" />}
-                label="Unified"
-              />
-              <ModeButton
-                active={mode === "split"}
-                onClick={() => setMode("split")}
-                icon={<IconColumns className="size-3.5" />}
-                label="Split"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Body. */}
-        {unchanged ? (
-          <div className="px-4 py-6 text-center font-mono text-sm text-muted-foreground">
-            No changes
-          </div>
-        ) : effectiveMode === "split" ? (
-          <SplitView
-            rows={rows}
-            language={language}
-            rowLimit={rowLimit}
-            markersForRow={markersForRow}
-            activeIndex={activeIndex}
-            onActiveChange={setActiveIndex}
-          />
-        ) : (
-          <UnifiedView
-            rows={displayedRows}
-            language={language}
-            expanded={expanded}
-            onToggleRun={toggleRun}
-            markersForRow={markersForRow}
-            anchoredRow={anchoredRow}
-            activeIndex={activeIndex}
-            onActiveChange={setActiveIndex}
-            ctx={ctx}
-          />
-        )}
-        {!unchanged && shouldLimitRows && (
-          <button
-            type="button"
-            data-plan-interactive
-            aria-expanded={showAllRows}
-            onClick={() => setShowAllRows((current) => !current)}
-            className="flex h-7 w-full items-center justify-center gap-1.5 border-t border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-          >
-            <IconChevronRight
-              className={cn(
-                "size-3 shrink-0 transition-transform",
-                showAllRows ? "-rotate-90" : "rotate-90",
-              )}
-            />
-            {showAllRows
-              ? "Show fewer"
-              : `Show all ${totalVisibleLineCount} lines`}
-          </button>
-        )}
-      </div>
+      {/* The diff keeps its full width — no persistent annotation column. The
+          in-code numbered pips remain the hover anchors; notes live in a
+          visually-hidden stack (a11y + tests) and surface ONE at a time as an
+          on-hover popover anchored to the right of the code box. */}
+      {diffBox}
+      {hasAnnotations && (
+        <AnnotationHiddenStack items={resolved} ctx={ctx} showMarker />
+      )}
+      {hasAnnotations && activeItem && hover.anchor && (
+        <AnnotationHoverCard
+          item={activeItem}
+          anchor={hover.anchor}
+          ctx={ctx}
+          showMarker
+          onMouseEnter={hover.cancelClose}
+          onMouseLeave={hover.scheduleClose}
+        />
+      )}
     </section>
   );
 }
@@ -826,7 +888,10 @@ interface RowAnnotationProps {
   markersForRow: MarkersForRow;
   anchoredRow?: (row: DiffRow) => boolean;
   activeIndex: number | null;
-  onActiveChange: (index: number | null) => void;
+  /** Hovering an annotated row opens its popover, anchored to this row's box. */
+  onRowEnter: (index: number, rowEl: HTMLElement) => void;
+  /** Leaving an annotated row schedules the popover's close. */
+  onRowLeave: () => void;
 }
 
 /**
@@ -878,14 +943,13 @@ function UnifiedView({
   markersForRow,
   anchoredRow,
   activeIndex,
-  onActiveChange,
-  ctx,
+  onRowEnter,
+  onRowLeave,
 }: {
   rows: DiffRow[];
   language: string;
   expanded: Set<number>;
   onToggleRun: (index: number) => void;
-  ctx: BlockRenderContext;
 } & RowAnnotationProps) {
   const segments = useMemo(
     () => segmentRows(rows, anchoredRow),
@@ -900,36 +964,14 @@ function UnifiedView({
     language,
     markersForRow,
     activeIndex,
-    onActiveChange,
+    onRowEnter,
+    onRowLeave,
     showMarkerColumn,
-  };
-  // A diff row plus any notes anchored to it: each annotation renders ONE
-  // full-width inline note directly under the FIRST line of its range (matched
-  // by `isMarkerRangeStart`), so the row's numbered pip and its note read as a
-  // single GitHub-style unit and the note never repeats down a multi-line span.
-  const renderRow = (row: DiffRow, key: string) => {
-    const notes = markersForRow(row).filter((marker) =>
-      isMarkerRangeStart(row, marker),
-    );
-    return (
-      <div key={key}>
-        <UnifiedRow row={row} {...rowProps} />
-        {notes.map((item) => (
-          <InlineAnnotationNote
-            key={`note-${item.index}`}
-            item={item}
-            active={item.index === activeIndex}
-            onActiveChange={onActiveChange}
-            ctx={ctx}
-          />
-        ))}
-      </div>
-    );
   };
   let runIndex = 0;
   return (
-    <div className="overflow-x-auto">
-      <div className="w-max min-w-full font-mono [font-size:var(--plan-code-size)] leading-5">
+    <div className="overflow-x-auto" data-code-surface>
+      <div className="w-max min-w-full font-mono [font-size:var(--plan-doc-code-size)] leading-5">
         {segments.map((segment, idx) => {
           if ("collapsed" in segment) {
             const key = runIndex++;
@@ -942,13 +984,17 @@ function UnifiedView({
                   onClick={() => onToggleRun(key)}
                 />
                 {open &&
-                  segment.rows.map((row, ri) =>
-                    renderRow(row, `run-${key}-${ri}`),
-                  )}
+                  segment.rows.map((row, ri) => (
+                    <UnifiedRow
+                      key={`run-${key}-${ri}`}
+                      row={row}
+                      {...rowProps}
+                    />
+                  ))}
               </div>
             );
           }
-          return renderRow(segment, String(idx));
+          return <UnifiedRow key={idx} row={segment} {...rowProps} />;
         })}
       </div>
     </div>
@@ -960,14 +1006,16 @@ function UnifiedRow({
   row,
   markersForRow,
   activeIndex,
-  onActiveChange,
+  onRowEnter,
+  onRowLeave,
   showMarkerColumn,
 }: {
   language: string;
   row: DiffRow;
   markersForRow: MarkersForRow;
   activeIndex: number | null;
-  onActiveChange: (index: number | null) => void;
+  onRowEnter: (index: number, rowEl: HTMLElement) => void;
+  onRowLeave: () => void;
   showMarkerColumn: boolean;
 }) {
   const markers = markersForRow(row);
@@ -975,13 +1023,22 @@ function UnifiedRow({
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   return (
     <div
+      data-annot-row={startMarker ? startMarker.index : undefined}
       className={cn(
         "flex min-h-5 min-w-full",
         ROW_BG[row.kind],
         annotatedRowBg(info),
       )}
-      onMouseEnter={info ? () => onActiveChange(info.primaryIndex) : undefined}
-      onMouseLeave={info ? () => onActiveChange(null) : undefined}
+      onMouseEnter={
+        info
+          ? (event) =>
+              onRowEnter(
+                startMarker?.index ?? info.primaryIndex,
+                event.currentTarget,
+              )
+          : undefined
+      }
+      onMouseLeave={info ? () => onRowLeave() : undefined}
     >
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.oldNo ?? ""}</span>
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.newNo ?? ""}</span>
@@ -1095,7 +1152,8 @@ function SplitView({
   rows,
   markersForRow,
   activeIndex,
-  onActiveChange,
+  onRowEnter,
+  onRowLeave,
 }: {
   language: string;
   rowLimit?: number;
@@ -1118,9 +1176,18 @@ function SplitView({
       ),
     [displayedPairs, markersForRow],
   );
-  const cellProps = { language, markersForRow, activeIndex, onActiveChange };
+  const cellProps = {
+    language,
+    markersForRow,
+    activeIndex,
+    onRowEnter,
+    onRowLeave,
+  };
   return (
-    <div className="flex w-full bg-background font-mono [font-size:var(--plan-code-size)] leading-5">
+    <div
+      className="flex w-full bg-background font-mono [font-size:var(--plan-doc-code-size)] leading-5"
+      data-code-surface
+    >
       <div className="min-w-0 flex-1 overflow-x-auto border-r border-border">
         <div className="inline-block min-w-full">
           {displayedPairs.map((pair, idx) => (
@@ -1157,7 +1224,8 @@ function SplitCell({
   side,
   markersForRow,
   activeIndex,
-  onActiveChange,
+  onRowEnter,
+  onRowLeave,
   showMarkerColumn,
 }: {
   language: string;
@@ -1165,7 +1233,8 @@ function SplitCell({
   side: RowSide;
   markersForRow: MarkersForRow;
   activeIndex: number | null;
-  onActiveChange: (index: number | null) => void;
+  onRowEnter: (index: number, rowEl: HTMLElement) => void;
+  onRowLeave: () => void;
   showMarkerColumn: boolean;
 }) {
   if (!row) {
@@ -1185,13 +1254,22 @@ function SplitCell({
   const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   return (
     <div
+      data-annot-row={startMarker ? startMarker.index : undefined}
       className={cn(
         "flex min-h-5 min-w-full",
         ROW_BG[row.kind],
         annotatedRowBg(info),
       )}
-      onMouseEnter={info ? () => onActiveChange(info.primaryIndex) : undefined}
-      onMouseLeave={info ? () => onActiveChange(null) : undefined}
+      onMouseEnter={
+        info
+          ? (event) =>
+              onRowEnter(
+                startMarker?.index ?? info.primaryIndex,
+                event.currentTarget,
+              )
+          : undefined
+      }
+      onMouseLeave={info ? () => onRowLeave() : undefined}
     >
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>
         {side === "old" ? (row.oldNo ?? "") : (row.newNo ?? "")}
@@ -1218,7 +1296,8 @@ function SplitCell({
 
 /* ── Edit (panel) ──────────────────────────────────────────────────────────── */
 
-const codeAreaClass = "min-h-[140px] font-mono text-xs leading-5";
+const codeAreaClass =
+  "min-h-[140px] font-mono [font-size:var(--plan-code-size)] leading-5";
 
 function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
   const patch = (next: Partial<DiffData>) => onChange({ ...data, ...next });

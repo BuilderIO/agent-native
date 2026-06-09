@@ -398,15 +398,34 @@ padding and line-height to read cleanly in the rendered Plan view.
 positioning, or fixed child widths that can collide when the renderer switches
 between light/dark, sketch/clean, or different zoom levels.
 
-**Do not wrap intentionally single-line labels.** For tab rails, breadcrumbs,
-file chips, code filenames, and other deliberately single-line labels, do not
-let long text wrap. It is acceptable and usually preferable to use
-\`white-space: nowrap\`, \`overflow: hidden\`, and \`text-overflow: ellipsis\` (or
-abstract bars) so the wireframe demonstrates the actual layout behavior instead
-of producing ugly vertical text. Use horizontally scrollable or clipped rails
-for overflow.
+**Do not wrap intentionally single-line labels.** For toolbars, tab rails,
+breadcrumbs, chip/filter rows, branch and file names, file chips, and code
+filenames — any deliberately single-line row — do not let long text wrap. Put
+\`white-space: nowrap\` on the row (and \`overflow: hidden; text-overflow: ellipsis\`
+on the individual labels that can grow), so the wireframe demonstrates the actual
+layout behavior instead of producing ugly stacked or vertical text. Use
+horizontally scrollable or clipped rails for overflow.
 
 **Fill the frame; keep labels short.** Each artboard is a fixed-size surface — compose enough realistic HTML to fill it top to bottom with even vertical rhythm; never leave a large empty band. On desktop/app-shell sidebars, let the nav stack flex to fill (\`flex:1\`) and add any persistent bottom action/status after it so the rail reads complete in taller frames. On mobile especially, flow real rows down the whole screen (status bar, header, then list/detail content) rather than a header floating above a gap. Keep every label short enough to sit on one line within its column — shorten the copy rather than relying on the frame to absorb it (long labels wrap or clip).
+
+**Persistent chrome bars span the full frame width.** Top bars, app headers,
+toolbars, and bottom tab/nav bars are full-width chrome, not centered content.
+Lay each one out as a single flex row that fills the frame
+(\`style="display:flex;align-items:center;width:100%"\`) and push trailing actions
+to the right edge with a flex spacer (\`<div style="flex:1"></div>\`) between the
+leading group and the trailing group — never center a bar inside a narrow,
+centered block, and never let it collapse to the width of its contents. In a
+Before/After pair the bar stays full-width in BOTH states even when one state has
+fewer controls; the spacer absorbs the difference so the remaining controls hold
+their edge alignment instead of sliding to the center.
+
+**Pin bottom bars to the bottom of the frame.** For mobile tab bars, footers, and
+any persistent bottom action row, make the frame itself a flex column at
+\`height:100%\` (\`style="display:flex;flex-direction:column;height:100%"\`), give the
+scrolling body \`flex:1\` so it absorbs the slack, and place the bar as the LAST
+child of the frame (or set \`margin-top:auto\` on it). The bar then sits flush at
+the bottom of the surface instead of floating directly under the content with an
+empty band beneath it.
 
 **Before / after must be comparable.** When showing a state change, preserve the
 unchanged controls in both states so the reviewer can see exactly what moved or
@@ -608,7 +627,7 @@ only for tiny previews or genuinely linear step flows. Repeat a wireframe in the
 for a genuinely new detail view or comparison. Skip the visual surface entirely
 for non-visual work and write a clean rich document. For a simple binary UI
 visual choice, show the two directions in the canvas only; do not repeat the
-same options as body wireframes, a \`decision\` block, or prose. Put the actual
+same options as body wireframes or prose. Put the actual
 choice in the bottom "Open Questions" form.
 
 **Use the right block, and make it carry substance.** For the authoritative,
@@ -631,14 +650,14 @@ so you never emit a block the editor cannot render or round-trip:
   the exact code is unknown, show the smallest plausible planned shape or a
   commented stub naming what to fill in. (\`code-tabs\` and \`implementation-map\`
   are legacy: their renderers stay for old plans, but do not author new ones.)
-- \`decision\` ONLY for a genuinely-open either/or the reviewer must still pick
-  between — two or three option cards with real consequences. If you have already
-  committed to an approach, state it as settled prose or a \`callout\`, NOT a
-  \`decision\` block; a decision card for a question you have already answered just
-  reads as a confusing mid-document form. Never duplicate the same choice across a
-  \`decision\` block and the bottom Open Questions \`question-form\` — pick one home
-  for it. These are static records; do not style them like clickable tabs or chips
-  unless the renderer truly supports changing the selection.
+- For a decision: if the reviewer must still pick between a genuinely-open
+  either/or, put it in the bottom Open Questions \`question-form\` as a \`single\`
+  question — one option per real alternative, each with a short detail and
+  \`recommended: true\` on the one you would choose; do not also restate the same
+  choice elsewhere. If you have already committed to an approach, state it as
+  settled prose or a \`callout\` with \`tone="decision"\`, optionally with a
+  \`columns\` block for a side-by-side comparison of the options you weighed — not
+  as a confusing mid-document form for a question you have already answered.
 - \`columns\` for side-by-side before/after or current/target comparisons where
   each side needs real nested blocks; label the columns clearly and avoid
   stacking comparison blocks vertically when parallel reading is the point.
@@ -680,8 +699,7 @@ reviewer can answer with a custom option — never add an explicit "Other" optio
 yourself; set \`allowOther: false\` only when a free-text answer makes no sense.
 Keep non-answerable assumptions or risks as concise \`callout\` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
-narrative, and never ask the same question in both a \`decision\` block and a
-\`question-form\`.
+narrative, and never ask the same question twice.
 
 **\`custom-html\` is a bounded escape hatch only** — a single complete fragment
 inside a block, never \`html\`/\`head\`/\`body\`/\`script\` tags, never a generic
@@ -711,8 +729,9 @@ correct desktop footprint, theme, and one subtle whole-frame wobble. Plain-text
 designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
 done-criteria, a few \`code\` blocks (grouped in a vertical \`tabs\` block when
-more than one) showing the real shape of the load-bearing files, a \`decision\`
-card weighing two real approaches,
+more than one) showing the real shape of the load-bearing files, a \`callout\`
+with \`tone="decision"\` stating the chosen approach with a \`columns\` block
+weighing the two real options behind it,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with
@@ -1539,6 +1558,26 @@ Only add prose blocks when they tell the reviewer something specific about the
 change that the structured blocks do not: the objective, a real compatibility
 risk, an important decision visible in the diff, or a grounded review note.
 
+## Recaps Must Be Substantial
+
+Lean is not the same as thin. A recap is not a single wireframe plus one
+sentence — that under-serves the reviewer as much as boilerplate prose over-serves
+them. Alongside the visual/structural headline (wireframes, \`data-model\`,
+\`api-endpoint\`, \`diagram\`), a substantial recap also carries the implementation
+evidence:
+
+- A \`file-tree\` of the changed files with each entry's \`change\` flag, so the
+  reviewer sees the footprint of the work at a glance.
+- The split \`diff\` of the KEY changed files, grouped under a \`## Key changes\`
+  \`rich-text\` heading in a single vertical \`tabs\` block (file labels as the left
+  rail), with a one-line \`summary\` and a few \`annotations\` on each — so the
+  reviewer can drop from the high-altitude shape straight into the load-bearing
+  code.
+
+Skip the diff appendix only for a genuinely tiny change that reviews faster as
+plain diff (see "When To Use"); for any change worth recapping, the file-tree and
+key-change diffs belong in the plan.
+
 ## UI Impact Needs Wireframes
 
 When the diff changes rendered UI, layout, density, visual state, interaction
@@ -1653,6 +1692,14 @@ the actual diff:
   removed endpoints with \`deprecated: true\` and explain in prose.
   Keep multiple API endpoints in the normal single-column document flow unless
   they are an explicit before/after contract comparison.
+  Author each request/response example as a SINGLE valid JSON value — one
+  top-level object or array, parseable on its own — so it renders in the
+  collapsible JSON explorer. Do not put \`//\` or \`/* */\` comments, prose,
+  trailing commas, or two or more concatenated top-level objects inside one
+  example; a non-parseable body falls back to flat text and loses the explorer.
+  When an endpoint has several distinct message shapes (for example separate
+  websocket frame types, or a success body versus an error body), give each its
+  OWN example with its own label rather than cramming them into one body.
 - **Compatibility-sensitive change** → short \`rich-text\` notes beside the
   relevant \`data-model\` / \`api-endpoint\` block. Name the changed field,
   endpoint, or behavior and mark whether it is breaking, risky, or non-breaking;

@@ -39,6 +39,16 @@ type PlanContentRendererProps = {
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
   onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
+  /**
+   * Immediately reflect a STRUCTURAL block change (drag-to-columns, reorder,
+   * insert/delete) into the source-of-truth query cache, BEFORE the debounced
+   * server save lands. Without this the lagging `get-visual-plan` poll re-supplies
+   * the pre-edit content during the save window and the reconcile briefly reverts
+   * the new layout ("drop works, then undoes, then comes back"). Called only on
+   * structural changes — a per-keystroke optimistic write would make the editor's
+   * `value` track local state and loop the reconcile.
+   */
+  onOptimisticBlocks?: (blocks: PlanBlock[]) => void;
   onMetadataChange?: (patch: {
     title?: string;
     brief?: string;
@@ -64,6 +74,32 @@ type PlanContentRendererProps = {
 };
 
 /**
+ * Identity of the block TREE — ids, types, and nesting (including tab/column
+ * children) — ignoring rich-text markdown and block `data`. A drop, reorder, or
+ * insert/delete changes this signature; a pure text edit does not. Used to fire
+ * the optimistic cache write ONLY for structural changes.
+ */
+function blockStructureSignature(blocks: PlanBlock[]): string {
+  const walk = (list: PlanBlock[]): string =>
+    list
+      .map((block) => {
+        if (block.type === "tabs") {
+          return `tabs:${block.id}[${block.data.tabs
+            .map((tab) => `${tab.id}(${walk(tab.blocks)})`)
+            .join(",")}]`;
+        }
+        if (block.type === "columns") {
+          return `columns:${block.id}[${block.data.columns
+            .map((column) => `${column.id}(${walk(column.blocks)})`)
+            .join(",")}]`;
+        }
+        return `${block.type}:${block.id}`;
+      })
+      .join("|");
+  return walk(blocks);
+}
+
+/**
  * Thin composition shell: the spatial board (CanvasArea) on top when present,
  * the semantic document (DocumentArea blocks) below. All visual quality lives
  * in the area/wireframe modules; this shell only wires data + the document
@@ -75,6 +111,7 @@ export function PlanContentRenderer({
   fallbackBrief,
   onContentChange,
   onContentPatch,
+  onOptimisticBlocks,
   onMetadataChange,
   onVisualQuestionsSubmit,
   contentUpdatedAt,
@@ -245,6 +282,18 @@ export function PlanContentRenderer({
       });
   };
   const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
+    // A STRUCTURAL change (drag-to-columns, reorder, insert/delete) must hit the
+    // source-of-truth immediately, so the editor's authoritative `value` tracks
+    // the new layout and the lagging poll never reverts it before the debounced
+    // save lands. Text edits skip this (their structure is unchanged) to avoid
+    // making `value` track every keystroke, which would loop the reconcile.
+    if (
+      onOptimisticBlocks &&
+      blockStructureSignature(nextBlocks) !==
+        blockStructureSignature(content.blocks)
+    ) {
+      onOptimisticBlocks(nextBlocks);
+    }
     pendingBlocksRef.current = nextBlocks;
     scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
   };
@@ -384,7 +433,7 @@ export function PlanContentRenderer({
                 as="h1"
                 value={content.title || fallbackTitle}
                 editable={metadataEditable}
-                className="max-w-3xl text-[2rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.5rem]"
+                className="max-w-3xl text-[1.8rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.25rem]"
                 placeholder="Untitled plan"
                 onCommit={(title) => onMetadataChange?.({ title })}
               />
@@ -495,7 +544,7 @@ function filesSidebarHideCss(blockId: string): string {
     .join(",\n");
   return `@media (min-width: 1400px){
 .plan-document-flow [data-block-id="${id}"]{display:none}
-${leadReset}{margin-top:2.25rem;padding-top:0;border-top:0}
+${leadReset}{margin-top:2.25rem;padding-top:0}
 }`;
 }
 

@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { VisibilityBadge } from "@agent-native/core/client";
+import { VisibilityBadge, callAction } from "@agent-native/core/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -123,21 +123,28 @@ export function FormsListPage() {
   );
   useSetHeaderActions(headerActions);
 
-  function handleDuplicate(form: (typeof forms)[0]) {
-    createForm.mutate(
-      {
-        title: `${form.title} (copy)`,
-        description: form.description,
-        fields: form.fields,
-        settings: form.settings,
-      },
-      {
-        onSuccess: (newForm) => {
-          toast.success("Form duplicated");
-          navigate(`/forms/${newForm.id}`);
+  async function handleDuplicate(form: (typeof forms)[0]) {
+    // The list payload no longer ships the heavy `fields` / `settings` JSON,
+    // so fetch the full form on demand to clone its schema and settings.
+    try {
+      const full = await callAction("get-form", { id: form.id });
+      createForm.mutate(
+        {
+          title: `${full.title} (copy)`,
+          description: full.description,
+          fields: full.fields,
+          settings: full.settings,
         },
-      },
-    );
+        {
+          onSuccess: (newForm) => {
+            toast.success("Form duplicated");
+            navigate(`/forms/${newForm.id}`);
+          },
+        },
+      );
+    } catch {
+      toast.error("Failed to duplicate form");
+    }
   }
 
   function handleDelete(id: string) {

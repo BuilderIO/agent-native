@@ -237,22 +237,62 @@
   font-family: var(--doc-font, inherit);
 }
 
+/* Top-level blocks are separated by WHITESPACE, not divider lines — a clean
+ * vertical rhythm reads far better than fencing every block off with a
+ * full-width rule (and avoids a line ever landing between a section's
+ * heading/description and its body). The generous top margin is the only
+ * separator; no border, no extra divider padding. The one structural divider
+ * the document keeps is the header's bottom border (the title block). */
 .plan-document-flow > .plan-block,
 .plan-document-flow > .plan-callout,
 .plan-document-flow > .plan-questions-block,
 .plan-document-flow > .an-block-panel,
 .plan-document-flow > .plan-block-node {
-  margin-top: 3.5rem;
-  padding-top: 2.25rem;
-  border-top: 1px solid var(--plan-line);
+  margin-top: 3.25rem;
 }
 
-/* The document header already owns a bottom divider; don't double it with the
- * first block's top border/spacing. */
+/* The header already owns a bottom divider + spacing; the first block sits a
+ * touch closer to it (no need for the full inter-block gap). */
 .plan-document-flow > :first-child {
   margin-top: 2.25rem;
+}
+
+/* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
+ * (Swagger / Stripe house style) — not a stack of full-width cards each set off
+ * by the generic inter-block gap. When an api-endpoint block directly follows
+ * another (read-mode `.plan-block` or editable-mode `.plan-block-node`, both
+ * tagged `data-block-type="api-endpoint"`), drop the inter-block margin so the
+ * rows abut. The first endpoint of a run keeps the normal gap above it (it still
+ * matches the generic rule), and a non-endpoint block after the run keeps normal
+ * spacing too — only endpoint-after-endpoint collapses. (`padding-top` /
+ * `border-top` are zeroed defensively; the generic rule no longer sets them.) */
+.plan-document-flow
+  > [data-block-type="api-endpoint"]
+  + [data-block-type="api-endpoint"] {
+  margin-top: 0;
   padding-top: 0;
   border-top: 0;
+}
+
+/* Flush card chrome: merge each endpoint's card with the one above it so a run
+ * shares a single outline instead of stacking doubled borders + rounded corners.
+ * Square the inner joins, pull each follower up 1px to overlap the shared edge,
+ * and round only the run's outer corners (first card's top, last card's bottom).
+ * `:has()` is supported in every browser the recap renders in. */
+.plan-document-flow
+  > [data-block-type="api-endpoint"]
+  + [data-block-type="api-endpoint"]
+  .an-api-endpoint-card {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.plan-document-flow
+  > [data-block-type="api-endpoint"]:has(+ [data-block-type="api-endpoint"])
+  .an-api-endpoint-card {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .plan-document-flow .an-rich-md-prose > h1,
@@ -371,6 +411,9 @@
      * Collapsed, the right edge still sits 1.25rem left of the document body,
      * mirroring the contents rail. */
     left: calc(-1.25rem - var(--files-rail-width));
+    /* Left-anchored: release `right` so `width` is honored (an absolutely
+     * positioned box with both left and right set ignores `width`). */
+    right: auto;
     z-index: 2;
     display: block;
     width: var(--files-rail-width);
@@ -394,16 +437,76 @@
     overflow-y: auto;
     padding: 0.25rem 0 1.5rem;
     pointer-events: auto;
+    /* Sit back as a low-prominence marginal rail; lift to full strength only
+     * when the reader hovers, focuses, or expands a file into the flyout. */
+    opacity: 0.7;
+    transition: opacity 0.18s ease;
   }
 
-  /* The mirrored block carries its own card chrome; drop the document-flow
-   * top divider/spacing it would otherwise inherit, and let its label sit flush
-   * at the top of the rail. */
+  .plan-document-files__nav:hover,
+  .plan-document-files__nav:focus-within,
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-document-files__nav {
+    opacity: 1;
+  }
+
+  /* Drop the document-flow top divider/spacing the mirrored block would
+   * otherwise inherit, and let its label sit flush at the top of the rail. */
   .plan-document-files__nav > .plan-block,
   .plan-document-files__nav .plan-block {
     margin-top: 0;
     padding-top: 0;
     border-top: 0;
+  }
+
+  /* In the rail the file-tree block sheds its card chrome so it reads as a
+   * plain list in the margin: no fill, no radius, and only a slim right divider
+   * (top/left/bottom borders fade to transparent). Border WIDTH stays 1px on
+   * every edge at all times, so expanding animates only the border COLOR
+   * (transparent → line), never the width — which would jank. The inline copy
+   * in the document body keeps its full card. */
+  .plan-document-files__nav .plan-block > .rounded-xl {
+    border-radius: 0;
+    border-color: transparent;
+    border-right-color: var(--plan-line);
+    background-color: transparent;
+    transition:
+      border-color 0.18s ease,
+      border-radius 0.18s ease,
+      background-color 0.18s ease;
+  }
+
+  /* The summary header (file count + change tally) loses its tint + divider
+   * too while collapsed. */
+  .plan-document-files__nav .plan-block > .rounded-xl > :first-child {
+    background-color: transparent;
+    border-bottom-color: transparent;
+    transition:
+      background-color 0.18s ease,
+      border-color 0.18s ease;
+  }
+
+  /* Expanded flyout restores the panel chrome — top/left/right border, radius,
+   * and fill — fading the borders in from transparent. Bottom stays borderless
+   * so the panel reads as anchored to the document edge. */
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-block
+    > .rounded-xl {
+    border-radius: 0.75rem;
+    border-top-color: var(--plan-line);
+    border-left-color: var(--plan-line);
+    border-right-color: var(--plan-line);
+    /* Match the page (document) surface, not the card fill, so the flyout reads
+     * as a continuation of the page rather than a raised card. */
+    background-color: var(--plan-document);
+  }
+
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-block
+    > .rounded-xl
+    > :first-child {
+    background-color: hsl(var(--accent) / 0.2);
+    border-bottom-color: var(--plan-line);
   }
 }
 
@@ -880,6 +983,32 @@
 
 .dark .plan-code-surface .plan-shiki pre span {
   color: var(--shiki-dark);
+}
+
+/* File-tree snippets render inside file rows (and the cramped recap "Files
+ * touched" rail), not as full-width document code. Shrink the whole code surface
+ * — glyphs via the `--plan-code-size` var plus the lang label and padding — so it
+ * reads compact and clearly smaller than the row/note text around it. */
+.an-file-tree-snippet {
+  --plan-code-size: 0.6875rem;
+}
+
+.an-file-tree-snippet :where(pre, code, .plan-code-surface-scroll) {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.an-file-tree-snippet .plan-code-surface .plan-shiki,
+.an-file-tree-snippet .plan-code-surface pre {
+  padding: 0.55rem 0.7rem;
+}
+
+.an-file-tree-snippet .plan-code-surface-bar {
+  padding: 0.3rem 0.7rem;
+}
+
+.an-file-tree-snippet .plan-code-surface-lang {
+  font-size: 0.625rem;
 }
 
 /* `code` primitive block: read wraps the single-bordered .plan-code-surface with

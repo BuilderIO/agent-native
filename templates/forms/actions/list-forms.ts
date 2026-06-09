@@ -8,7 +8,6 @@ import {
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import type { FormField, FormSettings } from "../shared/types.js";
 
 export default defineAction({
   description:
@@ -29,8 +28,24 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    // Explicit projection: the list view only needs lightweight metadata.
+    // The heavy `fields` / `settings` JSON blobs are intentionally NOT
+    // selected here — they can be large and are only required when opening a
+    // single form (`get-form`). Keeping them out of the list query avoids
+    // pulling (and JSON.parsing) every form's full schema on every list load.
     const rows = await db
-      .select()
+      .select({
+        id: schema.forms.id,
+        title: schema.forms.title,
+        description: schema.forms.description,
+        slug: schema.forms.slug,
+        status: schema.forms.status,
+        visibility: schema.forms.visibility,
+        ownerEmail: schema.forms.ownerEmail,
+        createdAt: schema.forms.createdAt,
+        updatedAt: schema.forms.updatedAt,
+        deletedAt: schema.forms.deletedAt,
+      })
       .from(schema.forms)
       .where(accessFilter(schema.forms, schema.formShares))
       .orderBy(schema.forms.updatedAt);
@@ -104,8 +119,6 @@ export default defineAction({
         title: r.title,
         description: r.description ?? undefined,
         slug: r.slug,
-        fields: JSON.parse(r.fields) as FormField[],
-        settings: JSON.parse(r.settings) as FormSettings,
         status: r.status,
         visibility: r.visibility,
         ownerEmail: r.ownerEmail,

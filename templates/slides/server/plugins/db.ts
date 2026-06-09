@@ -161,6 +161,22 @@ export default runMigrations(
   );
   CREATE INDEX IF NOT EXISTS deck_versions_deck_owner_created_idx ON deck_versions (deck_id, owner_email, created_at)`,
     },
+    // v19: performance indexes for ownable list/access-filter hot paths.
+    // `accessFilter` scans `decks`/`design_systems` by owner + scope and runs
+    // correlated EXISTS subqueries against the shares tables; the deck list
+    // orders by updated_at; slide comments are fetched per deck. None of these
+    // had supporting indexes (deck_versions already got one in v18). Plain
+    // CREATE INDEX IF NOT EXISTS so the SQL is valid on both Postgres and
+    // SQLite (no DESC/partial/PG-only syntax).
+    {
+      version: 19,
+      sql: `CREATE INDEX IF NOT EXISTS decks_owner_org_updated_idx ON decks (owner_email, org_id, updated_at);
+  CREATE INDEX IF NOT EXISTS deck_shares_resource_principal_idx ON deck_shares (resource_id, principal_type, principal_id);
+  CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_systems (owner_email, org_id, updated_at);
+  CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id);
+  CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx ON slide_comments (deck_id, created_at);
+  CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx ON slide_comments (deck_id, slide_id, created_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );

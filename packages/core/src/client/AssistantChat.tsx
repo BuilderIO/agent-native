@@ -3740,19 +3740,6 @@ import {
 } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
-function EmptyStateSuggestionSkeleton() {
-  return (
-    <div
-      className="flex w-full max-w-[280px] flex-col gap-1.5"
-      aria-hidden="true"
-    >
-      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
-      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
-      <div className="h-12 w-full rounded-lg border border-border bg-muted/60 animate-pulse" />
-    </div>
-  );
-}
-
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -3812,14 +3799,15 @@ const AssistantChatInner = forwardRef<
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
-  const { suggestions: resolvedSuggestions, isLoading: suggestionsLoading } =
-    useAgentDynamicSuggestionsResult({
+  const { suggestions: resolvedSuggestions } = useAgentDynamicSuggestionsResult(
+    {
       staticSuggestions: suggestions,
       dynamicSuggestions,
       browserTabId,
       scope: contextScope,
       enabled: messages.length === 0,
-    });
+    },
+  );
   const messageListResetKey = useMemo(
     () => messages.map((message) => message.id).join("|"),
     [messages],
@@ -4011,6 +3999,21 @@ const AssistantChatInner = forwardRef<
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
   const lastPersistedQueueRef = useRef<string>("[]");
+  // Cheap change-guard for `importThreadData`. The real-time sync layer
+  // refetches `/threads/:id` (or re-runs `loadHistoryRepository`) on poll /
+  // change ticks, on reconnect, and whenever the host's transcript bumps
+  // `historyReloadKey`. On a long thread the JSON.parse +
+  // normalizeThreadRepository + threadRuntime.export()/import round-trip is
+  // CPU-bound and triggers re-render churn even when the content is byte-for-
+  // byte identical to what we last imported. We hash the raw incoming payload
+  // and skip the whole pipeline when it hasn't advanced, returning the
+  // already-imported repo so callers (e.g. the reconnect loop's
+  // repoHasAssistantMessage check) see consistent data. Any real change — a
+  // new message, an arriving tool result, the server replacing an optimistic
+  // copy, or switching threads — produces a different signal and falls
+  // through to a full import.
+  const lastImportedSignatureRef = useRef<string | null>(null);
+  const lastImportedRepoRef = useRef<any>(null);
   const [showContinue, setShowContinue] = useState(false);
   const [loopLimitInfo, setLoopLimitInfo] = useState<LoopLimitInfo | null>(
     null,
@@ -4068,9 +4071,43 @@ const AssistantChatInner = forwardRef<
 
   const importThreadData = useCallback(
     (threadData: unknown, options?: { markTitleGenerated?: boolean }): any => {
+      // Cheap-signal short-circuit: if the raw payload is identical to the
+      // last one we imported, there is nothing new to parse, normalize, or
+      // re-import into the runtime. Reuse the already-imported repo so callers
+      // still get back a stable result without the CPU + re-render cost. We
+      // still honor `markTitleGenerated` because a re-fetch carrying the same
+      // content can legitimately confirm a title is settled.
+      const signature =
+        typeof threadData === "string"
+          ? threadData
+          : (() => {
+              try {
+                return JSON.stringify(threadData);
+              } catch {
+                return null;
+              }
+            })();
+      if (
+        signature !== null &&
+        signature === lastImportedSignatureRef.current
+      ) {
+        if (options?.markTitleGenerated) {
+          titleGeneratedRef.current = true;
+        }
+        return lastImportedRepoRef.current;
+      }
+
       const repo = normalizeThreadRepository(
         typeof threadData === "string" ? JSON.parse(threadData) : threadData,
       );
+      // Whether this payload settled into the runtime (either imported, or
+      // had no messages to import). Only then is it safe to remember its
+      // signature as the canonical "last imported" — a payload that
+      // `shouldImportServerThreadData` deliberately rejected (e.g. it
+      // regressed message count) must NOT be cached, so an identical re-fetch
+      // re-evaluates against the runtime exactly as before instead of
+      // short-circuiting to the rejected repo.
+      let settled = true;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
         try {
@@ -4086,11 +4123,17 @@ const AssistantChatInner = forwardRef<
             titleGeneratedRef.current = true;
           }
           threadRuntime.import(ensureMessageMetadata(repo));
+        } else {
+          settled = false;
         }
       }
       if (Array.isArray(repo?.queuedMessages)) {
         setQueuedMessages(repo.queuedMessages);
         lastPersistedQueueRef.current = JSON.stringify(repo.queuedMessages);
+      }
+      if (settled && signature !== null) {
+        lastImportedSignatureRef.current = signature;
+        lastImportedRepoRef.current = repo;
       }
       return repo;
     },
@@ -4366,23 +4409,31 @@ const AssistantChatInner = forwardRef<
           const res = await fetch(
             `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
           );
-          if (!res.ok) return;
-          const data = await res.json();
-          if (data.threadData) {
-            importThreadData(data.threadData, { markTitleGenerated: true });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.threadData) {
+              importThreadData(data.threadData, { markTitleGenerated: true });
+            }
+            // Also skip title generation if thread already has a title
+            if (data.title) {
+              titleGeneratedRef.current = true;
+            }
           }
-          // Also skip title generation if thread already has a title
-          if (data.title) {
-            titleGeneratedRef.current = true;
-          }
-
-          // Check if there's an active run for this thread (e.g. after hot
-          // reload), and reconnect to it if it is still running.
-          await reconnectActiveRunForThread();
         } catch {
           // Start fresh
         } finally {
+          // Clear the skeleton as soon as the persisted messages are imported.
+          // The active-run reconnect probe below must NOT gate first paint — it
+          // only matters when a run is mid-flight (e.g. after a hot reload), and
+          // it streams on top of the already-rendered messages.
           setIsRestoring(false);
+        }
+        // Reconnect to an in-progress run after the skeleton has cleared, so a
+        // background `/runs/active` probe never delays showing the conversation.
+        try {
+          await reconnectActiveRunForThread();
+        } catch {
+          // No active run to reconnect to.
         }
       })();
     } else {
@@ -5400,10 +5451,7 @@ const AssistantChatInner = forwardRef<
                       {emptyStateText ?? "How can I help you?"}
                     </p>
                     {emptyStateAddon}
-                    {suggestionsLoading ? (
-                      <EmptyStateSuggestionSkeleton />
-                    ) : resolvedSuggestions &&
-                      resolvedSuggestions.length > 0 ? (
+                    {resolvedSuggestions && resolvedSuggestions.length > 0 ? (
                       <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
                         {resolvedSuggestions.map((suggestion) => (
                           <button

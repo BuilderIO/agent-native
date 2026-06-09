@@ -29,7 +29,6 @@ import {
   DevTextarea,
   DevSelect,
 } from "./dev-doc-ui.js";
-import { CodeSurface } from "./HighlightedCode.js";
 
 /**
  * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style
@@ -199,21 +198,159 @@ function wasIsRequiredFlag(was: string): boolean {
 /** Guess a fence language from a content type so examples highlight nicely. */
 function fenceLangForContentType(contentType?: string): string {
   const ct = (contentType ?? "").toLowerCase();
-  if (ct.includes("json")) return "json";
   if (ct.includes("xml") || ct.includes("html")) return "html";
   if (ct.includes("yaml") || ct.includes("yml")) return "yaml";
   return "json";
 }
 
-function shouldUseJsonExplorer(example: string, contentType?: string): boolean {
+/**
+ * Strip JSONC niceties so an otherwise-valid-but-commented example still parses
+ * as JSON and earns the collapsible JsonExplorer (instead of falling back to a
+ * plain code block). Removes `//` line comments and `/* … *​/` block comments,
+ * then trailing commas before `}`/`]`. String contents are preserved: `//`
+ * inside a quoted string (e.g. a URL) is NOT treated as a comment.
+ */
+function stripJsonComments(source: string): string {
+  let out = "";
+  let inString = false;
+  let stringQuote = "";
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i];
+    const next = source[i + 1];
+
+    if (inLineComment) {
+      if (char === "\n") {
+        inLineComment = false;
+        out += char;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        i += 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      out += char;
+      if (char === "\\") {
+        // Copy the escaped char verbatim so an escaped quote can't end the
+        // string early.
+        if (next !== undefined) {
+          out += next;
+          i += 1;
+        }
+      } else if (char === stringQuote) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      inString = true;
+      stringQuote = char;
+      out += char;
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      inLineComment = true;
+      i += 1;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      inBlockComment = true;
+      i += 1;
+      continue;
+    }
+
+    // Drop a trailing comma before a closing bracket so the result is strict
+    // JSON. Done here (not via a post-pass regex) so it stays string-aware: we
+    // only reach this branch outside strings/comments, and the structural comma
+    // is the last non-whitespace char already emitted. A comma inside a string
+    // value like `"hello,}"` is followed by its closing quote, not the bracket,
+    // so it is never stripped.
+    if (char === "}" || char === "]") {
+      out = out.replace(/,\s*$/, "");
+    }
+    out += char;
+  }
+
+  return out;
+}
+
+/**
+ * Decide whether an example should render with the collapsible JsonExplorer.
+ * Returns the strict-JSON text to feed the explorer (comment-stripped when the
+ * raw example was JSONC), or `null` when the example is not parseable as JSON
+ * (e.g. an explicitly non-JSON content type, or free-form/XML/YAML text) and
+ * should fall back to the styled code surface.
+ */
+function jsonExplorerSource(
+  example: string,
+  contentType?: string,
+): string | null {
   const ct = (contentType ?? "").toLowerCase();
-  if (contentType && !ct.includes("json")) return false;
+  if (contentType && !ct.includes("json")) return null;
   try {
     JSON.parse(example);
-    return true;
+    return example;
   } catch {
-    return false;
+    // Tolerate JSONC: a commented-but-otherwise-valid body still gets the nice
+    // explorer. Feed the explorer the stripped (strict-JSON) text so it parses.
+    const stripped = stripJsonComments(example);
+    try {
+      JSON.parse(stripped);
+      return stripped;
+    } catch {
+      return null;
+    }
   }
+}
+
+/**
+ * Plain (non-JSON) example fallback. Renders inside the SAME surface chrome as
+ * {@link JsonExplorerSurface} — one `rounded-xl border bg-plan-code` box with a
+ * label bar and an `overflow-auto` scroll body — so a JSONC / free-form example
+ * reads consistently with the JSON-explorer examples instead of as a separate,
+ * differently-styled code box (no extra background tint, no clipped overflow).
+ * Font-size is inherited from `--plan-code-size` (the same token the global code
+ * rule manages); we never hardcode it here.
+ */
+function ApiCodeExample({
+  code,
+  label = "JSON",
+  className,
+}: {
+  code: string;
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      data-code-surface
+      className={cn(
+        "overflow-hidden rounded-xl border border-plan-line bg-plan-code",
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 border-b border-plan-line px-3 py-1.5">
+        <span className="font-mono text-xs uppercase tracking-wide text-plan-muted">
+          {label}
+        </span>
+      </div>
+      <pre className="overflow-x-auto px-3 py-2.5 font-mono [font-size:var(--plan-doc-code-size)] leading-relaxed text-plan-code-text">
+        {code}
+      </pre>
+    </div>
+  );
 }
 
 function ApiExample({
@@ -225,19 +362,20 @@ function ApiExample({
   contentType?: string;
   className?: string;
 }) {
-  if (shouldUseJsonExplorer(example, contentType)) {
+  const jsonSource = jsonExplorerSource(example, contentType);
+  if (jsonSource !== null) {
     return (
       <JsonExplorerSurface
-        data={{ json: example, collapsedDepth: 2 }}
+        data={{ json: jsonSource, collapsedDepth: 2 }}
         className={className}
       />
     );
   }
 
   return (
-    <CodeSurface
+    <ApiCodeExample
       code={example}
-      language={fenceLangForContentType(contentType)}
+      label={fenceLangForContentType(contentType).toUpperCase()}
       className={className}
     />
   );
@@ -275,9 +413,19 @@ export function ApiEndpointRead({
     Boolean(data.auth);
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    // `data-block-type` lets the document flow detect a RUN of consecutive
+    // api-endpoint blocks and collapse the divider + gap between them (see
+    // `.plan-document-flow` rules in the plan template's global.css), so a list
+    // of endpoints reads as one tight scannable group instead of separate
+    // full-width cards. `an-api-endpoint-card` is the flush-able card surface
+    // those rules round/merge at the run's edges.
+    <section
+      className="plan-block"
+      data-block-id={blockId}
+      data-block-type="api-endpoint"
+    >
       {title && <div className="plan-block-label">{title}</div>}
-      <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-block">
+      <div className="an-api-endpoint-card overflow-hidden rounded-xl border border-plan-line bg-plan-block">
         {/* Collapsed summary row — the whole row toggles. */}
         <button
           type="button"
@@ -334,9 +482,11 @@ export function ApiEndpointRead({
           )}
         </button>
 
-        {/* Expanded body. */}
+        {/* Expanded body. No top divider: the title/summary row flows into the
+            content separated by padding alone (the user finds mid-card dividers
+            distracting; the outer card border + run-flush behavior stay). */}
         {open && hasBody && (
-          <div className="border-t border-plan-line px-4 py-4">
+          <div className="px-4 pb-4 pt-1">
             {data.auth && (
               <div className="mb-4 flex items-center gap-2 text-xs text-plan-muted">
                 <IconLock className="size-3.5 shrink-0" />
@@ -520,7 +670,7 @@ export function ApiEndpointRead({
                         )}
                       </div>
                       {response.example && (
-                        <div className="border-t border-plan-line px-3 pb-3 pt-3 an-api-endpoint-example">
+                        <div className="px-3 pb-3 pt-0 an-api-endpoint-example">
                           <ApiExample
                             example={response.example}
                             className="mt-0"

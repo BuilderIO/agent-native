@@ -10,7 +10,6 @@ import { htmlBlock } from "./html.js";
 import { tabsBlock } from "./tabs.js";
 import { columnsBlock } from "./columns.js";
 import { calloutBlock } from "./callout.js";
-import { decisionBlock } from "./decision.js";
 import { questionFormBlock, visualQuestionsBlock } from "./question-form.js";
 import { diagramBlock } from "./diagram.js";
 import { wireframeBlock } from "./wireframe.js";
@@ -271,7 +270,6 @@ export const libraryBlockSpecs: BlockSpec<any>[] = [
   tabsBlock,
   columnsBlock,
   calloutBlock,
-  decisionBlock,
   questionFormBlock,
   visualQuestionsBlock,
   diagramBlock,

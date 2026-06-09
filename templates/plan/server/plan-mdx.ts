@@ -376,9 +376,6 @@ function serializeBlock(block: PlanBlock): string {
   if (block.type === "image") {
     return `<Image${prop("id", block.id)}${title}${summary}${editable}${prop("assetId", block.data.assetId)}${prop("url", block.data.url)}${prop("alt", block.data.alt)}${prop("caption", block.data.caption)}${prop("fit", block.data.fit)} />`;
   }
-  if (block.type === "decision") {
-    return `<Decision${prop("id", block.id)}${title}${summary}${editable}${prop("question", block.data.question)}${prop("options", block.data.options)} />`;
-  }
   if (block.type === "tabs") {
     return `<TabsBlock${prop("id", block.id)}${title}${summary}${editable}${prop("tabs", block.data.tabs)}${prop("orientation", block.data.orientation === "vertical" ? block.data.orientation : undefined)} />`;
   }
@@ -710,6 +707,24 @@ function stringAttr(node: MdxNode, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * Resolve a `<Screen>`/wireframe string attribute that must be a string when
+ * present. Absent → undefined; present but not a string (number, object, or an
+ * expression that can't be statically evaluated) → THROW, so a malformed
+ * wireframe fails the import instead of silently dropping the value.
+ */
+function requiredStringAttr(node: MdxNode, name: string): string | undefined {
+  const attr = findAttribute(node, name);
+  if (!attr) return undefined;
+  const value = attributeValue(attr);
+  if (typeof value !== "string") {
+    throw new Error(
+      `Wireframe <Screen> attribute "${name}" must resolve to a string, got ${typeof value}. Use a quoted string or a static template literal.`,
+    );
+  }
+  return value;
+}
+
 function numberAttr(node: MdxNode, name: string): number | undefined {
   const value = attributeValue(findAttribute(node, name));
   return typeof value === "number" ? value : undefined;
@@ -739,11 +754,29 @@ function baseBlock(node: MdxNode) {
   };
 }
 
+// Wireframe component tags (`Screen` plus every kit component like
+// `FrameScreen`/`Row`/`Btn`/…). These are only valid INSIDE a `<WireframeBlock>`
+// (plan.mdx) or an `<Artboard>` (canvas.mdx). If one appears as a standalone
+// block-level node it is a malformed wireframe — we must fail loudly rather than
+// let it fall through into rich-text and render as raw `<Screen .../>` source.
+const WIREFRAME_ONLY_COMPONENTS = new Set<string>([
+  "Screen",
+  ...Object.keys(COMPONENT_TO_NODE),
+]);
+
 function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const name = elementName(node);
   if (name === "Columns") {
     const parsed = parseReadableColumnsBlock(node, idContext);
     if (parsed) return parsed;
+  }
+  // Fail loud: a bare wireframe element (`<Screen .../>` or a stray kit node) at
+  // the block level is a malformed wireframe. Wrap it in `<WireframeBlock>` (or
+  // an `<Artboard>` in canvas.mdx). Never silently emit it as raw text.
+  if (name && WIREFRAME_ONLY_COMPONENTS.has(name)) {
+    throw new Error(
+      `Malformed wireframe: <${name}> must be nested inside a <WireframeBlock> (plan.mdx) or <Artboard> (canvas.mdx), not used as a standalone block.`,
+    );
   }
   // Registry-first: a registered MDX tag parses through its spec. The shared
   // attribute reader resolves props the same way the legacy readers do, and the
@@ -850,14 +883,25 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     };
   }
   if (name === "Decision") {
-    return {
-      ...base,
-      type: "decision",
-      data: {
-        question: stringAttr(node, "question") ?? base.title ?? "Decision",
-        options: arrayAttr(node, "options") ?? [],
-      },
-    };
+    // The `decision` block was retired; a legacy `<Decision>` round-trips into a
+    // decision-tone `callout` whose body carries the question + options (matching
+    // the stored-content migration in `plan-content.ts`).
+    const question = stringAttr(node, "question") ?? base.title ?? "Decision";
+    const options = (arrayAttr(node, "options") ?? []) as Array<{
+      label?: string;
+      detail?: string;
+      recommended?: boolean;
+    }>;
+    const lines = options.map((option) => {
+      const head = `- **${option.label ?? ""}**${
+        option.recommended === true ? " — recommended" : ""
+      }`;
+      return option.detail ? `${head}: ${option.detail}` : head;
+    });
+    const body =
+      [`**${question}**`, lines.join("\n")].filter(Boolean).join("\n\n") ||
+      "Decision";
+    return { ...base, type: "callout", data: { tone: "decision", body } };
   }
   if (name === "TabsBlock") {
     return {
@@ -935,8 +979,8 @@ function parseScreen(
       "renderMode",
     ) as PlanWireframeBlock["data"]["renderMode"],
     caption: stringAttr(node, "caption"),
-    html: stringAttr(node, "html"),
-    css: stringAttr(node, "css"),
+    html: requiredStringAttr(node, "html"),
+    css: requiredStringAttr(node, "css"),
     skeleton: boolAttr(node, "skeleton"),
     screen: (node.children ?? [])
       .map((child, index) =>

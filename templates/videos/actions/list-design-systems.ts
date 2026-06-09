@@ -18,8 +18,20 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    // Project only the columns the list needs. A bare `.select()` also pulls
+    // the heavy `assets` JSON blob and `custom_instructions`, which no list
+    // consumer reads — those are fetched on demand via `get-design-system`.
     const rows = await db
-      .select()
+      .select({
+        id: schema.designSystems.id,
+        title: schema.designSystems.title,
+        description: schema.designSystems.description,
+        data: schema.designSystems.data,
+        isDefault: schema.designSystems.isDefault,
+        visibility: schema.designSystems.visibility,
+        createdAt: schema.designSystems.createdAt,
+        updatedAt: schema.designSystems.updatedAt,
+      })
       .from(schema.designSystems)
       .where(accessFilter(schema.designSystems, schema.designSystemShares))
       .orderBy(desc(schema.designSystems.updatedAt));

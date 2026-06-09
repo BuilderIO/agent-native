@@ -633,19 +633,10 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    // Zoom out slightly so more content fits, then scroll past the main title.
+    // Zoom out slightly so more content fits. Keep the plan title (h1) in frame:
+    // the recap reads better led by its own title than cropped to the body.
     await page.evaluate(() => {
       (document.documentElement as HTMLElement).style.zoom = "80%";
-    });
-    await page.evaluate(() => {
-      const firstH2 = document.querySelector("h2");
-      if (firstH2) {
-        firstH2.scrollIntoView({ block: "start" });
-        window.scrollBy(0, -24);
-      } else {
-        const h1 = document.querySelector("h1");
-        if (h1) window.scrollBy(0, h1.getBoundingClientRect().bottom + 32);
-      }
     });
     await page.screenshot({ path: out });
     captured = true;
@@ -707,12 +698,208 @@ async function runComment(
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Usage capture — parse the agent's own token usage and attach it to the plan */
+/* -------------------------------------------------------------------------- */
+
+interface ParsedUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  model?: string;
+  reportedCostUsd?: number;
+}
+
+/** Parse the last top-level JSON object from a possibly-noisy stdout dump. */
+function parseLastJsonObject(text: string): Record<string, any> | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    /* fall through to line-by-line */
+  }
+  const lines = trimmed.split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i].trim();
+    if (!line.startsWith("{")) continue;
+    try {
+      return JSON.parse(line);
+    } catch {
+      /* keep scanning earlier lines */
+    }
+  }
+  return null;
+}
+
+/**
+ * Claude Code `-p --output-format json` prints one final result object with a
+ * `usage` block and `total_cost_usd`. Anthropic's `input_tokens` already
+ * EXCLUDES cache tokens, so no normalization is needed here.
+ */
+export function parseClaudeUsage(stdout: string): ParsedUsage | null {
+  const obj = parseLastJsonObject(stdout);
+  const u = obj?.usage;
+  if (!u) return null;
+  const model =
+    typeof obj?.model === "string"
+      ? obj.model
+      : obj?.modelUsage && typeof obj.modelUsage === "object"
+        ? Object.keys(obj.modelUsage)[0]
+        : undefined;
+  return {
+    inputTokens: Number(u.input_tokens ?? 0),
+    outputTokens: Number(u.output_tokens ?? 0),
+    cacheReadTokens: Number(u.cache_read_input_tokens ?? 0),
+    cacheWriteTokens: Number(u.cache_creation_input_tokens ?? 0),
+    model,
+    reportedCostUsd:
+      typeof obj?.total_cost_usd === "number" ? obj.total_cost_usd : undefined,
+  };
+}
+
+/** Pull the last usage object out of a Codex `exec --json` JSONL stream. */
+function lastCodexUsage(jsonl: string): Record<string, any> | undefined {
+  let last: Record<string, any> | undefined;
+  for (const line of jsonl.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let obj: any;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    // turn.completed carries `usage`; token_count events nest it under
+    // `info.total_token_usage`. Accept whichever the pinned Codex emits.
+    const u =
+      obj?.usage ??
+      obj?.turn?.usage ??
+      obj?.msg?.usage ??
+      obj?.info?.total_token_usage ??
+      obj?.payload?.info?.total_token_usage;
+    if (u && (u.input_tokens != null || u.total_tokens != null)) last = u;
+  }
+  return last;
+}
+
+/**
+ * Codex `exec --json` reports `input_tokens` INCLUSIVE of `cached_input_tokens`
+ * (OpenAI counts cached as a subset of prompt tokens) and bills
+ * `reasoning_output_tokens` separately. Normalize to the cache-exclusive shape
+ * `calculateCost` expects: strip cached out of input, fold reasoning into
+ * output. Without this, cached tokens are billed twice and reasoning is dropped.
+ */
+export function parseCodexUsage(jsonl: string): ParsedUsage | null {
+  const u = lastCodexUsage(jsonl);
+  if (!u) return null;
+  const cached = Number(u.cached_input_tokens ?? 0);
+  const input = Number(u.input_tokens ?? 0) - cached;
+  return {
+    inputTokens: Math.max(0, input),
+    outputTokens:
+      Number(u.output_tokens ?? 0) + Number(u.reasoning_output_tokens ?? 0),
+    cacheReadTokens: cached,
+    cacheWriteTokens: 0, // Codex has no separate cache-write token charge
+    model: typeof u.model === "string" ? u.model : undefined,
+  };
+}
+
+/**
+ * `recap usage` — parse the agent's run output for token usage and POST it to
+ * the plan app's record-recap-usage action so the recap row carries cost. The
+ * publish token is only ever sent to the trusted --app-url origin (the plan id
+ * is parsed from the untrusted agent-written plan URL but never forwarded).
+ */
+async function runUsage(args: Record<string, string | boolean>): Promise<void> {
+  const done = (obj: Record<string, unknown>) =>
+    process.stdout.write(`${JSON.stringify(obj)}\n`);
+
+  const planUrl = stringArg(args, "plan-url");
+  const planId = planIdFromUrl(planUrl);
+  const agent = (optionalArg(args, "agent") ?? "claude").toLowerCase();
+  const appUrl = optionalArg(args, "app-url");
+  const token = optionalArg(args, "token");
+
+  if (!planId) {
+    done({ ok: false, reason: `could not parse plan id from ${planUrl}` });
+    return;
+  }
+  if (!appUrl || !token) {
+    done({ ok: false, reason: "missing --app-url or --token" });
+    return;
+  }
+
+  let parsed: ParsedUsage | null = null;
+  try {
+    const raw = fs.readFileSync(
+      path.resolve(stringArg(args, "result-file")),
+      "utf8",
+    );
+    parsed = agent === "codex" ? parseCodexUsage(raw) : parseClaudeUsage(raw);
+  } catch (err) {
+    done({ ok: false, reason: `could not read/parse usage: ${String(err)}` });
+    return;
+  }
+  if (!parsed) {
+    done({ ok: false, reason: "no usage found in agent output" });
+    return;
+  }
+
+  // The Claude result carries the model; Codex usually does not, so fall back to
+  // the pinned --model (VISUAL_RECAP_MODEL) and finally the documented default.
+  const model =
+    parsed.model ??
+    optionalArg(args, "model") ??
+    (agent === "codex" ? "gpt-5.5" : "claude");
+  const body: Record<string, unknown> = {
+    planId,
+    ...(agent === "codex" || agent === "claude" ? { agent } : {}),
+    model,
+    inputTokens: parsed.inputTokens,
+    outputTokens: parsed.outputTokens,
+    cacheReadTokens: parsed.cacheReadTokens,
+    cacheWriteTokens: parsed.cacheWriteTokens,
+    ...(parsed.reportedCostUsd != null
+      ? { reportedCostUsd: parsed.reportedCostUsd }
+      : {}),
+  };
+
+  try {
+    const base = appUrl.replace(/\/$/, "");
+    const res = await fetch(
+      `${base}/_agent-native/actions/record-recap-usage`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      done({
+        ok: false,
+        reason: `record-recap-usage failed ${res.status}: ${detail.slice(0, 300)}`,
+      });
+      return;
+    }
+    done({ ok: true, planId, ...body });
+  } catch (err) {
+    done({ ok: false, reason: `record-recap-usage error: ${String(err)}` });
+  }
+}
+
 const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
   agent-native recap scan --diff <path>
   agent-native recap build-prompt --pr <n> [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
+  agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>
 `;
 
@@ -728,6 +915,9 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "shot":
       await runShot(args);
+      return;
+    case "usage":
+      await runUsage(args);
       return;
     case "comment":
       await runComment(parseArgs(rest.slice(1)), rest[0] ?? "");

@@ -18,7 +18,6 @@ const STANDARD_LIBRARY_BLOCK_TYPES = [
   "custom-html",
   "tabs",
   "callout",
-  "decision",
   "diagram",
   "wireframe",
   "mermaid",

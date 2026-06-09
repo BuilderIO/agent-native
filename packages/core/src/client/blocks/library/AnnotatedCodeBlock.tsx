@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef } from "react";
 import { IconCode, IconPlus, IconTrash } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
@@ -12,10 +12,14 @@ import {
   normalizeCodeLanguage,
 } from "./code-highlight.js";
 import {
-  AnnotationNoteRail,
+  AnnotationHiddenStack,
+  AnnotationHoverCard,
+  anchorFromElements,
   buildLineMarkerMap,
   hasRailAnnotations,
   resolveAnnotations,
+  useAnnotationHover,
+  type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
@@ -48,7 +52,12 @@ function AnnotatedCodeRead({
   summary,
   ctx,
 }: BlockReadProps<AnnotatedCodeData>) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  // On-hover popover (anchored to the right of the code) replaces the old
+  // persistent rail: nothing is visible when idle. `codeRef` measures the code
+  // block's right edge; `hover` carries the active index + captured geometry.
+  const hover = useAnnotationHover();
+  const { activeIndex } = hover;
+  const codeRef = useRef<HTMLDivElement | null>(null);
 
   const lines = useMemo(
     () => data.code.replace(/\n$/, "").split("\n"),
@@ -81,8 +90,21 @@ function AnnotatedCodeRead({
   const hasAnnotations = hasRailAnnotations(resolved);
   const langChip = data.language?.trim();
 
+  // The resolved annotation whose card is currently shown on hover.
+  const activeItem =
+    useMemo<ResolvedAnnotation<AnnotatedCodeAnnotation> | null>(
+      () =>
+        activeIndex == null
+          ? null
+          : (resolved.find((item) => item.index === activeIndex) ?? null),
+      [activeIndex, resolved],
+    );
+
   const codeSurface = (
-    <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-code">
+    <div
+      ref={codeRef}
+      className="overflow-hidden rounded-xl border border-plan-line bg-plan-code"
+    >
       {(data.filename || langChip) && (
         <div className="flex items-center gap-2 border-b border-plan-line bg-plan-block/50 px-3.5 py-2">
           <IconCode className="size-3.5 shrink-0 text-plan-muted" />
@@ -96,8 +118,8 @@ function AnnotatedCodeRead({
           )}
         </div>
       )}
-      <div className="overflow-x-auto py-1.5">
-        <div className="min-w-full font-mono [font-size:var(--plan-code-size)] leading-[22px]">
+      <div className="overflow-x-auto py-1.5" data-code-surface>
+        <div className="min-w-full font-mono [font-size:var(--plan-doc-code-size)] leading-[22px]">
           {lines.map((_text, idx) => {
             const lineNo = idx + 1;
             const markers = lineMarkers.get(lineNo);
@@ -108,6 +130,7 @@ function AnnotatedCodeRead({
             return (
               <div
                 key={lineNo}
+                data-annot-row={isAnnotated ? markers?.[0].index : undefined}
                 className={cn(
                   "flex w-full",
                   isActive
@@ -118,11 +141,17 @@ function AnnotatedCodeRead({
                 )}
                 onMouseEnter={
                   isAnnotated && markers
-                    ? () => setActiveIndex(markers[0].index)
+                    ? (event) => {
+                        const anchor = anchorFromElements(
+                          codeRef.current,
+                          event.currentTarget,
+                        );
+                        if (anchor) hover.open(markers[0].index, anchor);
+                      }
                     : undefined
                 }
                 onMouseLeave={
-                  isAnnotated ? () => setActiveIndex(null) : undefined
+                  isAnnotated ? () => hover.scheduleClose() : undefined
                 }
               >
                 {/* Accent rail: amber on annotated lines, brighter when active. */}
@@ -152,26 +181,21 @@ function AnnotatedCodeRead({
   );
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section className="plan-block relative" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
-      {hasAnnotations ? (
-        // The side rail stays for annotated-code, but responds to the block's
-        // OWN width via a container query: side-by-side when there's room,
-        // stacked below the code (single-column grid) when the container is
-        // narrow — e.g. nested inside a vertical-tabs content column.
-        <div className="@container/code">
-          <div className="grid items-start gap-3 @xl/code:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]">
-            {codeSurface}
-            <AnnotationNoteRail
-              items={resolved}
-              activeIndex={activeIndex}
-              onActiveChange={setActiveIndex}
-              ctx={ctx}
-            />
-          </div>
-        </div>
-      ) : (
-        codeSurface
+      {/* The code keeps its full width — no persistent annotation column. Notes
+          live in a visually-hidden stack (a11y + tests) and surface ONE at a
+          time as an on-hover popover anchored to the right of the code. */}
+      {codeSurface}
+      {hasAnnotations && <AnnotationHiddenStack items={resolved} ctx={ctx} />}
+      {hasAnnotations && activeItem && hover.anchor && (
+        <AnnotationHoverCard
+          item={activeItem}
+          anchor={hover.anchor}
+          ctx={ctx}
+          onMouseEnter={hover.cancelClose}
+          onMouseLeave={hover.scheduleClose}
+        />
       )}
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
@@ -180,7 +204,8 @@ function AnnotatedCodeRead({
 
 /* ── Edit (panel) ──────────────────────────────────────────────────────────── */
 
-const codeAreaClass = "min-h-[160px] font-mono text-xs leading-5";
+const codeAreaClass =
+  "min-h-[160px] font-mono [font-size:var(--plan-code-size)] leading-5";
 
 function AnnotatedCodeEdit({
   data,

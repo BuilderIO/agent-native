@@ -38,22 +38,95 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+/** Which header field a RecipientInput represents — used for cross-field drag. */
+export type RecipientField = "to" | "cc" | "bcc";
+
+/** DataTransfer MIME used when dragging a recipient chip between To/Cc/Bcc. */
+const RECIPIENT_DRAG_MIME = "application/x-mail-recipient";
+
 interface RecipientInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Field identity; enables dragging chips between To/Cc/Bcc when paired with onMoveRecipient. */
+  field?: RecipientField;
+  /** Move a recipient token from one field to another (handled by the parent that owns all fields). */
+  onMoveRecipient?: (
+    value: string,
+    from: RecipientField,
+    to: RecipientField,
+  ) => void;
 }
 
-function parseRecipients(value: string): string[] {
+export function parseRecipients(value: string): string[] {
   return value
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
-function serializeRecipients(recipients: string[]): string {
+export function serializeRecipients(recipients: string[]): string {
   return recipients.join(", ");
+}
+
+// Permissive single-address check — good enough to decide whether a typed/pasted
+// token should auto-lock into a chip on blur. Send-time validation is authoritative.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isValidEmail(value: string): boolean {
+  return EMAIL_RE.test(value.trim());
+}
+
+/**
+ * Splits a pasted blob of recipients (comma/semicolon/newline separated) into the
+ * valid emails to add (deduped, case-insensitively, against `existing` and each
+ * other) plus any non-email leftover to keep in the input. Returns `null` when the
+ * paste should not be intercepted (single token, or nothing email-like) so the
+ * caller can fall through to normal paste behavior.
+ */
+export function extractPastedRecipients(
+  text: string,
+  existing: string[],
+): { added: string[]; leftover: string } | null {
+  if (!text || !/[,;\n]/.test(text)) return null;
+  const tokens = text
+    .split(/[,;\n]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const emails = tokens.filter(isValidEmail);
+  if (emails.length === 0) return null;
+  const seen = new Set(existing.map((r) => r.toLowerCase()));
+  const added: string[] = [];
+  for (const email of emails) {
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    added.push(email);
+  }
+  const leftover = tokens.filter((t) => !isValidEmail(t)).join(", ");
+  return { added, leftover };
+}
+
+/**
+ * Computes the new comma-separated values for two recipient fields when a token is
+ * moved from one to the other (drag between To/Cc/Bcc). Removes `value` from the
+ * source and appends it to the target unless already present (case-insensitive).
+ */
+export function computeRecipientMove(
+  fromRaw: string,
+  toRaw: string,
+  value: string,
+): { from: string; to: string } {
+  const fromList = parseRecipients(fromRaw).filter((r) => r !== value);
+  const toList = parseRecipients(toRaw);
+  const alreadyThere = toList.some(
+    (r) => r.toLowerCase() === value.toLowerCase(),
+  );
+  return {
+    from: serializeRecipients(fromList),
+    to: serializeRecipients(alreadyThere ? toList : [...toList, value]),
+  };
 }
 
 // ─── AliasPopover ─────────────────────────────────────────────────────────────
@@ -235,10 +308,13 @@ export function RecipientInput({
   onChange,
   placeholder,
   autoFocus,
+  field,
+  onMoveRecipient,
 }: RecipientInputProps) {
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isDropTarget, setIsDropTarget] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
   const [popoverAlias, setPopoverAlias] = useState<{
     alias: Alias;
@@ -356,6 +432,82 @@ export function RecipientInput({
     },
     [recipients, aliases, onChange],
   );
+
+  // Lock a pasted/typed-but-unconfirmed address into a chip when the field loses
+  // focus, so a bare paste (no Enter/Tab/comma) isn't silently dropped on send.
+  const handleBlur = () => {
+    const trimmed = inputValue.trim();
+    if (trimmed && isValidEmail(trimmed)) {
+      addRecipient(trimmed);
+    }
+  };
+
+  // Pasting several addresses at once (comma/semicolon/newline separated) splits
+  // them into chips. A single token with no delimiter falls through to the normal
+  // paste so it lands in the input and locks in on blur.
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const result = extractPastedRecipients(
+      e.clipboardData.getData("text"),
+      recipients,
+    );
+    if (!result) return; // single token / nothing email-like → normal paste
+    e.preventDefault();
+    if (result.added.length > 0) {
+      onChange(serializeRecipients([...recipients, ...result.added]));
+    }
+    // Preserve any non-email leftovers (e.g. a half-typed address) in the input.
+    setInputValue(result.leftover);
+    setShowSuggestions(false);
+  };
+
+  // ── Cross-field drag (To ⇄ Cc ⇄ Bcc), Superhuman-style ──────────────────────
+  const canDrag = !!field && !!onMoveRecipient;
+
+  const handleChipDragStart = (
+    e: React.DragEvent<HTMLSpanElement>,
+    recipientValue: string,
+  ) => {
+    if (!field) return;
+    e.dataTransfer.setData(
+      RECIPIENT_DRAG_MIME,
+      JSON.stringify({ value: recipientValue, from: field }),
+    );
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleContainerDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!canDrag) return;
+    if (!Array.from(e.dataTransfer.types).includes(RECIPIENT_DRAG_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    if (!isDropTarget) setIsDropTarget(true);
+  };
+
+  const handleContainerDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    // Ignore moves between the container's own children.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDropTarget(false);
+  };
+
+  const handleContainerDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!canDrag || !field || !onMoveRecipient) return;
+    const raw = e.dataTransfer.getData(RECIPIENT_DRAG_MIME);
+    if (!raw) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDropTarget(false);
+    try {
+      const { value: dropped, from } = JSON.parse(raw) as {
+        value: string;
+        from: RecipientField;
+      };
+      if (!dropped || from === field) return;
+      onMoveRecipient(dropped, from, field);
+    } catch {
+      // Malformed payload — ignore.
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" || e.key === "Tab") {
@@ -505,7 +657,16 @@ export function RecipientInput({
   const canSaveAlias = nonAliasRecipients.length >= 2;
 
   return (
-    <div ref={containerRef} className="relative flex-1">
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative flex-1 rounded-md transition-colors",
+        isDropTarget && "bg-indigo-500/8 ring-1 ring-inset ring-indigo-400/50",
+      )}
+      onDragOver={canDrag ? handleContainerDragOver : undefined}
+      onDragLeave={canDrag ? handleContainerDragLeave : undefined}
+      onDrop={canDrag ? handleContainerDrop : undefined}
+    >
       <div className="flex flex-wrap items-center gap-1 py-1.5">
         {recipients.map((r, i) => {
           if (isAliasToken(r)) {
@@ -516,7 +677,14 @@ export function RecipientInput({
             return (
               <span
                 key={`${r}-${i}`}
-                className="flex items-center gap-0.5 rounded-md border border-indigo-500/35 bg-indigo-500/18 px-2 py-0.5 text-xs"
+                draggable={canDrag}
+                onDragStart={
+                  canDrag ? (e) => handleChipDragStart(e, r) : undefined
+                }
+                className={cn(
+                  "flex items-center gap-0.5 rounded-md border border-indigo-500/35 bg-indigo-500/18 px-2 py-0.5 text-xs",
+                  canDrag && "cursor-grab active:cursor-grabbing",
+                )}
               >
                 <button
                   type="button"
@@ -552,7 +720,14 @@ export function RecipientInput({
           return (
             <span
               key={`${r}-${i}`}
-              className="flex items-center gap-0.5 rounded-md bg-accent px-2 py-0.5 text-xs text-accent-foreground"
+              draggable={canDrag}
+              onDragStart={
+                canDrag ? (e) => handleChipDragStart(e, r) : undefined
+              }
+              className={cn(
+                "flex items-center gap-0.5 rounded-md bg-accent px-2 py-0.5 text-xs text-accent-foreground",
+                canDrag && "cursor-grab active:cursor-grabbing",
+              )}
             >
               <span className="max-w-[180px] truncate">{r}</span>
               <button
@@ -576,6 +751,8 @@ export function RecipientInput({
           onFocus={() => {
             if (inputValue.trim()) setShowSuggestions(true);
           }}
+          onBlur={handleBlur}
+          onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           placeholder={recipients.length === 0 ? placeholder : ""}
           className="min-w-[120px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"

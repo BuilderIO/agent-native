@@ -89,6 +89,19 @@ CREATE TABLE IF NOT EXISTS form_shares (
         sqlite: `SELECT 1`,
       },
     },
+    {
+      // Performance indexes. Plain CREATE INDEX IF NOT EXISTS works on both
+      // Postgres and SQLite, so a single dialect-agnostic string suffices.
+      // - forms list query filters on owner_email/org_id (via accessFilter)
+      //   and orders by updated_at.
+      // - responses are filtered by form_id on every form open and listed
+      //   ordered by submitted_at; the composite covers both.
+      // - form_shares lookups join on resource_id + principal_type/id.
+      version: 10,
+      sql: `CREATE INDEX IF NOT EXISTS forms_owner_org_updated_idx ON forms (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS responses_form_id_idx ON responses (form_id, submitted_at);
+CREATE INDEX IF NOT EXISTS form_shares_resource_idx ON form_shares (resource_id, principal_type, principal_id)`,
+    },
   ],
   { table: "forms_migrations" },
 );

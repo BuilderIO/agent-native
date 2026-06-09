@@ -53,7 +53,11 @@ import {
   getCurrentDraftBodyFromEditor,
   splitQuotedContent,
 } from "./compose-draft-context";
-import { RecipientInput } from "./RecipientInput";
+import {
+  RecipientInput,
+  computeRecipientMove,
+  type RecipientField,
+} from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -413,6 +417,26 @@ export function ComposeModal({
     setGenerateOpen(false);
   };
 
+  // Move a recipient chip between To/Cc/Bcc (drag-and-drop). The compose draft
+  // owns all three fields, so it can remove from the source and add to the
+  // target atomically.
+  const moveRecipient = (
+    value: string,
+    from: RecipientField,
+    to: RecipientField,
+  ) => {
+    if (!activeId || !activeDraft || from === to) return;
+    const moved = computeRecipientMove(
+      activeDraft[from] ?? "",
+      activeDraft[to] ?? "",
+      value,
+    );
+    const partial: Partial<ComposeState> = {};
+    partial[from] = moved.from;
+    partial[to] = moved.to;
+    onUpdate(activeId, partial);
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
     try {
@@ -631,6 +655,8 @@ export function ComposeModal({
                 value={activeDraft.to}
                 onChange={(val) => onUpdate(activeId!, { to: val })}
                 autoFocus={activeDraft.mode === "compose"}
+                field="to"
+                onMoveRecipient={moveRecipient}
               />
               <button
                 tabIndex={-1}
@@ -664,6 +690,8 @@ export function ComposeModal({
                   <RecipientInput
                     value={activeDraft.cc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { cc: val })}
+                    field="cc"
+                    onMoveRecipient={moveRecipient}
                   />
                 </div>
                 <div className="flex items-center border-b border-border px-4">
@@ -673,6 +701,8 @@ export function ComposeModal({
                   <RecipientInput
                     value={activeDraft.bcc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { bcc: val })}
+                    field="bcc"
+                    onMoveRecipient={moveRecipient}
                   />
                 </div>
               </>

@@ -35,7 +35,6 @@ export type PlanBlockType =
   | "wireframe"
   | "diagram"
   | "image"
-  | "decision"
   | "tabs"
   | "columns"
   | "custom-html"
@@ -396,24 +395,6 @@ export type PlanImageBlock = PlanBlockBase & {
   };
 };
 
-export type PlanDecisionBlock = PlanBlockBase & {
-  type: "decision";
-  data: {
-    question: string;
-    options: Array<{
-      id: string;
-      label: string;
-      detail?: string;
-      /**
-       * Authored recommendation only. A reviewer's actual selection does NOT
-       * live here — responses belong in plan_comments / events, never in the
-       * canonical plan body.
-       */
-      recommended?: boolean;
-    }>;
-  };
-};
-
 export type PlanTabsBlock = PlanBlockBase & {
   type: "tabs";
   data: {
@@ -450,7 +431,11 @@ export type PlanQuestionOption = {
   id: string;
   label: string;
   detail?: string;
-  /** Authored recommendation only — see PlanDecisionBlock note. */
+  /**
+   * Authored recommendation only. A reviewer's actual selection does NOT live
+   * here — responses belong in plan_comments / events, never in the canonical
+   * plan body.
+   */
   recommended?: boolean;
   wireframe?: PlanWireframeBlock["data"];
   diagram?: PlanDiagramBlock["data"];
@@ -637,7 +622,6 @@ export type PlanBlock =
   | PlanLegacyWireframeBlock
   | PlanDiagramBlock
   | PlanImageBlock
-  | PlanDecisionBlock
   | PlanTabsBlock
   | PlanColumnsBlock
   | PlanCustomHtmlBlock
@@ -1428,22 +1412,6 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
   required: z.boolean().optional(),
 });
 
-export const decisionDataSchema: z.ZodType<PlanDecisionBlock["data"]> =
-  z.object({
-    question: z.string().trim().min(1).max(500),
-    options: z
-      .array(
-        z.object({
-          id: idSchema,
-          label: z.string().trim().min(1).max(200),
-          detail: z.string().trim().max(800).optional(),
-          recommended: z.boolean().optional(),
-        }),
-      )
-      .min(1)
-      .max(20),
-  });
-
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
     questions: z.array(planQuestionSchema).min(1).max(40),
@@ -1549,10 +1517,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
     baseBlockSchema.extend({
       type: z.literal("image"),
       data: imageDataSchema,
-    }),
-    baseBlockSchema.extend({
-      type: z.literal("decision"),
-      data: decisionDataSchema,
     }),
     baseBlockSchema.extend({
       type: z.literal("tabs"),
@@ -2200,12 +2164,45 @@ const OLD_BLOCK_TYPE_ALIASES: Record<string, PlanBlockType> = {
   "sketch-diagram": "diagram",
 };
 
+/**
+ * The `decision` block was retired (it duplicated a `callout` with `tone:
+ * "decision"` plus a `columns`/list comparison). Any stored decision block is
+ * migrated on load into a decision-tone `callout` whose markdown body carries the
+ * question and the options (recommended one flagged), so existing plans keep
+ * loading and rendering instead of failing the (now decision-less) schema. The
+ * block id/title/summary are preserved.
+ */
+function decisionBlockToCallout(
+  block: Record<string, unknown>,
+): Record<string, unknown> {
+  const data = (block.data ?? {}) as Record<string, unknown>;
+  const question = typeof data.question === "string" ? data.question : "";
+  const options = Array.isArray(data.options) ? data.options : [];
+  const lines = options.map((opt) => {
+    const o = (opt ?? {}) as Record<string, unknown>;
+    const label = typeof o.label === "string" ? o.label : "";
+    const detail = typeof o.detail === "string" ? o.detail : "";
+    const head = `- **${label}**${o.recommended === true ? " — recommended" : ""}`;
+    return detail ? `${head}: ${detail}` : head;
+  });
+  const body =
+    [question ? `**${question}**` : "", lines.join("\n")]
+      .filter(Boolean)
+      .join("\n\n") || "Decision";
+  const { data: _data, ...rest } = block;
+  return { ...rest, type: "callout", data: { tone: "decision", body } };
+}
+
 function migrateBlock(raw: unknown): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const block = raw as Record<string, unknown>;
   const type = typeof block.type === "string" ? block.type : undefined;
   if (type && OLD_BLOCK_TYPE_ALIASES[type]) {
     block.type = OLD_BLOCK_TYPE_ALIASES[type];
+  }
+  // Retired `decision` block → decision-tone `callout` (see helper above).
+  if (block.type === "decision") {
+    return decisionBlockToCallout(block);
   }
   // Recurse into tabs children.
   if (block.type === "tabs" && block.data && typeof block.data === "object") {

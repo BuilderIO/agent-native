@@ -56,6 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run: ${{ steps.decide.outputs.run }}
+      agent: ${{ steps.decide.outputs.agent }}
     steps:
       - id: decide
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -91,16 +92,56 @@ jobs:
             // workflow can be merged before secrets exist.
             if (process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
 
-            // The chosen backend's API key must be present.
+            // The chosen backend's API key must be present. Normalize the agent
+            // value once here and validate it: an unknown or mis-cased value
+            // (e.g. "Claude", "gpt") must NOT silently pass the gate and then
+            // match neither agent step below.
             const agent = (process.env.AGENT || 'claude').toLowerCase();
-            if (agent === 'codex') {
+            if (agent !== 'claude' && agent !== 'codex') {
+              reasons.push(`unsupported VISUAL_RECAP_AGENT "${process.env.AGENT}" (expected "claude" or "codex")`);
+            } else if (agent === 'codex') {
               if (process.env.HAS_OPENAI !== 'true') reasons.push('OPENAI_API_KEY not configured (codex backend)');
             } else {
               if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
             }
 
+            // Self-modifying guard, evaluated in the GATE (trusted github-script
+            // that runs NO PR-checked-out code): if this PR changes the workflow,
+            // the visual-recap/visual-plan skill, the local CLI (packages/core),
+            // or any agent config the runner would load (.claude/**, CLAUDE.md,
+            // .mcp.json), skip the ENTIRE job — not just the agent — so a PR can
+            // never rewrite what runs (skill, hooks, settings, CLI) and exfiltrate
+            // the publish/API secrets.
+            if (pr) {
+              try {
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  per_page: 100,
+                });
+                const isSensitive = (p) =>
+                  p === '.github/workflows/pr-visual-recap.yml' ||
+                  /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
+                  /(^|\/)\.claude\//.test(p) ||
+                  /(^|\/)CLAUDE\.md$/.test(p) ||
+                  /(^|\/)AGENTS\.md$/.test(p) ||
+                  /(^|\/)\.mcp\.json$/.test(p) ||
+                  /(^|\/)packages\/core\//.test(p);
+                const hits = files.map((f) => f.filename).filter(isSensitive);
+                if (hits.length) {
+                  reasons.push(`PR modifies recap-control files (${hits.slice(0, 3).join(', ')}${hits.length > 3 ? ', …' : ''}) — skipping so untrusted PR code never runs with secrets`);
+                }
+              } catch (e) {
+                reasons.push(`could not list PR files for the self-modifying guard (${e.message}); skipping to be safe`);
+              }
+            }
+
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
+            // Export the NORMALIZED agent so the recap job's step conditions match
+            // case-insensitively via needs.gate.outputs.agent.
+            core.setOutput('agent', agent);
             core.info(run ? `Visual recap will run (${agent}).` : `Visual recap skipped: ${reasons.join('; ')}`);
 
   # --------------------------------------------------------------------------
@@ -151,7 +192,7 @@ jobs:
 
       - name: Install workspace (local source only)
         if: steps.cli.outputs.local == 'true'
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       # Collect a BOUNDED diff between the PR base and head. We exclude lockfiles,
       # build output, and snapshots (noise), and cap the byte size — over the cap
@@ -188,9 +229,16 @@ jobs:
           echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
           echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
 
-          # ~600KB cap.
+          # ~600KB cap. Over the cap we both flag `huge` (so the agent is told to
+          # summarize) AND physically truncate recap.diff, so an oversized diff
+          # cannot overflow the agent's prompt budget when it reads the file.
+          # Truncate at a COMPLETE LINE boundary (`sed '$d'` drops the last,
+          # possibly-partial, line) so the byte cap can never cut a multi-byte
+          # UTF-8 char or a diff line mid-way and corrupt the agent's input.
           if [ "$BYTES" -gt 614400 ]; then
             echo "huge=true" >> "$GITHUB_OUTPUT"
+            head -c 614400 recap.diff | sed '$d' > recap.diff.capped && mv recap.diff.capped recap.diff
+            printf '\n\n[diff truncated at 600KB for the recap agent]\n' >> recap.diff
           else
             echo "huge=false" >> "$GITHUB_OUTPUT"
           fi
@@ -211,9 +259,20 @@ jobs:
         if: steps.diff.outputs.tiny != 'true'
         run: |
           set -uo pipefail
-          SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff || echo '{}')"
-          echo "json=$SCAN_JSON" >> "$GITHUB_OUTPUT"
-          SUPPRESSED=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).suppressed?"true":"false")}catch{process.stdout.write("false")}' "$SCAN_JSON")
+          # Fail CLOSED: if the scanner errors or emits invalid JSON, treat the
+          # diff as suppressed, so a scan failure can never hand a possibly
+          # credential-bearing diff to the agent / plan service.
+          if ! SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff)"; then
+            SCAN_JSON='{"suppressed":true,"reason":"secret scan failed to run; failing closed"}'
+          fi
+          # Multi-line-safe write: SCAN_JSON could contain newlines, which would
+          # otherwise corrupt $GITHUB_OUTPUT or inject extra keys.
+          {
+            echo 'json<<__RECAP_SCAN_EOF__'
+            echo "$SCAN_JSON"
+            echo '__RECAP_SCAN_EOF__'
+          } >> "$GITHUB_OUTPUT"
+          SUPPRESSED=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).suppressed?"true":"false")}catch{process.stdout.write("true")}' "$SCAN_JSON")
           echo "suppressed=$SUPPRESSED" >> "$GITHUB_OUTPUT"
 
       # Find the planId from the previous sticky comment so a re-push REPLACES the
@@ -249,7 +308,7 @@ jobs:
       # failed agent run becomes an explanatory comment, not a red X.
       - name: Run agent (Claude Code)
         id: claude
-        if: env.VISUAL_RECAP_AGENT == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -259,14 +318,15 @@ jobs:
           node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({mcpServers:{plan:{type:"http",url:process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp",headers:{Authorization:"Bearer "+process.env.PLAN_RECAP_TOKEN}}}}))' "$MCP_CONFIG"
           # VISUAL_RECAP_MODEL picks the Claude model; reasoning depth is model-driven
           # for Claude Code, so VISUAL_RECAP_REASONING only applies to the Codex backend.
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk)
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" || true
+          # Capture the final JSON result (usage + total_cost_usd) for the usage step.
+          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json || true
           rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
         id: codex
-        if: env.VISUAL_RECAP_AGENT == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -308,7 +368,7 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
-          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" "$(cat recap-prompt.md)" || true
+          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" | tee codex-events.jsonl || true
 
       # The agent's only hand-off: recap-url.txt with the published plan URL.
       - name: Read plan URL
@@ -320,6 +380,20 @@ jobs:
           if [ -f recap-url.txt ]; then PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"; fi
           echo "plan_url=$PLAN_URL" >> "$GITHUB_OUTPUT"
           if [ -n "$PLAN_URL" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      # Capture the agent run token usage and attach it to the published recap
+      # so the recap row carries input/output/cached tokens, the model, and a
+      # cost estimate. Informational and best-effort: never fails the job.
+      - name: Attach usage
+        if: steps.url.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+        run: |
+          set -uo pipefail
+          RESULT=claude-result.json
+          if [ "$VISUAL_RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$VISUAL_RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       # Screenshot the published plan in headless Chrome and upload the PNG to the
       # plan app's signed public image route. Best-effort: never fails the job.
@@ -354,6 +428,10 @@ jobs:
       # so a prior recap comment is refreshed (not left pointing at a stale SHA).
       - name: Upsert sticky comment
         if: always()
+        # The recap is informational/non-blocking: a failed comment upsert must
+        # not turn the whole job red (the agent + screenshot steps are already
+        # continue-on-error).
+        continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           RECAP_IMAGE_URL: ${{ steps.shot.outputs.image_url }}
@@ -364,8 +442,8 @@ jobs:
         run: |
           set -euo pipefail
           ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
-          # On a tiny diff only REFRESH an existing recap comment — never create a
-          # new one — so a tiny push doesn't add noise but also can't leave a
-          # stale prior recap behind.
+          # On a tiny diff, only REFRESH an existing recap comment — never create
+          # a new one — so we add no noise but also can't leave a stale prior
+          # recap behind.
           if [ "${DIFF_TINY:-}" = "true" ]; then ARGS+=(--update-only); fi
           $RECAP_CLI "${ARGS[@]}"

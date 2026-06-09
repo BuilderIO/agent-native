@@ -23,25 +23,6 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
-function transcriptHasText(
-  fullText: string | null | undefined,
-  segmentsJson: string | null | undefined,
-): boolean {
-  if (fullText?.trim()) return true;
-  if (!segmentsJson) return false;
-  try {
-    const parsed = JSON.parse(segmentsJson);
-    return (
-      Array.isArray(parsed) &&
-      parsed.some(
-        (segment) => typeof segment?.text === "string" && segment.text.trim(),
-      )
-    );
-  } catch {
-    return false;
-  }
-}
-
 export default defineAction({
   description:
     "List recordings visible to the current user. Supports filtering by view (library/space/archive/trash/all), folder, space, tag, free-text, and sort.",
@@ -172,10 +153,50 @@ export default defineAction({
 
     const rows = await db
       .select({
-        recording: schema.recordings,
+        // Project only the columns the list grid renders. Bare
+        // `.select({ recording: schema.recordings })` would pull the whole row
+        // — including the potentially large `edits_json` / `chapters_json`
+        // blobs, `password`, and `video_url` — over the wire for every card,
+        // even though the mapper below drops them. The detail/editor/player
+        // paths (`get-recording-player-data`, `view-screen`) still read the
+        // full row.
+        recording: {
+          id: schema.recordings.id,
+          title: schema.recordings.title,
+          titleSource: schema.recordings.titleSource,
+          sourceAppName: schema.recordings.sourceAppName,
+          sourceWindowTitle: schema.recordings.sourceWindowTitle,
+          description: schema.recordings.description,
+          thumbnailUrl: schema.recordings.thumbnailUrl,
+          animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          durationMs: schema.recordings.durationMs,
+          status: schema.recordings.status,
+          uploadProgress: schema.recordings.uploadProgress,
+          failureReason: schema.recordings.failureReason,
+          visibility: schema.recordings.visibility,
+          ownerEmail: schema.recordings.ownerEmail,
+          folderId: schema.recordings.folderId,
+          spaceIds: schema.recordings.spaceIds,
+          createdAt: schema.recordings.createdAt,
+          updatedAt: schema.recordings.updatedAt,
+          archivedAt: schema.recordings.archivedAt,
+          trashedAt: schema.recordings.trashedAt,
+          hasAudio: schema.recordings.hasAudio,
+          hasCamera: schema.recordings.hasCamera,
+          width: schema.recordings.width,
+          height: schema.recordings.height,
+        },
         transcriptStatus: schema.recordingTranscripts.status,
-        transcriptFullText: schema.recordingTranscripts.fullText,
-        transcriptSegmentsJson: schema.recordingTranscripts.segmentsJson,
+        // Compute the has-text signal in SQL instead of shipping the full
+        // transcript text + segments JSON per card just to derive a boolean.
+        // Mirrors the old `transcriptHasText()` helper: non-empty trimmed
+        // `full_text`, or a segment carrying a non-empty `"text"` value.
+        transcriptHasText: sql<number>`(
+          CASE WHEN (
+            TRIM(COALESCE(${schema.recordingTranscripts.fullText}, '')) <> ''
+            OR COALESCE(${schema.recordingTranscripts.segmentsJson}, '') LIKE '%"text":"_%'
+          ) THEN 1 ELSE 0 END
+        )`,
       })
       .from(schema.recordings)
       .leftJoin(
@@ -253,10 +274,7 @@ export default defineAction({
         width: r.width,
         height: r.height,
         transcriptStatus: row.transcriptStatus ?? null,
-        transcriptHasText: transcriptHasText(
-          row.transcriptFullText,
-          row.transcriptSegmentsJson,
-        ),
+        transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
       };
     });
 

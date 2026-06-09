@@ -106,6 +106,21 @@ export default runMigrations(
       version: 10,
       sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
     },
+    // v11: performance indexes. The ownable tables had no indexes, so every
+    // accessFilter() scan (owner_email / org_id / visibility predicates plus
+    // correlated EXISTS against the shares table) and every list ORDER BY
+    // updated_at was a full table scan. Composite indexes match accessFilter's
+    // ownership predicate + the list sort, and the shares indexes cover the
+    // EXISTS subquery's resource_id / principal_type / principal_id lookup.
+    // Additive only; portable across Postgres and SQLite (no DESC / partial /
+    // PG-only syntax).
+    {
+      version: 11,
+      sql: `CREATE INDEX IF NOT EXISTS designs_owner_org_updated_idx ON designs (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_systems (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS design_shares_resource_principal_idx ON design_shares (resource_id, principal_type, principal_id);
+CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id)`,
+    },
   ],
   { table: "design_migrations" },
 );

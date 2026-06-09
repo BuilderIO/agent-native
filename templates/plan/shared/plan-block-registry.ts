@@ -1,49 +1,26 @@
 import {
   BlockRegistry,
-  defineBlock,
   registerBlocks,
   describeBlocksForAgent,
   renderBlockVocabularyReference,
-  // The React-free standard library (checklist, table, code-tabs, html, tabs +
-  // the eight dev-doc blocks) is registered once via `registerLibraryBlockConfigs`
-  // — the SAME shared list content's server registry uses. Plan adds only its
-  // plan-specific block configs (callout/diagram/wireframe/question-form) on top.
+  // The full React-free block library (checklist/table/code-tabs/html/tabs/
+  // columns, the eight dev-doc blocks, plus callout/decision/question-form/
+  // visual-questions/diagram/wireframe) is registered once via
+  // `registerLibraryBlockConfigs` — the SAME shared list content's server
+  // registry uses. Plan registers no app-only block configs of its own.
   registerLibraryBlockConfigs,
   type LibraryBlockConfigOverrides,
   type BlockAgentDoc,
 } from "@agent-native/core/blocks/server";
-import {
-  diagramSchema,
-  diagramMdx,
-  type DiagramData,
-} from "./blocks/diagram.config.js";
-import {
-  wireframeSchema,
-  wireframeMdx,
-  type WireframeData,
-} from "./blocks/wireframe.config.js";
-import {
-  questionFormSchema,
-  questionFormMdx,
-  visualQuestionsSchema,
-  visualQuestionsMdx,
-  type QuestionFormData,
-  type VisualQuestionsData,
-} from "./blocks/question-form.config.js";
-import {
-  decisionSchema,
-  decisionMdx,
-  type DecisionData,
-} from "./blocks/decision.config.js";
 
 /**
  * Server / shared plan block registry. Registers the React-free parts of each
- * converted block (schema + MDX config) so the MDX adapter (`plan-mdx.ts`) and
- * agent schema export can serialize/parse/describe blocks without importing
- * React. The CLIENT registry (`app/components/plan/planBlocks.tsx`) registers the
- * same blocks WITH their `Read`/`Edit` React components for rendering — both use
- * the identical `mdx`/`schema` config (`shared/blocks/*.config.ts`) so source
- * round-trip stays consistent.
+ * block (schema + MDX config) so the MDX adapter (`plan-mdx.ts`) and agent schema
+ * export can serialize/parse/describe blocks without importing React. The CLIENT
+ * registry (`app/components/plan/planBlocks.tsx`) registers the same blocks WITH
+ * their `Read`/`Edit` React components for rendering — both pull the identical
+ * `mdx`/`schema` config from the shared core block library so source round-trip
+ * stays consistent.
  *
  * `Read` is required on `BlockSpec`, so each server spec gets a render-only stub
  * (`() => null`) that is never invoked on the server. Unregistered block types
@@ -69,14 +46,15 @@ const PLAN_SERVER_LIBRARY_OVERRIDES: LibraryBlockConfigOverrides = {
 };
 
 export function registerPlanBlocks(registry: BlockRegistry): void {
-  // Plan-specific block configs (diagram/wireframe/question-form/decision). The
-  // standard library (now including callout) is registered once via
-  // `registerLibraryBlockConfigs` below.
+  // Plan registers no app-only block configs; the full library (including
+  // callout/decision/question-form/visual-questions/diagram/wireframe) is
+  // registered once via `registerLibraryBlockConfigs` below.
   registerBlocks(registry, []);
 
-  // Standard library config stubs (checklist, table, code-tabs, custom-html, tabs
-  // + the eight dev-doc blocks), shared with content's server registry. Plan's
-  // only agent-facing tweaks: the Mermaid description is phrased for its
+  // The full standard library config (checklist/table/code-tabs/custom-html/tabs/
+  // columns + the eight dev-doc blocks + callout/decision/question-form/
+  // visual-questions/diagram/wireframe), shared with content's server registry.
+  // Plan's only agent-facing tweaks: the Mermaid description is phrased for its
   // hand-drawn render style and the file-tree description is the detailed plan
   // phrasing. Table keeps the core default `type` (`table`). `notionCompatible`
   // on checklist/table comes from the shared config, so the single-sourced Notion

@@ -315,7 +315,11 @@ export function FileTreeRead({
         event.target instanceof Node &&
         !root.contains(event.target)
       ) {
+        // Clicking away collapses the rail and closes any open file detail, so
+        // it returns to the clean slim state rather than leaving notes open in
+        // the cramped width.
         setActive(false);
+        setOpenFiles({});
       }
     };
     document.addEventListener("pointerdown", onPointerDown, true);

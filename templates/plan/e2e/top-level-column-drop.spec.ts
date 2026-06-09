@@ -631,4 +631,52 @@ test.describe("top-level side-drop creates columns", () => {
       )
       .toBe(true);
   });
+
+  test("created columns STAY rendered across a poll cycle (no revert glitch)", async ({
+    page,
+  }) => {
+    // Regression for "drop works, then undoes, then a second or two later goes
+    // back": the optimistic cache write must keep the new layout authoritative so
+    // the lagging get-visual-plan poll (3s) never reverts it during the save
+    // window. Sample the rendered region count continuously across a FULL poll
+    // cycle — it must never dip below 2 (a dip is the revert flicker).
+    const planId = await createPlan(page, [
+      { id: "intro", type: "rich-text", data: { markdown: "Intro." } },
+      { id: "alpha", type: "callout", data: { tone: "info", body: "ALPHA" } },
+      { id: "beta", type: "callout", data: { tone: "success", body: "BETA" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("alpha"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await dropAtFraction(
+      page,
+      blockNode("beta"),
+      blockNode("alpha"),
+      0.72,
+      0.5,
+    );
+
+    const regions = page.locator(".plan-nested-document-editor-region");
+    await expect(regions).toHaveCount(2, { timeout: 8_000 });
+
+    // Sample continuously for ~4.2s (past the 3s poll + the ~600ms save window).
+    const counts: number[] = [];
+    for (let i = 0; i < 28; i += 1) {
+      counts.push(await regions.count());
+      await page.waitForTimeout(150);
+    }
+    expect(
+      Math.min(...counts),
+      `region count dipped (revert flicker): [${counts.join(",")}]`,
+    ).toBe(2);
+
+    // And the columns are persisted, not rolled back.
+    const groups = collectColumnChildIds(await getBlocks(page, planId));
+    expect(
+      groups.some((ids) => ids.includes("alpha") && ids.includes("beta")),
+    ).toBe(true);
+  });
 });

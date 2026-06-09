@@ -35,6 +35,7 @@ import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
 import { PlanImageNode } from "../plan/PlanImageNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
+import { usePlanUndoStack, type PlanUndoStack } from "./usePlanUndoStack";
 import { PlanBlockView } from "../plan/DocumentArea";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
@@ -601,12 +602,53 @@ function applyVerticalMove(
   return result.inserted ? result.blocks : null;
 }
 
+/** Nearest scrollable ancestor of an element (the plan document's scroll area). */
+function findScrollableAncestor(
+  element: HTMLElement | null,
+): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  let node = element?.parentElement ?? null;
+  while (node && node !== document.body) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
 function repaintDropViews(
   context: DragHandleDropContext,
   nextBlocks: PlanBlock[],
   rootView?: EditorView | null,
 ): void {
   const views = new Set([context.sourceView, context.view]);
+
+  // Rebuilding the document in place and re-focusing the editor would scroll the
+  // post-replace selection into view, yanking the viewport away from where the
+  // user dropped. Capture the scroll position and pin it through the rebuild AND
+  // the next frame (the nested column editors mount a frame later and can reflow
+  // the height), so a drop never moves the page.
+  const scroller = findScrollableAncestor(
+    ((rootView ?? context.view).dom as HTMLElement) ?? null,
+  );
+  const savedScrollTop = scroller?.scrollTop ?? null;
+  const restoreScroll = () => {
+    if (!scroller || savedScrollTop == null) return;
+    if (scroller.scrollTop !== savedScrollTop)
+      scroller.scrollTop = savedScrollTop;
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        if (scroller.scrollTop !== savedScrollTop) {
+          scroller.scrollTop = savedScrollTop;
+        }
+      });
+    }
+  };
 
   // A move can dissolve structure a surgical per-region patch cannot express:
   // emptying a column removes it, and dropping a `columns` block to a single
@@ -620,6 +662,7 @@ function repaintDropViews(
       const info = nestedRegionInfoForView(view);
       if (info && regionBlocksForInfo(nextBlocks, info) === null) {
         replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
+        restoreScroll();
         return;
       }
     }
@@ -657,6 +700,7 @@ function repaintDropViews(
       // View may have been torn down mid-remount; focus is best-effort.
     }
   }
+  restoreScroll();
 }
 
 function resolveBlockDataChange(
@@ -723,19 +767,60 @@ export function PlanDocumentEditor({
   // dissolves a column container can rebuild the whole top-level document (the
   // affected nested region no longer exists to patch in place).
   const rootViewRef = useRef<EditorView | null>(null);
+  // The live Tiptap editor + its wrapper element, captured on ready. Needed so
+  // the undo stack can repaint the doc (via the injected `setContent`) and so a
+  // capture-phase cmd+z listener can be scoped to this editor's wrapper.
+  const editorRef = useRef<Editor | null>(null);
+  const wrapperRef = useRef<HTMLElement | null>(null);
   const handleEditorReady = useCallback((editor: Editor) => {
     rootViewRef.current = editor.view;
+    editorRef.current = editor;
+    wrapperRef.current =
+      (editor.view.dom.closest(`.${WRAPPER_CLASS}`) as HTMLElement | null) ??
+      null;
   }, []);
 
+  // Single app-level undo authority over the authoritative `blocks[]` tree. PM
+  // history is disabled in this editor (see `disableHistory` below) because the
+  // block DATA undo needs lives in `blocks[]`, not the ProseMirror doc. Assigned
+  // after the hook runs below; read through this ref so `commit` (defined first)
+  // and the keydown listener always see the live stack.
+  const undoRef = useRef<PlanUndoStack | null>(null);
+  // True while the stack is restoring a snapshot, so `commit` skips re-recording.
+  const isRestoringRef = useRef(false);
+
   // Adopt external `content` changes (agent patches, source edits) unless the
-  // incoming value is the echo of our own last save.
+  // incoming value is the echo of one of our OWN recent saves.
   const lastEmittedRef = useRef<string>(JSON.stringify(content.blocks));
+  // Ring of recently-emitted blocks JSON (every commit AND undo/redo restore).
+  // A debounced autosave can round-trip a PRE-undo edit's value back as the
+  // `content` prop AFTER an undo has already moved us on; with only a
+  // single-value `lastEmittedRef`, that laggy echo looks "external" and would
+  // reset the undo stack (wiping redo) and re-apply the just-undone edit.
+  // Recognizing it as our own echo keeps undo/redo stable; only a genuinely
+  // external change (agent/peer) — never emitted by us — resets the stack.
+  const recentEmittedRef = useRef<string[]>([JSON.stringify(content.blocks)]);
+  const rememberEmitted = useCallback((serialized: string) => {
+    const ring = recentEmittedRef.current;
+    const dupe = ring.indexOf(serialized);
+    if (dupe !== -1) ring.splice(dupe, 1);
+    ring.push(serialized);
+    if (ring.length > 24) ring.shift();
+    lastEmittedRef.current = serialized;
+  }, []);
   useEffect(() => {
     const incoming = JSON.stringify(content.blocks);
-    if (incoming === lastEmittedRef.current) return;
-    lastEmittedRef.current = incoming;
+    if (recentEmittedRef.current.includes(incoming)) {
+      lastEmittedRef.current = incoming;
+      return;
+    }
+    rememberEmitted(incoming);
     setBlocks(content.blocks);
-  }, [content.blocks]);
+    // A genuine external/agent edit changed the baseline — the user's local
+    // undo entries reference a tree that no longer exists, so drop them rather
+    // than let cmd+z resurrect pre-agent state over the agent's change.
+    undoRef.current?.reset();
+  }, [content.blocks, rememberEmitted]);
 
   // True once the editor has been seeded with real (non-empty) content. Until
   // then an empty serialization is the pre-seed empty doc — NOT a user deletion —
@@ -745,7 +830,15 @@ export function PlanDocumentEditor({
   const hasSeededRef = useRef(false);
 
   const commit = (next: PlanBlock[]) => {
-    lastEmittedRef.current = JSON.stringify(next);
+    // Record the pre-edit tree onto the undo stack BEFORE mutating, unless this
+    // commit IS an undo/redo restore (guarded) or collab owns history. Every
+    // user edit family funnels through here — prose (handleChange), block
+    // options (onBlockDataChange), legacy block edits, and drag/cross-region
+    // moves (handleDrop) — so this one call site captures them all.
+    if (!collabEnabled && !isRestoringRef.current) {
+      undoRef.current?.record(blocksRef.current, next);
+    }
+    rememberEmitted(JSON.stringify(next));
     setBlocks(next);
     void onBlocksChange(next);
   };
@@ -986,6 +1079,95 @@ export function PlanDocumentEditor({
     [],
   );
 
+  // Restore a prior blocks[] snapshot for undo/redo: repaint the doc through the
+  // SAME injected `setContent` the reconcile uses (rebuilds every NodeView from
+  // the restored tree) and persist, all under `isRestoringRef` so `commit` does
+  // not re-record the restore as a new edit.
+  const restore = useCallback(
+    (restored: PlanBlock[]) => {
+      isRestoringRef.current = true;
+      try {
+        // Update the side-map first so block NodeViews read the restored data
+        // immediately instead of briefly flashing the "Loading block…" placeholder.
+        blocksRef.current = restored;
+        const editor = editorRef.current;
+        if (editor && !editor.isDestroyed) {
+          setContent(editor, JSON.stringify(restored), {
+            emitUpdate: false,
+            addToHistory: false,
+          });
+        }
+        rememberEmitted(JSON.stringify(restored));
+        setBlocks(restored);
+        void onBlocksChange(restored);
+        // A drag/menu action usually blurs the prose; re-focus so the NEXT
+        // cmd+z still reaches the wrapper listener.
+        try {
+          rootViewRef.current?.focus();
+        } catch {
+          // View may be torn down mid-remount; focus is best-effort.
+        }
+      } finally {
+        isRestoringRef.current = false;
+      }
+    },
+    [setContent, onBlocksChange, rememberEmitted],
+  );
+
+  const undoStack = usePlanUndoStack({
+    restore,
+    getCurrentBlocks: () => blocksRef.current,
+  });
+  undoRef.current = undoStack;
+
+  // The plan editor disables ProseMirror history (see `disableHistory` on the
+  // editor below), so cmd+z has ONE authority: this stack. A capture-phase
+  // document listener scoped to this editor's wrapper drives it — capture so it
+  // beats ProseMirror/native, and document-level so it still fires when focus
+  // sits on the page body after a drag (no prose selection). Real form fields
+  // (a block's options inputs) keep their native per-field undo; the committed
+  // option change lands on this stack afterward.
+  useEffect(() => {
+    if (collabEnabled) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key;
+      if (key !== "z" && key !== "Z" && key !== "y" && key !== "Y") return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const wrapper = wrapperRef.current;
+      const target = event.target;
+      if (!wrapper || !(target instanceof Node)) return;
+      // Fire when focus is inside this editor OR has fallen to the bare page
+      // body after a structural drag (no prose selection) — that body case is
+      // the whole reason this is a document-level listener. Other focused
+      // elements (a different editor, a real form field) are left to their own
+      // undo authority.
+      const onPageBody =
+        target === document.body || target === document.documentElement;
+      if (!wrapper.contains(target) && !onPageBody) {
+        return;
+      }
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select")
+      ) {
+        return;
+      }
+      const stack = undoRef.current;
+      if (!stack) return;
+      const isRedo =
+        key === "y" ||
+        key === "Y" ||
+        ((key === "z" || key === "Z") && event.shiftKey);
+      event.preventDefault();
+      event.stopPropagation();
+      if (isRedo) stack.redo();
+      else stack.undo();
+    };
+    document.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      document.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [collabEnabled]);
+
   // Prose / structure edits → blocks. Seed `data` for freshly slash-inserted
   // blocks (their `planBlock` node carried only an id; `proseJSONToBlocks` gave
   // `{}` because the block wasn't in `prevBlocks` yet).
@@ -1142,6 +1324,10 @@ export function PlanDocumentEditor({
           ydoc={ydoc}
           awareness={awareness}
           user={collabUser}
+          // PM history off so the app-level undo stack (which alone can see
+          // block-data edits) is the single cmd+z authority. Gated to the
+          // non-collab path; when single-doc collab lands, Yjs owns history.
+          disableHistory={!collabEnabled}
           getMarkdown={getMarkdown}
           setContent={setContent}
           normalizeValue={normalizeValue}
