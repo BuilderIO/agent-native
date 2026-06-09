@@ -12,12 +12,6 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -28,8 +22,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  PromptComposer,
-  sendToAgentChat,
   uploadEditorImage,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
@@ -38,7 +30,6 @@ import {
   SchemaBlockEditor,
   blockEditSurface,
   useOptionalBlockRegistry,
-  type BlockRenderContext,
 } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
 import {

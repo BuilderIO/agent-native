@@ -266,12 +266,11 @@
 @media (min-width: 1400px) {
   .plan-document-body {
     /* `flow-root` stops the first block's top margin from collapsing through the
-     * wrapper, so its top edge sits flush at the header's bottom border and the
-     * rails (top: 2.25rem) line up with the first body block. The negative inline
-     * margin mirrors the shell's `sm:px-10` padding so the wrapper's padding box
-     * matches the shell's — keeping the `calc(100% + …)` rail offsets unchanged —
-     * and the matching inline padding restores the body content's original
-     * inset. */
+     * wrapper, so the wrapper's top edge sits flush at the header's bottom border
+     * — where the rails (top: 0) begin. The negative inline margin mirrors the
+     * shell's `sm:px-10` padding so the wrapper's padding box matches the shell's
+     * — keeping the `calc(100% + …)` rail offsets unchanged — and the matching
+     * inline padding restores the body content's original inset. */
     display: flow-root;
     margin-inline: -2.5rem;
     padding-inline: 2.5rem;
@@ -285,7 +284,7 @@
 @media (min-width: 1400px) {
   .plan-document-toc {
     position: absolute;
-    top: 2.25rem;
+    top: 0;
     bottom: 0;
     left: calc(100% + 1.25rem);
     z-index: 2;
@@ -357,7 +356,7 @@
 @media (min-width: 1400px) {
   .plan-document-files {
     position: absolute;
-    top: 2.25rem;
+    top: 0;
     bottom: 0;
     right: calc(100% + 1.25rem);
     z-index: 2;

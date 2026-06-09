@@ -145,7 +145,6 @@ import {
   IconPresentation,
   IconStack2,
   IconMessageChatbot,
-  IconLock,
   IconArrowBackUp,
   IconExternalLink,
   IconKey,
