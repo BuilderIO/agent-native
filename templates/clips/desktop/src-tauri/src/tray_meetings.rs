@@ -10,7 +10,7 @@ use chrono::{Datelike, Duration as ChronoDuration, Local, Timelike, Weekday};
 use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{MenuItem, Submenu, SubmenuBuilder},
-    AppHandle, Manager, Wry,
+    AppHandle, Wry,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,11 +70,9 @@ pub fn handle_meeting_menu_click(app: &AppHandle, menu_id: &str) -> bool {
         return false;
     }
     use tauri::Emitter;
-    if let Some(window) = app.get_webview_window("popover") {
-        crate::util::configure_overlay_behavior(&window);
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    // Only the recording pill should open — the popover's background listener
+    // handles this event and shows the pill, so we must NOT show the popover
+    // window itself here.
     let _ = app.emit(
         "meetings:start-transcription",
         serde_json::json!({ "meetingId": id, "joinUrl": null, "reason": "tray" }),

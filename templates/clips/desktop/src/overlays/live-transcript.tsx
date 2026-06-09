@@ -57,17 +57,31 @@ export function LiveTranscript({
   const [micPartial, setMicPartial] = useState("");
   const [sysPartial, setSysPartial] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Whether the current session's preloaded history has been merged in. Guards
+  // against the preload event firing more than once (the host emits it on both
+  // the get-meeting fetch and clips:pill-ready), which would duplicate lines.
+  const preloadAppliedRef = useRef((initialLines?.length ?? 0) > 0);
 
   useEffect(() => {
     if (onLinesChange) onLinesChange(finals);
   }, [finals, onLinesChange]);
 
-  // When the pill context changes (new meeting) or preloaded lines arrive,
-  // replace finals. New voice events will append on top after this.
   useEffect(() => {
-    setFinals(initialLines ?? []);
-    setMicPartial("");
-    setSysPartial("");
+    const lines = initialLines ?? [];
+    // Empty = pill context reset for a new meeting: clear everything.
+    if (lines.length === 0) {
+      preloadAppliedRef.current = false;
+      setFinals([]);
+      setMicPartial("");
+      setSysPartial("");
+      return;
+    }
+    // Preloaded history arrived. Apply once, and PREPEND so any live lines that
+    // were captured before the async preload resolved are kept (after the
+    // older history), instead of being overwritten.
+    if (preloadAppliedRef.current) return;
+    preloadAppliedRef.current = true;
+    setFinals((prev) => [...lines, ...prev]);
   }, [initialLines]);
 
   useEffect(() => {

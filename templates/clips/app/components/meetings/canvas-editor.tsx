@@ -101,14 +101,28 @@ function UserNotesBlock({
   onChange: (next: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  useAutoGrow(ref, value);
+  const [draft, setDraft] = useState(value);
+  const focusedRef = useRef(false);
+
+  // Sync external updates (live polling, desktop-app sync) into the editor —
+  // but only while it's not focused, so we never clobber what's being typed.
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(value);
+  }, [value]);
+
+  useAutoGrow(ref, draft);
 
   return (
     <Textarea
       ref={ref}
-      defaultValue={value}
+      value={draft}
       placeholder="Your notes…"
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
       onBlur={(e) => {
+        focusedRef.current = false;
         if (e.target.value !== value) onChange(e.target.value);
       }}
       className="min-h-[80px] resize-none overflow-hidden text-base leading-relaxed text-foreground font-medium border-none shadow-none focus-visible:ring-0 px-0"
