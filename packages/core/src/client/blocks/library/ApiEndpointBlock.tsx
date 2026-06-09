@@ -338,7 +338,7 @@ function ApiCodeExample({
           {label}
         </span>
       </div>
-      <pre className="overflow-x-auto px-3 py-2.5 font-mono [font-size:var(--plan-code-size)] leading-relaxed text-plan-code-text">
+      <pre className="overflow-x-auto px-3 py-2.5 font-mono [font-size:var(--plan-doc-code-size)] leading-relaxed text-plan-code-text">
         {code}
       </pre>
     </div>

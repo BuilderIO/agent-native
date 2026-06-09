@@ -15,8 +15,20 @@ const PASTED_TEXT_FILENAME_PREFIX = "pasted-text-";
 const HTML_SOURCE_SIGNAL =
   /<!doctype\s+html|<html[\s>]|<\/[a-z][a-z0-9-]*\s*>|<(?:body|head|div|span|section|main|header|footer|nav|article|aside|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6]|p|a|img|button|input|textarea|select|form|label|script|style|link|meta|svg|canvas|template)\b/i;
 
+// JSX/TSX source contains the same `</div>`/`<span>` tags as an HTML document,
+// so the HTML signal alone misfiles a pasted React/TS component as an `.html`
+// artifact (the agent then mishandles it as a hostable document instead of
+// source). These markers appear in JS/TS/JSX source but not in a plain HTML
+// document — `className=` (JSX uses it; HTML uses `class=`), ES module
+// import/export, arrow functions, and TS type annotations.
+const CODE_SOURCE_SIGNAL =
+  /\bclassName=|\b(?:import|export)\b[^\n]*\bfrom\b|\bexport\s+(?:default|const|let|function|class|type|interface)\b|=>\s*[({]|:\s*React\.|\buse[A-Z]\w*\(/;
+
 function looksLikeHtml(value: string): boolean {
-  return !!value && HTML_SOURCE_SIGNAL.test(value);
+  if (!value || !HTML_SOURCE_SIGNAL.test(value)) return false;
+  // Don't treat JSX/TS source (which also has tags) as an HTML document.
+  if (CODE_SOURCE_SIGNAL.test(value)) return false;
+  return true;
 }
 
 /** The clipboard flavors we care about for a paste. */
