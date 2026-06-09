@@ -1881,6 +1881,21 @@
   border-top: 0;
 }
 
+/* Callouts are self-contained tinted boxes, not divider-separated sections, so
+ * they keep their own symmetric internal top padding in BOTH layouts. The
+ * read-mode per-block layout otherwise gives plain blocks a divider + 2.25rem top
+ * padding, and the editable NodeView layout zeroes inner-block padding — both
+ * wrong for a boxed callout. Block-to-block spacing still comes from the block /
+ * NodeView margins; only the internal padding + divider are reset here. (The
+ * matching `padding-bottom` lives on the base `.plan-callout` rule and already
+ * wins, since neither layout rule sets it.) */
+.plan-document-flow > .plan-callout,
+.plan-document-editor .plan-block-node .plan-callout,
+.plan-nested-document-editor .plan-block-node .plan-callout {
+  padding-top: 0.9rem;
+  border-top: 0;
+}
+
 /* "Won't sync to Notion" badge shown on incompatible blocks while the plan is
  * in Sync-to-Notion mode. Anchored to the block's top-right corner. */
 .plan-block-notion-badge {

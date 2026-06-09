@@ -6,11 +6,16 @@ import {
   type ChangeEvent,
   type UIEvent,
 } from "react";
-import { IconCheck, IconCode, IconCopy } from "@tabler/icons-react";
+import { IconCheck, IconCode, IconCopy, IconPencil } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui/popover.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
-import { CodeSurface } from "./HighlightedCode.js";
+import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 import {
   highlightCode,
   inferLanguageFromFilename,
