@@ -422,14 +422,18 @@ machine-checked list of block types and their data schemas, call `get-plan-block
 so you never emit a block the editor cannot render or round-trip:
 
 - `rich-text` for plan prose with real bold/italic/code/links and nested lists.
-- `code` for the file map: show how the few load-bearing files actually change
-  as real, syntax-highlighted code — the new action, the changed schema, the
-  wiring point. Highlight only the files worth reading; never an exhaustive list
-  of every touched file, and never a prose-only description of a file. When more
-  than one file matters, group the `code` blocks in a vertical `tabs` block
-  (the standard tab primitive) rather than a bespoke container. Reach for
-  `annotated-code` instead only when a snippet needs line-anchored margin notes.
-  If the exact code is unknown, show the smallest plausible planned shape or a
+- `annotated-code` for the file map: when a load-bearing file is worth
+  highlighting, prefer the annotated walkthrough over a bare `code` block — carry
+  the real, syntax-highlighted code AND anchor short margin notes to the lines
+  that actually change (the new action, the changed schema, the wiring point), so
+  the reader sees what matters and why instead of code for code's sake. Each
+  annotation is `{ lines: "12" | "12-18"; label?; note }`; keep a few high-signal
+  notes per file, not one per line. Highlight only the files worth reading; never
+  an exhaustive list of every touched file, and never a prose-only description of
+  a file. Drop to a plain `code` block only for a throwaway snippet with nothing
+  to call out. When more than one file matters, group the blocks in a vertical
+  `tabs` block (the standard tab primitive) rather than a bespoke container. If
+  the exact code is unknown, show the smallest plausible planned shape or a
   commented stub naming what to fill in. (`code-tabs` and `implementation-map`
   are legacy: their renderers stay for old plans, but do not author new ones.)
 - `decision` ONLY for a genuinely-open either/or the reviewer must still pick

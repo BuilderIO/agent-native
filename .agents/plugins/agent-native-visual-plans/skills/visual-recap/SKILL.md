@@ -421,6 +421,14 @@ the actual diff:
   If the recap ends with more than one supporting diff, that trailing diff
   appendix should be one vertical `tabs` block under its own `## Key changes`
   heading, not a stack of separate `diff` blocks.
+- **Brand-new file or a substantial added block with no meaningful "before"** →
+  `annotated-code` rather than a one-sided split `diff`. Carry the real new code
+  with its `filename` / `language` and anchor a few high-signal notes to the lines
+  that matter (`{ lines: "12" | "12-18"; label?; note }`) so the reviewer reads
+  what the new code does, not code for code's sake. Keep split `diff` for true
+  before/after hunks where the removed lines still carry meaning, and group
+  several annotated walkthroughs in a vertical `tabs` block the same way diffs are
+  grouped.
 - **Files added / removed / renamed** → `file-tree` with each entry's `change`
   flag (`added`, `removed`, `modified`, `renamed`) and a short `note`; attach a
   `snippet` only when one tells the reviewer something the path does not.

@@ -1149,11 +1149,6 @@ function HighlightedCode({
 
 /* ── Image block ───────────────────────────────────────────────────────── */
 
-// The image block edits its own details (url/alt/caption/fit) through the schema
-// auto-editor; the image schema has no markdown/asset fields so a bare ctx is
-// enough.
-const IMAGE_FORM_CTX: BlockRenderContext = { dialect: "gfm" };
-
 type PlanImageData = Extract<PlanBlock, { type: "image" }>["data"];
 
 function ImageBlock({
@@ -1167,6 +1162,8 @@ function ImageBlock({
   editingDisabled?: boolean;
   planId?: string | null;
 }) {
+  const blockRegistry = useOptionalBlockRegistry();
+  const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
   const editable = !!onChange && !editingDisabled;
   const [editOpen, setEditOpen] = useState(false);
@@ -1193,8 +1190,44 @@ function ImageBlock({
     }
   }
 
+  // Reuse the EXACT edit surface registry blocks use — the shared
+  // `renderEditSurface` popover (the schema form + the auto-focusing top-right
+  // "Edit with AI" prompt) — pulled from the block-render context. No bespoke
+  // edit UI and no `planBlocks` import (so no module cycle). It's opened from the
+  // image's own ⋯ overlay, so the block keeps a single hover overlay with no
+  // separate corner pencil.
+  const editSurface =
+    editable && ctx?.renderEditSurface
+      ? ctx.renderEditSurface({
+          title: "Image",
+          open: editOpen,
+          onOpenChange: setEditOpen,
+          blockId: block.id,
+          blockType: "image",
+          blockTitle: block.title,
+          blockSummary: block.summary,
+          blockData: block.data,
+          trigger: (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-2 top-2 block size-0"
+            />
+          ),
+          children: (
+            <SchemaBlockEditor
+              data={block.data}
+              schema={imageDataSchema}
+              onChange={(next) => commitData(next as PlanImageData)}
+              editable
+              blockId={block.id}
+              ctx={ctx}
+            />
+          ),
+        })
+      : null;
+
   return (
-    <section className="plan-block" data-block-id={block.id}>
+    <section className="plan-block relative" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
       {editable && (
         <input
@@ -1230,78 +1263,8 @@ function ImageBlock({
       {block.data.caption && (
         <p className="mt-3 text-sm text-plan-muted">{block.data.caption}</p>
       )}
-      {editable && (
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="max-w-md" data-plan-interactive>
-            <DialogHeader>
-              <DialogTitle>Image details</DialogTitle>
-            </DialogHeader>
-            <SchemaBlockEditor
-              data={block.data}
-              schema={imageDataSchema}
-              onChange={(next) => commitData(next as PlanImageData)}
-              editable
-              blockId={block.id}
-              ctx={IMAGE_FORM_CTX}
-            />
-            <div className="mt-1 border-t border-border pt-3">
-              <p className="mb-2 text-xs font-medium text-muted-foreground">
-                Edit with AI
-              </p>
-              <ImageAiEditField block={block} planId={planId} />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      {editSurface}
     </section>
-  );
-}
-
-/**
- * Self-contained "Edit with AI" prompt for the image block edit dialog. Uses the
- * shared composer + agent chat directly (no dependency on `planBlocks`, so the
- * image block stays free of the planBlocks ↔ DocumentArea import cycle).
- */
-function ImageAiEditField({
-  block,
-  planId,
-}: {
-  block: Extract<PlanBlock, { type: "image" }>;
-  planId?: string | null;
-}) {
-  return (
-    <PromptComposer
-      placeholder="Describe a change…"
-      attachmentsEnabled={false}
-      plusMenuMode="hidden"
-      draftScope={`plan:image:${block.id}`}
-      onSubmit={(prompt) => {
-        const trimmed = prompt.trim();
-        if (!trimmed) return;
-        sendToAgentChat({
-          type: "content",
-          submit: true,
-          openSidebar: true,
-          message: trimmed,
-          context: [
-            "The user is editing an image block from the visual plan image editor.",
-            planId ? `Plan id: ${planId}` : null,
-            `Plan block id: ${block.id}`,
-            "Plan block type: image",
-            block.title ? `Block title: ${block.title}` : null,
-            "",
-            "Current block data:",
-            "```json",
-            JSON.stringify(block.data, null, 2),
-            "```",
-            "",
-            "Patch only this image block unless the user explicitly asks for broader changes. Preserve fields the user did not ask to change.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        });
-      }}
-    />
   );
 }
 
