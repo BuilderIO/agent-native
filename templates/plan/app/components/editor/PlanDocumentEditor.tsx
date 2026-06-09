@@ -765,18 +765,6 @@ export function PlanDocumentEditor({
         (isTransferredPlanBlock(data) ? data : null) ??
         planBlockFromPmNode(context.sourceNode, sourceBlocks);
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
-      // eslint-disable-next-line no-console
-      console.log("[vmove-dbg]", {
-        placement,
-        srcView:
-          nestedRegionInfoForView(context.sourceView)?.regionId ?? "root",
-        tgtView: nestedRegionInfoForView(context.view)?.regionId ?? "root",
-        srcBlocksIds: sourceBlocks.map((b) => b.id),
-        tgtBlocksIds: targetBlocks.map((b) => b.id),
-        sourceId: sourceBlock?.id,
-        targetId: targetBlock?.id,
-        topLevelIds: currentBlocks.map((b) => b.id),
-      });
       if (!sourceBlock || !targetBlock) return false;
 
       let nextBlocks: PlanBlock[] | null;
