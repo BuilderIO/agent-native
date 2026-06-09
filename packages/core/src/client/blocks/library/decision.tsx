@@ -338,10 +338,15 @@ export const decisionBlock = defineBlock<DecisionData>({
   Read: DecisionBlock,
   Edit: DecisionBlockEdit,
   placement: ["block"],
-  editSurface: "inline",
+  // `panel`: the document shows the clean read view (question + option cards with
+  // the recommended pick highlighted), and the corner pencil opens the editor in
+  // a popover. NOT `inline` — an inline schema-editing form (question + per-option
+  // textareas) rendered straight into the doc reads as a confusing data-entry wall
+  // rather than a decision. Mirrors how `question-form` / `visual-questions` edit.
+  editSurface: "panel",
   label: "Decision",
   description:
-    "A decision prompt with inline-editable option cards and an authored recommended choice.",
+    "A decision prompt with option cards and an authored recommended choice. Shows a clean read view in the document; edit the question and options from the corner pencil.",
   empty: () => ({
     question: "Which implementation direction should we take?",
     options: [

@@ -264,7 +264,11 @@ function replaceEditorViewBlocks(
     // `commit`, persisting the revert.
     if (!options.addToHistory) tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
-    view.dispatch(tr.scrollIntoView());
+    // NOT `scrollIntoView()`: this rebuilds the WHOLE document in place (drop
+    // repaint / reconcile), and scrolling to the post-replace selection yanks the
+    // viewport away from where the user just dropped — a jarring jump. The user's
+    // scroll position must stay put for an in-place structural repaint.
+    view.dispatch(tr);
   } catch {
     // A stale editor view can disappear while React remounts nested regions.
   }

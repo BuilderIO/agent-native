@@ -361,14 +361,30 @@
 
 @media (min-width: 1400px) {
   .plan-document-files {
+    --files-rail-width: 14rem;
     position: absolute;
     top: 0;
     bottom: 0;
-    right: calc(100% + 1.25rem);
+    /* Anchor the LEFT edge in the margin (not the right) so the rail widens
+     * rightward — into the document as a flyout — when a file is focused,
+     * instead of growing left off the viewport edge where there is no room.
+     * Collapsed, the right edge still sits 1.25rem left of the document body,
+     * mirroring the contents rail. */
+    left: calc(-1.25rem - var(--files-rail-width));
     z-index: 2;
     display: block;
-    width: 14rem;
+    width: var(--files-rail-width);
     pointer-events: none;
+    transition: width 0.18s ease;
+  }
+
+  /* While a file's note/snippet is the reader's active focus, widen the rail
+   * over the document so annotations are readable; it collapses back the moment
+   * focus leaves (click elsewhere) or the last open file is closed. The opaque
+   * card + raised z-index let it read as a panel above the prose. */
+  .plan-document-files:has(.plan-block[data-files-expanded]) {
+    width: 26rem;
+    z-index: 30;
   }
 
   .plan-document-files__nav {

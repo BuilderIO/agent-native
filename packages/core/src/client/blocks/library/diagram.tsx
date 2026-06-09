@@ -8,7 +8,11 @@ import type {
 } from "../types.js";
 import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { RoughOverlay, useIsDark, useWireframeStyle } from "./wireframe-kit.js";
-import { sanitizeDiagramHtml, sanitizeWireframeCss } from "./sanitize-html.js";
+import {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  scopeDesignCss,
+} from "./sanitize-html.js";
 import {
   diagramMdx,
   diagramSchema,
@@ -73,8 +77,10 @@ function HtmlDiagram({
   const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);
+    // Scope every author selector under this diagram instance so global
+    // selectors (body, *, .app-shell, :root) can't escape and restyle the page.
     return safeCss
-      ? `[data-plan-diagram-scope="${scopeId}"]{}\n${safeCss}`
+      ? scopeDesignCss(safeCss, `[data-plan-diagram-scope="${scopeId}"]`)
       : "";
   }, [data.css, scopeId]);
 

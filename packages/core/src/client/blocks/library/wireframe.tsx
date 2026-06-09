@@ -30,6 +30,7 @@ import {
 import {
   sanitizeWireframeCss,
   sanitizeWireframeHtml,
+  scopeDesignCss,
 } from "./sanitize-html.js";
 
 /**
@@ -303,7 +304,11 @@ function HtmlArtboard({
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);
-    return safeCss ? `[data-plan-design-scope="${scopeId}"]{}\n${safeCss}` : "";
+    // Scope every author selector under this instance's artboard so global
+    // selectors (body, *, .app-shell, :root) can't restyle/hide the host app.
+    return safeCss
+      ? scopeDesignCss(safeCss, `[data-plan-design-scope="${scopeId}"]`)
+      : "";
   }, [data.css, scopeId]);
 
   return (
