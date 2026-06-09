@@ -62,6 +62,11 @@ export function useMeetingTranscription({
   const pendingPillInitRef = useRef<{
     meetingId: string;
     initialNotes: string;
+    preloadedLines?: Array<{
+      text: string;
+      source: "mic" | "system";
+      startMs?: number;
+    }>;
   } | null>(null);
 
   const normalizedServerUrl = useMemo(
@@ -383,11 +388,10 @@ export function useMeetingTranscription({
           mode: "meeting",
         }).catch(() => {});
 
-        callClipsAction<{ meeting?: { userNotesMd?: string } }>(
-          "get-meeting",
-          { id: resolvedMeetingId },
-          { method: "GET" },
-        )
+        callClipsAction<{
+          meeting?: { userNotesMd?: string };
+          transcript?: { segmentsJson?: string | null } | null;
+        }>("get-meeting", { id: resolvedMeetingId }, { method: "GET" })
           .then((data) => {
             // Guard: if the session changed while the fetch was in-flight
             // (user switched meetings), don't overwrite the new meeting's
@@ -403,6 +407,56 @@ export function useMeetingTranscription({
               meetingId: resolvedMeetingId,
               initialNotes,
             }).catch(() => {});
+
+            // Preload any existing transcript segments into the pill and session.
+            const segmentsJson = data?.transcript?.segmentsJson;
+            if (segmentsJson && sessionRef.current === session) {
+              try {
+                const segs = JSON.parse(segmentsJson) as Array<{
+                  startMs?: number;
+                  endMs?: number;
+                  text: string;
+                  source?: "mic" | "system";
+                }>;
+                if (segs.length > 0) {
+                  const preloadedLineStrings = segs.map((s) => {
+                    const label = s.source === "system" ? "Them" : "Me";
+                    return `${label}: ${s.text}`;
+                  });
+                  const preloadedSegments = segs.map((s) => ({
+                    startMs: s.startMs ?? 0,
+                    endMs: s.endMs ?? 0,
+                    text: s.text,
+                    source: s.source ?? ("mic" as const),
+                  }));
+                  session.lines = [...preloadedLineStrings, ...session.lines];
+                  session.segments = [
+                    ...preloadedSegments,
+                    ...session.segments,
+                  ];
+                  const preloadedLines = segs.map((s) => ({
+                    text: s.text,
+                    source: (s.source ?? "mic") as "mic" | "system",
+                    startMs: s.startMs,
+                  }));
+                  // Store in ref so clips:pill-ready can re-emit if the
+                  // pill window mounts after this fetch resolves.
+                  if (
+                    pendingPillInitRef.current?.meetingId === resolvedMeetingId
+                  ) {
+                    pendingPillInitRef.current = {
+                      ...pendingPillInitRef.current,
+                      preloadedLines,
+                    };
+                  }
+                  emit("clips:transcript-preload", {
+                    lines: preloadedLines,
+                  }).catch(() => {});
+                }
+              } catch {
+                // ignore malformed segmentsJson
+              }
+            }
           })
           .catch(() => {});
 
@@ -539,6 +593,11 @@ export function useMeetingTranscription({
           meetingId: pending.meetingId,
           initialNotes: pending.initialNotes,
         }).catch(() => {});
+        if (pending.preloadedLines?.length) {
+          emit("clips:transcript-preload", {
+            lines: pending.preloadedLines,
+          }).catch(() => {});
+        }
       }),
     );
 
