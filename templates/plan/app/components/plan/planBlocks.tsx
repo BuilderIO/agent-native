@@ -1072,13 +1072,6 @@ export function PlanAiBlockAction({
   blockData: unknown;
   planId?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const focusComposer = () => focusPromptComposer(popoverRef.current);
-  useEffect(() => {
-    if (open) focusComposer();
-  }, [open]);
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -1103,65 +1096,14 @@ export function PlanAiBlockAction({
         .filter(Boolean)
         .join("\n"),
     });
-    setOpen(false);
   };
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (nextOpen) focusComposer();
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          data-plan-interactive
-          aria-label={`Describe a change to ${label.toLowerCase()}`}
-          className="flex h-7 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-input bg-background px-3 text-xs text-muted-foreground shadow-sm transition-colors hover:border-ring hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span>Describe a change…</span>
-          <kbd className="rounded border border-border px-1 font-sans text-[10px] leading-tight text-muted-foreground">
-            ⏎
-          </kbd>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        ref={popoverRef}
-        align="end"
-        side="left"
-        sideOffset={8}
-        collisionPadding={12}
-        data-ai-edit-popover
-        portalContainer={blockEditPopoverFor(triggerRef.current)}
-        onPointerDownOutside={(event) => {
-          event.preventDefault();
-        }}
-        onFocusOutside={(event) => {
-          event.preventDefault();
-        }}
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          focusComposer();
-        }}
-        className="z-[270] w-[calc(100vw-24px)] max-w-[420px] p-3"
-        data-plan-interactive
-      >
-        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-          Edit {label}
-        </p>
-        <PromptComposer
-          autoFocus
-          placeholder={`Tell the agent how to edit this ${label.toLowerCase()}...`}
-          draftScope={`plan:block:${blockId}`}
-          attachmentsEnabled={false}
-          plusMenuMode="hidden"
-          onSubmit={submitPrompt}
-        />
-      </PopoverContent>
-    </Popover>
+    <InlinePromptField
+      placeholder="Describe a change…"
+      ariaLabel={`Describe a change to ${label.toLowerCase()}`}
+      onSubmit={submitPrompt}
+    />
   );
 }
 
@@ -1172,18 +1114,10 @@ function PlanAiFieldAction({
   blockSummary,
   fieldLabel,
   fieldValue,
-  draftScope,
   disabled,
   instructions,
   companionFields = [],
 }: BlockAiFieldActionProps) {
-  const [open, setOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const focusComposer = () => focusPromptComposer(popoverRef.current);
-  useEffect(() => {
-    if (open) focusComposer();
-  }, [open]);
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -1217,76 +1151,118 @@ function PlanAiFieldAction({
         .filter(Boolean)
         .join("\n"),
     });
-    setOpen(false);
   };
 
-  const container = open ? blockEditPopoverFor(triggerRef.current) : null;
-
   return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        data-plan-interactive
-        data-ai-field-action={fieldLabel}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={`Describe a change to the ${fieldLabel.toLowerCase()}`}
-        className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-input bg-background px-2.5 text-[11px] text-muted-foreground opacity-80 shadow-sm transition-opacity hover:border-ring hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover/field:opacity-100 group-focus-within/field:opacity-100 data-[state=open]:opacity-100 disabled:pointer-events-none disabled:opacity-40"
-        disabled={disabled}
-        onClick={() => {
-          setOpen((nextOpen) => {
-            const shouldOpen = !nextOpen;
-            if (shouldOpen) focusComposer();
-            return shouldOpen;
-          });
-        }}
-      >
-        <span>Describe a change…</span>
-        <kbd className="rounded border border-border px-1 font-sans text-[9px] leading-tight">
-          ⏎
-        </kbd>
-      </button>
-      {open && container
-        ? createPortal(
-            <div
-              ref={popoverRef}
-              role="dialog"
-              aria-label={`Edit ${fieldLabel}`}
-              data-ai-edit-popover
-              data-plan-interactive
-              className="absolute right-3 top-12 z-[270] w-[calc(100%-24px)] max-w-[420px] rounded-md border bg-popover p-3 text-popover-foreground shadow-lg"
-            >
-              <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                Edit {fieldLabel}
-              </p>
-              <PromptComposer
-                autoFocus
-                placeholder={`Tell the agent how to change the ${fieldLabel.toLowerCase()}...`}
-                draftScope={draftScope}
-                attachmentsEnabled={false}
-                plusMenuMode="hidden"
-                onSubmit={submitPrompt}
-              />
-            </div>,
-            container,
-          )
-        : null}
-    </>
+    <InlinePromptField
+      size="sm"
+      subtle
+      placeholder="Describe a change…"
+      ariaLabel={`Describe a change to the ${fieldLabel.toLowerCase()}`}
+      onSubmit={submitPrompt}
+      disabled={disabled}
+      fieldActionLabel={fieldLabel}
+    />
   );
 }
 
-function focusPromptComposer(container: HTMLElement | null) {
-  if (typeof window === "undefined") return;
-  const focus = () => {
-    const target = container?.querySelector<HTMLElement>(
-      "[data-agent-composer-slot='editor-input'], .agent-composer-editor [contenteditable='true']",
-    );
-    target?.focus();
+function InlinePromptField({
+  placeholder,
+  ariaLabel,
+  onSubmit,
+  disabled,
+  size = "md",
+  subtle,
+  fieldActionLabel,
+}: {
+  placeholder: string;
+  ariaLabel?: string;
+  onSubmit: (text: string) => void;
+  disabled?: boolean;
+  size?: "sm" | "md";
+  subtle?: boolean;
+  fieldActionLabel?: string;
+}) {
+  const [value, setValue] = useState("");
+  const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  // Grow the field to fit wrapped lines as the user types (capped, then scrolls).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  }, [value]);
+
+  const submit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    setValue("");
+    setFocused(false);
+    if (ref.current) ref.current.style.height = "";
+    ref.current?.blur();
   };
-  window.requestAnimationFrame(focus);
-  window.setTimeout(focus, 80);
-  window.setTimeout(focus, 180);
+
+  const expanded = focused || value.length > 0;
+  const sm = size === "sm";
+
+  return (
+    <div
+      data-plan-interactive
+      className={cn(
+        "relative inline-flex shrink-0 items-start overflow-hidden rounded-2xl border border-input bg-background shadow-sm transition-[width,border-color,opacity] duration-200 ease-out focus-within:border-ring",
+        sm
+          ? expanded
+            ? "w-[300px]"
+            : "w-[150px]"
+          : expanded
+            ? "w-[380px]"
+            : "w-[200px]",
+        subtle &&
+          "opacity-80 focus-within:opacity-100 group-hover/field:opacity-100 group-focus-within/field:opacity-100",
+        disabled && "pointer-events-none opacity-40",
+      )}
+    >
+      <textarea
+        ref={ref}
+        rows={1}
+        value={value}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        data-ai-field-action={fieldActionLabel}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(event) => setValue(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            submit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+        className={cn(
+          "max-h-[220px] w-full cursor-text resize-none bg-transparent leading-snug text-foreground outline-none placeholder:text-muted-foreground",
+          sm ? "py-1.5 pl-2.5 pr-7 text-[11px]" : "py-1.5 pl-3 pr-8 text-xs",
+        )}
+      />
+      <kbd
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute right-1.5 top-1.5 rounded border border-border bg-background/80 font-sans leading-tight text-muted-foreground transition-opacity",
+          sm ? "px-1 text-[9px]" : "px-1 text-[10px]",
+          expanded ? "opacity-50" : "opacity-90",
+        )}
+      >
+        ⏎
+      </kbd>
+    </div>
+  );
 }
 
 function isAiEditPopoverTarget(target: EventTarget | null): boolean {
@@ -1294,13 +1270,6 @@ function isAiEditPopoverTarget(target: EventTarget | null): boolean {
     target instanceof HTMLElement &&
     Boolean(target.closest("[data-ai-edit-popover]"))
   );
-}
-
-function blockEditPopoverFor(element: HTMLElement | null): HTMLElement | null {
-  const closest = element?.closest<HTMLElement>(".an-block-edit-popover");
-  if (closest) return closest;
-  if (typeof document === "undefined") return null;
-  return document.querySelector<HTMLElement>(".an-block-edit-popover");
 }
 
 function languageForField(field: string): string {
