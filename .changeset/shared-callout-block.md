@@ -29,6 +29,13 @@ block — not just plan.
 - `BlockRenderContext` gains an optional `onQuestionFormSubmit(summary)` hook so
   the shared question-form/visual-questions blocks can route answers back to the
   host without importing app-specific submit wiring.
+- `BlockRegistry.register` now OVERRIDES on a duplicate block `type`/`tag`
+  (last-registration-wins) instead of throwing. This lets an app override a
+  shared library block with its own variant and makes module-level registration
+  idempotent under dev HMR (which could otherwise re-run a registration module
+  against a surviving registry and crash with "Block type … is already
+  registered"). A stale MDX-tag mapping is dropped when a re-registered type
+  changes its tag.
 
 Plan's local registration of these blocks (client + server) is removed in favor
 of the shared library copies; plan now registers no app-only blocks.

@@ -152,11 +152,19 @@ type DragHandleRegistration = {
   findHoverBlock?: (clientX: number, clientY: number) => HoverBlock | null;
   showHoverBlock?: (block: HoverBlock) => void;
   hideHover?: () => void;
+  /** The currently displayed grip's bounding rect, or null when hidden. */
+  gripRect?: () => DOMRect | null;
 };
 
 const dragHandleRegistrations = new Set<DragHandleRegistration>();
 let dragHandleGlobalHoverListeners = 0;
 let activeDragRegistration: DragHandleRegistration | null = null;
+// The registration whose grip is currently shown. Used to keep that grip alive
+// while the cursor travels from a block's body to its grip, even when the grip
+// sits in a contested gap (an inter-column gap or a tab body's left offset)
+// where another editor's wide forgiving zone would otherwise re-win the hover
+// and hide the grip out from under the approaching cursor.
+let activeHoverRegistration: DragHandleRegistration | null = null;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -171,6 +179,7 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     for (const registration of dragHandleRegistrations) {
       registration.hideHover?.();
     }
+    activeHoverRegistration = null;
     return;
   }
 
@@ -189,6 +198,36 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
       candidates.push({ registration, block });
     } else {
       registration.hideHover?.();
+    }
+  }
+
+  // Grip keepalive. Once a block's grip is showing, hold it while the cursor is
+  // within that block's vertical row AND horizontally between the grip glyph's
+  // left edge and the block's right edge — i.e. anywhere on the path from the
+  // block body to its grip. This is what makes grips grabbable for blocks that
+  // are NOT flush with the page's left gutter (a right column, a tab body):
+  // their grip sits in a gap that the neighbour's wide forgiving zone also
+  // claims, so the normal picker would flip hover to the neighbour mid-approach
+  // and the grip would vanish before the cursor reaches it. The row guard keeps
+  // the keepalive from "sticking" the grip across vertical moves to other rows.
+  if (activeHoverRegistration) {
+    const held = candidates.find(
+      (candidate) => candidate.registration === activeHoverRegistration,
+    );
+    const grip = activeHoverRegistration.gripRect?.();
+    if (
+      held &&
+      grip &&
+      clientY >= held.block.rect.top &&
+      clientY < held.block.rect.bottom &&
+      clientX >= grip.left - 4 &&
+      clientX <= held.block.rect.right
+    ) {
+      for (const registration of dragHandleRegistrations) {
+        if (registration !== held.registration) registration.hideHover?.();
+      }
+      held.registration.showHoverBlock?.(held.block);
+      return;
     }
   }
 
@@ -260,6 +299,7 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     if (registration !== active?.registration) registration.hideHover?.();
   }
   active?.registration.showHoverBlock?.(active.block);
+  activeHoverRegistration = active?.registration ?? null;
 };
 
 const handleGlobalHoverMove = (event: MouseEvent) => {
@@ -1301,6 +1341,10 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               findForgivingBlock(editorView, clientX, clientY),
             showHoverBlock: (block) => showHandleForBlock(editorView, block),
             hideHover: () => hideHandle(),
+            gripRect: () =>
+              handle && handle.style.display !== "none"
+                ? handle.getBoundingClientRect()
+                : null,
           };
           currentRegistration = registration;
           dragHandleRegistrations.add(registration);
@@ -1378,6 +1422,9 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               dragHandleRegistrations.delete(registration);
               if (activeDragRegistration === registration) {
                 activeDragRegistration = null;
+              }
+              if (activeHoverRegistration === registration) {
+                activeHoverRegistration = null;
               }
               handle?.remove();
               handle = null;
