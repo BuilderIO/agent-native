@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { IconWand } from "@tabler/icons-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -9,33 +9,31 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-export interface ActionItem {
-  id?: string;
-  text: string;
-  assigneeEmail?: string | null;
-  dueDate?: string | null;
-  completedAt?: string | null;
+function useAutoGrow(
+  ref: React.RefObject<HTMLTextAreaElement | null>,
+  dep: unknown,
+) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [ref, dep]);
 }
 
 interface CanvasEditorProps {
-  /** AI-generated summary (renders muted-gray). */
-  summaryMd: string;
-  /** AI-generated bullets (renders muted-gray). */
-  bullets: string[];
-  /** AI-generated action items (renders muted-gray). */
-  actionItems: ActionItem[];
-  /** User's own notes (renders bold black). Top of the canvas. */
-  userNotesMd: string;
-  /**
-   * Save user notes. Called on blur after edit.
-   */
-  onUserNotesChange: (next: string) => void;
-  /**
-   * Save AI summary. Called when the user edits the summary section.
-   * The container should also flip the section to userNotesMd if you want
-   * Granola's "transfer to user" behavior — see onTransferAiToUser.
-   */
-  onSummaryChange: (next: string) => void;
+  /** Which content this canvas renders. */
+  view: "user" | "ai";
+  /** User's own notes (renders bold black). Required for the "user" view. */
+  userNotesMd?: string;
+  /** Save user notes. Called on blur after edit. */
+  onUserNotesChange?: (next: string) => void;
+  /** AI-generated summary (renders muted-gray). For the "ai" view. */
+  summaryMd?: string;
+  /** AI-generated bullets (renders muted-gray). For the "ai" view. */
+  bullets?: string[];
+  /** Save AI summary when the user edits the summary section. */
+  onSummaryChange?: (next: string) => void;
   /**
    * Optional: when the user starts editing AI content, "promote" it into
    * userNotesMd so re-generation doesn't blow it away. Granola convention.
@@ -45,53 +43,50 @@ interface CanvasEditorProps {
   renderBullet?: (bullet: string, index: number) => React.ReactNode;
 }
 
-/**
- * Two-tone meeting canvas (Granola-signature):
- *   - User notes (top): bold black `text-foreground`
- *   - AI content (below): muted gray `text-muted-foreground`
- *   - Click any block to edit; on blur saves optimistically.
- *   - Editing AI text "transfers" it into the user's notes (so it survives
- *     re-generation), and the new merged text flips to black.
- */
 export function CanvasEditor({
-  summaryMd,
-  bullets,
-  actionItems,
-  userNotesMd,
+  view,
+  userNotesMd = "",
   onUserNotesChange,
+  summaryMd = "",
+  bullets = [],
   onSummaryChange,
   onTransferAiToUser,
   renderBullet,
 }: CanvasEditorProps) {
+  const showUser = view === "user";
+  const showAi = view === "ai";
+  const hasAi = summaryMd || bullets.length > 0;
+
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-6 py-6 space-y-6 max-w-2xl">
-        {/* User notes block — black, top */}
-        <UserNotesBlock value={userNotesMd} onChange={onUserNotesChange} />
+    <div className="px-6 py-6 space-y-6 max-w-2xl">
+      {/* User notes block */}
+      {showUser && (
+        <UserNotesBlock
+          value={userNotesMd}
+          onChange={onUserNotesChange ?? (() => {})}
+        />
+      )}
 
-        {/* Divider only when there's both user notes and AI content */}
-        {userNotesMd &&
-          (summaryMd || bullets.length > 0 || actionItems.length > 0) && (
-            <div className="h-px bg-border/60" />
-          )}
+      {/* AI summary */}
+      {showAi && summaryMd && (
+        <AiSummaryBlock
+          value={summaryMd}
+          onChange={onSummaryChange ?? (() => {})}
+          onTransferToUser={onTransferAiToUser}
+        />
+      )}
 
-        {/* AI summary — muted gray */}
-        {summaryMd && (
-          <AiSummaryBlock
-            value={summaryMd}
-            onChange={onSummaryChange}
-            onTransferToUser={onTransferAiToUser}
-          />
-        )}
+      {/* AI bullets — muted gray, with optional BulletLink wrappers */}
+      {showAi && bullets.length > 0 && (
+        <AiBulletsBlock bullets={bullets} renderBullet={renderBullet} />
+      )}
 
-        {/* AI bullets — muted gray, with optional BulletLink wrappers */}
-        {bullets.length > 0 && (
-          <AiBulletsBlock bullets={bullets} renderBullet={renderBullet} />
-        )}
-
-        {/* AI action items — muted gray */}
-        {actionItems.length > 0 && <AiActionItemsBlock items={actionItems} />}
-      </div>
+      {/* Empty state when AI notes haven't been generated yet */}
+      {showAi && !hasAi && (
+        <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
+          No AI notes yet. Generate notes from a finished transcript.
+        </p>
+      )}
     </div>
   );
 }
@@ -105,74 +100,33 @@ function UserNotesBlock({
   value: string;
   onChange: (next: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState(value);
+  const focusedRef = useRef(false);
 
+  // Sync external updates (live polling, desktop-app sync) into the editor —
+  // but only while it's not focused, so we never clobber what's being typed.
   useEffect(() => {
-    if (!editing) setDraft(value);
-  }, [value, editing]);
+    if (!focusedRef.current) setDraft(value);
+  }, [value]);
 
-  useEffect(() => {
-    if (editing) {
-      const el = ref.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(el.value.length, el.value.length);
-      }
-    }
-  }, [editing]);
-
-  const commit = () => {
-    setEditing(false);
-    const next = draft;
-    if (next !== value) onChange(next);
-  };
-
-  if (editing) {
-    return (
-      <Textarea
-        ref={ref}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            commit();
-          }
-        }}
-        placeholder="Your notes…"
-        className="min-h-[80px] text-base leading-relaxed text-foreground font-medium border-none shadow-none focus-visible:ring-0 px-0"
-      />
-    );
-  }
+  useAutoGrow(ref, draft);
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="block w-full text-left cursor-text"
-        >
-          {value ? (
-            <p className="text-base leading-relaxed text-foreground font-medium whitespace-pre-wrap">
-              {value}
-            </p>
-          ) : (
-            <p className="text-base leading-relaxed text-muted-foreground/50 italic">
-              Click to add your notes…
-            </p>
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>Click to add your notes</TooltipContent>
-    </Tooltip>
+    <Textarea
+      ref={ref}
+      value={draft}
+      placeholder="Your notes…"
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onBlur={(e) => {
+        focusedRef.current = false;
+        if (e.target.value !== value) onChange(e.target.value);
+      }}
+      className="min-h-[80px] resize-none overflow-hidden text-base leading-relaxed text-foreground font-medium border-none shadow-none focus-visible:ring-0 px-0"
+    />
   );
 }
 
@@ -204,6 +158,8 @@ function AiSummaryBlock({
       }
     }
   }, [editing]);
+
+  useAutoGrow(ref, editing ? draft : null);
 
   const commit = () => {
     setEditing(false);
@@ -238,7 +194,7 @@ function AiSummaryBlock({
             }
           }}
           // Once the user starts typing, it visually flips to foreground.
-          className="min-h-[100px] text-sm leading-relaxed text-foreground border-none shadow-none focus-visible:ring-0 px-0"
+          className="min-h-[100px] resize-none overflow-hidden text-sm leading-relaxed text-foreground border-none shadow-none focus-visible:ring-0 px-0"
         />
       </div>
     );
@@ -302,34 +258,11 @@ function AiBulletsBlock({
 
 /* -------------------------------------------------------------------------- */
 
-function AiActionItemsBlock({ items }: { items: ActionItem[] }) {
-  return (
-    <div className="space-y-1.5">
-      <AiTabIndicator label="Action items" />
-      <ul className="space-y-1 text-sm leading-relaxed text-muted-foreground">
-        {items.map((it, i) => (
-          <li key={i} className="flex gap-2">
-            <span>☐</span>
-            <span className={cn("flex-1", it.completedAt && "line-through")}>
-              {it.text}
-              {it.assigneeEmail && (
-                <span className="ml-1.5 text-xs">— {it.assigneeEmail}</span>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-
-function AiTabIndicator({ label = "AI" }: { label?: string }) {
+function AiTabIndicator() {
   return (
     <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity">
       <IconWand className="h-3 w-3" />
-      <span>{label}</span>
+      <span>AI</span>
     </div>
   );
 }
