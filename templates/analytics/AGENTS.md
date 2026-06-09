@@ -83,9 +83,8 @@ details live in `.agents/skills/`.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, and `forceNew`.
-- Node Exporter ships as `node-exporter-essentials` for the default compact
-  Prometheus host-health board, `node-exporter-macos` for Darwin/Homebrew
-  node_exporter scrapes, and `node-exporter-full` for the Linux-focused Grafana
+- Node Exporter ships as `node-exporter-macos` for Darwin/Homebrew
+  node_exporter scrapes and `node-exporter-full` for the Linux-focused Grafana
   1860 revision 45 full dashboard converted into native Analytics panels.
 
 ## Skills

@@ -63,22 +63,11 @@ Node Exporter dashboards are installed from the dashboard catalog:
 
 ```bash
 pnpm action list-dashboard-templates
-pnpm action install-dashboard-template --templateId=node-exporter-essentials
 pnpm action install-dashboard-template --templateId=node-exporter-macos
 pnpm action install-dashboard-template --templateId=node-exporter-full
 ```
 
-`node-exporter-essentials` is the compact first dashboard for host health. `node-exporter-macos` is the comprehensive Darwin/Homebrew dashboard for macOS scrapes; it covers CPU, load, macOS memory fields, swap, APFS filesystems, disk IO, network devices, battery/power, scrape health, exporter process stats, Go runtime stats, and a metric-family coverage table. `node-exporter-full` is converted from Grafana dashboard 1860 revision 45 and lives at `seeds/dashboards/node-exporter-full.json`; it contains 124 Prometheus query panels, 16 section dividers, and native tabs for Overview, CPU & Memory, System, Storage, Network, and Exporter. The Full dashboard is Linux-focused because Grafana 1860 expects Linux collectors such as `node_memory_MemAvailable_bytes`, pressure stall information, `node_sockstat_*`, `node_netstat_*`, `node_timex_*`, `node_systemd_*`, and `node_hwmon_*`; Homebrew/macOS node_exporter omits many of those, so empty panels on macOS are expected. The templates use `job`, `instance`, and `range` filters; set `instance` to the Prometheus `instance` label from `node_uname_info`.
-
-The Essentials dashboard covers:
-
-- Hosts Reporting: `count(node_uname_info)`
-- CPU Used: `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))`
-- Memory Used: `1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))`
-- Disk Used: `1 - (sum(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}) / sum(node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}))`
-- CPU Usage by Instance: `1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))`
-- Memory Usage by Instance: `1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)`
-- Network Receive: `sum by (instance) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[5m]))`
+`node-exporter-macos` is the comprehensive Darwin/Homebrew dashboard for macOS scrapes; it covers CPU, load, macOS memory fields, swap, APFS filesystems, disk IO, network devices, battery/power, scrape health, exporter process stats, Go runtime stats, and a metric-family coverage table. `node-exporter-full` is converted from Grafana dashboard 1860 revision 45 and lives at `seeds/dashboards/node-exporter-full.json`; it contains 124 Prometheus query panels, 16 section dividers, and native tabs for Overview, CPU & Memory, System, Storage, Network, and Exporter. The Full dashboard is Linux-focused because Grafana 1860 expects Linux collectors such as `node_memory_MemAvailable_bytes`, pressure stall information, `node_sockstat_*`, `node_netstat_*`, `node_timex_*`, `node_systemd_*`, and `node_hwmon_*`; Homebrew/macOS node_exporter omits many of those, so empty panels on macOS are expected. The templates use `job`, `instance`, and `range` filters; set `instance` to the Prometheus `instance` label from `node_uname_info`.
 
 ### Local setup via Homebrew (macOS)
 
