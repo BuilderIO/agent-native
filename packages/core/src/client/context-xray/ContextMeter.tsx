@@ -19,7 +19,9 @@ import { cn } from "../utils.js";
 import { CONTEXT_XRAY_MODEL_LIMIT, formatTokens } from "./format.js";
 
 const ContextXRayPanel = lazy(() =>
-  import("./ContextXRayPanel.js").then((m) => ({ default: m.ContextXRayPanel })),
+  import("./ContextXRayPanel.js").then((m) => ({
+    default: m.ContextXRayPanel,
+  })),
 );
 
 function ContextDonut({ pct, advisory }: { pct: number; advisory: boolean }) {
