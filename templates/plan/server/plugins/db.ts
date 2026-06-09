@@ -181,6 +181,15 @@ UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual 
 UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual recap review'`,
       },
     },
+    {
+      // plan_events is an append-only log shared across every plan. loadPlanBundle
+      // reads `WHERE plan_id = ? ORDER BY created_at` on each plan open, which
+      // seq-scanned the whole growing table (plan_sections.plan_id and
+      // plan_comments.plan_id are already covered by v7/v8/v17 composites; this
+      // was the one hot-path lookup left unindexed).
+      version: 20,
+      sql: `CREATE INDEX IF NOT EXISTS plan_events_plan_created_idx ON plan_events(plan_id, created_at)`,
+    },
   ],
   { table: "plans_migrations" },
 );

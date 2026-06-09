@@ -205,7 +205,11 @@ export function Screen({
       style={{
         position: "relative",
         width: "100%",
-        height: "100%",
+        // `minHeight` (not a fixed `height: 100%`) so the screen fills an
+        // auto-height artboard's floor yet grows with its content instead of
+        // clipping. The frame shell (`ArtboardFrame`) owns the height policy; a
+        // caller can still override via `style.height` for a fixed canvas.
+        minHeight: "100%",
         background: V.paper,
         color: V.ink,
         fontFamily: V.hand,
