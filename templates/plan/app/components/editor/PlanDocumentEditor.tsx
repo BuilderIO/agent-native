@@ -21,15 +21,12 @@ import {
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import {
-  SchemaBlockEditor,
   useOptionalBlockRegistry,
   type BlockRegistry,
   type BlockDataChangeMeta,
-  type BlockRenderContext,
 } from "@agent-native/core/blocks";
 import {
   createPlanBlockId,
-  imageDataSchema,
   type PlanBlock,
   type PlanContent,
 } from "@shared/plan-content";
@@ -43,35 +40,11 @@ import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 /** One tab id per browser tab, shared by every plan document editor instance. */
 const TAB_ID = generateTabId();
 
-// A minimal block render context for the legacy schema-form editors below. The
-// image schema has no markdown/asset fields, so the schema auto-editor never
-// reaches into `ctx`; only the dialect is meaningful.
-const LEGACY_FORM_CTX: BlockRenderContext = { dialect: "gfm" };
-
-/**
- * Render a schema-driven form editor for legacy (unregistered) block types that
- * would otherwise fall back to the raw-JSON editor in the block-node popover.
- * Today only `image` opts in (url / alt / caption / fit as real inputs); other
- * legacy types return `null` and keep the JSON fallback. The form autosaves
- * through `onChange`, matching how registered panel blocks edit their data.
- */
-function renderPlanLegacyBlockEditor(
-  block: PlanBlock,
-  { onChange }: { onChange: (nextData: unknown) => void },
-) {
-  if (block.type === "image") {
-    return (
-      <SchemaBlockEditor
-        data={block.data}
-        schema={imageDataSchema}
-        onChange={onChange}
-        editable
-        blockId={block.id}
-        ctx={LEGACY_FORM_CTX}
-      />
-    );
-  }
-  return null;
+// Legacy block types that render their own edit overlay (so the block-node adds
+// no separate corner edit pencil/popover). The image block owns a single
+// hover overlay (zoom / ⋯ with Edit + Replace), matching inline markdown images.
+function planLegacyBlockSelfEdits(blockType: string): boolean {
+  return blockType === "image";
 }
 
 /** The wrapper class the DragHandle anchors its grip + drop indicator to. */
@@ -840,7 +813,7 @@ export function PlanDocumentEditor({
       // image, …) through the same `PlanBlockView` dispatcher the per-block
       // reader uses, so every block type renders in the document. Edits replace
       // the whole block by id; nested rich-text edits patch that block's markdown.
-      renderLegacyBlockEditor: renderPlanLegacyBlockEditor,
+      legacyBlockSelfEdits: planLegacyBlockSelfEdits,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },
@@ -1149,7 +1122,7 @@ export function NestedPlanBlocksEditor({
         );
         commit(next);
       },
-      renderLegacyBlockEditor: renderPlanLegacyBlockEditor,
+      legacyBlockSelfEdits: planLegacyBlockSelfEdits,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },

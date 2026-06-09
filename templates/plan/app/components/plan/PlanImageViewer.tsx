@@ -6,6 +6,7 @@ import {
   IconDots,
   IconExternalLink,
   IconMinus,
+  IconPencil,
   IconPhoto,
   IconPlus,
   IconRefresh,
