@@ -452,9 +452,19 @@ describe("DragHandle menu", () => {
       expect(inner.handle.style.display).toBe("flex");
       expect(outer.handle.style.display).toBe("none");
 
-      // In the shared left-margin gutter (left of both blocks' content), the
-      // outermost (largest) container wins so it can be picked up.
+      // In the shared left-margin gutter AT THE NESTED BLOCK'S ROW, the inner
+      // block owns the grip band — so a block inside a flush-left column stays
+      // grabbable there to drag OUT of / BETWEEN columns. Its grip glyph renders
+      // in this exact gutter, so flipping to the container here would make the
+      // block's own grip unclickable (the whole point of column drag handles).
       hoverAt(10, 172);
+      expect(inner.handle.style.display).toBe("flex");
+      expect(outer.handle.style.display).toBe("none");
+
+      // In the gutter ABOVE the nested region (a row the container alone
+      // occupies), the container still wins, so the columns block itself remains
+      // grabbable — it just yields the rows where a nested block's grip lives.
+      hoverAt(10, 40);
       expect(outer.handle.style.display).toBe("flex");
       expect(inner.handle.style.display).toBe("none");
     } finally {
