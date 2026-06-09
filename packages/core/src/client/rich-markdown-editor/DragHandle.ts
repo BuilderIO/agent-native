@@ -916,12 +916,22 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       target: DropTarget | null,
     ) => {
       const sourceEnd = session.sourcePos + session.sourceNodeSize;
+      const isSideDrop =
+        target?.placement === "left" || target?.placement === "right";
       if (
         !target ||
         (target.view === session.view &&
-          (target.pos === session.sourcePos ||
-            target.pos === sourceEnd ||
-            (target.pos > session.sourcePos && target.pos < sourceEnd)))
+          (isSideDrop
+            ? // A side drop only ever builds columns; the ProseMirror seam
+              // position is irrelevant. The only no-op is dropping a block on
+              // ITS OWN side — adjacent *different* blocks must still form
+              // columns (otherwise dropping onto an immediate neighbour's
+              // facing edge silently does nothing, which reads as "side drop
+              // works sometimes").
+              target.targetPos === session.sourcePos
+            : target.pos === session.sourcePos ||
+              target.pos === sourceEnd ||
+              (target.pos > session.sourcePos && target.pos < sourceEnd)))
       ) {
         session.dropTarget = null;
         session.dropLine?.remove();
@@ -1056,12 +1066,18 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         const sourceEnd = session.sourcePos + session.sourceNodeSize;
         const target = session.dropTarget;
         const dropPos = target.pos;
+        const isSideDrop =
+          target.placement === "left" || target.placement === "right";
 
         if (
           target.view !== session.view ||
-          (dropPos !== sourceStart &&
-            dropPos !== sourceEnd &&
-            !(dropPos > sourceStart && dropPos < sourceEnd))
+          (isSideDrop
+            ? // Side drop (column build): proceed for any block that isn't the
+              // source itself, including the source's immediate neighbour.
+              target.targetPos !== sourceStart
+            : dropPos !== sourceStart &&
+              dropPos !== sourceEnd &&
+              !(dropPos > sourceStart && dropPos < sourceEnd))
         ) {
           const sourceNode = session.view.state.doc.nodeAt(sourceStart);
           if (sourceNode) {

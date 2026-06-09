@@ -969,6 +969,20 @@
   opacity: 1;
 }
 
+/* Read view of the `code` block reuses the shared CodeSurface — flatten it for
+   the `code` primitive only: drop the `--plan-code` fill AND the Shiki theme
+   background so the snippet sits on the page like the diff block (no gray box).
+   Other consumers of .plan-code-surface (code-tabs, API specs) keep their fill. */
+.plan-code .plan-code-surface {
+  background: transparent;
+}
+.plan-code .plan-code-surface .plan-shiki,
+.plan-code .plan-code-surface pre,
+.dark .plan-code .plan-code-surface .plan-shiki,
+.dark .plan-code .plan-code-surface pre {
+  background: transparent !important;
+}
+
 .plan-code-editor-body {
   position: relative;
   overflow: auto;
