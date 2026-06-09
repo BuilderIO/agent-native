@@ -573,8 +573,13 @@ function DiffRead({
   const [mode, setMode] = useState<DiffMode>(data.mode ?? "unified");
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [showAllRows, setShowAllRows] = useState(false);
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [containerRef, containerWidth] = useContainerWidth<HTMLElement>();
+  // On-hover popover (anchored to the right of the code) replaces the old
+  // persistent rail: nothing is shown when idle. `codeRef` measures the code
+  // box's right edge; `hover` carries the active index + captured geometry.
+  const hover = useAnnotationHover();
+  const { activeIndex } = hover;
+  const codeRef = useRef<HTMLDivElement | null>(null);
 
   const rows = useMemo(
     () => buildRows(diffLines(data.before, data.after)),
@@ -614,16 +619,21 @@ function DiffRead({
   const canSplit = !narrow;
   const effectiveMode: DiffMode = canSplit ? mode : "unified";
 
-  // Annotation rail (diff): notes render in a persistent column to the RIGHT of
-  // the code — never over it — mirroring the annotated-code block. Hovering a
-  // marked code line lights its rail card and vice-versa via `activeIndex`. The
-  // in-code numbered pip stays as the anchor indicator linking a line to its
-  // card. `handleActiveChange` is a plain setter (no hover-intent delay needed
-  // now that the note is a stationary card, not a pointer-traversed popover).
-  const handleActiveChange = useCallback(
-    (index: number | null) => setActiveIndex(index),
-    [],
+  // Annotations (diff): NO persistent column. Hovering a marked code line (or
+  // its numbered pip) opens THAT note's card as an on-hover popover anchored to
+  // the RIGHT of the code box, never over the code. The in-code pip stays as the
+  // anchor indicator + active-line highlight. `onRowEnter` captures the code
+  // box's right edge + the hovered row's vertical position to place the card;
+  // `onRowLeave` schedules a short-delay close so the pointer can cross the gap
+  // into the card (which cancels the close while hovered).
+  const onRowEnter = useCallback(
+    (index: number, rowEl: HTMLElement) => {
+      const anchor = anchorFromElements(codeRef.current, rowEl);
+      if (anchor) hover.open(index, anchor);
+    },
+    [hover],
   );
+  const onRowLeave = useCallback(() => hover.scheduleClose(), [hover]);
   // Side-scoped line → markers maps so a row only lights from its own side.
   const beforeMarkers = useMemo(
     () =>
@@ -665,6 +675,15 @@ function DiffRead({
     return (row: DiffRow) => markersForRow(row).length > 0;
   }, [hasAnnotations, markersForRow]);
 
+  // The resolved annotation whose card is currently shown on hover.
+  const activeItem = useMemo<ResolvedAnnotation<DiffAnnotation> | null>(
+    () =>
+      activeIndex == null
+        ? null
+        : (resolved.find((item) => item.index === activeIndex) ?? null),
+    [activeIndex, resolved],
+  );
+
   const added = rows.filter((r) => r.kind === "added").length;
   const removed = rows.filter((r) => r.kind === "removed").length;
   const unchanged = data.before === data.after;
@@ -697,10 +716,14 @@ function DiffRead({
       return next;
     });
 
-  // The bordered code box. When annotated it becomes the LEFT column of a grid
-  // whose RIGHT column is the note rail; unannotated it spans full width.
+  // The bordered code box. It always spans its full width — annotations surface
+  // as an on-hover popover anchored to this box's right edge, never as a column.
+  // `codeRef` measures that right edge for the popover's placement.
   const diffBox = (
-    <div className="overflow-hidden rounded-md border border-border bg-background">
+    <div
+      ref={codeRef}
+      className="overflow-hidden rounded-md border border-border bg-background"
+    >
       {/* Header: filename, path, +/− counts, mode toggle. */}
       <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
         <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
@@ -725,8 +748,8 @@ function DiffRead({
         </span>
         {/* Mode toggle only when split is actually available: a narrow
               container forces unified (split's doubled gutters would crush the
-              code), so the toggle would otherwise be a no-op. Annotations now
-              live in a side rail, so they work in both unified and split. */}
+              code), so the toggle would otherwise be a no-op. Annotations are an
+              on-hover popover now, so they work in both unified and split. */}
         {canSplit && (
           <div className="pointer-events-none ml-auto flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background opacity-0 transition-opacity group-hover/diff-block:pointer-events-auto group-hover/diff-block:opacity-100 group-focus-within/diff-block:pointer-events-auto group-focus-within/diff-block:opacity-100">
             <ModeButton
@@ -757,7 +780,8 @@ function DiffRead({
           rowLimit={rowLimit}
           markersForRow={markersForRow}
           activeIndex={activeIndex}
-          onActiveChange={handleActiveChange}
+          onRowEnter={onRowEnter}
+          onRowLeave={onRowLeave}
         />
       ) : (
         <UnifiedView
@@ -768,7 +792,8 @@ function DiffRead({
           markersForRow={markersForRow}
           anchoredRow={anchoredRow}
           activeIndex={activeIndex}
-          onActiveChange={handleActiveChange}
+          onRowEnter={onRowEnter}
+          onRowLeave={onRowLeave}
         />
       )}
       {!unchanged && shouldLimitRows && (
@@ -805,27 +830,23 @@ function DiffRead({
           {summary}
         </p>
       )}
-      {hasAnnotations ? (
-        // Notes sit in a SEPARATE right-hand rail beside the code — never over
-        // it — so the diff keeps its full readable width. A container query on
-        // the block's OWN width drops the rail below the code (single column)
-        // when there isn't room for a side-by-side gutter, e.g. nested in a
-        // vertical-tabs content column. The in-code numbered pips remain the
-        // anchor indicators tying each line to its card.
-        <div className="@container/diff">
-          <div className="grid items-start gap-3 @xl/diff:grid-cols-[minmax(0,1fr)_minmax(200px,260px)]">
-            {diffBox}
-            <AnnotationNoteRail
-              items={resolved}
-              activeIndex={activeIndex}
-              onActiveChange={handleActiveChange}
-              ctx={ctx}
-              showMarker
-            />
-          </div>
-        </div>
-      ) : (
-        diffBox
+      {/* The diff keeps its full width — no persistent annotation column. The
+          in-code numbered pips remain the hover anchors; notes live in a
+          visually-hidden stack (a11y + tests) and surface ONE at a time as an
+          on-hover popover anchored to the right of the code box. */}
+      {diffBox}
+      {hasAnnotations && (
+        <AnnotationHiddenStack items={resolved} ctx={ctx} showMarker />
+      )}
+      {hasAnnotations && activeItem && hover.anchor && (
+        <AnnotationHoverCard
+          item={activeItem}
+          anchor={hover.anchor}
+          ctx={ctx}
+          showMarker
+          onMouseEnter={hover.cancelClose}
+          onMouseLeave={hover.scheduleClose}
+        />
       )}
     </section>
   );
@@ -868,7 +889,10 @@ interface RowAnnotationProps {
   markersForRow: MarkersForRow;
   anchoredRow?: (row: DiffRow) => boolean;
   activeIndex: number | null;
-  onActiveChange: (index: number | null) => void;
+  /** Hovering an annotated row opens its popover, anchored to this row's box. */
+  onRowEnter: (index: number, rowEl: HTMLElement) => void;
+  /** Leaving an annotated row schedules the popover's close. */
+  onRowLeave: () => void;
 }
 
 /**
@@ -920,7 +944,8 @@ function UnifiedView({
   markersForRow,
   anchoredRow,
   activeIndex,
-  onActiveChange,
+  onRowEnter,
+  onRowLeave,
 }: {
   rows: DiffRow[];
   language: string;
@@ -940,7 +965,8 @@ function UnifiedView({
     language,
     markersForRow,
     activeIndex,
-    onActiveChange,
+    onRowEnter,
+    onRowLeave,
     showMarkerColumn,
   };
   let runIndex = 0;
@@ -981,14 +1007,16 @@ function UnifiedRow({
   row,
   markersForRow,
   activeIndex,
-  onActiveChange,
+  onRowEnter,
+  onRowLeave,
   showMarkerColumn,
 }: {
   language: string;
   row: DiffRow;
   markersForRow: MarkersForRow;
   activeIndex: number | null;
-  onActiveChange: (index: number | null) => void;
+  onRowEnter: (index: number, rowEl: HTMLElement) => void;
+  onRowLeave: () => void;
   showMarkerColumn: boolean;
 }) {
   const markers = markersForRow(row);
@@ -1002,8 +1030,12 @@ function UnifiedRow({
         ROW_BG[row.kind],
         annotatedRowBg(info),
       )}
-      onMouseEnter={info ? () => onActiveChange(info.primaryIndex) : undefined}
-      onMouseLeave={info ? () => onActiveChange(null) : undefined}
+      onMouseEnter={
+        info
+          ? (event) => onRowEnter(info.primaryIndex, event.currentTarget)
+          : undefined
+      }
+      onMouseLeave={info ? () => onRowLeave() : undefined}
     >
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.oldNo ?? ""}</span>
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>{row.newNo ?? ""}</span>

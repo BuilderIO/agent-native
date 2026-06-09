@@ -8,6 +8,8 @@ import {
   buildCommentBody,
   buildRecapPrompt,
   diffContainsSecret,
+  parseClaudeUsage,
+  parseCodexUsage,
 } from "./recap.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 
@@ -179,6 +181,72 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
+  });
+});
+
+describe("recap usage parsing", () => {
+  it("reads Claude Code's usage + reported cost (input already cache-exclusive)", () => {
+    const stdout = JSON.stringify({
+      type: "result",
+      model: "claude-opus-4",
+      total_cost_usd: 0.1234,
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 200,
+        cache_read_input_tokens: 5000,
+        cache_creation_input_tokens: 300,
+      },
+    });
+    expect(parseClaudeUsage(stdout)).toEqual({
+      inputTokens: 1000,
+      outputTokens: 200,
+      cacheReadTokens: 5000,
+      cacheWriteTokens: 300,
+      model: "claude-opus-4",
+      reportedCostUsd: 0.1234,
+    });
+  });
+
+  it("tolerates log noise before Claude's final JSON object", () => {
+    const stdout = [
+      "some warning line",
+      JSON.stringify({ usage: { input_tokens: 7, output_tokens: 3 } }),
+    ].join("\n");
+    expect(parseClaudeUsage(stdout)).toMatchObject({
+      inputTokens: 7,
+      outputTokens: 3,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+  });
+
+  it("strips Codex cached tokens out of input and folds reasoning into output", () => {
+    // OpenAI input_tokens INCLUDES cached_input_tokens, and reasoning is billed
+    // separately — both must be normalized so calculateCost is not double-billed.
+    const jsonl = [
+      JSON.stringify({ type: "turn.started" }),
+      JSON.stringify({
+        type: "turn.completed",
+        usage: {
+          input_tokens: 8000,
+          cached_input_tokens: 6000,
+          output_tokens: 400,
+          reasoning_output_tokens: 1500,
+        },
+      }),
+    ].join("\n");
+    expect(parseCodexUsage(jsonl)).toEqual({
+      inputTokens: 2000, // 8000 - 6000 cached
+      outputTokens: 1900, // 400 + 1500 reasoning
+      cacheReadTokens: 6000,
+      cacheWriteTokens: 0,
+      model: undefined,
+    });
+  });
+
+  it("returns null when no usage is present", () => {
+    expect(parseClaudeUsage("not json")).toBeNull();
+    expect(parseCodexUsage('{"type":"turn.started"}')).toBeNull();
   });
 });
 

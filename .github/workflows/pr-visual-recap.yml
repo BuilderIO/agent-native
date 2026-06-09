@@ -318,9 +318,10 @@ jobs:
           node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({mcpServers:{plan:{type:"http",url:process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp",headers:{Authorization:"Bearer "+process.env.PLAN_RECAP_TOKEN}}}}))' "$MCP_CONFIG"
           # VISUAL_RECAP_MODEL picks the Claude model; reasoning depth is model-driven
           # for Claude Code, so VISUAL_RECAP_REASONING only applies to the Codex backend.
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk)
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" || true
+          # Capture the final JSON result (usage + total_cost_usd) for the usage step.
+          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json || true
           rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
@@ -367,7 +368,7 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
-          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" "$(cat recap-prompt.md)" || true
+          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" | tee codex-events.jsonl || true
 
       # The agent's only hand-off: recap-url.txt with the published plan URL.
       - name: Read plan URL
@@ -379,6 +380,20 @@ jobs:
           if [ -f recap-url.txt ]; then PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"; fi
           echo "plan_url=$PLAN_URL" >> "$GITHUB_OUTPUT"
           if [ -n "$PLAN_URL" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      # Capture the agent run token usage and attach it to the published recap
+      # so the recap row carries input/output/cached tokens, the model, and a
+      # cost estimate. Informational and best-effort: never fails the job.
+      - name: Attach usage
+        if: steps.url.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+        run: |
+          set -uo pipefail
+          RESULT=claude-result.json
+          if [ "$VISUAL_RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$VISUAL_RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       # Screenshot the published plan in headless Chrome and upload the PNG to the
       # plan app's signed public image route. Best-effort: never fails the job.
