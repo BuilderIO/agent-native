@@ -683,6 +683,11 @@ export function PlanDocumentEditor({
       const placement = context.placement;
       const isSide = placement === "left" || placement === "right";
       const isVertical = placement === "before" || placement === "after";
+      // eslint-disable-next-line no-console
+      console.log("[vmove] fired", {
+        placement,
+        sameView: context.sourceView === context.view,
+      });
       if (!isSide && !isVertical) return false;
 
       // A vertical drop INSIDE one editor is a plain reorder — let the
@@ -700,6 +705,11 @@ export function PlanDocumentEditor({
         (isTransferredPlanBlock(data) ? data : null) ??
         planBlockFromPmNode(context.sourceNode, sourceBlocks);
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
+      // eslint-disable-next-line no-console
+      console.log("[vmove] resolved", {
+        sourceId: sourceBlock?.id,
+        targetId: targetBlock?.id,
+      });
       if (!sourceBlock || !targetBlock) return false;
 
       let nextBlocks: PlanBlock[] | null;
