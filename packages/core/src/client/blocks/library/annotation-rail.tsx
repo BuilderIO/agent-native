@@ -237,7 +237,6 @@ export function AnnotationHiddenStack<A extends RailAnnotation>({
   if (resolved.length === 0) return null;
   return (
     <div
-      aria-hidden={false}
       className="absolute size-px overflow-hidden whitespace-nowrap border-0 p-0 [clip:rect(0,0,0,0)] [clip-path:inset(50%)]"
       data-annotation-hidden-stack
     >

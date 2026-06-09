@@ -28,7 +28,6 @@ import {
   hasRailAnnotations,
   resolveAnnotations,
   useAnnotationHover,
-  type AnnotationAnchor,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
@@ -1149,7 +1148,8 @@ function SplitView({
   rows,
   markersForRow,
   activeIndex,
-  onActiveChange,
+  onRowEnter,
+  onRowLeave,
 }: {
   language: string;
   rowLimit?: number;
@@ -1172,7 +1172,13 @@ function SplitView({
       ),
     [displayedPairs, markersForRow],
   );
-  const cellProps = { language, markersForRow, activeIndex, onActiveChange };
+  const cellProps = {
+    language,
+    markersForRow,
+    activeIndex,
+    onRowEnter,
+    onRowLeave,
+  };
   return (
     <div
       className="flex w-full bg-background font-mono [font-size:var(--plan-doc-code-size)] leading-5"
@@ -1214,7 +1220,8 @@ function SplitCell({
   side,
   markersForRow,
   activeIndex,
-  onActiveChange,
+  onRowEnter,
+  onRowLeave,
   showMarkerColumn,
 }: {
   language: string;
@@ -1222,7 +1229,8 @@ function SplitCell({
   side: RowSide;
   markersForRow: MarkersForRow;
   activeIndex: number | null;
-  onActiveChange: (index: number | null) => void;
+  onRowEnter: (index: number, rowEl: HTMLElement) => void;
+  onRowLeave: () => void;
   showMarkerColumn: boolean;
 }) {
   if (!row) {
@@ -1248,8 +1256,12 @@ function SplitCell({
         ROW_BG[row.kind],
         annotatedRowBg(info),
       )}
-      onMouseEnter={info ? () => onActiveChange(info.primaryIndex) : undefined}
-      onMouseLeave={info ? () => onActiveChange(null) : undefined}
+      onMouseEnter={
+        info
+          ? (event) => onRowEnter(info.primaryIndex, event.currentTarget)
+          : undefined
+      }
+      onMouseLeave={info ? () => onRowLeave() : undefined}
     >
       <span className={cn(LINE_NO_CLASS, "w-[52px]")}>
         {side === "old" ? (row.oldNo ?? "") : (row.newNo ?? "")}
