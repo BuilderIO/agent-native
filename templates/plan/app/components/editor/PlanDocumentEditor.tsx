@@ -1297,6 +1297,10 @@ export function PlanDocumentEditor({
           ydoc={ydoc}
           awareness={awareness}
           user={collabUser}
+          // PM history off so the app-level undo stack (which alone can see
+          // block-data edits) is the single cmd+z authority. Gated to the
+          // non-collab path; when single-doc collab lands, Yjs owns history.
+          disableHistory={!collabEnabled}
           getMarkdown={getMarkdown}
           setContent={setContent}
           normalizeValue={normalizeValue}
