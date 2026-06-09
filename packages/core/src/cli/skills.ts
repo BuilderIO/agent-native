@@ -1558,6 +1558,26 @@ Only add prose blocks when they tell the reviewer something specific about the
 change that the structured blocks do not: the objective, a real compatibility
 risk, an important decision visible in the diff, or a grounded review note.
 
+## Recaps Must Be Substantial
+
+Lean is not the same as thin. A recap is not a single wireframe plus one
+sentence — that under-serves the reviewer as much as boilerplate prose over-serves
+them. Alongside the visual/structural headline (wireframes, \`data-model\`,
+\`api-endpoint\`, \`diagram\`), a substantial recap also carries the implementation
+evidence:
+
+- A \`file-tree\` of the changed files with each entry's \`change\` flag, so the
+  reviewer sees the footprint of the work at a glance.
+- The split \`diff\` of the KEY changed files, grouped under a \`## Key changes\`
+  \`rich-text\` heading in a single vertical \`tabs\` block (file labels as the left
+  rail), with a one-line \`summary\` and a few \`annotations\` on each — so the
+  reviewer can drop from the high-altitude shape straight into the load-bearing
+  code.
+
+Skip the diff appendix only for a genuinely tiny change that reviews faster as
+plain diff (see "When To Use"); for any change worth recapping, the file-tree and
+key-change diffs belong in the plan.
+
 ## UI Impact Needs Wireframes
 
 When the diff changes rendered UI, layout, density, visual state, interaction
