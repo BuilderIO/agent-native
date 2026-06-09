@@ -13,6 +13,7 @@ const pageTitles: Record<string, string> = {
   "/": "Overview",
   "/data-sources": "Data Sources",
   "/data-dictionary": "Data Dictionary",
+  "/catalog": "Template Catalog",
   "/analyses": "Analyses",
   "/adhoc/explorer": "Explorer",
   "/team": "Team",
