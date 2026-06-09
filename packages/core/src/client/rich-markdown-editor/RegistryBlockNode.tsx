@@ -151,6 +151,22 @@ function clickedInteractiveChild(target: HTMLElement) {
     return true;
   }
 
+  // The block drag-handle grip is a `role="button"` div that lives in the editor
+  // wrapper, and nested container blocks (columns/tabs) render their own inner
+  // editors — each its own grip. A container block's `onMouseDownCapture`
+  // selection handler runs in a SEPARATE React root (Tiptap mounts every node
+  // view as its own root), so its `stopPropagation()` halts the NATIVE mousedown
+  // right there, before it can reach an inner grip or inner editor. Treat the
+  // grip and anything inside a nested editor region as interactive so the outer
+  // container never hijacks a mousedown meant for inner machinery — this is what
+  // makes dragging a block OUT of / BETWEEN columns (a nested grip) work at all.
+  if (
+    target.closest(".drag-handle") ||
+    target.closest(".plan-nested-document-editor-region")
+  ) {
+    return true;
+  }
+
   const blockNode = target.closest(".plan-block-node");
   const editable = target.closest("[contenteditable='true']");
   return !!blockNode && !!editable && blockNode.contains(editable);
