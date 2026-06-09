@@ -47,7 +47,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 function findWorkspaceCoreSync(
   startDir: string,
-): { packageName: string; packageDir: string } | null {
+): { packageName: string; packageDir: string; workspaceRoot: string } | null {
   // 1) Walk up looking for the root package.json that declares workspaceCore.
   let dir = path.resolve(startDir);
   let workspaceRoot: string | null = null;
@@ -76,7 +76,7 @@ function findWorkspaceCoreSync(
   // 2a) pnpm/npm symlink under workspaceRoot/node_modules.
   const nm = path.join(workspaceRoot, "node_modules", packageName);
   if (fs.existsSync(path.join(nm, "package.json"))) {
-    return { packageName, packageDir: fs.realpathSync(nm) };
+    return { packageName, packageDir: fs.realpathSync(nm), workspaceRoot };
   }
 
   // 2b) Scan packages/* and packages/@scope/* for a matching `name`.
@@ -99,7 +99,7 @@ function findWorkspaceCoreSync(
       try {
         const pkg = JSON.parse(fs.readFileSync(p, "utf-8"));
         if (pkg?.name === packageName)
-          return { packageName, packageDir: fs.realpathSync(c) };
+          return { packageName, packageDir: fs.realpathSync(c), workspaceRoot };
       } catch {
         // ignore malformed package.json
       }
@@ -1309,7 +1309,15 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   // import in framework-request-handler.ts goes through Vite's transform
   // pipeline (TypeScript, SSR HMR, the works).
   const workspaceCore = findWorkspaceCoreSync(cwd);
-  const workspaceCoreFsAllow = workspaceCore ? [workspaceCore.packageDir] : [];
+  const workspaceCoreFsAllow = workspaceCore
+    ? [
+        workspaceCore.packageDir,
+        // Also allow the workspace root's node_modules so Vite can serve
+        // pnpm-hoisted transitive deps (e.g. recharts, es-toolkit) as native
+        // ESM when they are excluded from the Rolldown optimizer.
+        path.join(workspaceCore.workspaceRoot, "node_modules"),
+      ]
+    : [];
   const workspaceNodeModulesAllow = isWorkspaceChild
     ? [path.resolve(cwd, "../../node_modules")]
     : [];
