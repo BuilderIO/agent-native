@@ -5,6 +5,7 @@
 //! is served by the Vite-built React UI (see `../dist`).
 
 mod accessibility;
+mod capture;
 mod clips;
 mod config;
 mod debug;
@@ -202,8 +203,9 @@ pub fn run() {
 
             // Pre-download the Whisper model in the background so the first
             // meeting doesn't pay the ~142 MB download cost mid-call. Skipped
-            // when the user has disabled the model in Settings.
-            #[cfg(target_os = "macos")]
+            // when the user has disabled the model in Settings. Runs on both
+            // macOS and Windows (the two platforms with meeting transcription).
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             {
                 let cfg = config::feature_config(app.handle());
                 if cfg.whisper_model_enabled

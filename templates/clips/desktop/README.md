@@ -6,6 +6,37 @@ A small Tauri 2.x menu-bar app that lives in the macOS menu bar / Windows system
 - **Recent** — your three most recent recordings
 - Quick links to **Open library** and **Settings**
 
+## Meeting transcription (macOS + Windows)
+
+When the calendar watcher detects a meeting, the popover surfaces a "Start
+notes" notification. Accepting it captures **both** the microphone and the
+system (speaker) audio, transcribes them locally with Whisper (whisper.cpp, no
+cloud round-trip), and streams a live mic/system-labeled transcript.
+
+Audio capture is platform-dispatched in `src-tauri/src/capture/`:
+
+- **macOS** — AVAudioEngine with VoiceProcessingIO acoustic echo cancellation
+  (mic) and ScreenCaptureKit (system audio).
+- **Windows** — [`cpal`](https://crates.io/crates/cpal): the default WASAPI
+  input device (mic) and WASAPI **loopback** of the default output device
+  (system audio). Loopback needs no OS permission prompt.
+
+The Whisper engine (`src-tauri/src/whisper_speech.rs`) and the meeting
+detection, notification, and transcript-rendering flows are otherwise identical
+across platforms.
+
+### Known Windows limitations (v1)
+
+- **No mic echo cancellation.** macOS applies hardware AEC so the mic stream
+  doesn't echo the system audio. `cpal` delivers the raw mic, so expect some
+  speaker bleed into the mic transcript when not on headphones. Mic and system
+  are transcribed and labeled separately, so this is cosmetic.
+- **No sleep / call-ended auto-stop.** The macOS sleep and call-ended watchers
+  are no-ops on Windows; the silence-based auto-stop still works. Stop notes
+  manually or via the silence timeout.
+- macOS-only features stay macOS-only: screen/window video recording, EventKit
+  local calendar, and Accessibility-based personal-vocabulary auto-learn.
+
 ## Develop
 
 First install the desktop workspace's own deps (this folder is outside the monorepo's `templates/*` glob because it ships its own Tauri/Vite toolchain):

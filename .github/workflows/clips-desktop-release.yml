@@ -123,6 +123,21 @@ jobs:
           V=$(node -p "require('./${{ env.TAURI_APP_PATH }}/package.json').version")
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
+      # whisper-rs compiles whisper.cpp (CMake + C/C++) and runs bindgen, which
+      # needs libclang. windows-latest ships LLVM and CMake preinstalled; point
+      # bindgen at libclang and fall back to a Chocolatey install if the image
+      # ever drops it. macOS already has clang via Xcode.
+      - name: Set up libclang for whisper-rs bindgen (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if [ -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+          else
+            choco install llvm --no-progress -y
+            echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+          fi
+
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
