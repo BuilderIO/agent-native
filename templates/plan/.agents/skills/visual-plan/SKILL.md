@@ -47,6 +47,16 @@ plan needs a richer review surface.
   patterns first; name actual files, symbols, and data shapes instead of
   inventing them. Check existing `actions/` before proposing endpoints and prefer
   named client helpers over raw fetch. Delegate wide exploration to a sub-agent.
+  Lead with reuse: for each step, name what it reuses — existing actions, schema,
+  components, helpers — before what it adds, so the plan explains the genuinely new
+  delta instead of redescribing what already exists.
+- **Decide the hard-to-reverse bets first.** For non-trivial backend, data, or API
+  work, sketch where the feature is headed, then call out the decisions that are
+  expensive to undo once data or callers depend on them — wire format, public ids,
+  data-model shape, auth and ownership boundaries — and get those right in the plan
+  even if most of the feature ships later. Then scope to the smallest first cut that
+  proves the approach without foreclosing it, stating both what is in and what is
+  explicitly deferred.
 - **Preserve existing plans.** If the user pasted, referenced, or already has a
   Codex / Claude Code / Markdown plan, treat it as source material. Preserve its
   intent, do not invent codebase facts, label inferred visuals as inferred, and
@@ -99,7 +109,10 @@ plan needs a richer review surface.
    model. Plans should load out of the box for the local agent and local browser
    session; if a signed-in embedded browser cannot read a local plan that an
    anonymous/tool check can read, fix the app/action ownership or access path
-   rather than patching one plan by hand.
+   rather than patching one plan by hand. For high-stakes plans (architecture,
+   backend, data, multi-file, or risky), also kick off the self-review pass in
+   **Self-Review Before Handoff** while the user reads, instead of blocking the
+   handoff on it.
 5. Call `get-plan-feedback` before editing, after review, after any long pause,
    and before the final response. Treat `anchorDetails`, resolver intent, recent
    review events, and any focused screenshots from browser handoff as the source
@@ -110,6 +123,34 @@ plan needs a richer review surface.
    plan.
 7. Export with `export-visual-plan` only when the user wants a shareable receipt
    or repo-check-in artifacts.
+
+## Self-Review Before Handoff
+
+For high-stakes plans — architecture, backend, data-model, migration, multi-file,
+or otherwise risky work — run one adversarial self-review pass before treating the
+plan as final. Skip it for small, UI-only, or single-decision plans where the cost
+outweighs the value. Keep the pass cheap and non-blocking:
+
+- **Surface the plan first, review concurrently.** Post the link and let the user
+  start reading, then run the review in parallel — never make the user wait on it.
+- **Review the written plan; do not re-research.** Critique the plan text and its
+  own blocks. The grounding was already done while drafting, so the review checks
+  the output instead of re-exploring the repo.
+- **Spawn one skeptical reviewer** whose only job is to find what is weak, missing,
+  or wrong — not to praise. Point it at: hard-to-reverse decisions made implicitly
+  or not at all (wire format, public ids, data-model shape, auth, ownership); steps
+  not anchored in real files or symbols; a menu of options where the plan should
+  commit to one; obvious missing decisions ("what happens when X?", "why not Y?");
+  and padding or single-step filler.
+- **Fix vs. ask.** Apply clear-cut fixes yourself with `update-visual-plan`
+  `contentPatches` — vague non-goals, unanchored claims, an obvious missing
+  decision. Route genuine judgment calls back to the user instead: add them to the
+  bottom `question-form` Open Questions block or batch them into the normal
+  ask-user-question flow. Do not silently decide them.
+- **Do not surprise the user mid-read.** On a large plan, apply the patches before
+  the editor loads; otherwise note briefly that a self-review is running so the
+  plan changing under them is expected. When you next respond, summarize what the
+  review changed and what it surfaced for the user to decide.
 
 ## Visual Surface Choice
 
@@ -286,13 +327,23 @@ for example, a new `Edit with AI` action in a popover header belongs in the
 top-right header slot, aligned with the title, not in the body or footer. Use
 the same frame size, scale, outer padding, border radius, and visual density on
 both sides unless the change itself alters those properties, and let the frame
-height fit the content rather than leaving a tall empty lower half. Choose the
-before/after layout by geometry: use a `columns` block labeled `Before`/`After`
-when each state stays legible side by side; stack `Before` then `After`
-vertically in normal document flow when the surface is very wide, when
-full-width scanning matters, or when columns would shrink or crop the detail.
-Label each state visibly (for example, a header pill) so cropped screenshots
-stay unambiguous.
+height fit the content rather than leaving a tall empty lower half.
+
+**Name the states with the column header, never inside the frame.** Put the two
+states in a `columns` block and set each column's `label` to `Before` and
+`After` — the renderer draws that label as an `h4` heading above each frame. Do
+NOT bake a `Before`/`After` pill, title, or heading into the wireframe `html`: a
+label placed inside reads as part of the product UI, lands in a random corner,
+and clutters the comparison. The column header is the one and only place the
+state name belongs.
+
+**Let the surface choose side-by-side vs. stacked.** The `columns` renderer lays
+narrow surfaces (`mobile`, `popover`, `panel`) out side by side, and
+automatically stacks wide surfaces (`desktop`, `browser`) vertically at full
+document width so a large frame is never crushed into a half-width column and
+cropped. Author both wireframes with the real `surface` and the matching
+`Before`/`After` column labels; do not hand-stack the pair into separate
+top-level wireframes or duplicate the state name as body content.
 
 **Good example — a contacts list, surface `browser`.** A small, real screen
 composed from the helper classes and tokens, layout in inline flex, no fonts or
@@ -481,19 +532,28 @@ machine-checked list of block types and their data schemas, call `get-plan-block
 so you never emit a block the editor cannot render or round-trip:
 
 - `rich-text` for plan prose with real bold/italic/code/links and nested lists.
-- `code` for the file map: show how the few load-bearing files actually change
-  as real, syntax-highlighted code — the new action, the changed schema, the
-  wiring point. Highlight only the files worth reading; never an exhaustive list
-  of every touched file, and never a prose-only description of a file. When more
-  than one file matters, group the `code` blocks in a vertical `tabs` block
-  (the standard tab primitive) rather than a bespoke container. Reach for
-  `annotated-code` instead only when a snippet needs line-anchored margin notes.
-  If the exact code is unknown, show the smallest plausible planned shape or a
+- `annotated-code` for the file map: when a load-bearing file is worth
+  highlighting, prefer the annotated walkthrough over a bare `code` block — carry
+  the real, syntax-highlighted code AND anchor short margin notes to the lines
+  that actually change (the new action, the changed schema, the wiring point), so
+  the reader sees what matters and why instead of code for code's sake. Each
+  annotation is `{ lines: "12" | "12-18"; label?; note }`; keep a few high-signal
+  notes per file, not one per line. Highlight only the files worth reading; never
+  an exhaustive list of every touched file, and never a prose-only description of
+  a file. Drop to a plain `code` block only for a throwaway snippet with nothing
+  to call out. When more than one file matters, group the blocks in a vertical
+  `tabs` block (the standard tab primitive) rather than a bespoke container. If
+  the exact code is unknown, show the smallest plausible planned shape or a
   commented stub naming what to fill in. (`code-tabs` and `implementation-map`
   are legacy: their renderers stay for old plans, but do not author new ones.)
-- `decision` for two or three option cards with consequences. These are static
-  records; do not style them like clickable tabs or chips unless the renderer
-  truly supports changing the selection.
+- `decision` ONLY for a genuinely-open either/or the reviewer must still pick
+  between — two or three option cards with real consequences. If you have already
+  committed to an approach, state it as settled prose or a `callout`, NOT a
+  `decision` block; a decision card for a question you have already answered just
+  reads as a confusing mid-document form. Never duplicate the same choice across a
+  `decision` block and the bottom Open Questions `question-form` — pick one home
+  for it. These are static records; do not style them like clickable tabs or chips
+  unless the renderer truly supports changing the selection.
 - `columns` for side-by-side before/after or current/target comparisons where
   each side needs real nested blocks; label the columns clearly and avoid
   stacking comparison blocks vertically when parallel reading is the point.

@@ -11,19 +11,86 @@ import {
 import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
+  DataModelChange,
   DataModelData,
   DataModelEntity,
   DataModelField,
   DataModelRelation,
   DataModelRelationKind,
 } from "./data-model.config.js";
-import { DevInput } from "./dev-doc-ui.js";
+import { DATA_MODEL_CHANGES } from "./data-model.config.js";
+import { DevInput, DevSelect } from "./dev-doc-ui.js";
 
 /**
  * Read + Edit renderers for a `data-model` block — a dbdiagram / Prisma-style
  * entity-relationship diagram. Lives in core so any app can register the dev-doc
  * block (no shadcn import).
  */
+
+/* ── Theme-aware change tokens (shared vocabulary with `file-tree`) ─────────── */
+
+/**
+ * Change-chip palette — the SAME tinted-bg + saturated-text scheme the
+ * `file-tree` block uses, in BOTH the `.dark` plan theme and light mode (never a
+ * dark-only palette). Keeps data-model diff chips visually consistent with the
+ * file-tree change badges so a reviewer reads one vocabulary across dev-doc
+ * blocks.
+ */
+const CHANGE_BADGE: Record<DataModelChange, string> = {
+  added:
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  modified: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  removed: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
+  renamed:
+    "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+};
+
+/** Human-readable chip label, matching the file-tree change labels. */
+const CHANGE_LABEL: Record<DataModelChange, string> = {
+  added: "Added",
+  modified: "Modified",
+  removed: "Removed",
+  renamed: "Renamed",
+};
+
+/** Accent ink for a changed field/entity name, echoing its change color. */
+const CHANGE_NAME_INK: Record<DataModelChange, string> = {
+  added: "text-emerald-700 dark:text-emerald-300",
+  modified: "text-blue-700 dark:text-blue-300",
+  removed: "text-red-600 line-through dark:text-red-300",
+  renamed: "text-violet-700 dark:text-violet-300",
+};
+
+/** Subtle left accent rule on a changed field row (added = green, removed = red). */
+const CHANGE_ROW_ACCENT: Record<DataModelChange, string> = {
+  added: "border-l-2 border-l-emerald-400 dark:border-l-emerald-500/60",
+  modified: "border-l-2 border-l-blue-400 dark:border-l-blue-500/60",
+  removed: "border-l-2 border-l-red-400 dark:border-l-red-500/60",
+  renamed: "border-l-2 border-l-violet-400 dark:border-l-violet-500/60",
+};
+
+/** A small theme-aware change chip ("Added" / "Modified" / …). */
+function ChangeChip({
+  change,
+  className,
+}: {
+  change: DataModelChange;
+  className?: string;
+}) {
+  return (
+    <span
+      title={CHANGE_LABEL[change]}
+      aria-label={CHANGE_LABEL[change]}
+      className={cn(
+        "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide leading-none",
+        CHANGE_BADGE[change],
+        className,
+      )}
+    >
+      {CHANGE_LABEL[change]}
+    </span>
+  );
+}
 
 /* ── Resolution helpers (shared by Read + relation inference) ──────────────── */
 
@@ -195,9 +262,17 @@ export function DataModelRead({
                   )}
                 />
                 <IconDatabase className="size-4 shrink-0 text-blue-600 dark:text-blue-300" />
-                <span className="min-w-0 truncate font-mono text-sm font-semibold text-plan-text">
+                <span
+                  className={cn(
+                    "min-w-0 truncate font-mono text-sm font-semibold",
+                    entity.change
+                      ? CHANGE_NAME_INK[entity.change]
+                      : "text-plan-text",
+                  )}
+                >
                   {entity.name}
                 </span>
+                {entity.change && <ChangeChip change={entity.change} />}
                 <span className="ml-auto shrink-0 rounded-full bg-accent/50 px-2 py-0.5 text-[11px] font-medium text-plan-muted">
                   {entity.fields.length}{" "}
                   {entity.fields.length === 1 ? "field" : "fields"}
@@ -224,6 +299,7 @@ export function DataModelRead({
                             className={cn(
                               "border-t border-plan-line/70 align-top first:border-t-0",
                               field.fk && "cursor-pointer hover:bg-blue-500/5",
+                              field.change && CHANGE_ROW_ACCENT[field.change],
                             )}
                             // FK interactivity: hovering rings the referenced
                             // entity card; clicking also scrolls it into view.
@@ -260,8 +336,9 @@ export function DataModelRead({
                                 <span
                                   className={cn(
                                     "font-mono text-xs",
-                                    field.pk
-                                      ? "font-semibold text-plan-text"
+                                    field.pk && "font-semibold",
+                                    field.change
+                                      ? CHANGE_NAME_INK[field.change]
                                       : "text-plan-text",
                                   )}
                                 >
@@ -270,14 +347,39 @@ export function DataModelRead({
                               </div>
                             </td>
                             <td className="py-1.5 pr-2">
-                              {field.type && (
-                                <span className="inline-block rounded bg-accent/40 px-1.5 py-0.5 font-mono text-[11px] text-plan-muted">
-                                  {field.type}
-                                </span>
-                              )}
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {/* Prior value (`was`) for a modified field —
+                                    struck through ahead of the current type. */}
+                                {field.change === "modified" && field.was && (
+                                  <>
+                                    <span className="inline-block rounded bg-accent/30 px-1.5 py-0.5 font-mono text-[11px] text-plan-muted line-through">
+                                      {field.was}
+                                    </span>
+                                    <IconArrowNarrowRight
+                                      className="size-3 shrink-0 text-plan-muted"
+                                      aria-hidden
+                                    />
+                                  </>
+                                )}
+                                {field.type && (
+                                  <span
+                                    className={cn(
+                                      "inline-block rounded bg-accent/40 px-1.5 py-0.5 font-mono text-[11px]",
+                                      field.change === "removed"
+                                        ? "text-plan-muted line-through"
+                                        : "text-plan-muted",
+                                    )}
+                                  >
+                                    {field.type}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="py-1.5 pr-4 text-right">
                               <div className="flex flex-wrap items-center justify-end gap-1">
+                                {field.change && (
+                                  <ChangeChip change={field.change} />
+                                )}
                                 {field.pk && (
                                   <span className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/15">
                                     PK
@@ -481,6 +583,24 @@ export function DataModelEdit({
                 updateEntity(entityIndex, { name: event.target.value })
               }
             />
+            <DevSelect
+              className="h-8 w-[120px] shrink-0"
+              value={entity.change ?? "none"}
+              disabled={!editable}
+              onValueChange={(value) =>
+                updateEntity(entityIndex, {
+                  change:
+                    value === "none" ? undefined : (value as DataModelChange),
+                })
+              }
+              options={[
+                { value: "none", label: "No change" },
+                ...DATA_MODEL_CHANGES.map((change) => ({
+                  value: change,
+                  label: CHANGE_LABEL[change],
+                })),
+              ]}
+            />
             {editable && (
               <button
                 type="button"
@@ -576,6 +696,45 @@ export function DataModelEdit({
                       })
                     }
                   />
+                </div>
+                {/* Diff row: change kind + the prior value (`was`) when the
+                    field is "modified", so before/after renders in Read. */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <DevSelect
+                    className="h-7 w-[120px] shrink-0"
+                    value={field.change ?? "none"}
+                    disabled={!editable}
+                    onValueChange={(value) =>
+                      updateField(entityIndex, fieldIndex, {
+                        change:
+                          value === "none"
+                            ? undefined
+                            : (value as DataModelChange),
+                        // Drop a stale `was` when leaving the modified state.
+                        ...(value === "modified" ? {} : { was: undefined }),
+                      })
+                    }
+                    options={[
+                      { value: "none", label: "No change" },
+                      ...DATA_MODEL_CHANGES.map((change) => ({
+                        value: change,
+                        label: CHANGE_LABEL[change],
+                      })),
+                    ]}
+                  />
+                  {field.change === "modified" && (
+                    <DevInput
+                      className="h-7 flex-1 font-mono text-xs"
+                      value={field.was ?? ""}
+                      disabled={!editable}
+                      placeholder="was (prior value, e.g. old type)"
+                      onChange={(event) =>
+                        updateField(entityIndex, fieldIndex, {
+                          was: event.target.value || undefined,
+                        })
+                      }
+                    />
+                  )}
                 </div>
               </div>
             ))}

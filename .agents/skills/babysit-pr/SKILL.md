@@ -12,9 +12,16 @@ Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot rev
 
 ## Setup
 
-1. Start a `/loop 3m` that checks for new feedback and CI status every 3 minutes. The local-change commit/push step runs once per tick so active work batches naturally instead of creating push spam.
-2. Track when the last actionable item (new human/bot feedback or CI fix) occurred
-3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop and report "All clear"
+1. Run a self-re-arming tick loop. Do ONE tick (see "Each tick"), then immediately schedule the next one with `ScheduleWakeup` before yielding — pass this same `/babysit-pr <number> …` invocation back as the wake-up prompt so the next firing repeats the tick. The loop ends only at a stop condition (below); until then there is **always** a scheduled next tick.
+2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
+3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
+
+### Loop discipline — read this, it is the part people get wrong
+
+- **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
+- **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule a fallback `ScheduleWakeup`** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
+- **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
+- **Every tick, expect new local files.** On an active shared branch, concurrent agents commit into the same checkout continuously. Re-run Step 0 every single tick and push whatever is there — never assume "I already pushed, the tree is clean".
 
 ## Each tick
 
@@ -33,8 +40,8 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
 **Step 1 — check for merge conflicts:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: rebase on main (`git fetch origin main && git rebase origin/main`), resolve conflicts, commit, and push. This resets the soak timer.
-3. If `MERGEABLE` or `UNKNOWN`: proceed.
+2. If `CONFLICTING`: bring `main` in and resolve. **Commit/push any local changes first (Step 0) so the tree is clean**, then prefer a **merge** over a rebase — `git fetch origin main && git merge --no-edit origin/main` — because this branch is shared with concurrent agents and a rebase would rewrite history and require a force-push that can clobber their unpushed commits. Resolve the conflicts (for `pnpm-lock.yaml`, take one side with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm install --lockfile-only` against the merged `package.json`), `git add` the resolved files, complete the merge commit, and push (a normal push, never `--force`). This resets the soak timer. Only rebase if the user explicitly asks for a linear history.
+3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 **Then proceed with PR checks:**
 

@@ -78,13 +78,30 @@ function resolvePlanTocElements(root: HTMLElement, items: PlanTocItem[]) {
   return map;
 }
 
-export function PlanTableOfContents({ content }: { content: PlanContent }) {
+export function PlanTableOfContents({
+  content,
+  isRecap = false,
+  omitBlockId,
+}: {
+  content: PlanContent;
+  isRecap?: boolean;
+  /**
+   * A block whose anchor should be dropped from the contents — e.g. the recap
+   * "Files touched" block, which on wide screens is relocated to a permanent
+   * left sidebar (outside `.plan-document-flow`), so a contents link to it would
+   * resolve to a hidden, unscrollable element.
+   */
+  omitBlockId?: string;
+}) {
   const navRef = useRef<HTMLElement>(null);
   const elementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const [activeId, setActiveId] = useState("");
   const items = useMemo(
-    () => collectPlanTocItems(content.blocks),
-    [content.blocks],
+    () =>
+      collectPlanTocItems(content.blocks).filter(
+        (item) => item.blockId !== omitBlockId,
+      ),
+    [content.blocks, omitBlockId],
   );
 
   // Keep the item -> element map and the active section in sync with the
@@ -187,7 +204,9 @@ export function PlanTableOfContents({ content }: { content: PlanContent }) {
   return (
     <aside className="plan-document-toc" aria-label="Plan sections">
       <nav ref={navRef} className="plan-document-toc__nav">
-        <p className="plan-document-toc__heading">On this plan</p>
+        <p className="plan-document-toc__heading">
+          {isRecap ? "On this recap" : "On this plan"}
+        </p>
         <ol className="plan-document-toc__list">
           {items.map((item) => (
             <li key={item.id}>

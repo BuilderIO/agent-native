@@ -256,6 +256,27 @@
   scroll-margin-top: 2rem;
 }
 
+/* Wrapper around the document body + side rails. The rails anchor to this
+ * (not the shell) so they begin below the header instead of level with the
+ * title. */
+.plan-document-body {
+  position: relative;
+}
+
+@media (min-width: 1400px) {
+  .plan-document-body {
+    /* `flow-root` stops the first block's top margin from collapsing through the
+     * wrapper, so the wrapper's top edge sits flush at the header's bottom border
+     * — where the rails (top: 0) begin. The negative inline margin mirrors the
+     * shell's `sm:px-10` padding so the wrapper's padding box matches the shell's
+     * — keeping the `calc(100% + …)` rail offsets unchanged — and the matching
+     * inline padding restores the body content's original inset. */
+    display: flow-root;
+    margin-inline: -2.5rem;
+    padding-inline: 2.5rem;
+  }
+}
+
 .plan-document-toc {
   display: none;
 }
@@ -263,7 +284,7 @@
 @media (min-width: 1400px) {
   .plan-document-toc {
     position: absolute;
-    top: 3.5rem;
+    top: 0;
     bottom: 0;
     left: calc(100% + 1.25rem);
     z-index: 2;
@@ -322,6 +343,48 @@
   }
 }
 
+/* Recap "Files touched" left rail. Hidden by default (the block renders inline
+ * in the document body); on wide screens it mirrors the right-hand contents rail
+ * as a permanent left sidebar, positioned in the margin beside the centered
+ * document shell. The in-flow copy is hidden at this same breakpoint (see
+ * `filesSidebarHideCss`). Mirrors `.plan-document-toc` geometry on the opposite
+ * edge. */
+.plan-document-files {
+  display: none;
+}
+
+@media (min-width: 1400px) {
+  .plan-document-files {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: calc(100% + 1.25rem);
+    z-index: 2;
+    display: block;
+    width: 14rem;
+    pointer-events: none;
+  }
+
+  .plan-document-files__nav {
+    position: sticky;
+    top: 1.25rem;
+    max-height: calc(100vh - 2.5rem);
+    overflow-y: auto;
+    padding: 0.25rem 0 1.5rem;
+    pointer-events: auto;
+  }
+
+  /* The mirrored block carries its own card chrome; drop the document-flow
+   * top divider/spacing it would otherwise inherit, and let its label sit flush
+   * at the top of the rail. */
+  .plan-document-files__nav > .plan-block,
+  .plan-document-files__nav .plan-block {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
 /* Small, muted block label (not a document heading). Block titles used to render
  * as large <h2> headings that read like the block's type name; they now render
  * as this restrained eyebrow label instead. */
@@ -331,6 +394,20 @@
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+
+/* Per-column header for `columns` comparison blocks (e.g. Before / After).
+ * Renders as a small heading ABOVE each column so a comparison names its states
+ * outside the content — the state label lives here, never baked into a child
+ * wireframe's mockup. Sits a touch more present than the eyebrow block label so
+ * it reads clearly above a full wireframe frame. */
+.plan-columns-label {
+  margin: 0 0 0.6rem;
+  color: var(--plan-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1.3;
 }
 
@@ -708,7 +785,7 @@
 .plan-code-surface-scroll {
   position: relative;
   overflow: auto;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
 }
 
@@ -754,7 +831,7 @@
   background: var(--shiki-light-bg, var(--plan-code)) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
 }
 
@@ -878,7 +955,8 @@
   overflow: hidden;
   border: 1px solid var(--plan-line);
   border-radius: 12px;
-  background: var(--plan-code);
+  /* Sit on the page background like the diff block — no distinct surface fill. */
+  background: transparent;
 }
 
 .plan-code-editing .plan-code-head {
@@ -891,6 +969,20 @@
   opacity: 1;
 }
 
+/* Read view of the `code` block reuses the shared CodeSurface — flatten it for
+   the `code` primitive only: drop the `--plan-code` fill AND the Shiki theme
+   background so the snippet sits on the page like the diff block (no gray box).
+   Other consumers of .plan-code-surface (code-tabs, API specs) keep their fill. */
+.plan-code .plan-code-surface {
+  background: transparent;
+}
+.plan-code .plan-code-surface .plan-shiki,
+.plan-code .plan-code-surface pre,
+.dark .plan-code .plan-code-surface .plan-shiki,
+.dark .plan-code .plan-code-surface pre {
+  background: transparent !important;
+}
+
 .plan-code-editor-body {
   position: relative;
   overflow: auto;
@@ -901,7 +993,7 @@
   margin: 0;
   padding: 0.85rem 1.1rem;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
   white-space: pre;
   tab-size: 2;
@@ -913,6 +1005,16 @@
   overflow: hidden;
   pointer-events: none;
   color: var(--plan-code-text);
+  /* This is a <pre>; a base `pre {}` style leaks in a gray bg + border (the
+     "lighter gray box + inner border") AND a larger `font-size: 0.86em` via
+     `.an-rich-md-prose pre`. Override so it's flat and matches the textarea +
+     annotated-code (the single .plan-code-editing border is the only chrome,
+     and the overlay font must line up exactly with .plan-code-editor-input). */
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  font-size: 0.78rem !important;
+  line-height: 1.6 !important;
 }
 
 .plan-code-editor-input {
@@ -931,6 +1033,16 @@
 
 .plan-code-editor-input::placeholder {
   color: var(--plan-muted);
+}
+
+/* Collapsed long snippet: fade the clipped bottom into the page background
+   (the surface is transparent), with the shared .plan-code-surface-toggle below. */
+.plan-code-editor-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--plan-document) 92%);
 }
 
 .plan-code-caption {
@@ -1009,7 +1121,7 @@
   background: transparent;
   color: var(--plan-code-text);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.6;
   overflow-x: auto;
 }
@@ -1065,7 +1177,15 @@
 .plan-callout {
   max-width: 860px;
   border-left: 3px solid hsl(var(--ring));
+  padding-block: 0.9rem;
   padding-left: 1.25rem;
+}
+
+/* The body editor/reader carries a default `mt-4`; inside a callout the block's
+ * own vertical padding owns the top rhythm, so drop that leading margin. A label,
+ * when present, keeps its own `margin-bottom` for the label→body gap. */
+.plan-callout > .plan-rich-markdown-editor {
+  margin-top: 0;
 }
 
 /* Tone styling: `data-tone` is set by the callout reader/editor (it defaults to
@@ -1699,11 +1819,53 @@
   padding: 0.125rem 0;
 }
 
+/* The top-level and nested editable document editors are NOT wrapped in
+ * `.plan-rich-markdown-editor`, so their prose would otherwise fall back to the
+ * core 0.95rem / em-scaled-heading defaults — smaller than the read view and the
+ * inline callout/rich-text editors, which use the canonical 1.0625rem body.
+ * Mirror the read-view body + heading sizing here so edit and read modes match
+ * and inline callouts no longer read larger than the surrounding copy. */
+.plan-document-editor .an-rich-md-prose,
+.plan-nested-document-editor .an-rich-md-prose {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+.plan-document-editor .an-rich-md-prose h1,
+.plan-nested-document-editor .an-rich-md-prose h1 {
+  font-size: 1.75rem;
+}
+.plan-document-editor .an-rich-md-prose h2,
+.plan-nested-document-editor .an-rich-md-prose h2 {
+  font-size: 1.45rem;
+}
+.plan-document-editor .an-rich-md-prose h3,
+.plan-nested-document-editor .an-rich-md-prose h3 {
+  font-size: 1.2rem;
+}
+.plan-document-editor .an-rich-md-prose h4,
+.plan-nested-document-editor .an-rich-md-prose h4 {
+  font-size: 1.05rem;
+}
+
 /* Inline custom blocks inside the document flow get their own breathing room;
  * the inner `.plan-block` section shouldn't re-add the top divider/margins. */
 .plan-document-editor .plan-block-node {
   position: relative;
   margin: 2rem 0;
+}
+
+/* Markdown images (inside prose) normally carry their vertical margin on the
+ * <img> itself. That margin sits INSIDE the `.plan-image` wrapper, so the
+ * absolutely-positioned hover actions (top-right) float into the gap above the
+ * image instead of sitting flush on it. Move the spacing onto the wrapper so the
+ * image fills it from the top edge and the controls sit flush — matching the
+ * structured image block, whose image has no intrinsic margin. */
+.an-rich-md-prose .plan-image > img {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.an-rich-md-prose .plan-image {
+  margin-block: 0.75rem;
 }
 
 .plan-nested-document-editor .plan-block-node {
@@ -1730,6 +1892,21 @@
 .plan-document-editor .plan-block-node .plan-block {
   margin-top: 0;
   padding-top: 0;
+  border-top: 0;
+}
+
+/* Callouts are self-contained tinted boxes, not divider-separated sections, so
+ * they keep their own symmetric internal top padding in BOTH layouts. The
+ * read-mode per-block layout otherwise gives plain blocks a divider + 2.25rem top
+ * padding, and the editable NodeView layout zeroes inner-block padding — both
+ * wrong for a boxed callout. Block-to-block spacing still comes from the block /
+ * NodeView margins; only the internal padding + divider are reset here. (The
+ * matching `padding-bottom` lives on the base `.plan-callout` rule and already
+ * wins, since neither layout rule sets it.) */
+.plan-document-flow > .plan-callout,
+.plan-document-editor .plan-block-node .plan-callout,
+.plan-nested-document-editor .plan-block-node .plan-callout {
+  padding-top: 0.9rem;
   border-top: 0;
 }
 

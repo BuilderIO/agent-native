@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -32,12 +33,20 @@ import {
 } from "@shared/plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
+import { PlanImageNode } from "../plan/PlanImageNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
 import { PlanBlockView } from "../plan/DocumentArea";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
 /** One tab id per browser tab, shared by every plan document editor instance. */
 const TAB_ID = generateTabId();
+
+// Legacy block types that render their own edit overlay (so the block-node adds
+// no separate corner edit pencil/popover). The image block owns a single
+// hover overlay (zoom / ⋯ with Edit + Replace), matching inline markdown images.
+function planLegacyBlockSelfEdits(blockType: string): boolean {
+  return blockType === "image";
+}
 
 /** The wrapper class the DragHandle anchors its grip + drop indicator to. */
 const WRAPPER_CLASS = "plan-document-editor";
@@ -182,7 +191,11 @@ function blocksForEditorView(
   return regionInfo ? (regionBlocksForInfo(blocks, regionInfo) ?? []) : blocks;
 }
 
-function replaceEditorViewBlocks(view: EditorView, blocks: PlanBlock[]): void {
+function replaceEditorViewBlocks(
+  view: EditorView,
+  blocks: PlanBlock[],
+  options: { addToHistory?: boolean } = {},
+): void {
   try {
     const doc = view.state.schema.nodeFromJSON(blocksToProseJSON(blocks));
     const tr = view.state.tr.replaceWith(
@@ -190,7 +203,14 @@ function replaceEditorViewBlocks(view: EditorView, blocks: PlanBlock[]): void {
       view.state.doc.content.size,
       doc.content,
     );
-    tr.setMeta("addToHistory", false);
+    // External reconcile repaints (agent patches, source syncs) must NOT enter
+    // the undo stack — they aren't user edits. A user DRAG-reorder must, so cmd+z
+    // reverts the move like any other edit (Notion parity). Either way the
+    // programmatic meta suppresses THIS repaint's own `onUpdate` (handleDrop /
+    // reconcile already committed the blocks); undo/redo replay the steps WITHOUT
+    // that meta, so they round-trip back through `onUpdate` → `handleChange` →
+    // `commit`, persisting the revert.
+    if (!options.addToHistory) tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     view.dispatch(tr.scrollIntoView());
   } catch {
@@ -388,19 +408,198 @@ function applyColumnSideDrop(
   return wrapTopLevelTargetInColumns(removal.blocks, request);
 }
 
+/**
+ * Insert `sourceBlock` immediately before/after the block with `targetBlockId`,
+ * wherever that target lives in the tree (top-level, a tab, or a column). Used
+ * by cross-region vertical moves so a block can be dragged OUT of a column into
+ * the document, BETWEEN columns, or INTO a column by dropping above/below an
+ * existing block there.
+ */
+function insertBlockBeside(
+  blocks: PlanBlock[],
+  targetBlockId: string,
+  sourceBlock: PlanBlock,
+  placement: "before" | "after",
+): { blocks: PlanBlock[]; inserted: boolean } {
+  let inserted = false;
+  const out: PlanBlock[] = [];
+  for (const block of blocks) {
+    if (!inserted && block.id === targetBlockId) {
+      const clone = clonePlanBlock(sourceBlock);
+      if (placement === "before") out.push(clone, block);
+      else out.push(block, clone);
+      inserted = true;
+      continue;
+    }
+    if (!inserted && block.type === "tabs") {
+      let changed = false;
+      const tabs = block.data.tabs.map((tab) => {
+        if (inserted) return tab;
+        const r = insertBlockBeside(
+          tab.blocks,
+          targetBlockId,
+          sourceBlock,
+          placement,
+        );
+        if (r.inserted) {
+          inserted = true;
+          changed = true;
+          return { ...tab, blocks: r.blocks };
+        }
+        return tab;
+      });
+      out.push(changed ? ({ ...block, data: { tabs } } as PlanBlock) : block);
+      continue;
+    }
+    if (!inserted && block.type === "columns") {
+      let changed = false;
+      const columns = block.data.columns.map((column) => {
+        if (inserted) return column;
+        const r = insertBlockBeside(
+          column.blocks,
+          targetBlockId,
+          sourceBlock,
+          placement,
+        );
+        if (r.inserted) {
+          inserted = true;
+          changed = true;
+          return { ...column, blocks: r.blocks };
+        }
+        return column;
+      });
+      out.push(
+        changed ? ({ ...block, data: { columns } } as PlanBlock) : block,
+      );
+      continue;
+    }
+    out.push(block);
+  }
+  return { blocks: out, inserted };
+}
+
+/**
+ * Cross-region vertical move: remove the source from wherever it is, then insert
+ * it before/after the target. The plan owns this structural move (rather than
+ * the DragHandle's generic ProseMirror node transfer) so the block tree — and
+ * empty-column collapse — stays consistent for moves out of / into / between
+ * columns. Same-region reorders never reach here (handleDrop defers those to the
+ * editor's own reorder).
+ */
+/**
+ * Notion parity: a `columns` block only exists to hold ≥2 side-by-side columns.
+ * After a drag empties a column (collapsed by {@link removeBlockFromTree}) the
+ * container can be left with a single column — in Notion that dissolves back to
+ * full-width blocks. This pass unwraps any columns block that drops to one column
+ * (splicing its blocks in place) and removes a columns block that loses them all.
+ * Applied to the FINAL tree only, never mid-move, so container lookups during the
+ * remove→insert steps still see the un-normalized tree.
+ */
+function normalizeColumnBlocks(blocks: PlanBlock[]): PlanBlock[] {
+  return blocks.flatMap((block) => {
+    if (block.type === "tabs") {
+      return [
+        {
+          ...block,
+          data: {
+            tabs: block.data.tabs.map((tab) => ({
+              ...tab,
+              blocks: normalizeColumnBlocks(tab.blocks),
+            })),
+          },
+        } as PlanBlock,
+      ];
+    }
+    if (block.type === "columns") {
+      const columns = block.data.columns
+        .map((column) => ({
+          ...column,
+          blocks: normalizeColumnBlocks(column.blocks),
+        }))
+        .filter((column) => column.blocks.length > 0);
+      if (columns.length === 0) return [];
+      if (columns.length === 1) return columns[0].blocks;
+      return [{ ...block, data: { columns } } as PlanBlock];
+    }
+    return [block];
+  });
+}
+
+function applyVerticalMove(
+  blocks: PlanBlock[],
+  request: {
+    sourceBlock: PlanBlock;
+    targetBlockId: string;
+    placement: "before" | "after";
+  },
+): PlanBlock[] | null {
+  if (request.sourceBlock.id === request.targetBlockId) return null;
+  const removal = removeBlockFromTree(blocks, request.sourceBlock.id);
+  if (!removal.removed) return null;
+  const result = insertBlockBeside(
+    removal.blocks,
+    request.targetBlockId,
+    request.sourceBlock,
+    request.placement,
+  );
+  return result.inserted ? result.blocks : null;
+}
+
 function repaintDropViews(
   context: DragHandleDropContext,
   nextBlocks: PlanBlock[],
+  rootView?: EditorView | null,
 ): void {
   const views = new Set([context.sourceView, context.view]);
+
+  // A move can dissolve structure a surgical per-region patch cannot express:
+  // emptying a column removes it, and dropping a `columns` block to a single
+  // column unwraps the container entirely (Notion parity). When the source or
+  // target region no longer exists in the new tree, its column/container changed
+  // in the ROOT document, so rebuild the whole root editor instead of patching
+  // regions that are gone. (Cross-region structural moves already stay out of
+  // per-editor undo history, so a non-historical root rebuild is consistent.)
+  if (rootView) {
+    for (const view of views) {
+      const info = nestedRegionInfoForView(view);
+      if (info && regionBlocksForInfo(nextBlocks, info) === null) {
+        replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
+        return;
+      }
+    }
+  }
+  // A drag is "single-editor" when the source and target live in the SAME
+  // ProseMirror view (a pure top-level reorder, or a move within one nested
+  // region). Only then is the whole reorder one editor's transaction, so it can
+  // safely enter THAT editor's undo history — pressing cmd+z reverts it cleanly.
+  // A cross-editor drag (top-level ↔ nested column/tab) repaints two independent
+  // histories; making those historical would let one cmd+z half-revert the move,
+  // so they stay out of history (status quo) and only the data-side save records
+  // them.
+  const singleEditor = views.size === 1;
   for (const view of views) {
     const regionInfo = nestedRegionInfoForView(view);
     if (regionInfo) {
       const regionBlocks = regionBlocksForInfo(nextBlocks, regionInfo);
-      if (regionBlocks) replaceEditorViewBlocks(view, regionBlocks);
+      if (regionBlocks)
+        replaceEditorViewBlocks(view, regionBlocks, {
+          addToHistory: singleEditor,
+        });
       continue;
     }
-    replaceEditorViewBlocks(view, nextBlocks);
+    replaceEditorViewBlocks(view, nextBlocks, { addToHistory: singleEditor });
+  }
+  // A mouse drag grips the drag handle, not the prose, so the contenteditable is
+  // usually blurred when the drop lands. Re-focus the editor the block landed in
+  // (single-editor drags only — that view owns the undoable step) so the very
+  // next cmd+z reaches the ProseMirror undo keymap and reverts the move, instead
+  // of doing nothing because focus sat on the page body.
+  if (singleEditor && !context.view.hasFocus()) {
+    try {
+      context.view.focus();
+    } catch {
+      // View may have been torn down mid-remount; focus is best-effort.
+    }
   }
 }
 
@@ -464,6 +663,13 @@ export function PlanDocumentEditor({
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const pendingTransferredBlocksRef = useRef(new Map<string, PlanBlock>());
+  // The ROOT editor view, captured once it mounts. Needed so a drop that
+  // dissolves a column container can rebuild the whole top-level document (the
+  // affected nested region no longer exists to patch in place).
+  const rootViewRef = useRef<EditorView | null>(null);
+  const handleEditorReady = useCallback((editor: Editor) => {
+    rootViewRef.current = editor.view;
+  }, []);
 
   // Adopt external `content` changes (agent patches, source edits) unless the
   // incoming value is the echo of our own last save.
@@ -539,9 +745,15 @@ export function PlanDocumentEditor({
 
   const handleDrop = useMemo<DragHandleOptions["handleDrop"]>(
     () => (data: unknown, context: DragHandleDropContext) => {
-      if (context.placement !== "left" && context.placement !== "right") {
-        return false;
-      }
+      const placement = context.placement;
+      const isSide = placement === "left" || placement === "right";
+      const isVertical = placement === "before" || placement === "after";
+      if (!isSide && !isVertical) return false;
+
+      // A vertical drop INSIDE one editor is a plain reorder — let the
+      // DragHandle's native same-editor reorder handle it (keeps undo clean). We
+      // only own CROSS-region structural moves: out of / into / between columns.
+      if (isVertical && context.sourceView === context.view) return false;
 
       const currentBlocks = blocksRef.current;
       const sourceBlocks = blocksForEditorView(
@@ -555,26 +767,38 @@ export function PlanDocumentEditor({
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
       if (!sourceBlock || !targetBlock) return false;
 
-      const targetRegion = nestedRegionInfoForView(context.view);
-      if (targetRegion) {
-        const container = findBlockInTree(
-          currentBlocks,
-          targetRegion.containerBlockId,
-        );
-        if (container?.type !== "columns") return false;
+      let nextBlocks: PlanBlock[] | null;
+      if (isVertical) {
+        // Cross-region move (the editor views differ): relocate the block
+        // structurally so empty source columns collapse and the block lands in
+        // the target's list.
+        nextBlocks = applyVerticalMove(currentBlocks, {
+          sourceBlock,
+          targetBlockId: targetBlock.id,
+          placement: placement as "before" | "after",
+        });
+      } else {
+        const targetRegion = nestedRegionInfoForView(context.view);
+        if (targetRegion) {
+          const container = findBlockInTree(
+            currentBlocks,
+            targetRegion.containerBlockId,
+          );
+          if (container?.type !== "columns") return false;
+        }
+        nextBlocks = applyColumnSideDrop(currentBlocks, {
+          sourceBlock,
+          targetBlockId: targetBlock.id,
+          side: placement as SideDropSide,
+          containerBlockId: targetRegion?.containerBlockId,
+          regionId: targetRegion?.regionId,
+        });
       }
-
-      const nextBlocks = applyColumnSideDrop(currentBlocks, {
-        sourceBlock,
-        targetBlockId: targetBlock.id,
-        side: context.placement,
-        containerBlockId: targetRegion?.containerBlockId,
-        regionId: targetRegion?.regionId,
-      });
       if (!nextBlocks) return false;
 
-      commit(nextBlocks);
-      repaintDropViews(context, nextBlocks);
+      const normalized = normalizeColumnBlocks(nextBlocks);
+      commit(normalized);
+      repaintDropViews(context, normalized, rootViewRef.current);
       return true;
     },
     [],
@@ -588,13 +812,24 @@ export function PlanDocumentEditor({
       // "in sync", and it loops `setContent` (wiping edits + flushSync storm).
       RunId,
       PlanBlockNode,
+      // Markdown images in the document editor use the plan image node view so
+      // they get the same hover zoom / lightbox / replace controls as structured
+      // image blocks (features.image is off so the plain core image node, which
+      // has no node view, never coexists with this one).
+      PlanImageNode,
       DragHandle.configure({
         wrapperSelector: `.${WRAPPER_CLASS}`,
         getDragTransferData,
         receiveDragTransferData,
+        // Without this the top-level editor never lights up the left/right side
+        // drop zones (the core DragHandle gates them on `handleDrop` existing),
+        // so dragging two top-level blocks together to CREATE a new columns
+        // block was dead — only inserting into an existing column worked. Same
+        // handler we already hand down to nested regions via PlanSideDropContext.
+        handleDrop,
       }),
     ],
-    [getDragTransferData, receiveDragTransferData],
+    [getDragTransferData, receiveDragTransferData, handleDrop],
   );
 
   // When the plan opts into Notion sync, the slash menu only offers blocks that
@@ -774,6 +1009,7 @@ export function PlanDocumentEditor({
       // image, …) through the same `PlanBlockView` dispatcher the per-block
       // reader uses, so every block type renders in the document. Edits replace
       // the whole block by id; nested rich-text edits patch that block's markdown.
+      legacyBlockSelfEdits: planLegacyBlockSelfEdits,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },
@@ -827,7 +1063,7 @@ export function PlanDocumentEditor({
           contentUpdatedAt={contentUpdatedAt}
           editable={editable}
           dialect="gfm"
-          features={{ image: true }}
+          features={{ image: false }}
           extraExtensions={extraExtensions}
           slashItems={slashItems}
           ydoc={ydoc}
@@ -838,6 +1074,7 @@ export function PlanDocumentEditor({
           normalizeValue={normalizeValue}
           wrapperClassName={WRAPPER_CLASS}
           className="plan-document-editor-surface"
+          onEditorReady={handleEditorReady}
         />
       </PlanBlockDataProvider>
     </PlanSideDropContext.Provider>
@@ -919,6 +1156,11 @@ export function NestedPlanBlocksEditor({
     () => [
       RunId,
       PlanBlockNode,
+      // Markdown images in the document editor use the plan image node view so
+      // they get the same hover zoom / lightbox / replace controls as structured
+      // image blocks (features.image is off so the plain core image node, which
+      // has no node view, never coexists with this one).
+      PlanImageNode,
       DragHandle.configure({
         wrapperSelector: `.${NESTED_WRAPPER_CLASS}`,
         getDragTransferData,
@@ -1077,6 +1319,7 @@ export function NestedPlanBlocksEditor({
         );
         commit(next);
       },
+      legacyBlockSelfEdits: planLegacyBlockSelfEdits,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },
@@ -1135,7 +1378,7 @@ export function NestedPlanBlocksEditor({
           contentUpdatedAt={contentUpdatedAt}
           editable={editable}
           dialect="gfm"
-          features={{ image: true }}
+          features={{ image: false }}
           extraExtensions={extraExtensions}
           slashItems={slashItems}
           getMarkdown={getMarkdown}

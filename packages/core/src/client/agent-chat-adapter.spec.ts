@@ -521,7 +521,7 @@ describe("createAgentChatAdapter", () => {
     expect(init.headers["x-agent-native-surface"]).toBe("dev-frame");
   });
 
-  it("truncates large outbound text attachments before posting", async () => {
+  function stubLargeAttachmentEnv() {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
       "CustomEvent",
@@ -536,23 +536,25 @@ describe("createAgentChatAdapter", () => {
     );
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
 
+  async function postOutboundAttachment(fetchSpy: any, text: string) {
     const adapter = createAgentChatAdapter({
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-large-attachment",
     });
-
     await drain(
       adapter.run({
         messages: [
           {
             role: "user",
-            content: [{ type: "text", text: "Summarize this" }],
+            content: [{ type: "text", text: "Host this as an extension" }],
             attachments: [
               {
-                name: "gong-transcript.txt",
+                name: "pasted-text-1.txt",
                 contentType: "text/plain",
-                content: [{ type: "text", text: "a".repeat(60_010) }],
+                content: [{ type: "text", text }],
               },
             ],
           },
@@ -560,11 +562,30 @@ describe("createAgentChatAdapter", () => {
         abortSignal: new AbortController().signal,
       } as any),
     );
+    return JSON.parse(fetchSpy.mock.calls[0][1].body);
+  }
 
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+  it("sends a realistic large pasted attachment intact (above the 60K history cap)", async () => {
+    // Regression for the `contentFromAttachment` hosting path: a pasted HTML /
+    // Alpine file the user wants hosted verbatim must reach the server whole.
+    // Capping the OUTBOUND attachment at the 60K history cap silently truncated
+    // exactly the large pastes the feature exists for, so the server hosted a
+    // broken extension. 150K is well above 60K and below the 200K outbound cap.
+    const fetchSpy = stubLargeAttachmentEnv();
+    const big = "a".repeat(150_000);
+    const body = await postOutboundAttachment(fetchSpy, big);
+    expect(body.attachments[0].text).toBe(big);
+    expect(body.attachments[0].text).not.toContain(
+      "omitted from the submitted",
+    );
+  });
+
+  it("caps a pathological multi-hundred-KB outbound attachment at 200K with a visible notice", async () => {
+    const fetchSpy = stubLargeAttachmentEnv();
+    const body = await postOutboundAttachment(fetchSpy, "a".repeat(200_010));
     expect(body.attachments[0].text).toHaveLength(
-      60_000 +
-        "\n\n[Attachment truncated after 60,000 characters; 10 characters omitted from the submitted attachment.]"
+      200_000 +
+        "\n\n[Attachment truncated after 200,000 characters; 10 characters omitted from the submitted attachment.]"
           .length,
     );
     expect(body.attachments[0].text).toContain(
@@ -2513,6 +2534,236 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("finished after in-flight recovery");
   });
 
+  it("bails after MAX_REPEATED_INFLIGHT_TOOL_STALLS stream_ended drops on the same tool", async () => {
+    // The motivating bug: user pastes 843 lines of HTML, agent starts
+    // create-extension, connection drops (stream_ended), agent retypes the
+    // whole thing, connection drops again — repeating until budgets exhaust.
+    // The in-flight stall guard should bail after 3 consecutive stream_ended
+    // events for the same tool, well before the 32-continuation budget.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      // Every run: agent narrates, starts create-extension, connection drops.
+      return sseResponse([
+        {
+          type: "text",
+          text: "I have the full HTML. Creating the extension now!",
+        },
+        {
+          type: "tool_start",
+          tool: "create-extension",
+          input: { name: "Dashboard", content: "<html>..." },
+        },
+        { type: "auto_continue", reason: "stream_ended" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-inflight-streamend",
+      threadId: "thread-inflight-streamend",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "create an extension from this HTML" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    // Should bail well before the 32-continuation cap.
+    // Initial post + 3 stream_ended stalls = 4 total posts (1 initial + 3 continuations,
+    // the 4th continuation is blocked by the guard). At most a few extra.
+    expect(postCount).toBeLessThanOrEqual(8);
+    // Should have fired the run-error event with the "stuck repeating" message.
+    const errorEvent = dispatchEvent.mock.calls.find(
+      ([ev]) => ev?.type === "agent-chat:run-error",
+    );
+    expect(errorEvent).toBeDefined();
+  });
+
+  it("does NOT bail when create-extension is retried with a CHANGED payload after stream_ended", async () => {
+    // The in-flight stall guard keys on tool name + input signature, so a retry
+    // with a different (e.g. smaller) payload — exactly what the cutoff nudge
+    // asks the model to do — resets the stall count instead of accumulating
+    // toward the bail. Here every stalled round sends a DISTINCT, shrinking
+    // create-extension payload, so even past MAX_REPEATED_INFLIGHT_TOOL_STALLS
+    // the run keeps going and the eventual smaller payload succeeds.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount <= 5) {
+        // Distinct narration + a distinct, smaller payload each round, then a
+        // connection drop. 5 stalls is past the 3-stall same-payload bail.
+        return sseResponse([
+          {
+            type: "text",
+            text: `Payload too big, retrying smaller (attempt ${postCount}).`,
+          },
+          {
+            type: "tool_start",
+            tool: "create-extension",
+            input: {
+              name: "Dashboard",
+              content: "x".repeat(900 - postCount * 100),
+            },
+          },
+          { type: "auto_continue", reason: "stream_ended" },
+        ]);
+      }
+      // The shrunk payload finally gets through.
+      return sseResponse([
+        { type: "text", text: "extension created after shrinking the payload" },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-inflight-changed",
+      threadId: "thread-inflight-changed",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "create an extension from this HTML" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const results = await promise;
+
+    // Went past the 3-stall same-payload bail (each payload differed), never
+    // fired the in-flight bail, and completed.
+    expect(postCount).toBeGreaterThanOrEqual(6);
+    const errorEvent = dispatchEvent.mock.calls.find(
+      ([ev]) => ev?.type === "agent-chat:run-error",
+    );
+    expect(errorEvent).toBeUndefined();
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe(
+      "extension created after shrinking the payload",
+    );
+  });
+
+  it("does NOT bail on run_timeout in-flight stalls (slow legitimate tool)", async () => {
+    // run_timeout with an in-flight tool = server is still executing the
+    // action. This must NOT count toward the stream_ended stall counter.
+    // Regression guard for the existing behavior verified at postCount===13.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount <= 5) {
+        return sseResponse([
+          {
+            type: "tool_start",
+            tool: "create-extension",
+            input: { name: "Dashboard" },
+          },
+          { type: "auto_continue", reason: "run_timeout" },
+        ]);
+      }
+      return sseResponse([{ type: "text", text: "done" }, { type: "done" }]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-timeout-inflight",
+      threadId: "thread-timeout-inflight",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "create extension" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    // 5 run_timeout stalls + 1 success = 6 posts; guard must NOT have fired.
+    expect(postCount).toBe(6);
+    const last = results.at(-1) as any;
+    expect(last?.content?.at(-1)?.text).toBe("done");
+  });
+
   it("preserves large create-extension input verbatim in continuation history", async () => {
     // Large-input tools carry the artifact itself as their input. Lossy
     // truncation to an `{ __agentNativeTruncated }` placeholder would strand
@@ -2599,6 +2850,111 @@ describe("createAgentChatAdapter", () => {
       .find((part: any) => part.type === "tool-call");
     expect(toolCall.toolName).toBe("create-extension");
     expect(toolCall.args.content).toBe(bigHtml);
+  });
+
+  it("hosts a large pasted file by reference instead of re-emitting it (one shot, no loop)", async () => {
+    // Root-cause fix for the create-extension-with-a-huge-paste loop. Instead
+    // of copying the pasted HTML into the `content` tool argument (which can be
+    // cut off mid-stream and force a continuation loop), the model passes a
+    // tiny `contentFromAttachment` reference. The big file rides along ONCE as
+    // a structured attachment in the request; the server resolves it. The run
+    // finishes in a single POST — contrast the verbatim-tool-input path above.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(5000)}</div>`;
+    expect(bigHtml.length).toBeGreaterThan(40_000);
+    const pastedName = "pasted-text-1718000000000-ab12cd.txt";
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return sseResponse([
+        {
+          type: "tool_start",
+          tool: "create-extension",
+          input: {
+            name: "Pasted dashboard",
+            contentFromAttachment: pastedName,
+          },
+        },
+        {
+          type: "tool_done",
+          tool: "create-extension",
+          result: '{"id":"ext-1"}',
+        },
+        { type: "text", text: "Hosted your pasted file as an extension." },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-paste-by-ref",
+      threadId: "thread-paste-by-ref",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "host this as an extension" }],
+            attachments: [
+              {
+                name: pastedName,
+                contentType: "text/plain",
+                content: [{ type: "text", text: bigHtml }],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    // One shot — no continuation loop.
+    expect(postCount).toBe(1);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+
+    // The big pasted file travels ONCE, as a structured attachment, so the
+    // server can resolve `contentFromAttachment` without the model re-emitting
+    // it as a tool argument.
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const pasted = body.attachments.find((a: any) => a.name === pastedName);
+    expect(pasted?.text).toBe(bigHtml);
+
+    // The model's create-extension call stays tiny — the reference, not the file.
+    const last = results.at(-1) as any;
+    const toolCall = last.content.find(
+      (part: any) =>
+        part.type === "tool-call" && part.toolName === "create-extension",
+    );
+    expect(toolCall.result).toBe('{"id":"ext-1"}');
+    expect(JSON.stringify(toolCall)).not.toContain("<p>row</p>");
+    expect(last.content.at(-1).text).toBe(
+      "Hosted your pasted file as an extension.",
+    );
   });
 
   it("does not lossy-truncate large create-extension args in prior-turn structured history", async () => {
@@ -2750,5 +3106,83 @@ describe("createAgentChatAdapter", () => {
     );
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+  });
+
+  it("gives up quickly when the model repeats the same narration without finishing", async () => {
+    // A degenerate model loop re-streams the same sentence every continuation
+    // and never starts or finishes a tool (the create-extension-with-a-huge-
+    // pasted-HTML failure). Each repeat is "new" text, so the stalled/empty
+    // budgets keep resetting; only the repetition guard stops it — after a few
+    // rounds, not the full 32-continuation transient budget.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return sseResponse([
+        {
+          type: "text",
+          text: "I have the full HTML. Creating the extension now!",
+        },
+        { type: "auto_continue", reason: "run_timeout" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-repeat",
+      threadId: "thread-repeat",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "host my pasted HTML as an extension" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    // 1 initial + 4 repeated continuations, then the repetition cap (3) is
+    // exceeded — far short of MAX_TOTAL_TRANSIENT_CONTINUATIONS (32).
+    expect(postCount).toBe(5);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          details: expect.stringContaining(
+            "repeated_transient_continuations: 4",
+          ),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toContain("repeating the same response");
   });
 });

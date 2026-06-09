@@ -418,6 +418,61 @@ describe("DragHandle menu", () => {
     }
   });
 
+  it("shows the outer container grip when hovering the shared left gutter", () => {
+    // A flush-left nested region (like the first column of a `columns` block)
+    // shares its container's left-margin gutter. Hovering that gutter — where the
+    // grip lives — must select the CONTAINER so it can be dragged to reorder,
+    // even though the nested editor is the smaller area. (Regression: nested
+    // column editors used to win everywhere, leaving the columns block ungrabbable.)
+    const outer = mountEditor(
+      "<p>Outer container</p>",
+      {},
+      makeRect({ left: 24, top: 0, width: 640, height: 320 }),
+    );
+    const outerBlock = outer.editor.view.nodeDOM(0);
+    if (outerBlock instanceof HTMLElement) {
+      setRect(
+        outerBlock,
+        makeRect({ left: 24, top: 0, width: 640, height: 280 }),
+      );
+    }
+    // Inner region mounted flush-left (block left === container left), mirroring a
+    // column that starts at the container's left edge.
+    const inner = mountEditor(
+      "<p>Inner block</p>",
+      {},
+      makeRect({ left: 24, top: 160, width: 300, height: 90 }),
+      outer.wrapper,
+      { x: 60, y: 172 },
+    );
+
+    try {
+      // Over the inner body, the innermost (smallest) editor still wins.
+      hoverAt(60, 172);
+      expect(inner.handle.style.display).toBe("flex");
+      expect(outer.handle.style.display).toBe("none");
+
+      // In the shared left-margin gutter AT THE NESTED BLOCK'S ROW, the inner
+      // block owns the grip band — so a block inside a flush-left column stays
+      // grabbable there to drag OUT of / BETWEEN columns. Its grip glyph renders
+      // in this exact gutter, so flipping to the container here would make the
+      // block's own grip unclickable (the whole point of column drag handles).
+      hoverAt(10, 172);
+      expect(inner.handle.style.display).toBe("flex");
+      expect(outer.handle.style.display).toBe("none");
+
+      // In the gutter ABOVE the nested region (a row the container alone
+      // occupies), the container still wins, so the columns block itself remains
+      // grabbable — it just yields the rows where a nested block's grip lives.
+      hoverAt(10, 40);
+      expect(outer.handle.style.display).toBe("flex");
+      expect(inner.handle.style.display).toBe("none");
+    } finally {
+      inner.editor.destroy();
+      outer.editor.destroy();
+    }
+  });
+
   it("moves a block from a nested editor region out to the parent editor", () => {
     const target = mountEditor(
       "<p>Outer target</p>",

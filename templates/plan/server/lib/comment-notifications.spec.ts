@@ -77,6 +77,7 @@ function bundle(comments: PlanComment[]): PlanBundle {
       id: "plan_1",
       title: "Fallback Plan Title",
       brief: "",
+      kind: "plan",
       status: "review",
       source: "manual",
       createdAt: "2026-06-05T00:00:00.000Z",

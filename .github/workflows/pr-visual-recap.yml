@@ -277,9 +277,28 @@ jobs:
           # in PLAN_RECAP_APP_URL can't break out of the string (TOML basic
           # strings share JSON's escaping); the key/env name stay literal.
           node -e 'const fs=require("fs");const url=process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp";fs.writeFileSync(process.env.HOME+"/.codex/config.toml","[mcp_servers.plan]\nurl = "+JSON.stringify(url)+"\nbearer_token_env_var = \"PLAN_RECAP_TOKEN\"\n")'
+          # Authenticate with the API key explicitly. Relying on the bare
+          # OPENAI_API_KEY env var alone is unreliable on the gpt-5.5 WebSocket
+          # transport: the Authorization header is dropped on the wss path and
+          # its HTTPS fallback, surfacing as `401 Missing bearer or basic
+          # authentication in header` (openai/codex#15492). `codex login
+          # --with-api-key` reads the key from stdin and writes ~/.codex/auth.json,
+          # which the exec path reads reliably; piping via stdin keeps the key out
+          # of the process args. Non-fatal so a login hiccup still yields the
+          # explanatory recap comment rather than a red X.
+          printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
           # VISUAL_RECAP_MODEL (e.g. gpt-5.5) and VISUAL_RECAP_REASONING
           # (none|minimal|low|medium|high|xhigh) tune the Codex run.
-          CODEX_ARGS=(exec --sandbox workspace-write --skip-git-repo-check)
+          #
+          # The GitHub runner is itself an ephemeral, throwaway sandbox, so run
+          # Codex with sandboxing and approvals disabled. Codex's own bubblewrap
+          # sandbox cannot initialize on the runner ("could not find bubblewrap
+          # on PATH"), which makes every shell command fail at startup so the
+          # agent cannot even read recap.diff; and under an approval gate the
+          # write-side plan MCP call (create-visual-recap) is auto-cancelled
+          # ("user cancelled MCP tool call"). --dangerously-bypass-approvals-and-sandbox
+          # is the documented invocation for externally-sandboxed CI and clears both.
+          CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
           # Validate reasoning against the known enum before embedding it in the
           # codex `-c` TOML override, so an unexpected value can't alter the config.

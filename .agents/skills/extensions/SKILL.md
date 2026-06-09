@@ -133,13 +133,38 @@ POST /_agent-native/extensions
 
 The action accepts:
 
-| Field         | Type     | Required | Purpose                       |
-| ------------- | -------- | -------- | ----------------------------- |
-| `name`        | `string` | yes      | Display name of the extension |
-| `description` | `string` | no       | Short summary                 |
-| `content`     | `string` | yes      | Alpine.js HTML body           |
+| Field                  | Type     | Required | Purpose                                            |
+| ---------------------- | -------- | -------- | -------------------------------------------------- |
+| `name`                 | `string` | yes      | Display name of the extension                      |
+| `description`          | `string` | no       | Short summary                                      |
+| `content`              | `string` | yes\*    | Alpine.js HTML body (\*unless `contentFromAttachment`) |
+| `contentFromAttachment`| `string` | no       | Host a pasted/attached file verbatim, by reference |
+| `icon`                 | `string` | no       | Icon name or short label                           |
 
 See `references/examples.md` for full, runnable `content` bodies.
+
+### Hosting a pasted file (by reference)
+
+When the user **pastes a large file** (e.g. a finished HTML/Alpine app) and asks
+you to host it as an extension, do NOT copy that file into the `content`
+argument. A big paste shows up in your context as a
+`<attachment name="pasted-text-…">` block; re-typing it as a tool argument burns
+thousands of output tokens and frequently gets cut off mid-stream, stalling the
+turn.
+
+Instead, leave `content` empty and pass `contentFromAttachment` set to that
+attachment's `name` — or the literal string `"latest"` for the most recent
+pasted block. The server reads the attachment verbatim and stores it as the
+extension content:
+
+```json
+{ "name": "My Dashboard", "contentFromAttachment": "latest" }
+```
+
+`update-extension` accepts the same `contentFromAttachment` for full-body
+replacement. Inline `content` still works for everything you author yourself —
+use `contentFromAttachment` only to avoid regurgitating something the user
+already pasted.
 
 ## Editing an extension
 

@@ -145,7 +145,6 @@ import {
   IconPresentation,
   IconStack2,
   IconMessageChatbot,
-  IconLock,
   IconArrowBackUp,
   IconExternalLink,
   IconKey,
@@ -5296,8 +5295,12 @@ const AssistantChatInner = forwardRef<
               >
                 {authError ? (
                   <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
-                      <IconLock className="h-5 w-5 text-destructive" />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                      {authSessionAvailable ? (
+                        <IconRefresh className="h-5 w-5 text-muted-foreground" />
+                      ) : (
+                        <IconMessage className="h-5 w-5 text-muted-foreground" />
+                      )}
                     </div>
                     <div className="text-center max-w-[280px]">
                       <p className="text-sm font-medium text-foreground mb-1">

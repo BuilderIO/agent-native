@@ -217,13 +217,23 @@ for example, a new `Edit with AI` action in a popover header belongs in the
 top-right header slot, aligned with the title, not in the body or footer. Use
 the same frame size, scale, outer padding, border radius, and visual density on
 both sides unless the change itself alters those properties, and let the frame
-height fit the content rather than leaving a tall empty lower half. Choose the
-before/after layout by geometry: use a `columns` block labeled `Before`/`After`
-when each state stays legible side by side; stack `Before` then `After`
-vertically in normal document flow when the surface is very wide, when
-full-width scanning matters, or when columns would shrink or crop the detail.
-Label each state visibly (for example, a header pill) so cropped screenshots
-stay unambiguous.
+height fit the content rather than leaving a tall empty lower half.
+
+**Name the states with the column header, never inside the frame.** Put the two
+states in a `columns` block and set each column's `label` to `Before` and
+`After` — the renderer draws that label as an `h4` heading above each frame. Do
+NOT bake a `Before`/`After` pill, title, or heading into the wireframe `html`: a
+label placed inside reads as part of the product UI, lands in a random corner,
+and clutters the comparison. The column header is the one and only place the
+state name belongs.
+
+**Let the surface choose side-by-side vs. stacked.** The `columns` renderer lays
+narrow surfaces (`mobile`, `popover`, `panel`) out side by side, and
+automatically stacks wide surfaces (`desktop`, `browser`) vertically at full
+document width so a large frame is never crushed into a half-width column and
+cropped. Author both wireframes with the real `surface` and the matching
+`Before`/`After` column labels; do not hand-stack the pair into separate
+top-level wireframes or duplicate the state name as body content.
 
 **Good example — a contacts list, surface `browser`.** A small, real screen
 composed from the helper classes and tokens, layout in inline flex, no fonts or
@@ -412,19 +422,28 @@ machine-checked list of block types and their data schemas, call `get-plan-block
 so you never emit a block the editor cannot render or round-trip:
 
 - `rich-text` for plan prose with real bold/italic/code/links and nested lists.
-- `code` for the file map: show how the few load-bearing files actually change
-  as real, syntax-highlighted code — the new action, the changed schema, the
-  wiring point. Highlight only the files worth reading; never an exhaustive list
-  of every touched file, and never a prose-only description of a file. When more
-  than one file matters, group the `code` blocks in a vertical `tabs` block
-  (the standard tab primitive) rather than a bespoke container. Reach for
-  `annotated-code` instead only when a snippet needs line-anchored margin notes.
-  If the exact code is unknown, show the smallest plausible planned shape or a
+- `annotated-code` for the file map: when a load-bearing file is worth
+  highlighting, prefer the annotated walkthrough over a bare `code` block — carry
+  the real, syntax-highlighted code AND anchor short margin notes to the lines
+  that actually change (the new action, the changed schema, the wiring point), so
+  the reader sees what matters and why instead of code for code's sake. Each
+  annotation is `{ lines: "12" | "12-18"; label?; note }`; keep a few high-signal
+  notes per file, not one per line. Highlight only the files worth reading; never
+  an exhaustive list of every touched file, and never a prose-only description of
+  a file. Drop to a plain `code` block only for a throwaway snippet with nothing
+  to call out. When more than one file matters, group the blocks in a vertical
+  `tabs` block (the standard tab primitive) rather than a bespoke container. If
+  the exact code is unknown, show the smallest plausible planned shape or a
   commented stub naming what to fill in. (`code-tabs` and `implementation-map`
   are legacy: their renderers stay for old plans, but do not author new ones.)
-- `decision` for two or three option cards with consequences. These are static
-  records; do not style them like clickable tabs or chips unless the renderer
-  truly supports changing the selection.
+- `decision` ONLY for a genuinely-open either/or the reviewer must still pick
+  between — two or three option cards with real consequences. If you have already
+  committed to an approach, state it as settled prose or a `callout`, NOT a
+  `decision` block; a decision card for a question you have already answered just
+  reads as a confusing mid-document form. Never duplicate the same choice across a
+  `decision` block and the bottom Open Questions `question-form` — pick one home
+  for it. These are static records; do not style them like clickable tabs or chips
+  unless the renderer truly supports changing the selection.
 - `columns` for side-by-side before/after or current/target comparisons where
   each side needs real nested blocks; label the columns clearly and avoid
   stacking comparison blocks vertically when parallel reading is the point.

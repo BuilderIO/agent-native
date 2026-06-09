@@ -190,6 +190,11 @@ function draftToCalendarEvent(
     reminders: draft.reminders,
     remindersUseDefault: draft.remindersUseDefault,
     attachments: draft.attachments,
+    pendingConferenceProvider: draft.addZoom
+      ? "zoom"
+      : draft.addGoogleMeet
+        ? "meet"
+        : undefined,
     createdAt: draft.createdAt ?? new Date().toISOString(),
     updatedAt: draft.updatedAt ?? draft.createdAt ?? new Date().toISOString(),
   };

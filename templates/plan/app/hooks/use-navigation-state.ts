@@ -88,10 +88,16 @@ export function useNavigationState() {
 }
 
 function viewForPath(pathname: string): string {
-  if (pathname.startsWith("/plans/")) {
+  // Recaps are a kind of plan; both detail routes map to the "plan" view so the
+  // agent's navigation/selection state is the same surface regardless of route.
+  if (pathname.startsWith("/plans/") || pathname.startsWith("/recaps/")) {
     return "plan";
   }
-  if (pathname === "/" || pathname.startsWith("/plans")) {
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/plans") ||
+    pathname.startsWith("/recaps")
+  ) {
     return "plans";
   }
   if (pathname.startsWith("/extensions")) return "extensions";

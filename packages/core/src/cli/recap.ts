@@ -519,12 +519,28 @@ async function uploadRecapImage(input: {
       },
       body: bytes,
     });
-    if (!res.ok) return null;
+    // Surface failures on stderr — stdout carries the machine-readable JSON the
+    // workflow parses, so it must stay clean. A silent null here is exactly what
+    // made the missing-inline-thumbnail failure undebuggable from CI logs.
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      process.stderr.write(
+        `[recap shot] image upload failed: ${res.status} ${res.statusText} ${detail.slice(0, 300)}\n`,
+      );
+      return null;
+    }
     const json = (await res.json().catch(() => null)) as {
       imageUrl?: string;
     } | null;
-    return json?.imageUrl ?? null;
-  } catch {
+    if (!json?.imageUrl) {
+      process.stderr.write(
+        `[recap shot] image upload returned no imageUrl (status ${res.status})\n`,
+      );
+      return null;
+    }
+    return json.imageUrl;
+  } catch (err) {
+    process.stderr.write(`[recap shot] image upload error: ${String(err)}\n`);
     return null;
   }
 }
