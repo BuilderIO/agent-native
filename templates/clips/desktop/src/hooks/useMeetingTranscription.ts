@@ -419,16 +419,21 @@ export function useMeetingTranscription({
                   source?: "mic" | "system";
                 }>;
                 if (segs.length > 0) {
-                  session.lines = segs.map((s) => {
+                  const preloadedLineStrings = segs.map((s) => {
                     const label = s.source === "system" ? "Them" : "Me";
                     return `${label}: ${s.text}`;
                   });
-                  session.segments = segs.map((s) => ({
+                  const preloadedSegments = segs.map((s) => ({
                     startMs: s.startMs ?? 0,
                     endMs: s.endMs ?? 0,
                     text: s.text,
                     source: s.source ?? ("mic" as const),
                   }));
+                  session.lines = [...preloadedLineStrings, ...session.lines];
+                  session.segments = [
+                    ...preloadedSegments,
+                    ...session.segments,
+                  ];
                   const preloadedLines = segs.map((s) => ({
                     text: s.text,
                     source: (s.source ?? "mic") as "mic" | "system",
