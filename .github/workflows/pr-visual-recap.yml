@@ -33,10 +33,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Least privilege by default: the workflow gets read-only `contents` and each
+# job escalates only what it needs (gate reads PR files; recap writes the sticky
+# comment). Avoids a broad write token sitting on the job that runs the agent.
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
 
 concurrency:
   group: pr-visual-recap-${{ github.event.pull_request.number }}
@@ -54,12 +55,17 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only needs to read PR file metadata for the self-modifying guard.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       run: ${{ steps.decide.outputs.run }}
       agent: ${{ steps.decide.outputs.agent }}
     steps:
       - id: decide
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           # Presence-only signals — we never expose the secret VALUES to the gate.
           # PLAN_RECAP_APP_URL defaults to the hosted app, so only the token is required.
@@ -161,6 +167,16 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
+    # The agent run + headless-Chrome screenshot dominate; cap so a hung agent
+    # or browser can't burn a full 6h runner.
+    timeout-minutes: 30
+    # Escalate only here: write the sticky PR comment (issues+pull-requests),
+    # read the checked-out source (contents). The agent step that runs untrusted
+    # PR diff content gets no more than this.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     env:
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || 'https://plan.agent-native.com' }}
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
@@ -170,9 +186,13 @@ jobs:
       VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
       VISUAL_RECAP_REASONING: ${{ vars.VISUAL_RECAP_REASONING }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          # Don't leave the job's GITHUB_TOKEN in .git/config — this job runs an
+          # agent over untrusted PR diff content, and it talks to GitHub via the
+          # GH_TOKEN env for gh API calls, never via git push. Hardening only.
+          persist-credentials: false
 
       # Resolve the CLI invocation once: dogfood local source inside this
       # monorepo, otherwise the published package. No repo variable needed. The
@@ -190,10 +210,10 @@ jobs:
             echo "local=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         if: steps.cli.outputs.local == 'true'
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22"
           cache: ${{ steps.cli.outputs.local == 'true' && 'pnpm' || '' }}
@@ -264,7 +284,7 @@ jobs:
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
         run: |
           set -euo pipefail
-          ARGS=(--diff recap.diff --stat recap.stat --pr "$PR_NUMBER" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --out recap-prompt.md)
+          ARGS=(--diff recap.diff --stat recap.stat --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --out recap-prompt.md)
           if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
           if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
           $RECAP_CLI recap build-prompt "${ARGS[@]}"
@@ -390,7 +410,7 @@ jobs:
 
       - name: Upload recap screenshot artifact
         if: steps.shot.outputs.captured == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pr-visual-recap-${{ github.event.pull_request.number }}
           path: recap.png
