@@ -1370,6 +1370,39 @@ function isInternalContinuationTurn(messages: EngineMessage[]): boolean {
   return false;
 }
 
+function isToolResultOnlyUserMessage(message: EngineMessage): boolean {
+  return (
+    message.role === "user" &&
+    message.content.length > 0 &&
+    message.content.every((part) => part.type === "tool-result")
+  );
+}
+
+/** Start of the active turn on an internal continuation (real user prompt). */
+function findCurrentTurnStartForContinuation(
+  messages: EngineMessage[],
+): number {
+  let i = messages.length - 1;
+  while (i >= 0) {
+    const message = messages[i];
+    if (message.role !== "user") {
+      i--;
+      continue;
+    }
+    const userText = textFromEngineMessage(message);
+    if (userText.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT)) {
+      i--;
+      continue;
+    }
+    if (isToolResultOnlyUserMessage(message)) {
+      i--;
+      continue;
+    }
+    return i;
+  }
+  return 0;
+}
+
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
@@ -1422,19 +1455,7 @@ function seedWriteToolInterruptionsFromHistory(
   const interruptions = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return interruptions;
 
-  // Only count interruptions from the CURRENT logical turn — the continuation
-  // chain after the most recent user message. `messages` on an internal
-  // continuation is `...structuredHistory` (prior turns) + the current turn, so
-  // scanning the whole array would let an interrupted write from an earlier
-  // turn inflate the retry budget of an identical (name + input) write in a
-  // later turn, tripping `repeated_write_tool_interruption` immediately.
-  let turnStart = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "user") {
-      turnStart = i;
-      break;
-    }
-  }
+  const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
   const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
