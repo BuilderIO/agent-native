@@ -139,6 +139,19 @@
   font-size: inherit !important;
 }
 
+/* COMPREHENSIVE NET — the final backstop so "code is too big" can't reappear in
+   a NEW place. Every code/data/JSON component opts into monospace via the
+   `.font-mono` utility (12+ block components, incl. the JSON-explorer tree which
+   renders as div/span — NOT pre/code — and so escaped every earlier rule). Force
+   the dense doc-code size on any `.font-mono` inside plan content, and on the
+   code-block component hooks wherever they render. Annotation marker pips are NOT
+   font-mono, so they keep their tiny size; inline prose `code` is styled by the
+   prose plugin (no `.font-mono` class), so body copy is unaffected. */
+:where(.plan-document-flow, .plan-block, .plan-block-node) .font-mono,
+:is([data-code-surface], .an-code-block) .font-mono {
+  font-size: var(--plan-doc-code-size, 0.8125rem) !important;
+}
+
 /* Small, muted eyebrow label above a block (block title). */
 .an-block-label {
   margin: 0 0 1rem;

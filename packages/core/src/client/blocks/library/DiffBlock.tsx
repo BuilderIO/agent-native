@@ -21,10 +21,14 @@ import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import {
   AnnotationGutterMarker,
-  AnnotationNoteRail,
+  AnnotationHiddenStack,
+  AnnotationHoverCard,
+  anchorFromElements,
   buildLineMarkerMap,
   hasRailAnnotations,
   resolveAnnotations,
+  useAnnotationHover,
+  type AnnotationAnchor,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";

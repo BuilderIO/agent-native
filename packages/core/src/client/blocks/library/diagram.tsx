@@ -400,8 +400,12 @@ function DiagramBody({
  * top-right close button. Unlike the image variant this renders arbitrary
  * children (the diagram body re-rendered larger) rather than an `<img>`, since a
  * diagram is live HTML/SVG/node-graph markup, not an image URL.
+ *
+ * Exported so the separate Mermaid block (`MermaidBlock.tsx`, which renders its
+ * diagram to an SVG through a different runtime) can reuse the exact same
+ * lightbox contract — one expand affordance shared across both diagram types.
  */
-function DiagramLightbox({
+export function DiagramLightbox({
   children,
   onClose,
 }: {

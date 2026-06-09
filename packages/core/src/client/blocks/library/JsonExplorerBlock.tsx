@@ -362,7 +362,10 @@ export function JsonExplorerSurface({
           </div>
         )}
       </div>
-      <div className="overflow-auto px-3 py-2.5 font-mono [font-size:var(--plan-code-size)] text-plan-code-text">
+      <div
+        className="overflow-auto px-3 py-2.5 font-mono [font-size:var(--plan-doc-code-size)] text-plan-code-text"
+        data-code-surface
+      >
         {parsed.ok ? (
           <JsonNode
             // Remount the whole tree when the global pulse fires so every node

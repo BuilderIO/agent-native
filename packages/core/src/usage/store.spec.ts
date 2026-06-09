@@ -65,6 +65,7 @@ beforeEach(() => {
     model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat',
     app TEXT NOT NULL DEFAULT '',
+    ref_id TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL
   )`);
   delete process.env.AGENT_APP;
