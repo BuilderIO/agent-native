@@ -146,7 +146,14 @@ export function PlanImageViewer({
               <IconDots size={16} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuContent
+            align="end"
+            className="w-44"
+            // Don't restore focus to the ⋯ trigger on close: when an item opens
+            // a popover/dialog (e.g. "Edit details"), the focus-restore would
+            // steal focus from it (dismissing it / breaking its auto-focus).
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
             {onEdit || onReplace ? (
               <>
                 {onEdit ? (

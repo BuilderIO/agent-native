@@ -190,18 +190,31 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
   //   - In the shared left-margin gutter (clientX left of every candidate's
   //     content, where the grip lives) the outermost (largest) editor wins, so the
   //     container block can be picked up and reordered.
-  const contentCandidates = candidates.filter(
+  // Prefer the candidate whose block actually sits UNDER the cursor
+  // horizontally. Without this, a left column's forgiving side zone reaches
+  // across the inter-column gap, ties the right column's editor on area, and
+  // wins — so hovering a right-column block shows the grip for the LEFT block
+  // (and right-column blocks appear to have no grip at all). `overContent`
+  // restricts to blocks the cursor is genuinely within; `rightOfLeftEdge` keeps
+  // the gutter-grab behaviour; fully left of every block → the container wins.
+  const overContent = candidates.filter(
+    (candidate) =>
+      clientX >= candidate.block.rect.left &&
+      clientX <= candidate.block.rect.right,
+  );
+  const rightOfLeftEdge = candidates.filter(
     (candidate) => clientX >= candidate.block.rect.left,
   );
   let active: {
     registration: DragHandleRegistration;
     block: HoverBlock;
   } | null;
-  if (contentCandidates.length > 0) {
-    contentCandidates.sort(
+  const innerPool = overContent.length > 0 ? overContent : rightOfLeftEdge;
+  if (innerPool.length > 0) {
+    innerPool.sort(
       (a, b) => editorArea(a.registration) - editorArea(b.registration),
     );
-    active = contentCandidates[0];
+    active = innerPool[0];
   } else {
     candidates.sort(
       (a, b) => editorArea(b.registration) - editorArea(a.registration),

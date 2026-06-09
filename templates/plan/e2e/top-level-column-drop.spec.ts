@@ -312,4 +312,98 @@ test.describe("top-level side-drop creates columns", () => {
       fullPage: true,
     });
   });
+
+  test("ADJACENT side-drop (facing seam) still creates columns", async ({
+    page,
+  }) => {
+    // Regression for "side drop works sometimes": dropping a block onto the
+    // facing edge of its IMMEDIATE neighbour used to be nulled by the adjacency
+    // guard, so half of all side drops between two blocks silently did nothing.
+    const planId = await createPlan(page, [
+      { id: "a", type: "callout", data: { tone: "info", body: "A" } },
+      { id: "b", type: "callout", data: { tone: "info", body: "B" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("b"))).toBeVisible({ timeout: 15_000 });
+
+    // Drag B onto A's RIGHT edge — A and B are adjacent (the previously-dead case).
+    await sideDrop(page, blockNode("b"), blockNode("a"), "right");
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          return groups.some((ids) => ids.includes("a") && ids.includes("b"));
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
+
+  test("blocks inside the RIGHT column show their own grip (not the left block's)", async ({
+    page,
+  }) => {
+    // Regression for "no grip dots on right-column blocks": the left column's
+    // forgiving side zone used to win the hover, so the grip appeared for the
+    // left block. Hovering a right-column block must reveal a grip near THAT
+    // block (in the inter-column gap), not back in the far-left page gutter.
+    const planId = await createPlan(page, [
+      {
+        id: "cols",
+        type: "columns",
+        data: {
+          columns: [
+            {
+              id: "colL",
+              blocks: [
+                {
+                  id: "L",
+                  type: "callout",
+                  data: { tone: "info", body: "LEFT" },
+                },
+              ],
+            },
+            {
+              id: "colR",
+              blocks: [
+                {
+                  id: "R",
+                  type: "callout",
+                  data: { tone: "info", body: "RIGHT" },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    const rightBlock = page
+      .locator(
+        '.plan-nested-document-editor-region[data-region-id="colR"] .plan-block-node[data-block-id="R"]',
+      )
+      .first();
+    await expect(rightBlock).toBeVisible({ timeout: 15_000 });
+
+    await rightBlock.hover();
+    const grip = page.locator(".drag-handle").first();
+    await expect(grip).toBeVisible({ timeout: 8_000 });
+
+    // The grip must sit just left of the RIGHT block (its gap), well right of the
+    // page's left gutter — proving it belongs to the right-column block.
+    const g = await grip.boundingBox();
+    const r = await rightBlock.boundingBox();
+    const surface = await page
+      .locator(".plan-document-editor-surface")
+      .first()
+      .boundingBox();
+    expect(g && r && surface).toBeTruthy();
+    if (!g || !r || !surface) return;
+    // Grip is near the right block's left edge (within ~40px), not at page gutter.
+    expect(g.x).toBeGreaterThan(surface.x + 60);
+    expect(g.x).toBeLessThan(r.x);
+    expect(r.x - g.x).toBeLessThan(48);
+  });
 });

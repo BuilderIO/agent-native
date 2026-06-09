@@ -1160,6 +1160,23 @@ function ImageBlock({
   const [editOpen, setEditOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Opening the edit popover from the ⋯ dropdown item hits a Radix race: closing
+  // the dropdown restores focus to its trigger, which the just-opened popover
+  // reads as a focus-outside and instantly dismisses. Defer the open one
+  // macrotask (so the dropdown closes first) AND ignore any close that arrives in
+  // the first moments after opening (the focus-restore bounce).
+  const editOpenedAtRef = useRef(0);
+  const openEdit = () => {
+    window.setTimeout(() => {
+      editOpenedAtRef.current = Date.now();
+      setEditOpen(true);
+    }, 0);
+  };
+  const handleEditOpenChange = (open: boolean) => {
+    if (!open && Date.now() - editOpenedAtRef.current < 350) return;
+    setEditOpen(open);
+  };
+
   const commitData = (data: PlanImageData) => onChange?.({ ...block, data });
 
   async function handleReplaceFile(event: React.ChangeEvent<HTMLInputElement>) {
@@ -1192,7 +1209,7 @@ function ImageBlock({
       ? ctx.renderEditSurface({
           title: "Image",
           open: editOpen,
-          onOpenChange: setEditOpen,
+          onOpenChange: handleEditOpenChange,
           blockId: block.id,
           blockType: "image",
           blockTitle: block.title,
@@ -1242,16 +1259,7 @@ function ImageBlock({
             "max-h-[640px] w-full rounded-lg",
             block.data.fit === "cover" ? "object-cover" : "object-contain",
           )}
-          onEdit={
-            editable
-              ? () =>
-                  // Defer one macrotask so the ⋯ dropdown fully closes before
-                  // the edit popover opens — otherwise Radix treats the
-                  // dropdown's dismissal as an outside interaction and instantly
-                  // closes the popover (flash open → close).
-                  window.setTimeout(() => setEditOpen(true), 0)
-              : undefined
-          }
+          onEdit={editable ? openEdit : undefined}
           onReplace={editable ? () => fileInputRef.current?.click() : undefined}
         />
       ) : (
