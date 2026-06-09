@@ -105,7 +105,9 @@ function isNonEmptyContainer(
   value: JsonValue,
 ): value is JsonValue[] | JsonObject {
   if (!isContainer(value)) return false;
-  return Array.isArray(value) ? value.length > 0 : Object.keys(value).length > 0;
+  return Array.isArray(value)
+    ? value.length > 0
+    : Object.keys(value).length > 0;
 }
 
 /** One-line summary for a collapsed container, devtools style. */
@@ -373,7 +375,9 @@ export function JsonExplorerSurface({
   const fullyCollapsed =
     hasRegisteredContainers && openStates.every((open) => !open);
   const parsedValue = parsed.ok ? (parsed.value as JsonValue) : null;
-  const showTreeActions = parsedValue ? isNonEmptyContainer(parsedValue) : false;
+  const showTreeActions = parsedValue
+    ? isNonEmptyContainer(parsedValue)
+    : false;
   const actionButtonClass =
     "rounded px-1.5 py-0.5 text-xs text-plan-muted transition-colors hover:bg-accent/60 hover:text-plan-text disabled:pointer-events-none disabled:opacity-40";
 
