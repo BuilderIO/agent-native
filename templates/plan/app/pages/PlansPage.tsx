@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAt,
   IconArrowLeft,
@@ -1857,6 +1858,34 @@ export function PlansPage() {
   );
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
+  const queryClient = useQueryClient();
+  // Reflect a structural block edit (drag-to-columns, reorder) into the
+  // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content +
+  // timestamp track the new layout. Without this, the debounced save (600ms) +
+  // 3s poll leave a window where a refetch re-supplies the pre-edit content and
+  // the reconcile reverts the layout, then restores it once the save lands — the
+  // "drop works, then undoes, then comes back" glitch. The bumped `updatedAt`
+  // also makes a lagging poll read as stale (older) so it can't re-apply.
+  const writeBlocksOptimistically = useCallback(
+    (blocks: PlanBlock[]) => {
+      if (!selectedId) return;
+      queryClient.setQueryData(
+        ["action", "get-visual-plan", { id: selectedId }],
+        (prev: (PlanBundle & { html?: string }) | undefined) => {
+          if (!prev?.plan?.content) return prev;
+          return {
+            ...prev,
+            plan: {
+              ...prev.plan,
+              content: { ...prev.plan.content, blocks },
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        },
+      );
+    },
+    [queryClient, selectedId],
+  );
   // Recaps are read-only review surfaces: text can't be edited inline (the agent
   // owns the content), but highlighting + commenting stay available because those
   // affordances key off `bundle`/`session`, not `canEditPlanContent`.
@@ -3518,6 +3547,11 @@ export function PlansPage() {
                       }
                       onContentPatch={
                         canEditPlanContent ? patchStructuredContent : undefined
+                      }
+                      onOptimisticBlocks={
+                        canEditPlanContent
+                          ? writeBlocksOptimistically
+                          : undefined
                       }
                       onMetadataChange={
                         canEditPlanContent ? updatePlanMetadata : undefined

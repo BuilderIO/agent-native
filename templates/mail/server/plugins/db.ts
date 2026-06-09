@@ -117,6 +117,19 @@ export default runMigrations(
       version: 13,
       sql: `CREATE INDEX IF NOT EXISTS idx_queued_email_drafts_requester ON queued_email_drafts(org_id, requester_email, created_at)`,
     },
+    {
+      // Cover the hot list/read paths that previously had no supporting index:
+      // - scheduled_jobs is filtered by status on the inbox snooze-filter path
+      //   (listPendingJobs) and the due-job cron (status + run_at).
+      // - contact_frequency is filtered by owner_email on the contacts
+      //   autocomplete path (getContactFrequencyMap).
+      // - automation_rules is filtered by owner_email on the automations list
+      //   and the per-account automation engine load.
+      version: 14,
+      sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at ON scheduled_jobs(status, run_at);
+CREATE INDEX IF NOT EXISTS idx_contact_frequency_owner ON contact_frequency(owner_email);
+CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_email)`,
+    },
   ],
   { table: "mail_migrations" },
 );

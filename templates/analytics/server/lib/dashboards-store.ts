@@ -666,6 +666,56 @@ function safeJsonParse<T>(s: unknown, fallback: T): T {
   }
 }
 
+/**
+ * Columns selected for the analyses LIST query. Deliberately excludes the heavy
+ * `resultMarkdown` (full findings text) and `resultData` (JSON) blobs — the list
+ * action only needs metadata, so pulling those for every row wastes bandwidth.
+ * The single-analysis GET path (`getAnalysis`) still selects the full row.
+ */
+const analysisListColumns = {
+  id: schema.analyses.id,
+  name: schema.analyses.name,
+  description: schema.analyses.description,
+  question: schema.analyses.question,
+  instructions: schema.analyses.instructions,
+  dataSources: schema.analyses.dataSources,
+  author: schema.analyses.author,
+  ownerEmail: schema.analyses.ownerEmail,
+  orgId: schema.analyses.orgId,
+  visibility: schema.analyses.visibility,
+  createdAt: schema.analyses.createdAt,
+  updatedAt: schema.analyses.updatedAt,
+  hiddenAt: schema.analyses.hiddenAt,
+  hiddenBy: schema.analyses.hiddenBy,
+} as const;
+
+/**
+ * Map a list-projection row (no heavy result blobs) to an AnalysisRecord. The
+ * excluded `resultMarkdown` / `resultData` fields are filled with empty
+ * defaults so list consumers never transfer them; callers needing the real
+ * result must load the analysis by id via `getAnalysis`.
+ */
+function listRowToAnalysis(row: any): AnalysisRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    question: row.question,
+    instructions: row.instructions,
+    dataSources: safeJsonParse(row.dataSources, []),
+    resultMarkdown: "",
+    resultData: null,
+    author: row.author ?? null,
+    ownerEmail: row.ownerEmail,
+    orgId: row.orgId ?? null,
+    visibility: row.visibility,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    hiddenAt: row.hiddenAt ?? null,
+    hiddenBy: row.hiddenBy ?? null,
+  };
+}
+
 async function findLegacyAnalysis(
   id: string,
   ctx: AccessCtx,
@@ -784,8 +834,13 @@ export async function listAnalyses(
   else if (hidden === "hidden")
     conditions.push(isNotNull(schema.analyses.hiddenAt));
   const where = conditions.length === 1 ? conditions[0] : and(...conditions);
-  const rows = await db.select().from(schema.analyses).where(where);
-  const out = rows.map(rowToAnalysis);
+  // List-specific projection: never pull the heavy resultMarkdown / resultData
+  // blobs for every analysis. Consumers that need the full result load by id.
+  const rows = await db
+    .select(analysisListColumns)
+    .from(schema.analyses)
+    .where(where);
+  const out = rows.map(listRowToAnalysis);
   const seen = new Set<string>(out.map((r) => r.id));
   // Legacy settings rows have no hidden concept, so hidden-only queries skip
   // the legacy scan entirely.

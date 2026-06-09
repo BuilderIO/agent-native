@@ -1,25 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   IconCheck,
-  IconChevronDown,
-  IconClipboardText,
   IconCode,
   IconEdit,
   IconPhoto,
-  IconSend,
   IconX,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   uploadEditorImage,
@@ -32,16 +20,8 @@ import {
   useOptionalBlockRegistry,
 } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import {
-  imageDataSchema,
-  type PlanBlock,
-  type PlanQuestion,
-} from "@shared/plan-content";
-import {
-  KitWireframeBlock,
-  SketchDiagram,
-  Wireframe,
-} from "./wireframe/Wireframe";
+import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
+import { Wireframe } from "./wireframe/Wireframe";
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import { PlanImageViewer } from "./PlanImageViewer";
@@ -229,33 +209,11 @@ export function PlanBlockView({
   if (block.type === "implementation-map") {
     return <ImplementationMapBlock block={block} />;
   }
-  if (block.type === "wireframe") {
-    return (
-      <section className="plan-block" data-block-id={block.id}>
-        {block.title && <div className="plan-block-label">{block.title}</div>}
-        <KitWireframeBlock block={block} compact={compactVisuals} />
-        {block.summary && (
-          <p className="mt-5 text-plan-muted">{block.summary}</p>
-        )}
-      </section>
-    );
-  }
   if (block.type === "legacy-wireframe") {
     return (
       <section className="plan-block" data-block-id={block.id}>
         {block.title && <div className="plan-block-label">{block.title}</div>}
         <Wireframe data={block.data} compact={compactVisuals} />
-        {block.summary && (
-          <p className="mt-5 text-plan-muted">{block.summary}</p>
-        )}
-      </section>
-    );
-  }
-  if (block.type === "diagram") {
-    return (
-      <section className="plan-block" data-block-id={block.id}>
-        {block.title && <div className="plan-block-label">{block.title}</div>}
-        <SketchDiagram data={block.data} compact={compactVisuals} />
         {block.summary && (
           <p className="mt-5 text-plan-muted">{block.summary}</p>
         )}
@@ -270,45 +228,6 @@ export function PlanBlockView({
         editingDisabled={editingDisabled}
         planId={planId}
       />
-    );
-  }
-  if (block.type === "decision") {
-    return (
-      <section className="plan-block" data-block-id={block.id}>
-        {block.title && <div className="plan-block-label">{block.title}</div>}
-        <p className="mt-3 max-w-3xl text-lg leading-8 text-plan-muted">
-          {block.data.question}
-        </p>
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
-          {block.data.options.map((option) => (
-            <article
-              key={option.id}
-              className={cn(
-                "rounded-xl border border-plan-line bg-plan-block p-4",
-                option.recommended
-                  ? "border-primary/30 bg-primary/5"
-                  : "opacity-85",
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <h3 className="text-lg font-semibold tracking-tight text-plan-text">
-                  {option.label}
-                </h3>
-                {option.recommended && (
-                  <span className="rounded-full border border-plan-line px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-plan-muted">
-                    Recommended
-                  </span>
-                )}
-              </div>
-              {option.detail && (
-                <p className="mt-3 text-sm leading-6 text-plan-muted">
-                  {option.detail}
-                </p>
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
     );
   }
   if (block.type === "tabs") {
@@ -327,24 +246,6 @@ export function PlanBlockView({
   }
   if (block.type === "custom-html") {
     return <CustomHtmlBlock block={block} onChange={onChange} />;
-  }
-  if (block.type === "question-form") {
-    return (
-      <QuestionFormBlock
-        block={block}
-        onChange={onChange}
-        onSubmit={onVisualQuestionsSubmit}
-      />
-    );
-  }
-  if (block.type === "visual-questions") {
-    return (
-      <QuestionFormBlock
-        block={block}
-        onChange={onChange}
-        onSubmit={onVisualQuestionsSubmit}
-      />
-    );
   }
   return null;
 }
@@ -740,285 +641,6 @@ function CustomHtmlBlock({
         </>
       )}
     </section>
-  );
-}
-
-/**
- * Reviewer answers to visual intake questions are transient (they belong in
- * comments / events, never in the canonical plan body — see PlanVisualQuestion
- * canon). So answers live in LOCAL component state keyed by question id, not on
- * the block data. `freeform` → a string; `single`/`multi` → selected option ids.
- */
-type VisualAnswer = { text?: string; selected?: string[] };
-type VisualAnswers = Record<string, VisualAnswer>;
-
-function isAnswered(question: PlanQuestion, answer?: VisualAnswer) {
-  if (question.mode === "freeform") return Boolean(answer?.text?.trim());
-  return Boolean(answer?.selected?.length || answer?.text?.trim());
-}
-
-export function QuestionFormBlock({
-  block,
-  onSubmit,
-}: {
-  block: Extract<PlanBlock, { type: "question-form" | "visual-questions" }>;
-  onChange?: (block: PlanBlock) => Promise<void> | void;
-  onSubmit?: (summary: string) => void;
-}) {
-  const questions = block.data.questions;
-  const [answers, setAnswers] = useState<VisualAnswers>({});
-
-  useEffect(() => {
-    setAnswers({});
-  }, [block.id]);
-
-  const setAnswer = (questionId: string, next: VisualAnswer) => {
-    setAnswers((current) => ({ ...current, [questionId]: next }));
-  };
-
-  const answered = questions.filter((question) =>
-    isAnswered(question, answers[question.id]),
-  ).length;
-  const buildSummary = () =>
-    summarizeQuestionForm(block.id, block.title, questions, answers);
-
-  return (
-    <section className="plan-questions-block" data-block-id={block.id}>
-      {block.title && (
-        <h2 className="text-[1.45rem] font-semibold leading-tight text-plan-text">
-          {block.title}
-        </h2>
-      )}
-      <div className="mt-7 grid gap-8">
-        {questions.map((question, index) => (
-          <VisualQuestionView
-            key={question.id}
-            question={question}
-            index={index}
-            answer={answers[question.id]}
-            onAnswer={(next) => setAnswer(question.id, next)}
-          />
-        ))}
-      </div>
-      <div className="sticky bottom-0 mt-10 flex items-center justify-between gap-4 border-t border-plan-line bg-plan-document py-4 backdrop-blur">
-        <p className="text-sm font-semibold text-plan-muted">
-          {answered}/{questions.length} answered
-        </p>
-        <div data-plan-interactive>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" className="shrink-0 gap-1.5">
-                Send to agent
-                <IconChevronDown className="size-3.5 opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-72 rounded-xl">
-              <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
-              <DropdownMenuGroup>
-                <DropdownMenuItem
-                  onClick={() => onSubmit?.(buildSummary())}
-                  className="items-start gap-2"
-                  disabled={!onSubmit}
-                >
-                  <IconSend className="mt-0.5 size-4" />
-                  <span className="grid gap-0.5">
-                    <span>Send to inline agent</span>
-                    <span className="text-xs font-normal leading-4 text-muted-foreground">
-                      Posts answered questions into the app side agent.
-                    </span>
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    void navigator.clipboard.writeText(buildSummary());
-                  }}
-                  className="items-start gap-2"
-                >
-                  <IconClipboardText className="mt-0.5 size-4" />
-                  <span className="grid gap-0.5">
-                    <span>Copy for your agent</span>
-                    <span className="text-xs font-normal leading-4 text-muted-foreground">
-                      Copies a prompt you can paste into chat.
-                    </span>
-                  </span>
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function summarizeQuestionForm(
-  blockId: string | undefined,
-  blockTitle: string | undefined,
-  questions: PlanQuestion[],
-  answers: VisualAnswers,
-) {
-  const lines = [
-    "Use these plan question answers to revise the existing visual plan:",
-    blockId ? `Question block: ${blockId}` : "",
-    blockTitle ? `Section: ${blockTitle}` : "",
-    "",
-  ].filter((line) => line !== "");
-  for (const question of questions) {
-    const answer = answers[question.id];
-    const selectedLabels =
-      question.options
-        ?.filter((option) => answer?.selected?.includes(option.id))
-        .map((option) => option.label) ?? [];
-    const other = answer?.text?.trim();
-    const value =
-      question.mode === "freeform"
-        ? other
-        : [...selectedLabels, ...(other ? [`Other: ${other}`] : [])].join(", ");
-    lines.push(`- ${question.title}: ${value || "No answer yet"}`);
-  }
-  return lines.join("\n");
-}
-
-function VisualQuestionView({
-  question,
-  index,
-  answer,
-  onAnswer,
-}: {
-  question: PlanQuestion;
-  index: number;
-  answer?: VisualAnswer;
-  onAnswer: (answer: VisualAnswer) => void;
-}) {
-  const selected = answer?.selected ?? [];
-  const hasVisualOptions = Boolean(
-    question.options?.some((option) => option.wireframe || option.diagram),
-  );
-  return (
-    <article className="grid gap-4 sm:grid-cols-[36px_minmax(0,1fr)]">
-      <div className="flex size-7 items-center justify-center rounded-full border border-plan-line bg-plan-block text-xs font-semibold text-plan-muted">
-        {index + 1}
-      </div>
-      <div>
-        <h3 className="text-lg font-semibold leading-7 text-plan-text">
-          {question.title}
-        </h3>
-        {question.subtitle && (
-          <p className="mt-1.5 max-w-3xl text-sm leading-6 text-plan-muted">
-            {question.subtitle}
-          </p>
-        )}
-        {question.mode === "freeform" ? (
-          <Textarea
-            value={answer?.text ?? ""}
-            onChange={(event) => onAnswer({ text: event.target.value })}
-            className="mt-4 min-h-28 rounded-xl border-plan-line bg-plan-block text-sm"
-            data-plan-interactive
-            placeholder={question.placeholder || "Add details..."}
-          />
-        ) : (
-          <div
-            className={cn(
-              "mt-4",
-              hasVisualOptions
-                ? "grid gap-4 md:grid-cols-2"
-                : "grid max-w-4xl gap-3",
-            )}
-          >
-            {question.options?.map((option) => {
-              const isSelected = selected.includes(option.id);
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  data-plan-interactive
-                  aria-pressed={isSelected}
-                  className={cn(
-                    hasVisualOptions
-                      ? "grid gap-4 rounded-xl border border-plan-line bg-plan-block p-4 text-left transition-colors hover:bg-accent/30"
-                      : "grid w-full gap-2 rounded-xl border border-plan-line bg-plan-block px-4 py-3 text-left text-plan-text transition-colors hover:border-primary/40 hover:bg-accent/30",
-                    isSelected && "border-primary/40 bg-primary/10",
-                  )}
-                  onClick={() => {
-                    if (question.mode === "single") {
-                      onAnswer({ ...answer, selected: [option.id] });
-                      return;
-                    }
-                    onAnswer({
-                      ...answer,
-                      selected: isSelected
-                        ? selected.filter((id) => id !== option.id)
-                        : [...selected, option.id],
-                    });
-                  }}
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span
-                      className={cn(
-                        "mt-0.5 flex size-5 shrink-0 items-center justify-center border",
-                        question.mode === "single" ? "rounded-full" : "rounded",
-                        isSelected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-plan-line",
-                      )}
-                    >
-                      {isSelected && <IconCheck className="size-3.5" />}
-                    </span>
-                    <span>
-                      <span className="text-base font-semibold leading-6 text-plan-text">
-                        {option.label}
-                      </span>
-                      {option.recommended && (
-                        <>
-                          {" "}
-                          <span className="ml-3 rounded-md border border-primary/30 px-2 py-0.5 align-middle text-[11px] font-medium uppercase tracking-[0.12em] text-primary">
-                            Recommended
-                          </span>
-                        </>
-                      )}
-                      {option.detail && (
-                        <span className="mt-1 block max-w-2xl whitespace-pre-line text-sm font-normal leading-6 text-plan-muted">
-                          {option.detail}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  {hasVisualOptions && (option.wireframe || option.diagram) && (
-                    <div className="ml-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-                      {option.wireframe && (
-                        <Wireframe data={option.wireframe} compact />
-                      )}
-                      {option.diagram && (
-                        <SketchDiagram data={option.diagram} compact />
-                      )}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-            {/* Multiple-choice questions always offer a write-in answer so a
-                reviewer can give a custom response instead of the listed
-                options. Authors opt out only by setting allowOther: false. */}
-            {question.allowOther !== false && (
-              <Input
-                value={answer?.text ?? ""}
-                onChange={(event) =>
-                  onAnswer({ ...answer, text: event.target.value })
-                }
-                className={cn(
-                  "h-10 w-full rounded-lg border-plan-line bg-plan-block px-4",
-                  hasVisualOptions ? "md:col-span-2" : "sm:w-80",
-                )}
-                data-plan-interactive
-                placeholder={
-                  question.placeholder || "Other — type your own answer…"
-                }
-              />
-            )}
-          </div>
-        )}
-      </div>
-    </article>
   );
 }
 

@@ -96,6 +96,52 @@ describe("FileTreeBlock", () => {
     expect(container.innerHTML).not.toContain("text-amber");
   });
 
+  it("flags data-files-expanded only while focused with an open file", () => {
+    renderFileTree([
+      { path: "src/index.ts", change: "modified", note: "Entry point change." },
+    ]);
+
+    const section = container.querySelector("section.plan-block");
+    const fileButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => (button.textContent ?? "").includes("index.ts"),
+    );
+    expect(section).toBeTruthy();
+    expect(fileButton).toBeTruthy();
+
+    const pointerDown = (target: EventTarget) =>
+      act(() => {
+        target.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+    const click = (target: EventTarget) =>
+      act(() => {
+        target.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      });
+
+    // Collapsed by default — neither focused nor open.
+    expect(section?.hasAttribute("data-files-expanded")).toBe(false);
+    expect(fileButton?.getAttribute("aria-expanded")).toBe("false");
+
+    // Focus + open the file → expanded.
+    pointerDown(fileButton!);
+    click(fileButton!);
+    expect(section?.hasAttribute("data-files-expanded")).toBe(true);
+    expect(fileButton?.getAttribute("aria-expanded")).toBe("true");
+
+    // Clicking elsewhere collapses the rail AND closes the open file.
+    pointerDown(document.body);
+    expect(section?.hasAttribute("data-files-expanded")).toBe(false);
+    expect(fileButton?.getAttribute("aria-expanded")).toBe("false");
+
+    // Re-opening works again; closing the last open file collapses too.
+    pointerDown(fileButton!);
+    click(fileButton!);
+    expect(section?.hasAttribute("data-files-expanded")).toBe(true);
+    click(fileButton!);
+    expect(section?.hasAttribute("data-files-expanded")).toBe(false);
+  });
+
   it("uses the same UI typography for folder and file labels", () => {
     renderFileTree([{ path: "src/index.ts", change: "modified" }]);
 

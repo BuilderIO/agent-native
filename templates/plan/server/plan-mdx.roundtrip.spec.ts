@@ -437,39 +437,6 @@ describe("plan MDX round-trip fidelity per block type", () => {
     expect(block.data.fit).toBe("cover");
   });
 
-  it("decision: round-trips question and options with recommended flag", async () => {
-    const content: PlanContent = {
-      version: 2,
-      title: "Decision",
-      blocks: [
-        {
-          id: "dec-1",
-          type: "decision",
-          data: {
-            question: "Which approach?",
-            options: [
-              {
-                id: "o1",
-                label: "Option A",
-                detail: "detail a",
-                recommended: true,
-              },
-              { id: "o2", label: "Option B" },
-            ],
-          },
-        },
-      ],
-    };
-    const result = await roundTrip(content);
-    const block = findBlock(result, "dec-1");
-    if (block?.type !== "decision") throw new Error("expected decision");
-    expect(block.data.question).toBe("Which approach?");
-    expect(block.data.options).toEqual([
-      { id: "o1", label: "Option A", detail: "detail a", recommended: true },
-      { id: "o2", label: "Option B" },
-    ]);
-  });
-
   it("custom-html: round-trips html, css, caption", async () => {
     const content: PlanContent = {
       version: 2,

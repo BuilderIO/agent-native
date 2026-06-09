@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
@@ -49,8 +49,30 @@ export default defineAction({
     const db = getDb();
     const userEmail = getRequestUserEmail();
     const orgId = getRequestOrgId();
+    // Projection that deliberately avoids pulling the full `content` blob:
+    // document bodies can be multi-MB, and the list/tree path only needs a
+    // short preview plus the true length. `substr` truncates the transferred
+    // text to the first 400 chars (well above the ~180-char preview, leaving
+    // headroom for whitespace collapse), while `length` reports the real size.
+    // Both `substr` and `length` work identically on SQLite/libsql and
+    // Postgres.
     const documents = await db
-      .select()
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+        title: schema.documents.title,
+        contentSnippet: sql<string>`substr(${schema.documents.content}, 1, 400)`,
+        contentLength: sql<number>`length(${schema.documents.content})`,
+        icon: schema.documents.icon,
+        position: schema.documents.position,
+        isFavorite: schema.documents.isFavorite,
+        hideFromSearch: schema.documents.hideFromSearch,
+        visibility: schema.documents.visibility,
+        ownerEmail: schema.documents.ownerEmail,
+        orgId: schema.documents.orgId,
+        createdAt: schema.documents.createdAt,
+        updatedAt: schema.documents.updatedAt,
+      })
       .from(schema.documents)
       .where(
         and(
@@ -189,8 +211,8 @@ export default defineAction({
         id: d.id,
         parentId: d.parentId,
         title: d.title,
-        contentPreview: contentPreview(d.content),
-        contentLength: d.content.length,
+        contentPreview: contentPreview(d.contentSnippet),
+        contentLength: Number(d.contentLength) || 0,
         icon: d.icon,
         position: d.position,
         isFavorite: parseDocumentFavorite(d.isFavorite),

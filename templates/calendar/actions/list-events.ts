@@ -186,7 +186,23 @@ async function listLocalBookingEvents(
 
   const linkBySlug = new Map(links.map((link) => [link.slug, link]));
   const rows = await db
-    .select()
+    // Project only the columns the event mapper reads — skip the heavy
+    // field_responses JSON blob (and other unused columns) that a bare
+    // .select() would pull for every booking on this hot calendar path.
+    .select({
+      id: schema.bookings.id,
+      name: schema.bookings.name,
+      email: schema.bookings.email,
+      slug: schema.bookings.slug,
+      start: schema.bookings.start,
+      end: schema.bookings.end,
+      eventTitle: schema.bookings.eventTitle,
+      notes: schema.bookings.notes,
+      meetingLink: schema.bookings.meetingLink,
+      googleEventId: schema.bookings.googleEventId,
+      status: schema.bookings.status,
+      createdAt: schema.bookings.createdAt,
+    })
     .from(schema.bookings)
     .where(
       and(

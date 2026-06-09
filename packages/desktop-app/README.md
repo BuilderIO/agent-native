@@ -117,7 +117,7 @@ Edit `shared/app-registry.ts` and add a new entry to `APP_REGISTRY`:
 {
   id: "notes",
   name: "Notes",
-  icon: "StickyNote",       // any Lucide icon name
+  icon: "StickyNote",       // ICON_MAP key wired up in Sidebar.tsx (Tabler icon)
   description: "Quick notes",
   devPort: 8086,            // pick an unused port
   color: "#06B6D4",
@@ -130,11 +130,11 @@ Edit `shared/app-registry.ts` and add a new entry to `APP_REGISTRY`:
 Open `src/renderer/components/Sidebar.tsx` and add the icon to the import and `ICON_MAP`:
 
 ```ts
-import { …, StickyNote } from "lucide-react";
+import { …, IconNote } from "@tabler/icons-react";
 
 const ICON_MAP = {
   …
-  StickyNote,
+  StickyNote: IconNote,
 };
 ```
 

@@ -282,6 +282,21 @@ export default runMigrations(
       sql: `ALTER TABLE image_generation_runs
             ADD COLUMN IF NOT EXISTS session_id TEXT`,
     },
+    // v33: indexes that back access-scoped library reads.
+    // - `image_library_shares` had no index; the shares lookup in
+    //   `accessFilter` probes (resource_id, principal_type, principal_id).
+    // - `image_libraries` list (`list-libraries`) filters by owner/org via
+    //   `accessFilter` and orders by `updated_at`; the matching composite
+    //   index avoids a full table scan + sort on large accounts.
+    // Plain `CREATE INDEX IF NOT EXISTS` (no DESC/partial/PG-only syntax) so it
+    // runs on both Postgres and SQLite and is safe to re-run.
+    {
+      version: 33,
+      sql: `CREATE INDEX IF NOT EXISTS image_library_shares_resource_principal_idx
+            ON image_library_shares (resource_id, principal_type, principal_id);
+            CREATE INDEX IF NOT EXISTS image_libraries_owner_org_updated_idx
+            ON image_libraries (owner_email, org_id, updated_at)`,
+    },
   ],
   // Preserve the legacy migration table name so existing Images deployments do
   // not rerun historical additive migrations after the app slug becomes Assets.

@@ -155,6 +155,23 @@ SET owner_email = COALESCE(
   )
 WHERE owner_email = ${LEGACY_DEV_OWNER_SQL}`,
     },
+    // v19: performance indexes for the ownable booking_links table, its shares
+    // companion, and the bookings child rows. Plain CREATE INDEX IF NOT EXISTS
+    // only (no DESC / partial / Postgres-only syntax) so it runs on both
+    // Postgres and SQLite.
+    // - booking_links: accessFilter() predicates on (owner_email, org_id) plus
+    //   the list ordering by updated_at. slug already has a UNIQUE index from v2.
+    // - booking_link_shares: accessFilter()'s correlated EXISTS subqueries match
+    //   on (resource_id, principal_type, principal_id).
+    // - bookings: listed/joined by slug and filtered/ordered by the start time
+    //   range. There is no booking_link_id FK column — bookings link to
+    //   booking_links via slug.
+    {
+      version: 19,
+      sql: `CREATE INDEX IF NOT EXISTS idx_booking_links_owner ON booking_links (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_booking_link_shares_lookup ON booking_link_shares (resource_id, principal_type, principal_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`,
+    },
   ],
   { table: "calendar_migrations" },
 );

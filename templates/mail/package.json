@@ -85,7 +85,6 @@
     "drizzle-kit": "^0.31.10",
     "globals": "^16.3.0",
     "lowlight": "^3.3.0",
-    "lucide-react": "^1.8.0",
     "motion": "^12.38.0",
     "next-themes": "^0.4.6",
     "prettier": "^3.6.2",

@@ -213,6 +213,17 @@ export default runMigrations(
       version: 26,
       sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
     },
+    // v27: performance indexes. The list/tree path filters documents by owner +
+    // org and orders by position/updated_at, walks the tree via parent_id, and
+    // resolves per-principal grants from document_shares — none of which had any
+    // index. Plain CREATE INDEX IF NOT EXISTS so the same DDL applies on both
+    // SQLite/libsql and Postgres (no DESC, partial, or PG-only syntax).
+    {
+      version: 27,
+      sql: `CREATE INDEX IF NOT EXISTS documents_owner_org_updated_idx ON documents (owner_email, org_id, updated_at);
+        CREATE INDEX IF NOT EXISTS documents_parent_idx ON documents (parent_id);
+        CREATE INDEX IF NOT EXISTS document_shares_resource_idx ON document_shares (resource_id, principal_type, principal_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

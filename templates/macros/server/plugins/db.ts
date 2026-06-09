@@ -89,6 +89,20 @@ export default runMigrations(
               ALTER TABLE weights ADD COLUMN IF NOT EXISTS user_id TEXT;`;
       },
     },
+    // v8: index the per-user list/history hot path. Every list and analytics
+    // action filters by owner_email plus an equality or BETWEEN range on date
+    // (list-meals / list-exercises / list-weights, meals-history,
+    // weights-history, get-analytics). A composite (owner_email, date) index
+    // covers both the single-day equality lookups and the date-range scans
+    // without a full table scan as rows accumulate.
+    {
+      version: 8,
+      get sql() {
+        return `CREATE INDEX IF NOT EXISTS meals_owner_date_idx ON meals (owner_email, date);
+              CREATE INDEX IF NOT EXISTS exercises_owner_date_idx ON exercises (owner_email, date);
+              CREATE INDEX IF NOT EXISTS weights_owner_date_idx ON weights (owner_email, date);`;
+      },
+    },
   ],
   { table: "macros_migrations" },
 );

@@ -371,6 +371,9 @@
      * Collapsed, the right edge still sits 1.25rem left of the document body,
      * mirroring the contents rail. */
     left: calc(-1.25rem - var(--files-rail-width));
+    /* Left-anchored: release `right` so `width` is honored (an absolutely
+     * positioned box with both left and right set ignores `width`). */
+    right: auto;
     z-index: 2;
     display: block;
     width: var(--files-rail-width);
@@ -880,6 +883,32 @@
 
 .dark .plan-code-surface .plan-shiki pre span {
   color: var(--shiki-dark);
+}
+
+/* File-tree snippets render inside file rows (and the cramped recap "Files
+ * touched" rail), not as full-width document code. Shrink the whole code surface
+ * — glyphs via the `--plan-code-size` var plus the lang label and padding — so it
+ * reads compact and clearly smaller than the row/note text around it. */
+.an-file-tree-snippet {
+  --plan-code-size: 0.6875rem;
+}
+
+.an-file-tree-snippet :where(pre, code, .plan-code-surface-scroll) {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.an-file-tree-snippet .plan-code-surface .plan-shiki,
+.an-file-tree-snippet .plan-code-surface pre {
+  padding: 0.55rem 0.7rem;
+}
+
+.an-file-tree-snippet .plan-code-surface-bar {
+  padding: 0.3rem 0.7rem;
+}
+
+.an-file-tree-snippet .plan-code-surface-lang {
+  font-size: 0.625rem;
 }
 
 /* `code` primitive block: read wraps the single-bordered .plan-code-surface with

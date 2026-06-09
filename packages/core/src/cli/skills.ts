@@ -608,7 +608,7 @@ only for tiny previews or genuinely linear step flows. Repeat a wireframe in the
 for a genuinely new detail view or comparison. Skip the visual surface entirely
 for non-visual work and write a clean rich document. For a simple binary UI
 visual choice, show the two directions in the canvas only; do not repeat the
-same options as body wireframes, a \`decision\` block, or prose. Put the actual
+same options as body wireframes or prose. Put the actual
 choice in the bottom "Open Questions" form.
 
 **Use the right block, and make it carry substance.** For the authoritative,
@@ -631,14 +631,14 @@ so you never emit a block the editor cannot render or round-trip:
   the exact code is unknown, show the smallest plausible planned shape or a
   commented stub naming what to fill in. (\`code-tabs\` and \`implementation-map\`
   are legacy: their renderers stay for old plans, but do not author new ones.)
-- \`decision\` ONLY for a genuinely-open either/or the reviewer must still pick
-  between — two or three option cards with real consequences. If you have already
-  committed to an approach, state it as settled prose or a \`callout\`, NOT a
-  \`decision\` block; a decision card for a question you have already answered just
-  reads as a confusing mid-document form. Never duplicate the same choice across a
-  \`decision\` block and the bottom Open Questions \`question-form\` — pick one home
-  for it. These are static records; do not style them like clickable tabs or chips
-  unless the renderer truly supports changing the selection.
+- For a decision: if the reviewer must still pick between a genuinely-open
+  either/or, put it in the bottom Open Questions \`question-form\` as a \`single\`
+  question — one option per real alternative, each with a short detail and
+  \`recommended: true\` on the one you would choose; do not also restate the same
+  choice elsewhere. If you have already committed to an approach, state it as
+  settled prose or a \`callout\` with \`tone="decision"\`, optionally with a
+  \`columns\` block for a side-by-side comparison of the options you weighed — not
+  as a confusing mid-document form for a question you have already answered.
 - \`columns\` for side-by-side before/after or current/target comparisons where
   each side needs real nested blocks; label the columns clearly and avoid
   stacking comparison blocks vertically when parallel reading is the point.
@@ -680,8 +680,7 @@ reviewer can answer with a custom option — never add an explicit "Other" optio
 yourself; set \`allowOther: false\` only when a free-text answer makes no sense.
 Keep non-answerable assumptions or risks as concise \`callout\` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
-narrative, and never ask the same question in both a \`decision\` block and a
-\`question-form\`.
+narrative, and never ask the same question twice.
 
 **\`custom-html\` is a bounded escape hatch only** — a single complete fragment
 inside a block, never \`html\`/\`head\`/\`body\`/\`script\` tags, never a generic
@@ -711,8 +710,9 @@ correct desktop footprint, theme, and one subtle whole-frame wobble. Plain-text
 designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
 done-criteria, a few \`code\` blocks (grouped in a vertical \`tabs\` block when
-more than one) showing the real shape of the load-bearing files, a \`decision\`
-card weighing two real approaches,
+more than one) showing the real shape of the load-bearing files, a \`callout\`
+with \`tone="decision"\` stating the chosen approach with a \`columns\` block
+weighing the two real options behind it,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with

@@ -73,8 +73,20 @@ export default defineAction({
         .from(schema.assets)
         .where(and(...filters))
         .orderBy(desc(schema.assets.createdAt)),
+      // Lineage labels (Original N / Variation N) are numbered across the whole
+      // library and resolve each variation's parent label, so this must stay
+      // library-scoped rather than narrowing to the same folder/collection
+      // filter as the primary query. Project only the columns
+      // `buildAssetLineage` reads instead of pulling full rows for every asset
+      // in the library on each list call.
       db
-        .select()
+        .select({
+          id: schema.assets.id,
+          role: schema.assets.role,
+          generationRunId: schema.assets.generationRunId,
+          metadata: schema.assets.metadata,
+          createdAt: schema.assets.createdAt,
+        })
         .from(schema.assets)
         .where(eq(schema.assets.libraryId, libraryId)),
     ]);

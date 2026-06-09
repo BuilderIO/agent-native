@@ -406,7 +406,17 @@ export function useCollabReconcile({
         }
         return;
       }
-      if (!externalNewer && editor.isFocused) return;
+      // Older-or-equal content is a stale poll / lagging echo. Drop it while
+      // focused (a peer/agent edit would be NEWER and retries above). In
+      // NON-COLLAB mode there is no peer, so older-or-equal external content is
+      // ALWAYS stale — dropping it regardless of focus stops a lagging
+      // `get-visual-plan` poll from reverting a just-applied local structural
+      // change (drag-to-columns) while the editor is blurred (the drag grips the
+      // handle, not the prose, so `isFocused` is false at drop time). Gated on
+      // `lastAppliedSerializedRef` so the very first seed (nothing applied yet,
+      // also not-newer) still lands.
+      const seeded = lastAppliedSerializedRef.current !== null;
+      if (!externalNewer && (editor.isFocused || (!collab && seeded))) return;
 
       // Race guard: with peers present, let Yjs deliver a peer's edit first.
       // Defer once and re-check — a peer edit makes the equality check above

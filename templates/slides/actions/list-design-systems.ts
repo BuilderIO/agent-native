@@ -18,8 +18,20 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    // Project only the columns this list returns. The default path returns
+    // `data`, but neither path returns the heavy `assets` blob — a bare
+    // `.select()` would load it off every row for nothing.
     const rows = await db
-      .select()
+      .select({
+        id: schema.designSystems.id,
+        title: schema.designSystems.title,
+        description: schema.designSystems.description,
+        data: schema.designSystems.data,
+        isDefault: schema.designSystems.isDefault,
+        visibility: schema.designSystems.visibility,
+        createdAt: schema.designSystems.createdAt,
+        updatedAt: schema.designSystems.updatedAt,
+      })
       .from(schema.designSystems)
       .where(accessFilter(schema.designSystems, schema.designSystemShares))
       .orderBy(desc(schema.designSystems.updatedAt));

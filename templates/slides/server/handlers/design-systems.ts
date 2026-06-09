@@ -30,8 +30,19 @@ function handleForbidden(event: any, err: unknown): { error: string } {
 export const listDesignSystems = defineEventHandler(async (event) => {
   return withSlidesRequestContext(event, async () => {
     const db = getDb();
+    // Project only the metadata columns this list returns. A bare `.select()`
+    // would also pull the heavy `data` and `assets` blobs off every row even
+    // though the list never returns them.
     const rows = await db
-      .select()
+      .select({
+        id: schema.designSystems.id,
+        title: schema.designSystems.title,
+        description: schema.designSystems.description,
+        isDefault: schema.designSystems.isDefault,
+        visibility: schema.designSystems.visibility,
+        createdAt: schema.designSystems.createdAt,
+        updatedAt: schema.designSystems.updatedAt,
+      })
       .from(schema.designSystems)
       .where(accessFilter(schema.designSystems, schema.designSystemShares))
       .orderBy(desc(schema.designSystems.updatedAt));
