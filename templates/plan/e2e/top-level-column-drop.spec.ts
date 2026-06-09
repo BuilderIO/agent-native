@@ -135,12 +135,6 @@ function blockNode(blockId: string): string {
 
 test.describe("top-level side-drop creates columns", () => {
   test.beforeEach(async ({ page }) => {
-    page.on("console", (m) => {
-      if (m.text().includes("[coldrop]")) {
-        // eslint-disable-next-line no-console
-        console.log("PAGE", m.text().slice(0, 300));
-      }
-    });
     page.on("pageerror", (e) => {
       // eslint-disable-next-line no-console
       console.log("PAGEERROR", String(e).slice(0, 300));

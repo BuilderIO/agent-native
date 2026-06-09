@@ -28,6 +28,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  PromptComposer,
+  sendToAgentChat,
   uploadEditorImage,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
@@ -52,9 +54,6 @@ import {
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import { PlanImageViewer } from "./PlanImageViewer";
-// `PlanAiBlockAction` is a hoisted function export, so this import is safe
-// despite the planBlocks ↔ DocumentArea module cycle (used only at render time).
-import { PlanAiBlockAction } from "./planBlocks";
 
 /**
  * Renders the document flow: dispatches a single plan block to its block
@@ -1233,26 +1232,9 @@ function ImageBlock({
       )}
       {editable && (
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          {/* `an-block-edit-popover` lets PlanAiBlockAction's "Edit with AI"
-              sub-popover portal INTO this dialog (so its outside-click stays
-              inside), matching the registered-block edit popovers. */}
-          <DialogContent
-            className="an-block-edit-popover max-w-md"
-            data-plan-interactive
-          >
+          <DialogContent className="max-w-md" data-plan-interactive>
             <DialogHeader>
-              <div className="flex items-center justify-between gap-3 pr-6">
-                <DialogTitle>Image details</DialogTitle>
-                <PlanAiBlockAction
-                  label="Image"
-                  blockId={block.id}
-                  blockType="image"
-                  blockTitle={block.title}
-                  blockSummary={block.summary}
-                  blockData={block.data}
-                  planId={planId}
-                />
-              </div>
+              <DialogTitle>Image details</DialogTitle>
             </DialogHeader>
             <SchemaBlockEditor
               data={block.data}
@@ -1262,10 +1244,64 @@ function ImageBlock({
               blockId={block.id}
               ctx={IMAGE_FORM_CTX}
             />
+            <div className="mt-1 border-t border-border pt-3">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Edit with AI
+              </p>
+              <ImageAiEditField block={block} planId={planId} />
+            </div>
           </DialogContent>
         </Dialog>
       )}
     </section>
+  );
+}
+
+/**
+ * Self-contained "Edit with AI" prompt for the image block edit dialog. Uses the
+ * shared composer + agent chat directly (no dependency on `planBlocks`, so the
+ * image block stays free of the planBlocks ↔ DocumentArea import cycle).
+ */
+function ImageAiEditField({
+  block,
+  planId,
+}: {
+  block: Extract<PlanBlock, { type: "image" }>;
+  planId?: string | null;
+}) {
+  return (
+    <PromptComposer
+      placeholder="Describe a change…"
+      attachmentsEnabled={false}
+      plusMenuMode="hidden"
+      draftScope={`plan:image:${block.id}`}
+      onSubmit={(prompt) => {
+        const trimmed = prompt.trim();
+        if (!trimmed) return;
+        sendToAgentChat({
+          type: "content",
+          submit: true,
+          openSidebar: true,
+          message: trimmed,
+          context: [
+            "The user is editing an image block from the visual plan image editor.",
+            planId ? `Plan id: ${planId}` : null,
+            `Plan block id: ${block.id}`,
+            "Plan block type: image",
+            block.title ? `Block title: ${block.title}` : null,
+            "",
+            "Current block data:",
+            "```json",
+            JSON.stringify(block.data, null, 2),
+            "```",
+            "",
+            "Patch only this image block unless the user explicitly asks for broader changes. Preserve fields the user did not ask to change.",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        });
+      }}
+    />
   );
 }
 

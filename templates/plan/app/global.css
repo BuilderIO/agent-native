@@ -956,7 +956,8 @@
   overflow: hidden;
   border: 1px solid var(--plan-line);
   border-radius: 12px;
-  background: var(--plan-code);
+  /* Sit on the page background like the diff block — no distinct surface fill. */
+  background: transparent;
 }
 
 .plan-code-editing .plan-code-head {

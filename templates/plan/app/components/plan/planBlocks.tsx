@@ -1184,7 +1184,6 @@ function InlinePromptField({
   fieldActionLabel?: string;
 }) {
   const [value, setValue] = useState("");
-  const [focused, setFocused] = useState(false);
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
   // Grow the field to fit wrapped lines as the user types (capped, then scrolls).
@@ -1200,26 +1199,21 @@ function InlinePromptField({
     if (!trimmed) return;
     onSubmit(trimmed);
     setValue("");
-    setFocused(false);
     if (ref.current) ref.current.style.height = "";
     ref.current?.blur();
   };
 
-  const expanded = focused || value.length > 0;
   const sm = size === "sm";
 
   return (
     <div
       data-plan-interactive
       className={cn(
-        "relative inline-flex shrink-0 items-start overflow-hidden rounded-2xl border border-input bg-background shadow-sm transition-[width,border-color,opacity] duration-200 ease-out focus-within:border-ring",
-        sm
-          ? expanded
-            ? "w-[300px]"
-            : "w-[150px]"
-          : expanded
-            ? "w-[380px]"
-            : "w-[200px]",
+        // Static width (about halfway between the resting and expanded sizes),
+        // no width animation: the field is autofocused when the popover opens,
+        // so an on-focus width transition would fire immediately and look janky.
+        "relative inline-flex shrink-0 items-start overflow-hidden rounded-2xl border border-input bg-background shadow-sm transition-[border-color,opacity] focus-within:border-ring",
+        sm ? "w-[225px]" : "w-[290px]",
         subtle &&
           "opacity-80 focus-within:opacity-100 group-hover/field:opacity-100 group-focus-within/field:opacity-100",
         disabled && "pointer-events-none opacity-40",
@@ -1235,8 +1229,6 @@ function InlinePromptField({
         placeholder={placeholder}
         spellCheck={false}
         onChange={(event) => setValue(event.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -1254,9 +1246,8 @@ function InlinePromptField({
       <kbd
         aria-hidden
         className={cn(
-          "pointer-events-none absolute right-1.5 top-1.5 rounded border border-border bg-background/80 font-sans leading-tight text-muted-foreground transition-opacity",
+          "pointer-events-none absolute right-1.5 top-1.5 rounded border border-border bg-background/80 font-sans leading-tight text-muted-foreground opacity-60",
           sm ? "px-1 text-[9px]" : "px-1 text-[10px]",
-          expanded ? "opacity-50" : "opacity-90",
         )}
       >
         ⏎
