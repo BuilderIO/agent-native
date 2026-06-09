@@ -13,9 +13,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Legend,
   Line,
   LineChart,
-  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -73,15 +73,15 @@ const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
-const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
-  fontSize: 11,
-  paddingTop: 8,
-};
-
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
 } as const;
+
+const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
+  fontSize: 11,
+  paddingTop: 8,
+};
 
 const CHART_LEGEND_PROPS = {
   iconSize: 8,
@@ -101,6 +101,78 @@ function formatYValue(
   return value.toLocaleString();
 }
 
+function parsePrometheusSeriesLabel(label: string): {
+  metric: string;
+  labels: Record<string, string>;
+} {
+  const trimmed = label.trim();
+  const match = /^(.*?)\{(.*)\}$/.exec(trimmed);
+  if (!match) return { metric: trimmed, labels: {} };
+
+  const labels: Record<string, string> = {};
+  const body = match[2];
+  const re = /([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) {
+    labels[m[1]] = m[2].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return { metric: match[1], labels };
+}
+
+function compactGrafanaTarget(value: string): string {
+  const withoutDevicePrefix = value.replace(/^device\s+-\s+/i, "");
+  const beforeExplanation = withoutDevicePrefix.split(/\s+[–-]\s+/)[0];
+  return beforeExplanation.trim() || value;
+}
+
+function truncateLabel(value: string, max = 48): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 3)}...`;
+}
+
+function formatSeriesLabel(value: string): string {
+  const { metric, labels } = parsePrometheusSeriesLabel(value);
+  const target =
+    typeof labels.grafana_target === "string"
+      ? compactGrafanaTarget(labels.grafana_target)
+      : "";
+
+  if (target) {
+    if (labels.device) return truncateLabel(`${labels.device} ${target}`);
+    if (labels.mountpoint)
+      return truncateLabel(`${labels.mountpoint} ${target}`);
+    if (labels.cpu) return truncateLabel(`cpu ${labels.cpu} ${target}`);
+    if (labels.state) return truncateLabel(`${labels.state} ${target}`);
+    if (labels.chip_name) return truncateLabel(`${labels.chip_name} ${target}`);
+    if (labels.sensor) return truncateLabel(`${labels.sensor} ${target}`);
+    return truncateLabel(target);
+  }
+
+  const preferred = [
+    "device",
+    "mountpoint",
+    "fstype",
+    "cpu",
+    "mode",
+    "state",
+    "collector",
+    "name",
+    "type",
+    "quantile",
+    "le",
+  ];
+  const parts = preferred
+    .filter((key) => labels[key])
+    .map((key) => `${key}=${labels[key]}`);
+
+  if (parts.length) {
+    const prefix = metric ? `${metric} ` : "";
+    return truncateLabel(`${prefix}${parts.slice(0, 2).join(" ")}`);
+  }
+
+  return truncateLabel(metric || value);
+}
+
 function csvEscape(value: string): string {
   if (/[",\n\r]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;
@@ -108,7 +180,15 @@ function csvEscape(value: string): string {
   return value;
 }
 
-function formatXLabel(value: string): string {
+function usesPrometheusPresentation(panel: SqlPanel): boolean {
+  return panel.source === "prometheus";
+}
+
+function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {
+  return usesPrometheusPresentation(panel) ? formatSeriesLabel(value) : value;
+}
+
+function formatXLabel(value: string, panel: SqlPanel): string {
   try {
     const s = String(value);
     const normalized = /^\d{8}$/.test(s)
@@ -119,11 +199,72 @@ function formatXLabel(value: string): string {
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
   } catch {}
-  return String(value);
+  return formatSeriesLabelForPanel(panel, String(value));
 }
 
 function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
   return panel.config?.legend !== false && seriesCount > 0;
+}
+
+function SeriesLegend({
+  keys,
+  colors,
+  panel,
+}: {
+  keys: string[];
+  colors: string[];
+  panel: SqlPanel;
+}) {
+  if (
+    !usesPrometheusPresentation(panel) ||
+    !shouldShowLegend(panel, keys.length)
+  )
+    return null;
+
+  return (
+    <div className="mt-2 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {keys.map((key, i) => (
+          <span
+            key={key}
+            className="inline-flex max-w-[14rem] items-center gap-1.5"
+            title={key}
+          >
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: colors[i % colors.length] }}
+            />
+            <span className="truncate">
+              {formatSeriesLabelForPanel(panel, key)}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChartFrame({
+  panel,
+  legendKeys,
+  colors,
+  children,
+}: {
+  panel: SqlPanel;
+  legendKeys: string[];
+  colors: string[];
+  children: ReactNode;
+}) {
+  if (!usesPrometheusPresentation(panel)) {
+    return <div className="h-[250px] w-full overflow-visible">{children}</div>;
+  }
+
+  return (
+    <div className="w-full overflow-hidden">
+      <div className="h-[250px] w-full overflow-visible">{children}</div>
+      <SeriesLegend keys={legendKeys} colors={colors} panel={panel} />
+    </div>
+  );
 }
 
 function ChartTooltip({
@@ -131,6 +272,7 @@ function ChartTooltip({
   payload,
   label,
   labelFormatter,
+  seriesNameFormatter,
   valueFormatter,
 }: {
   active?: boolean;
@@ -142,6 +284,7 @@ function ChartTooltip({
   }>;
   label?: unknown;
   labelFormatter?: (value: string) => string;
+  seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
   const tooltipRef = useChartTooltipFlip<HTMLDivElement>();
@@ -182,7 +325,7 @@ function ChartTooltip({
                 style={{ backgroundColor: item.color ?? "currentColor" }}
               />
               <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {name}
+                {seriesNameFormatter ? seriesNameFormatter(name) : name}
               </span>
               <span className="font-medium tabular-nums text-foreground">
                 {value}
@@ -791,8 +934,12 @@ function PieRenderer({
   colors: string[];
   panel: SqlPanel;
 }) {
+  const seriesNameFormatter = (name: string) =>
+    formatSeriesLabelForPanel(panel, name);
+  const legendKeys = rows.map((row) => String(row[xKey] ?? ""));
+
   return (
-    <div className="h-[250px] w-full overflow-visible">
+    <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -803,7 +950,7 @@ function PieRenderer({
             cy="50%"
             outerRadius={80}
             label={({ name, percent }) =>
-              `${name} ${(percent * 100).toFixed(0)}%`
+              `${seriesNameFormatter(String(name))} ${(percent * 100).toFixed(0)}%`
             }
             labelLine={false}
           >
@@ -815,18 +962,20 @@ function PieRenderer({
             {...CHART_TOOLTIP_PROPS}
             content={
               <ChartTooltip
+                seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={(v) =>
                   formatYValue(v, panel.config?.yFormatter)
                 }
               />
             }
           />
-          {shouldShowLegend(panel, rows.length) && (
-            <Legend {...CHART_LEGEND_PROPS} />
-          )}
+          {!usesPrometheusPresentation(panel) &&
+            shouldShowLegend(panel, rows.length) && (
+              <Legend {...CHART_LEGEND_PROPS} />
+            )}
         </PieChart>
       </ResponsiveContainer>
-    </div>
+    </ChartFrame>
   );
 }
 
@@ -847,8 +996,12 @@ function BarRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
+  const xLabelFormatter = (value: string) => formatXLabel(value, panel);
+  const seriesNameFormatter = (name: string) =>
+    formatSeriesLabelForPanel(panel, name);
+
   return (
-    <div className="h-[250px] w-full overflow-visible">
+    <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows}>
           <XAxis
@@ -857,7 +1010,7 @@ function BarRenderer({
             fontSize={12}
             tickLine={false}
             axisLine={false}
-            tickFormatter={formatXLabel}
+            tickFormatter={xLabelFormatter}
           />
           <YAxis
             stroke="hsl(var(--muted-foreground))"
@@ -873,22 +1026,25 @@ function BarRenderer({
           />
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
-            labelFormatter={formatXLabel}
+            labelFormatter={xLabelFormatter}
             content={
               <ChartTooltip
-                labelFormatter={formatXLabel}
+                labelFormatter={xLabelFormatter}
+                seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={(v) => formatYValue(v, yFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
-          {shouldShowLegend(panel, yKeys.length) && (
-            <Legend {...CHART_LEGEND_PROPS} />
-          )}
+          {!usesPrometheusPresentation(panel) &&
+            shouldShowLegend(panel, yKeys.length) && (
+              <Legend {...CHART_LEGEND_PROPS} />
+            )}
           {yKeys.map((key, i) => (
             <Bar
               key={key}
               dataKey={key}
+              name={seriesNameFormatter(key)}
               fill={colors[i % colors.length]}
               radius={
                 stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
@@ -898,7 +1054,7 @@ function BarRenderer({
           ))}
         </BarChart>
       </ResponsiveContainer>
-    </div>
+    </ChartFrame>
   );
 }
 
@@ -921,9 +1077,13 @@ function TimeSeriesRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
+  const xLabelFormatter = (value: string) => formatXLabel(value, panel);
+  const seriesNameFormatter = (name: string) =>
+    formatSeriesLabelForPanel(panel, name);
+
   if (chartType === "line") {
     return (
-      <div className="h-[250px] w-full overflow-visible">
+      <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows}>
             <XAxis
@@ -932,7 +1092,7 @@ function TimeSeriesRenderer({
               fontSize={12}
               tickLine={false}
               axisLine={false}
-              tickFormatter={formatXLabel}
+              tickFormatter={xLabelFormatter}
             />
             <YAxis
               stroke="hsl(var(--muted-foreground))"
@@ -948,23 +1108,26 @@ function TimeSeriesRenderer({
             />
             <Tooltip
               {...CHART_TOOLTIP_PROPS}
-              labelFormatter={formatXLabel}
+              labelFormatter={xLabelFormatter}
               content={
                 <ChartTooltip
-                  labelFormatter={formatXLabel}
+                  labelFormatter={xLabelFormatter}
+                  seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={(v) => formatYValue(v, yFormatter)}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
-            {shouldShowLegend(panel, yKeys.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
+            {!usesPrometheusPresentation(panel) &&
+              shouldShowLegend(panel, yKeys.length) && (
+                <Legend {...CHART_LEGEND_PROPS} />
+              )}
             {yKeys.map((key, i) => (
               <Line
                 key={key}
                 type="monotone"
                 dataKey={key}
+                name={seriesNameFormatter(key)}
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
                 dot={false}
@@ -972,7 +1135,7 @@ function TimeSeriesRenderer({
             ))}
           </LineChart>
         </ResponsiveContainer>
-      </div>
+      </ChartFrame>
     );
   }
 
@@ -982,7 +1145,7 @@ function TimeSeriesRenderer({
   const showFill = yKeys.length === 1 || stacked;
 
   return (
-    <div className="h-[250px] w-full overflow-visible">
+    <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={rows}>
           {showFill && (
@@ -1016,7 +1179,7 @@ function TimeSeriesRenderer({
             fontSize={12}
             tickLine={false}
             axisLine={false}
-            tickFormatter={formatXLabel}
+            tickFormatter={xLabelFormatter}
           />
           <YAxis
             stroke="hsl(var(--muted-foreground))"
@@ -1032,23 +1195,26 @@ function TimeSeriesRenderer({
           />
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
-            labelFormatter={formatXLabel}
+            labelFormatter={xLabelFormatter}
             content={
               <ChartTooltip
-                labelFormatter={formatXLabel}
+                labelFormatter={xLabelFormatter}
+                seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={(v) => formatYValue(v, yFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
-          {shouldShowLegend(panel, yKeys.length) && (
-            <Legend {...CHART_LEGEND_PROPS} />
-          )}
+          {!usesPrometheusPresentation(panel) &&
+            shouldShowLegend(panel, yKeys.length) && (
+              <Legend {...CHART_LEGEND_PROPS} />
+            )}
           {yKeys.map((key, i) => (
             <Area
               key={key}
               type="monotone"
               dataKey={key}
+              name={seriesNameFormatter(key)}
               stroke={colors[i % colors.length]}
               strokeWidth={2}
               fillOpacity={showFill ? 1 : 0}
@@ -1058,7 +1224,7 @@ function TimeSeriesRenderer({
           ))}
         </AreaChart>
       </ResponsiveContainer>
-    </div>
+    </ChartFrame>
   );
 }
 
@@ -1183,7 +1349,7 @@ function HeatmapRenderer({
                 key={xv}
                 className="text-right py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap"
               >
-                {formatXLabel(xv)}
+                {formatXLabel(xv, panel)}
               </th>
             ))}
           </tr>

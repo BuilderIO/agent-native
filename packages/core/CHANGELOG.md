@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.44.3
+
+### Patch Changes
+
+- 5b37b89: Add a 2-minute per-attempt timeout to the Builder.io file upload provider fetch so large-image uploads fail with a clear error instead of hanging indefinitely. Retries on network errors are also now handled consistently with the existing 5xx retry path.
+
+## 0.44.2
+
+### Patch Changes
+
+- 1b6f2f4: Fix apps stuck on the `ClientOnly` loading spinner after sign-in when Vite 8's Rolldown dependency optimizer mis-bundled `recharts` → `es-toolkit` CJS compat (`require_isUnsafeProperty is not a function`). Exclude those packages from `optimizeDeps`, allow workspace root `node_modules` in dev server `fs.allow`, and lazy-load Context X-Ray so the treemap is not on the critical startup path.
+
 ## 0.44.1
 
 ### Patch Changes

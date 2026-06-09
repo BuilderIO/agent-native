@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type {
   ContextManifest,
   ContextSegmentStatus,
@@ -16,8 +16,13 @@ import {
 } from "../components/ui/tooltip.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
-import { ContextXRayPanel } from "./ContextXRayPanel.js";
 import { CONTEXT_XRAY_MODEL_LIMIT, formatTokens } from "./format.js";
+
+const ContextXRayPanel = lazy(() =>
+  import("./ContextXRayPanel.js").then((m) => ({
+    default: m.ContextXRayPanel,
+  })),
+);
 
 function ContextDonut({ pct, advisory }: { pct: number; advisory: boolean }) {
   const radius = 7.5;
@@ -156,15 +161,27 @@ export function ContextMeter({
           sideOffset={8}
           className="w-[min(92vw,380px)] overflow-hidden border-border/70 p-0"
         >
-          <ContextXRayPanel
-            manifest={manifest}
-            optimistic={optimistic}
-            onPin={(segmentId) => mutateStatus(segmentId, "pinned", "pin")}
-            onEvict={(segmentId) => mutateStatus(segmentId, "evicted", "evict")}
-            onRestore={(segmentId) =>
-              mutateStatus(segmentId, "active", "restore")
-            }
-          />
+          {open ? (
+            <Suspense
+              fallback={
+                <div className="flex h-52 items-center justify-center text-xs text-muted-foreground">
+                  Loading context view…
+                </div>
+              }
+            >
+              <ContextXRayPanel
+                manifest={manifest}
+                optimistic={optimistic}
+                onPin={(segmentId) => mutateStatus(segmentId, "pinned", "pin")}
+                onEvict={(segmentId) =>
+                  mutateStatus(segmentId, "evicted", "evict")
+                }
+                onRestore={(segmentId) =>
+                  mutateStatus(segmentId, "active", "restore")
+                }
+              />
+            </Suspense>
+          ) : null}
         </PopoverContent>
       </Popover>
     </TooltipProvider>

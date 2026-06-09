@@ -358,6 +358,34 @@ describe("Plans skills install — materialized output", () => {
     }
   });
 
+  it.each(["ui-plan", "prototype-plan", "plan-design", "visual-questions"])(
+    "accepts %s as a Plans install alias",
+    async (plansAlias) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
+      try {
+        const result = await addAgentNativeSkill(
+          parseSkillsArgs([
+            "add",
+            plansAlias,
+            "--client",
+            "codex",
+            "--scope",
+            "project",
+          ]),
+          {
+            baseDir: root,
+            runCommand: async () => 0,
+          },
+        );
+
+        expect(result.id).toBe("visual-plans");
+        expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
     const { captured } = await materializeViaAlias("visual-plan");
     const md = captured["visual-plan"];

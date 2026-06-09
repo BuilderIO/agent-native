@@ -61,19 +61,25 @@ export async function createAssetFromBuffer(input: {
 }): Promise<typeof schema.assets.$inferSelect> {
   const id = input.id ?? nanoid();
   const mediaType = input.mediaType ?? mediaTypeFromMime(input.mimeType);
-  const info =
+  // allSettled keeps the pLimit slot held until both jobs finish, so the
+  // concurrency cap is never violated even when one job fails early.
+  const [infoResult, thumbResult] = await Promise.allSettled([
     mediaType === "image"
-      ? await imageInfo(input.buffer)
-      : {
+      ? imageInfo(input.buffer)
+      : Promise.resolve({
           width: null,
           height: null,
           mimeType: input.mimeType,
           sizeBytes: input.buffer.byteLength,
-        };
-  const thumb =
+        }),
     mediaType === "image" && input.thumbnailObjectKey === undefined
-      ? await makeThumbnail(input.buffer)
-      : null;
+      ? makeThumbnail(input.buffer)
+      : Promise.resolve(null),
+  ]);
+  if (infoResult.status === "rejected") throw infoResult.reason;
+  if (thumbResult.status === "rejected") throw thumbResult.reason;
+  const info = infoResult.value;
+  const thumb = thumbResult.value;
   const ext = extFromMime(input.mimeType);
   const originalFilename = `libraries/${input.libraryId}/assets/${id}/original.${ext}`;
   const thumbnailFilename = thumb
