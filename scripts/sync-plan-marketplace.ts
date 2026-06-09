@@ -29,10 +29,11 @@ import {
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import prettier from "prettier";
+
 import {
   type AppSkillManifest,
   type AppSkillManifestSkill,
-  exportedSkillContentHash,
   resolvePluginVersion,
 } from "../packages/core/src/cli/app-skill.js";
 import { BUILT_IN_APP_SKILLS } from "../packages/core/src/cli/skills.js";
@@ -108,8 +109,16 @@ function rewriteSkillFrontmatterName(source: string, name: string): string {
   return lines.join("\n");
 }
 
-function jsonFile(rel: string, value: unknown): GeneratedFile {
-  return { rel, content: JSON.stringify(value, null, 2) + "\n" };
+/**
+ * Format JSON through Prettier so the committed bundle matches what `pnpm fmt`
+ * would produce; otherwise the formatter would rewrite the files and break the
+ * guard on the next run.
+ */
+async function jsonFile(rel: string, value: unknown): Promise<GeneratedFile> {
+  const content = await prettier.format(JSON.stringify(value), {
+    parser: "json",
+  });
+  return { rel, content };
 }
 
 /**
@@ -129,7 +138,7 @@ function codexPluginVersion(): string {
   return resolvePluginVersion(manifest, rootDir, hashManifestSkills());
 }
 
-function expectedFiles(): GeneratedFile[] {
+async function expectedFiles(): Promise<GeneratedFile[]> {
   const files: GeneratedFile[] = [];
 
   // Generated copies of the six canonical skills under the shared plugin dir.
@@ -159,7 +168,7 @@ function expectedFiles(): GeneratedFile[] {
 
   // Shared .mcp.json for both hosts.
   files.push(
-    jsonFile(
+    await jsonFile(
       join(".agents", "plugins", "agent-native-visual-plans", ".mcp.json"),
       mcpServers,
     ),
@@ -167,7 +176,7 @@ function expectedFiles(): GeneratedFile[] {
 
   // Claude manifest — OMIT version (commit-SHA versioning).
   files.push(
-    jsonFile(
+    await jsonFile(
       join(
         ".agents",
         "plugins",
@@ -195,7 +204,7 @@ function expectedFiles(): GeneratedFile[] {
 
   // Codex manifest — version = content-hash version.
   files.push(
-    jsonFile(
+    await jsonFile(
       join(
         ".agents",
         "plugins",
@@ -239,7 +248,7 @@ function expectedFiles(): GeneratedFile[] {
 
   // Claude catalog at repo root.
   files.push(
-    jsonFile(join(".claude-plugin", "marketplace.json"), {
+    await jsonFile(join(".claude-plugin", "marketplace.json"), {
       name: CLAUDE_MARKETPLACE_NAME,
       description:
         "Agent-Native app-backed skills that bundle instructions, MCP connectors, and UI surfaces.",
@@ -263,7 +272,7 @@ function expectedFiles(): GeneratedFile[] {
   // Codex catalog under .agents/plugins. `source` is a sibling local path with
   // no `..` segments, matching MarketplacePluginSourceObject::Local.
   files.push(
-    jsonFile(join(".agents", "plugins", "marketplace.json"), {
+    await jsonFile(join(".agents", "plugins", "marketplace.json"), {
       name: CLAUDE_MARKETPLACE_NAME,
       interface: {
         displayName:
@@ -353,8 +362,8 @@ function checkInSync(files: GeneratedFile[]): void {
   );
 }
 
-try {
-  const files = expectedFiles();
+async function main(): Promise<void> {
+  const files = await expectedFiles();
   if (check) {
     checkInSync(files);
     console.log(
@@ -367,7 +376,9 @@ try {
       `Synced Plan marketplace bundle from skills/ (Codex version ${codexPluginVersion()}).`,
     );
   }
-} catch (error) {
+}
+
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-}
+});

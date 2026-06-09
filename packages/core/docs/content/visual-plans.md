@@ -22,6 +22,8 @@ agent-native skills add visual-plan
 
 Authentication is a one-time browser sign-in at setup — this is intended, and it is what lets the agent persist and share the plans it generates. This also installs the companion `/visual-recap` command for reviewing changes that already landed (see [Invoking the skill](#invoke)).
 
+> **Prefer a one-install plugin?** Claude Code and Codex can add `BuilderIO/agent-native` directly as a plugin marketplace, which bundles the six Plan skills _and_ the connector in one install and auto-updates as the skills improve — see [Plan plugin & marketplace](/docs/plan-plugin).
+
 What the auth step does depends on your client:
 
 - **OAuth-capable hosts** (Claude Code) get a URL-only MCP entry plus a prompt to run `/mcp` and choose **Authenticate**.

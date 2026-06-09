@@ -1586,25 +1586,42 @@ text-match screenshot is not enough; visually inspect the captured image.
 ## Open And Report The Recap
 
 After creating the recap, link the reviewer to the rendered plan with an
-**absolute URL**. Never make the primary link a local \`plan.mdx\` file, a local
+**absolute URL on the origin whose database actually holds the plan**. That
+origin is the Plan MCP server you just created the recap through — NOT whatever
+dev server you happen to know is running. The create tool returns the correct
+link; report THAT. Never make the primary link a local \`plan.mdx\` file, a local
 mirror folder, or a relative path such as \`/plans/<id>\`.
+
+A recap lives only in the database of the MCP that created it. A separately
+running local dev server (e.g. \`http://localhost:8081\`) has its OWN database and
+will NOT contain a recap created through the hosted MCP, so a hand-built
+\`localhost\` link returns "Plan not found". This is the most common recap
+mistake — do not guess an origin you have not confirmed shares the MCP's data.
 
 Resolve the URL in this order:
 
-1. When creating a recap for local edits and a running local/dev Plan app origin
-   is known, prefer that local origin even if \`plan.mdx\` includes a hosted
-   \`visualUrl\`, e.g. \`http://localhost:8081/plans/<id>\`.
-2. Use the absolute \`visualUrl\` exported in \`plan.mdx\` frontmatter when present,
-   e.g. \`https://plan.agent-native.com/plans/<id>\`.
-3. If the action returns only a relative \`url\`/\`path\` and the running app origin
-   is known, construct an absolute URL from that origin, e.g.
-   \`http://localhost:5173/plans/<id>\`.
-4. If only the plan id is available, build the hosted absolute URL
-   \`https://plan.agent-native.com/plans/<id>\` and say if that URL was inferred.
+1. Use the absolute URL the create tool RETURNS — \`openLink.webUrl\`, else the
+   \`visualUrl\` in the returned \`plan.mdx\` frontmatter, else \`url\`/\`path\`
+   resolved against the MCP server's own origin (for the hosted MCP that is
+   \`https://plan.agent-native.com\`). This always points at the database that has
+   the plan.
+2. Use a \`localhost\`/dev origin ONLY when the recap was created through a Plan
+   MCP bound to that same origin — i.e. that MCP's url is
+   \`http://localhost:<port>/_agent-native/mcp\`. Creating through the hosted MCP
+   and linking to localhost is the exact mismatch that 404s.
+3. If only a plan id is available, build the MCP origin's absolute URL
+   (hosted: \`https://plan.agent-native.com/plans/<id>\`) and say it was inferred.
+
+If the user wants to review on localhost but the recap was created through the
+hosted MCP, say so plainly: the local dev server cannot see it. To view a recap
+on localhost (e.g. to exercise un-deployed local renderer changes), they must
+connect a LOCAL Plan MCP (\`http://localhost:<port>/_agent-native/mcp\`) and
+re-create the recap through it so it lands in the local database; offer to do
+that rather than handing over a localhost URL that will not resolve.
 
 When running in Codex and the Browser/in-app side browser tools are available,
-open the absolute recap URL there automatically after creation. Still include the
-same absolute URL in the final response. Local mirror files like
+open the returned absolute recap URL there automatically after creation. Still
+include the same absolute URL in the final response. Local mirror files like
 \`plans/<slug>/plan.mdx\` may be mentioned only as secondary source-control
 artifacts, not as the main way to open the recap.
 

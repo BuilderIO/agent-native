@@ -45,48 +45,46 @@ After it finishes, restart or reload the agent client so the new skills and tool
 
 ### Claude Code (plugin) {#claude-code}
 
-Claude Code has a first-class plugin marketplace. Generate the marketplace adapter with `app-skill pack`, then add it and install the plugin:
-
-```bash
-# Generate the Claude Code marketplace adapter for the Plan app
-agent-native app-skill pack \
-  --manifest templates/plan/agent-native.app-skill.json \
-  --out ./dist/visual-plans-skill
-```
-
-Then, inside Claude Code:
+The public `BuilderIO/agent-native` repo is itself a Claude Code plugin marketplace, so you add it directly — no build step. Inside Claude Code:
 
 ```text
-/plugin marketplace add ./dist/visual-plans-skill/adapters/claude-marketplace
+/plugin marketplace add BuilderIO/agent-native
 /plugin install agent-native-visual-plans@agent-native-apps
 /reload-plugins
 /mcp        # authenticate the Plan connector (one OAuth approval)
 ```
 
-`/plugin install` adds the six Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake. For a published marketplace repo, point `/plugin marketplace add` at the repository URL instead of the local folder.
+`/plugin install` adds the six Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake.
 
 > The marketplace catalog is named `agent-native-apps` and the Plan plugin is `agent-native-visual-plans`, so the install target is always `agent-native-visual-plans@agent-native-apps`.
 
 ### Codex (plugin) {#codex}
 
-`app-skill pack` also emits a Codex plugin adapter (`.codex-plugin/plugin.json` + `.mcp.json`) in the same `--out` directory. For Codex, the recommended path is still the universal CLI above (`agent-native skills add visual-plan --client codex`), which writes the connector into `~/.codex/config.toml` under `[mcp_servers.agent-native-plans]` and runs the device-code OAuth flow. After install, **start a new Codex thread** so the skills and MCP tools load into the session.
-
-If you ever see an auth error, re-run:
+The same repo is a Codex plugin marketplace. Add it, install the plugin, then authenticate the connector:
 
 ```bash
-agent-native connect https://plan.agent-native.com --client codex
+codex plugin marketplace add BuilderIO/agent-native
+codex plugin add agent-native-visual-plans@agent-native-apps
+codex mcp login agent-native-plans   # OAuth in the browser
 ```
+
+After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.agent-native-plans]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login` runs the OAuth flow. The universal CLI route above also works for Codex (`agent-native skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
 
 ## Updates {#updates}
 
-- **Universal CLI route** — re-run `npx @agent-native/core@latest skills add visual-plan` (or `agent-native skills add visual-plan`) to refresh the skills and re-register the connector. The skill content is bundled in the published `@agent-native/core` package, so `@latest` always pulls the current skills.
-- **Claude Code / Codex plugin** — the generated plugin packages carry a static `version`, so a routine refresh is: re-run `agent-native app-skill pack`, then re-add/reinstall the marketplace (`/plugin marketplace add …`, `/plugin install …`, `/reload-plugins` in Claude Code; start a new thread in Codex). The MCP endpoint itself is hosted, so the live tool surface at `https://plan.agent-native.com` updates without re-installing the plugin — re-installing only refreshes the bundled skill instructions.
+The plugin routes auto-update — you do not re-pack or re-add the marketplace for routine skill changes:
 
-The connector points at a **hosted** app, so the Plan app's actions and behavior always reflect the deployed version regardless of when you last installed; only the local skill instructions are pinned to the version you installed.
+- **Claude Code** — the marketplace entry sets `autoUpdate: true` and the plugin uses commit-SHA versioning, so Claude Code pulls new versions from the repo at startup; run `/reload-plugins` to activate. Every push to the repo's default branch reaches installed users automatically.
+- **Codex** — the plugin `version` embeds a content hash of the bundled skills and MCP endpoint (e.g. `1.0.0+codex.<hash>`), so any skill or endpoint change yields a new version. Codex's startup auto-upgrade re-installs configured git marketplaces on its own; just **start a new thread** to pick up the change. No manual `codex plugin marketplace upgrade` is needed for routine updates.
+- **Universal CLI route** — re-run `npx @agent-native/core@latest skills add visual-plan` to refresh the skills and re-register the connector. `@latest` always pulls the current skills from the published `@agent-native/core` package.
+
+The connector points at a **hosted** app, so the Plan app's actions and live tool surface always reflect the deployed version regardless of when you installed; only the bundled skill instructions follow the update mechanisms above.
+
+> **Maintainers:** the marketplace bundle (`.claude-plugin/`, `.agents/plugins/`) is generated from the canonical plan skills by `pnpm sync:plan-marketplace` and verified in CI by `pnpm guard:plan-marketplace`, so the published marketplace always matches the canonical skills. Edit the skill, run `pnpm sync:plan-marketplace`, and commit.
 
 ## Do you need to submit anything? {#submission}
 
-**No submission or review is required to distribute or install this.** The Plan bundle is generated from the Agent-Native CLI and the `agent-native-apps` marketplace adapter; users add it directly with the commands above. This is true for **both Claude Code and Codex** — a self-hosted, public git marketplace (or a locally generated marketplace folder) needs no application or approval. The universal CLI route needs no marketplace at all.
+**No submission or review is required to distribute or install this.** `BuilderIO/agent-native` is a self-hosted, public git marketplace, so users add it directly with the commands above on **both Claude Code and Codex** — no application or approval. The universal CLI route needs no marketplace at all.
 
 Optional discoverability, if you want a public listing:
 

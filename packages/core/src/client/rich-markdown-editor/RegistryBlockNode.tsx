@@ -97,6 +97,17 @@ export interface RegistryBlockDataValue<
     block: TBlock,
     options: { editing: boolean },
   ) => ReactNode;
+  /**
+   * Optional: render a schema-driven (or otherwise custom) editor for a legacy
+   * block in place of the raw-JSON fallback. Receives an `onChange` that commits
+   * the block's new `data`. Return `null`/`undefined` to keep the JSON editor for
+   * that block type. The returned editor is expected to autosave through
+   * `onChange` (no Save button is shown), matching registered panel blocks.
+   */
+  renderLegacyBlockEditor?: (
+    block: TBlock,
+    args: { onChange: (nextData: unknown) => void },
+  ) => ReactNode;
 }
 
 const RegistryBlockDataContext =
@@ -326,6 +337,11 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   } else if (sideMap?.renderLegacyBlock) {
     body = sideMap.renderLegacyBlock(block, { editing: false });
     if (editable && sideMap.onBlockDataChange) {
+      // Prefer a host-provided schema/custom editor (a real form) over the raw
+      // JSON fallback when the host knows how to edit this legacy block type.
+      const customEditor = sideMap.renderLegacyBlockEditor?.(block, {
+        onChange: (nextData) => commitBlockData(nextData),
+      });
       editSurface = (
         <LegacyJsonEditSurface
           block={block}
@@ -334,6 +350,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
           renderEditSurface={registryValue?.ctx.renderEditSurface}
           onChange={(nextBlock) => commitBlockData(nextBlock)}
           selected={shellHovered}
+          customEditor={customEditor}
         />
       );
     }
@@ -387,6 +404,7 @@ export function LegacyJsonEditSurface({
   renderEditSurface,
   onChange,
   selected,
+  customEditor,
 }: {
   block: RegistryBlockSideMapBlock;
   open: boolean;
@@ -394,6 +412,12 @@ export function LegacyJsonEditSurface({
   renderEditSurface?: BlockRenderContext["renderEditSurface"];
   onChange: (nextData: unknown) => void;
   selected: boolean;
+  /**
+   * A host-provided form editor (e.g. {@link SchemaBlockEditor}). When present it
+   * replaces the raw-JSON textarea + Save button; the form autosaves through its
+   * own `onChange`.
+   */
+  customEditor?: ReactNode;
 }) {
   const serializedBlockData = useMemo(
     () => JSON.stringify(block.data, null, 2),
@@ -432,7 +456,7 @@ export function LegacyJsonEditSurface({
       <IconPencil className="size-4" />
     </button>
   );
-  const editor = (
+  const jsonEditor = (
     <div className="grid gap-3">
       <textarea
         data-plan-interactive
@@ -449,16 +473,19 @@ export function LegacyJsonEditSurface({
           Invalid JSON: {parseError}
         </p>
       ) : null}
-      <button
-        type="button"
-        data-plan-interactive
-        className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
-        onClick={saveDraft}
-      >
-        Save
-      </button>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          data-plan-interactive
+          className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
+          onClick={saveDraft}
+        >
+          Save
+        </button>
+      </div>
     </div>
   );
+  const editor = customEditor ?? jsonEditor;
   if (!renderEditSurface) return open ? editor : trigger;
   return renderEditSurface({
     title: block.title ?? "Block",

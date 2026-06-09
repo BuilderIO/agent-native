@@ -21,12 +21,15 @@ import {
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import {
+  SchemaBlockEditor,
   useOptionalBlockRegistry,
   type BlockRegistry,
   type BlockDataChangeMeta,
+  type BlockRenderContext,
 } from "@agent-native/core/blocks";
 import {
   createPlanBlockId,
+  imageDataSchema,
   type PlanBlock,
   type PlanContent,
 } from "@shared/plan-content";
@@ -39,6 +42,37 @@ import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
 /** One tab id per browser tab, shared by every plan document editor instance. */
 const TAB_ID = generateTabId();
+
+// A minimal block render context for the legacy schema-form editors below. The
+// image schema has no markdown/asset fields, so the schema auto-editor never
+// reaches into `ctx`; only the dialect is meaningful.
+const LEGACY_FORM_CTX: BlockRenderContext = { dialect: "gfm" };
+
+/**
+ * Render a schema-driven form editor for legacy (unregistered) block types that
+ * would otherwise fall back to the raw-JSON editor in the block-node popover.
+ * Today only `image` opts in (url / alt / caption / fit as real inputs); other
+ * legacy types return `null` and keep the JSON fallback. The form autosaves
+ * through `onChange`, matching how registered panel blocks edit their data.
+ */
+function renderPlanLegacyBlockEditor(
+  block: PlanBlock,
+  { onChange }: { onChange: (nextData: unknown) => void },
+) {
+  if (block.type === "image") {
+    return (
+      <SchemaBlockEditor
+        data={block.data}
+        schema={imageDataSchema}
+        onChange={onChange}
+        editable
+        blockId={block.id}
+        ctx={LEGACY_FORM_CTX}
+      />
+    );
+  }
+  return null;
+}
 
 /** The wrapper class the DragHandle anchors its grip + drop indicator to. */
 const WRAPPER_CLASS = "plan-document-editor";
@@ -540,6 +574,12 @@ export function PlanDocumentEditor({
 
   const handleDrop = useMemo<DragHandleOptions["handleDrop"]>(
     () => (data: unknown, context: DragHandleDropContext) => {
+      // eslint-disable-next-line no-console
+      console.log("[coldrop] fired", {
+        placement: context.placement,
+        sourceView: !!context.sourceView,
+        view: !!context.view,
+      });
       if (context.placement !== "left" && context.placement !== "right") {
         return false;
       }
@@ -554,6 +594,14 @@ export function PlanDocumentEditor({
         (isTransferredPlanBlock(data) ? data : null) ??
         planBlockFromPmNode(context.sourceNode, sourceBlocks);
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
+      // eslint-disable-next-line no-console
+      console.log("[coldrop] resolved", {
+        sourceBlockId: sourceBlock?.id,
+        sourceType: sourceBlock?.type,
+        targetBlockId: targetBlock?.id,
+        targetType: targetBlock?.type,
+        topLevelIds: currentBlocks.map((b) => b.id),
+      });
       if (!sourceBlock || !targetBlock) return false;
 
       const targetRegion = nestedRegionInfoForView(context.view);
@@ -572,6 +620,12 @@ export function PlanDocumentEditor({
         containerBlockId: targetRegion?.containerBlockId,
         regionId: targetRegion?.regionId,
       });
+      // eslint-disable-next-line no-console
+      console.log("[coldrop] applyColumnSideDrop", {
+        produced: !!nextBlocks,
+        nextLen: nextBlocks?.length,
+        nextTypes: nextBlocks?.map((b) => b.type),
+      });
       if (!nextBlocks) return false;
 
       commit(nextBlocks);
@@ -589,6 +643,11 @@ export function PlanDocumentEditor({
       // "in sync", and it loops `setContent` (wiping edits + flushSync storm).
       RunId,
       PlanBlockNode,
+      // Markdown images in the document editor use the plan image node view so
+      // they get the same hover zoom / lightbox / replace controls as structured
+      // image blocks (features.image is off so the plain core image node, which
+      // has no node view, never coexists with this one).
+      PlanImageNode,
       DragHandle.configure({
         wrapperSelector: `.${WRAPPER_CLASS}`,
         getDragTransferData,
@@ -781,6 +840,7 @@ export function PlanDocumentEditor({
       // image, …) through the same `PlanBlockView` dispatcher the per-block
       // reader uses, so every block type renders in the document. Edits replace
       // the whole block by id; nested rich-text edits patch that block's markdown.
+      renderLegacyBlockEditor: renderPlanLegacyBlockEditor,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },
@@ -834,7 +894,7 @@ export function PlanDocumentEditor({
           contentUpdatedAt={contentUpdatedAt}
           editable={editable}
           dialect="gfm"
-          features={{ image: true }}
+          features={{ image: false }}
           extraExtensions={extraExtensions}
           slashItems={slashItems}
           ydoc={ydoc}
@@ -926,6 +986,11 @@ export function NestedPlanBlocksEditor({
     () => [
       RunId,
       PlanBlockNode,
+      // Markdown images in the document editor use the plan image node view so
+      // they get the same hover zoom / lightbox / replace controls as structured
+      // image blocks (features.image is off so the plain core image node, which
+      // has no node view, never coexists with this one).
+      PlanImageNode,
       DragHandle.configure({
         wrapperSelector: `.${NESTED_WRAPPER_CLASS}`,
         getDragTransferData,
@@ -1084,6 +1149,7 @@ export function NestedPlanBlocksEditor({
         );
         commit(next);
       },
+      renderLegacyBlockEditor: renderPlanLegacyBlockEditor,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },
@@ -1142,7 +1208,7 @@ export function NestedPlanBlocksEditor({
           contentUpdatedAt={contentUpdatedAt}
           editable={editable}
           dialect="gfm"
-          features={{ image: true }}
+          features={{ image: false }}
           extraExtensions={extraExtensions}
           slashItems={slashItems}
           getMarkdown={getMarkdown}

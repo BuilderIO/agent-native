@@ -1,11 +1,8 @@
 {
   "name": "agent-native-visual-plans",
-  "version": "1.0.0+codex.403eeaf2b594",
+  "version": "1.0.0+codex.91fc7d90d738",
   "description": "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, optional UI wireframes/prototypes, annotations, feedback, and HTML export.",
-  "author": {
-    "name": "Agent-Native",
-    "url": "https://agent-native.com"
-  },
+  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://plan.agent-native.com",
   "license": "MIT",
   "keywords": [

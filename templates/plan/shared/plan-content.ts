@@ -1396,7 +1396,7 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
     });
   });
 
-const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
+export const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
   .object({
     assetId: z.string().trim().min(1).max(200).optional(),
     url: z.string().trim().max(2_000).url().optional(),

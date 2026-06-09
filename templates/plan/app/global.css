@@ -1762,6 +1762,16 @@
   margin: 2rem 0;
 }
 
+/* An editable block node renders its edit pencil at the top-right
+ * (`.plan-block-node__edit`). For image blocks that ALSO render their own
+ * hover toolbar (zoom + ⋯) at the top-right, shift the image actions left so
+ * they sit clear of the pencil instead of overlapping it. Read-only views and
+ * inline markdown images (not inside a block-node shell) keep the default
+ * top-right position. */
+.plan-block-node__shell .plan-image__actions {
+  right: 2.75rem;
+}
+
 .plan-nested-document-editor .plan-block-node {
   position: relative;
   margin: 1rem 0;

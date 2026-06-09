@@ -1,9 +1,7 @@
 {
   "name": "agent-native-apps",
   "description": "Agent-Native app-backed skills that bundle instructions, MCP connectors, and UI surfaces.",
-  "owner": {
-    "name": "Agent-Native"
-  },
+  "owner": { "name": "Agent-Native" },
   "plugins": [
     {
       "name": "agent-native-visual-plans",
