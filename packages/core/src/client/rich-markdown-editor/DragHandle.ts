@@ -1016,7 +1016,13 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       el.setAttribute("aria-haspopup", "menu");
       el.setAttribute("aria-expanded", "false");
       el.title = "Open block menu or drag to reorder";
-      el.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      // The icon must not be its own hit target: a real mouse-down inside a
+      // nested editor (a column) lands on the SVG, and a container block's
+      // capture-phase block-select handler (RegistryBlockNode) only spares the
+      // grip DIV — so a press on the icon gets swallowed and the block can't be
+      // dragged out of / between columns. `pointer-events:none` makes every
+      // press in the grip area resolve to the DIV instead.
+      el.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="pointer-events:none">
         <circle cx="5.5" cy="3" r="1.5"/><circle cx="10.5" cy="3" r="1.5"/>
         <circle cx="5.5" cy="8" r="1.5"/><circle cx="10.5" cy="8" r="1.5"/>
         <circle cx="5.5" cy="13" r="1.5"/><circle cx="10.5" cy="13" r="1.5"/>
@@ -1094,16 +1100,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
       removeDragListeners();
 
-      // eslint-disable-next-line no-console
-      console.log("[vmove] finish", {
-        commit,
-        dragging: session.dragging,
-        hasTarget: !!session.dropTarget,
-        placement: session.dropTarget?.placement,
-        sameView: session.dropTarget
-          ? session.dropTarget.view === session.view
-          : null,
-      });
       if (commit && session.dragging && session.dropTarget) {
         const sourceStart = session.sourcePos;
         const sourceEnd = session.sourcePos + session.sourceNodeSize;
@@ -1289,12 +1285,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
           handle.addEventListener("mousedown", (e) => {
             e.stopPropagation();
-            // eslint-disable-next-line no-console
-            console.log("[vmove] md", {
-              sel: wrapperSelector,
-              hasCur: !!currentBlock,
-              pos: dragStartPos,
-            });
             if (e.button !== 0) return;
             closeMenu();
             if (!editor.isEditable) {

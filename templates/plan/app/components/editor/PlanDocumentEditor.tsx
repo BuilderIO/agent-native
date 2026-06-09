@@ -765,13 +765,6 @@ export function PlanDocumentEditor({
         (isTransferredPlanBlock(data) ? data : null) ??
         planBlockFromPmNode(context.sourceNode, sourceBlocks);
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
-      // eslint-disable-next-line no-console
-      console.log("[vmove] drop", {
-        placement,
-        sameView: context.sourceView === context.view,
-        sourceId: sourceBlock?.id,
-        targetId: targetBlock?.id,
-      });
       if (!sourceBlock || !targetBlock) return false;
 
       let nextBlocks: PlanBlock[] | null;
