@@ -1310,6 +1310,9 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   // pipeline (TypeScript, SSR HMR, the works).
   const workspaceCore = findWorkspaceCoreSync(cwd);
   const workspaceCoreFsAllow = workspaceCore ? [workspaceCore.packageDir] : [];
+  const workspaceNodeModulesAllow = isWorkspaceChild
+    ? [path.resolve(cwd, "../../node_modules")]
+    : [];
   const workspaceCoreNoExternal = workspaceCore
     ? [new RegExp(`^${escapeRegex(workspaceCore.packageName)}(/.*)?$`)]
     : [];
@@ -1342,6 +1345,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           ".",
           ...monorepoCoreAllow,
           ...workspaceCoreFsAllow,
+          ...workspaceNodeModulesAllow,
           ...(options.fsAllow ?? []),
         ],
         deny: [
@@ -1480,6 +1484,12 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       // serves stale code even after the source / dist is updated.
       exclude: [
         ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
+        // Vite 8's Rolldown dep optimizer can mis-bundle recharts' nested
+        // es-toolkit compat CJS (require_isUnsafeProperty is not a function),
+        // leaving the app stuck on the ClientOnly spinner after sign-in.
+        // Serve them as native ESM instead; workspaceNodeModulesAllow above
+        // lets pnpm-resolved transitive deps load in workspace apps.
+        ...(hasDep("recharts", cwd) ? ["recharts", "es-toolkit"] : []),
         ...(options.optimizeDeps?.exclude ?? []),
       ],
     },
