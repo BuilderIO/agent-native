@@ -544,7 +544,7 @@ function filesSidebarHideCss(blockId: string): string {
     .join(",\n");
   return `@media (min-width: 1400px){
 .plan-document-flow [data-block-id="${id}"]{display:none}
-${leadReset}{margin-top:2.25rem;padding-top:0;border-top:0}
+${leadReset}{margin-top:2.25rem;padding-top:0}
 }`;
 }
 

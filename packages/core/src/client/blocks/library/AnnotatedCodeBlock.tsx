@@ -96,8 +96,8 @@ function AnnotatedCodeRead({
           )}
         </div>
       )}
-      <div className="overflow-x-auto py-1.5">
-        <div className="min-w-full font-mono [font-size:var(--plan-code-size)] leading-[22px]">
+      <div className="overflow-x-auto py-1.5" data-code-surface>
+        <div className="min-w-full font-mono [font-size:var(--plan-doc-code-size)] leading-[22px]">
           {lines.map((_text, idx) => {
             const lineNo = idx + 1;
             const markers = lineMarkers.get(lineNo);
