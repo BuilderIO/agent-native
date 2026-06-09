@@ -8,6 +8,7 @@ import type {
 } from "../types.js";
 import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { RoughOverlay, useIsDark, useWireframeStyle } from "./wireframe-kit.js";
+import { sanitizeDiagramHtml, sanitizeWireframeCss } from "./sanitize-html.js";
 import {
   diagramMdx,
   diagramSchema,
@@ -65,25 +66,17 @@ function HtmlDiagram({
   const isDark = useIsDark();
   const style = useWireframeStyle();
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-  // Sanitize author HTML/CSS through the app-injected sanitizer at the render
-  // point (defense-in-depth against stored XSS). Without a sanitizer the HTML
-  // path emits nothing — core never injects unsanitized author HTML.
-  const safeHtml = useMemo(
-    () => (ctx.sanitizeHtml ? ctx.sanitizeHtml(data.html ?? "") : ""),
-    [ctx, data.html],
-  );
+  // Sanitize author HTML/CSS at the render point (defense-in-depth against
+  // stored XSS). Self-contained in core via the shared block sanitizer (DOM-based
+  // in the browser, regex fallback on the server) so diagrams render in any app
+  // without the host wiring a sanitizer hook.
+  const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
   const scopedCss = useMemo(() => {
-    if (!data.css || !ctx.sanitizeHtml) return "";
-    // Sanitize CSS through the same hook; scope it to this frame instance so
-    // author CSS can't leak to the rest of the document.
-    const safeCss = ctx
-      .sanitizeHtml(`<style>${data.css}</style>`)
-      .replace(/^<style>/, "")
-      .replace(/<\/style>$/, "");
+    const safeCss = sanitizeWireframeCss(data.css);
     return safeCss
       ? `[data-plan-diagram-scope="${scopeId}"]{}\n${safeCss}`
       : "";
-  }, [ctx, data.css, scopeId]);
+  }, [data.css, scopeId]);
 
   return (
     <div
@@ -362,8 +355,8 @@ function SequenceDiagram({
 
 /**
  * The diagram body. Routes to the preferred HTML/SVG path (when `data.html` is
- * set and a sanitizer is wired) and otherwise to a legacy node-graph path
- * (positioned canvas when nodes carry x/y, else an ordered sequence).
+ * set) and otherwise to a legacy node-graph path (positioned canvas when nodes
+ * carry x/y, else an ordered sequence).
  */
 function DiagramBody({
   data,
@@ -375,7 +368,7 @@ function DiagramBody({
   compact?: boolean;
 }) {
   const markerId = useId().replace(/:/g, "");
-  if (data.html?.trim() && ctx.sanitizeHtml) {
+  if (data.html?.trim()) {
     return <HtmlDiagram data={data} ctx={ctx} compact={compact} />;
   }
   if (hasPositionedDiagramNodes(data)) {

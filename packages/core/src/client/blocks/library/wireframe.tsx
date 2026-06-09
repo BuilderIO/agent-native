@@ -27,6 +27,10 @@ import {
   useIsDark,
   useWireframeStyle,
 } from "./wireframe-kit.js";
+import {
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+} from "./sanitize-html.js";
 
 /**
  * Shared `wireframe` block — a hand-drawn low-fi mockup of one screen, rendered
@@ -223,24 +227,16 @@ function HtmlArtboard({
   compact?: boolean;
 }) {
   const renderMode = data.renderMode ?? "wireframe";
-  // Sanitize author HTML/CSS through the app-injected sanitizer at the render
-  // point (defense-in-depth against stored XSS). Memoized so it re-runs only on
-  // content change. Without a sanitizer, the HTML path emits nothing.
-  const safeHtml = useMemo(
-    () => (ctx.sanitizeHtml ? ctx.sanitizeHtml(data.html ?? "") : ""),
-    [ctx, data.html],
-  );
+  // Sanitize author HTML/CSS at the render point (defense-in-depth against stored
+  // XSS). Self-contained in core via the shared block sanitizer (DOM-based in the
+  // browser, regex fallback on the server) so the HTML mockup path renders in any
+  // app without the host wiring a sanitizer hook.
+  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {
-    if (!data.css || !ctx.sanitizeHtml) return "";
-    // Sanitize CSS through the same hook; scope it to this frame instance so
-    // author CSS can't leak to the rest of the document.
-    const safeCss = ctx
-      .sanitizeHtml(`<style>${data.css}</style>`)
-      .replace(/^<style>/, "")
-      .replace(/<\/style>$/, "");
+    const safeCss = sanitizeWireframeCss(data.css);
     return safeCss ? `[data-plan-design-scope="${scopeId}"]{}\n${safeCss}` : "";
-  }, [ctx, data.css, scopeId]);
+  }, [data.css, scopeId]);
 
   return (
     <ArtboardFrame
@@ -326,7 +322,7 @@ function WireframeSurfaceView({
   ctx: BlockRenderContext;
   compact?: boolean;
 }) {
-  if (isHtmlData(data) && ctx.sanitizeHtml) {
+  if (isHtmlData(data)) {
     return <HtmlArtboard data={data} ctx={ctx} compact={compact} />;
   }
   return <KitArtboard data={data} compact={compact} />;

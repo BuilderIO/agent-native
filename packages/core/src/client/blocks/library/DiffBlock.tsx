@@ -809,6 +809,23 @@ function annotatedRowBg(info: { isActive: boolean } | null): string | null {
     : "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]";
 }
 
+/**
+ * Whether `row` is the FIRST line of `marker`'s resolved range. The numbered pip
+ * renders only on this line, so a multi-line annotation shows a single marker at
+ * the top of its span instead of repeating the same number down every line it
+ * covers. The amber band still washes the whole range (via `annotatedRowBg`), so
+ * the span stays visually grouped without the column of duplicate numbers.
+ */
+function isMarkerRangeStart(
+  row: DiffRow,
+  marker: ResolvedAnnotation<DiffAnnotation>,
+): boolean {
+  if (!marker.range) return false;
+  const lineNo =
+    annotationSide(marker.annotation) === "before" ? row.oldNo : row.newNo;
+  return lineNo === marker.range.start;
+}
+
 /* ── Unified view ──────────────────────────────────────────────────────────── */
 
 function UnifiedView({
@@ -892,6 +909,7 @@ function UnifiedRow({
 }) {
   const markers = markersForRow(row);
   const info = rowMarkerInfo(markers, activeIndex);
+  const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   return (
     <div
       className={cn(
@@ -914,7 +932,10 @@ function UnifiedRow({
         {SIGN[row.kind]}
       </span>
       {showMarkerColumn && (
-        <MarkerCell marker={markers[0]?.marker} info={info} />
+        <MarkerCell
+          startMarker={startMarker}
+          active={startMarker != null && startMarker.index === activeIndex}
+        />
       )}
       <DiffLineText text={row.text} language={language} />
     </div>
@@ -923,20 +944,22 @@ function UnifiedRow({
 
 /**
  * The fixed-width marker column rendered between the sign gutter and the code.
- * When `marker` is undefined the cell is an empty spacer so every row in a diff
- * with annotations keeps its code text aligned.
+ * `startMarker` is set only on the FIRST line of an annotation's range, so the
+ * numbered pip appears once at the top of a span; every other row (the rest of a
+ * span, and every unannotated row in a diff that has annotations) renders an
+ * empty spacer so the code text stays aligned.
  */
 function MarkerCell({
-  marker,
-  info,
+  startMarker,
+  active,
 }: {
-  marker?: number;
-  info: { isActive: boolean } | null;
+  startMarker?: ResolvedAnnotation<DiffAnnotation>;
+  active: boolean;
 }) {
   return (
     <span className="flex w-6 shrink-0 select-none items-center justify-center py-0">
-      {marker != null && info != null && (
-        <AnnotationGutterMarker marker={marker} active={info.isActive} />
+      {startMarker != null && (
+        <AnnotationGutterMarker marker={startMarker.marker} active={active} />
       )}
     </span>
   );
@@ -1096,6 +1119,7 @@ function SplitCell({
   const showSign = row.kind !== "context";
   const markers = markersForRow(row, side);
   const info = rowMarkerInfo(markers, activeIndex);
+  const startMarker = markers.find((marker) => isMarkerRangeStart(row, marker));
   return (
     <div
       className={cn(
@@ -1119,7 +1143,10 @@ function SplitCell({
         {showSign ? sign : " "}
       </span>
       {showMarkerColumn && (
-        <MarkerCell marker={markers[0]?.marker} info={info} />
+        <MarkerCell
+          startMarker={startMarker}
+          active={startMarker != null && startMarker.index === activeIndex}
+        />
       )}
       <DiffLineText text={row.text} language={language} />
     </div>

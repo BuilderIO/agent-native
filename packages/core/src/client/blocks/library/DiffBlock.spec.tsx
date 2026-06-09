@@ -172,6 +172,24 @@ describe("DiffBlock annotations", () => {
     expect(ones.length).toBeGreaterThan(0);
   });
 
+  it("shows a multi-line annotation's marker only on the first line of its range", () => {
+    render({
+      before: "",
+      after: "const a = 1\nconst b = 2\nconst c = 3\nconst d = 4\nconst e = 5",
+      annotations: [{ lines: "2-4", label: "Block", note: "Three lines." }],
+    });
+
+    // The range resolved across multiple lines…
+    expect(container.textContent).toContain("Lines 2–4");
+
+    // …yet the numbered pip renders exactly twice: once in the code gutter (the
+    // first line of the span) and once on the rail card — NOT once per line.
+    const pips = Array.from(
+      container.querySelectorAll("span[aria-hidden]"),
+    ).filter((el) => el.textContent?.trim() === "1");
+    expect(pips).toHaveLength(2);
+  });
+
   it("renders unchanged when there are no annotations (back-compat)", () => {
     render({
       before: "x",
