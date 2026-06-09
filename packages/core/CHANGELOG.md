@@ -1,5 +1,96 @@
 # @agent-native/core
 
+## 0.43.0
+
+### Minor Changes
+
+- 4682bb6: Move the full plan-specific block set into the shared core block library so any
+  app that registers the library (plan, content, future templates) gets every rich
+  block — not just plan.
+  - New shared library blocks: `callout`, `decision`, `question-form`,
+    `visual-questions`, `diagram`, and `wireframe` (plus the wireframe kit
+    primitives in `library/wireframe-kit.tsx`). Each ships a React-free
+    `*.config.ts` (schema + MDX) and a `*.tsx` (`Read`/`Edit` + spec), is added to
+    both `libraryBlockSpecs` (client) and `libraryBlockConfigs` (server), and is
+    exported from the blocks entry. They are decoupled from the plan app: no
+    `@/components/ui` / shadcn imports (popovers go through `ctx.renderEditSurface`),
+    and HTML-bearing blocks self-sanitize via the new
+    `library/sanitize-html.ts` (DOM-based in the browser, regex fallback on the
+    server) instead of relying on a host-wired hook.
+  - The shared block CSS "contract" now lives in core `styles/blocks.css`
+    (imported by `agent-native.css`): the generic block label/columns/code-surface/
+    prose/annotation rules, the `text/bg/border-plan-*` color utilities, the
+    app-neutral `an-callout` tone styling, and the wireframe-kit + inline-diagram
+    styling. Colors resolve against shadcn theme tokens (`--foreground`,
+    `--muted-foreground`, `--border`, `--muted`) — or, for the migrated wireframe/
+    diagram CSS, against plan vars with theme-token fallbacks — so the blocks render
+    in any app using that app's palette. Because `blocks.css` loads before a
+    template's `global.css`, the plan template's existing rules still win there, so
+    plan renders unchanged.
+  - `BlockRenderContext` gains an optional `onQuestionFormSubmit(summary)` hook so
+    the shared question-form/visual-questions blocks can route answers back to the
+    host without importing app-specific submit wiring.
+  - `BlockRegistry.register` now OVERRIDES on a duplicate block `type`/`tag`
+    (last-registration-wins) instead of throwing. This lets an app override a
+    shared library block with its own variant and makes module-level registration
+    idempotent under dev HMR (which could otherwise re-run a registration module
+    against a surviving registry and crash with "Block type … is already
+    registered"). A stale MDX-tag mapping is dropped when a re-registered type
+    changes its tag.
+
+  Plan's local registration of these blocks (client + server) is removed in favor
+  of the shared library copies; plan now registers no app-only blocks.
+
+### Patch Changes
+
+- 4682bb6: Make the Notion-style side drop (drag a block to a neighbour's left/right edge to
+  build columns) reliably hittable for a real human in the `DragHandle` extension.
+
+  The side (column) activation region was a thin edge sliver in the vertical
+  middle: 28% of the block width capped at 140px, AND only the middle 60% of the
+  height. On a typical ~820px plan block that left two ~17%-wide edge zones in a
+  35px-tall band as the only column targets — the entire centre and the top/bottom
+  slivers reordered instead. A natural "drag beside" gesture released over the
+  block body, so it almost always reordered and "dragging side by side never made
+  columns" (and even when the indicator flashed, a human's release drifted out of
+  the tiny zone before mouse-up).
+  - Each side zone now claims ~a third of the block width (`SIDE_DROP_ZONE_RATIO`
+    0.28 → 0.33, max cap 140 → 320px, min 48 → 56px) and is clamped to at most 45%
+    of the width so a centre before/after reorder lane always survives.
+  - Side zones now span the FULL block height (the vertical-middle-only band is
+    removed) — only the horizontal position decides column-vs-reorder.
+  - The drop indicator gets a `notion-drop-indicator--column` modifier class and is
+    drawn as a thicker (4px) vertical bar centred on the seam, so apps can style
+    column-build mode distinctly from the thin horizontal reorder line.
+
+  Editors that do not opt into `handleDrop` (e.g. the content editor) are
+  unaffected — side placements stay gated on `handleDrop` existing.
+
+  Also fixes the drag grip disappearing before you can grab blocks that are not
+  flush with the page's left gutter (a right column, a tab body). Their grip sits
+  in a gap the neighbour's wide forgiving hover zone also claims, so moving the
+  cursor from the block body toward its grip re-picked hover to the neighbour and
+  the grip vanished mid-approach. A grip keepalive now holds the shown grip while
+  the cursor travels left of that block's content toward its glyph (bounded to the
+  block's own row), so the grip stays grabbable — without changing the
+  innermost-wins or gutter-grab behaviour over content.
+
+- 4682bb6: Refine the `file-tree` block for the recap "Files touched" rail. Folder/file
+  rows and the summary title drop a touch (14px → 13px) so the dense explorer
+  reads a step below body text. The block now sets `data-files-expanded` on its
+  root while a file's note/snippet is the reader's active focus, which the plan
+  left rail uses to widen into a flyout over the document and collapse back to a
+  slim rail when focus leaves or the last open file is closed.
+- 4682bb6: Plan renderer + skill polish from review feedback:
+  - `checklist` block read view now wraps long item labels instead of clipping
+    them off the right edge (`min-w-0 flex-1` body, `shrink-0` marker,
+    `break-words`), and tightens the inter-item gap from `gap-3` to `gap-2`.
+  - Plan skill `DOCUMENT_QUALITY_CORE` (shared by `/visual-plan` and `/ui-plan`)
+    now states that the bottom `question-form` is the ONLY place that enumerates
+    open questions — a one-line pointer in the overview is fine, but the question
+    list must not be reproduced as a second "Open Questions" section earlier in
+    the document.
+
 ## 0.42.0
 
 ### Minor Changes
