@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconChevronRight,
   IconColumns,
@@ -10,11 +10,15 @@ import {
 } from "@tabler/icons-react";
 import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
-import type { BlockEditProps, BlockReadProps } from "../types.js";
+import type {
+  BlockEditProps,
+  BlockReadProps,
+  BlockRenderContext,
+} from "../types.js";
 import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import {
   AnnotationGutterMarker,
-  AnnotationNoteRail,
+  InlineAnnotationNote,
   buildLineMarkerMap,
   hasRailAnnotations,
   resolveAnnotations,
@@ -497,6 +501,38 @@ const DIFF_LINE_CLASS =
 const DEFAULT_VISIBLE_DIFF_LINES = 15;
 const MAX_DIFF_LCS_CELLS = 1_000_000;
 
+/**
+ * Below this rendered container width (px) a diff drops side-by-side `split`
+ * mode and falls back to `unified`: split's two line-number gutters double the
+ * width the code needs, exactly where space is tightest (e.g. a diff nested in a
+ * vertical-tabs content column). Measured from the block's own box, not the
+ * viewport, so the fallback fires by available width at any nesting depth.
+ */
+const SPLIT_MIN_WIDTH = 560;
+
+/**
+ * Observe the rendered inline width of an element. Returns a ref to attach plus
+ * the measured content-box width (null until the first ResizeObserver tick).
+ * Lets the diff pick an effective mode from the width it was actually handed — a
+ * measurement CSS container queries can't drive, since switching split↔unified
+ * is a structural (DOM) change, not a style toggle.
+ */
+function useContainerWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
+
 function splitDiffFilename(filename?: string): {
   basename: string;
   directory: string | null;
@@ -531,6 +567,7 @@ function DiffRead({
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [showAllRows, setShowAllRows] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [containerRef, containerWidth] = useContainerWidth<HTMLElement>();
 
   const rows = useMemo(
     () => buildRows(diffLines(data.before, data.after)),
@@ -562,6 +599,14 @@ function DiffRead({
     [data.annotations, beforeLineCount, afterLineCount],
   );
   const hasAnnotations = hasRailAnnotations(resolved);
+  // Effective render mode. Annotated diffs always render unified so the inline
+  // notes read in flow (there is no side rail); and any diff in a container
+  // narrower than SPLIT_MIN_WIDTH falls back to unified so split's doubled
+  // gutters never crush the code. `canSplit` also gates the mode toggle so it is
+  // hidden whenever split is unavailable.
+  const narrow = containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
+  const canSplit = !hasAnnotations && !narrow;
+  const effectiveMode: DiffMode = canSplit ? mode : "unified";
   // Side-scoped line → markers maps so a row only lights from its own side.
   const beforeMarkers = useMemo(
     () =>
@@ -606,7 +651,8 @@ function DiffRead({
   const added = rows.filter((r) => r.kind === "added").length;
   const removed = rows.filter((r) => r.kind === "removed").length;
   const unchanged = data.before === data.after;
-  const totalVisibleLineCount = mode === "split" ? splitLineCount : rows.length;
+  const totalVisibleLineCount =
+    effectiveMode === "split" ? splitLineCount : rows.length;
   const shouldLimitRows = totalVisibleLineCount > DEFAULT_VISIBLE_DIFF_LINES;
   // Never truncate away an annotated row: extend the window past the last one.
   const effectiveRowLimit = useMemo(() => {
@@ -624,7 +670,7 @@ function DiffRead({
   }, [showAllRows, shouldLimitRows, hasAnnotations, rows, markersForRow]);
   const rowLimit = effectiveRowLimit;
   const displayedRows =
-    mode === "unified" && rowLimit ? rows.slice(0, rowLimit) : rows;
+    effectiveMode === "unified" && rowLimit ? rows.slice(0, rowLimit) : rows;
 
   const toggleRun = (index: number) =>
     setExpanded((prev) => {
@@ -635,42 +681,46 @@ function DiffRead({
     });
 
   return (
-    <section className="plan-block group/diff-block" data-block-id={blockId}>
+    <section
+      ref={containerRef}
+      className="plan-block group/diff-block"
+      data-block-id={blockId}
+    >
       {title && <div className="plan-block-label">{title}</div>}
       {summary && (
         <p className="mb-3 text-sm leading-relaxed text-plan-muted">
           {summary}
         </p>
       )}
-      <div
-        className={cn(
-          hasAnnotations &&
-            "grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]",
-        )}
-      >
-        <div className="overflow-hidden rounded-md border border-border bg-background">
-          {/* Header: filename, path, +/− counts, mode toggle. */}
-          <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
-            <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
-            <span
-              className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono"
-              title={data.filename || undefined}
-            >
-              <span className="min-w-0 max-w-[16rem] truncate text-[13px] font-semibold leading-5 text-foreground">
-                {fileParts.basename}
-              </span>
-              {fileParts.directory && (
-                <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/70">
-                  {fileParts.directory}
-                </span>
-              )}
+      {/* Code surface spans the full width; annotations render inline (below
+          their line) rather than in a side rail, so nothing competes for width. */}
+      <div className="overflow-hidden rounded-md border border-border bg-background">
+        {/* Header: filename, path, +/− counts, mode toggle. */}
+        <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
+          <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
+          <span
+            className="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono"
+            title={data.filename || undefined}
+          >
+            <span className="min-w-0 max-w-[16rem] truncate text-[13px] font-semibold leading-5 text-foreground">
+              {fileParts.basename}
             </span>
-            <span className="ml-1 flex shrink-0 items-center gap-2 font-mono text-xs">
-              <span className="text-emerald-700 dark:text-emerald-300">
-                +{added}
+            {fileParts.directory && (
+              <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/70">
+                {fileParts.directory}
               </span>
-              <span className="text-destructive">−{removed}</span>
+            )}
+          </span>
+          <span className="ml-1 flex shrink-0 items-center gap-2 font-mono text-xs">
+            <span className="text-emerald-700 dark:text-emerald-300">
+              +{added}
             </span>
+            <span className="text-destructive">−{removed}</span>
+          </span>
+          {/* Mode toggle only when split is actually available: annotated diffs
+              are unified-only (inline notes), and a narrow container forces
+              unified, so the toggle would otherwise be a no-op. */}
+          {canSplit && (
             <div className="pointer-events-none ml-auto flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background opacity-0 transition-opacity group-hover/diff-block:pointer-events-auto group-hover/diff-block:opacity-100 group-focus-within/diff-block:pointer-events-auto group-focus-within/diff-block:opacity-100">
               <ModeButton
                 active={mode === "unified"}
@@ -685,62 +735,54 @@ function DiffRead({
                 label="Split"
               />
             </div>
-          </div>
-
-          {/* Body. */}
-          {unchanged ? (
-            <div className="px-4 py-6 text-center font-mono text-sm text-muted-foreground">
-              No changes
-            </div>
-          ) : mode === "split" ? (
-            <SplitView
-              rows={rows}
-              language={language}
-              rowLimit={rowLimit}
-              markersForRow={markersForRow}
-              activeIndex={activeIndex}
-              onActiveChange={setActiveIndex}
-            />
-          ) : (
-            <UnifiedView
-              rows={displayedRows}
-              language={language}
-              expanded={expanded}
-              onToggleRun={toggleRun}
-              markersForRow={markersForRow}
-              anchoredRow={anchoredRow}
-              activeIndex={activeIndex}
-              onActiveChange={setActiveIndex}
-            />
-          )}
-          {!unchanged && shouldLimitRows && (
-            <button
-              type="button"
-              data-plan-interactive
-              aria-expanded={showAllRows}
-              onClick={() => setShowAllRows((current) => !current)}
-              className="flex h-7 w-full items-center justify-center gap-1.5 border-t border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-            >
-              <IconChevronRight
-                className={cn(
-                  "size-3 shrink-0 transition-transform",
-                  showAllRows ? "-rotate-90" : "rotate-90",
-                )}
-              />
-              {showAllRows
-                ? "Show fewer"
-                : `Show all ${totalVisibleLineCount} lines`}
-            </button>
           )}
         </div>
-        {hasAnnotations && (
-          <AnnotationNoteRail
-            items={resolved}
+
+        {/* Body. */}
+        {unchanged ? (
+          <div className="px-4 py-6 text-center font-mono text-sm text-muted-foreground">
+            No changes
+          </div>
+        ) : effectiveMode === "split" ? (
+          <SplitView
+            rows={rows}
+            language={language}
+            rowLimit={rowLimit}
+            markersForRow={markersForRow}
+            activeIndex={activeIndex}
+            onActiveChange={setActiveIndex}
+          />
+        ) : (
+          <UnifiedView
+            rows={displayedRows}
+            language={language}
+            expanded={expanded}
+            onToggleRun={toggleRun}
+            markersForRow={markersForRow}
+            anchoredRow={anchoredRow}
             activeIndex={activeIndex}
             onActiveChange={setActiveIndex}
             ctx={ctx}
-            showMarker
           />
+        )}
+        {!unchanged && shouldLimitRows && (
+          <button
+            type="button"
+            data-plan-interactive
+            aria-expanded={showAllRows}
+            onClick={() => setShowAllRows((current) => !current)}
+            className="flex h-7 w-full items-center justify-center gap-1.5 border-t border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+          >
+            <IconChevronRight
+              className={cn(
+                "size-3 shrink-0 transition-transform",
+                showAllRows ? "-rotate-90" : "rotate-90",
+              )}
+            />
+            {showAllRows
+              ? "Show fewer"
+              : `Show all ${totalVisibleLineCount} lines`}
+          </button>
         )}
       </div>
     </section>

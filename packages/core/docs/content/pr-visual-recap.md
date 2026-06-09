@@ -5,7 +5,7 @@ description: "A GitHub Action that runs your repo's visual-recap skill on every 
 
 # PR Visual Recap
 
-PR Visual Recap is a GitHub Action that turns every pull request into a **visual code review**. On each push, an LLM coding agent runs your repo's [`visual-recap`](/docs/visual-plans) skill against the PR diff, publishes a structured recap plan to the hosted Plans app, and upserts **one sticky PR comment** that links to the interactive plan with an **inline screenshot** embedded right in the comment.
+PR Visual Recap is a GitHub Action that turns every pull request into a **visual code review**. On each push, an LLM coding agent runs your repo's [`visual-recap`](/docs/template-plan) skill against the PR diff, publishes a structured recap plan to the hosted Plans app, and upserts **one sticky PR comment** that links to the interactive plan with an **inline screenshot** embedded right in the comment.
 
 This is not a deterministic diff renderer. The action invokes a real coding agent (Claude Code CLI by default, or OpenAI Codex CLI) that reads the change, decides what matters, and authors the recap by calling the Plans MCP tool `create-visual-recap` — the same tool the `/visual-recap` slash command uses. You get a high-altitude, schema/API/before-after view of the change instead of a wall of raw diff.
 
@@ -99,5 +99,5 @@ The recap is a review aid layered on top of the normal PR flow:
 
 ## Related
 
-- [Visual Plans](/docs/visual-plans) — the `/visual-plan` and `/visual-recap` skills, the hosted Plans connector, and the interactive review surface this action publishes to.
+- [Visual Plans](/docs/template-plan) — the `/visual-plan` and `/visual-recap` skills, the hosted Plans connector, and the interactive review surface this action publishes to.
 - [Skills](/docs/skills-guide) — installing agent-native skills into your coding agent.

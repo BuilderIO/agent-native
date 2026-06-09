@@ -101,7 +101,7 @@ Under the hood, all three routes are produced from the same source by the `agent
 
 ## What's next {#whats-next}
 
-- [**Visual Plans**](/docs/visual-plans) — what the skills do and how to use them
+- [**Visual Plans**](/docs/template-plan) — what the skills do and how to use them
 - [**PR Visual Recap**](/docs/pr-visual-recap) — run `/visual-recap` automatically on every pull request
 - [**Skills Guide**](/docs/skills-guide) — app-backed skills and the manifest format
 - [**External Agents**](/docs/external-agents) — connect any MCP host and round-trip artifacts

@@ -1,4 +1,4 @@
-export type NavItem = { label: string; to: string; children?: NavItem[] };
+export type NavItem = { label: string; to?: string; children?: NavItem[] };
 export type NavSection = { title: string; items: NavItem[] };
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -85,10 +85,11 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Calendar", to: "/docs/template-calendar" as const },
       { label: "Content", to: "/docs/template-content" as const },
       {
+        // Chevron-only group: no `to`, so it renders as an expand/collapse
+        // toggle, not a link. The main Plans doc is the first child below.
         label: "Plans",
-        to: "/docs/template-plan" as const,
         children: [
-          { label: "Visual Plans", to: "/docs/visual-plans" as const },
+          { label: "Visual Plans", to: "/docs/template-plan" as const },
           { label: "PR Visual Recap", to: "/docs/pr-visual-recap" as const },
           {
             label: "Plan Plugin & Marketplace",
@@ -153,11 +154,16 @@ export const NAV_SECTIONS: NavSection[] = [
 ];
 
 // Flat list for prev/next navigation and current-item lookups. Nested
-// children (e.g. the plan docs under the Plans template) are flattened in
-// place, right after their parent, so reading order stays intuitive.
+// children (e.g. the plan docs under the Plans group) are flattened in place
+// where their parent sits; chevron-only group headers (no `to`) are skipped
+// so reading order stays intuitive and prev/next only lands on real pages.
 function flattenItems(items: NavItem[]): NavItem[] {
   return items.flatMap((item) =>
-    item.children ? [item, ...flattenItems(item.children)] : [item],
+    item.children
+      ? // A group header has no `to`; keep only real pages in the flat
+        // prev/next list so navigation never targets a non-page.
+        [...(item.to ? [item] : []), ...flattenItems(item.children)]
+      : [item],
   );
 }
 

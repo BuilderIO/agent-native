@@ -8,6 +8,8 @@ import { withDefaultSocialImage } from "../seo";
 const SLUG_REDIRECTS: Record<string, string> = {
   resources: "workspace",
   secrets: "security",
+  // Plans docs consolidated into the single template-plan page.
+  "visual-plans": "template-plan",
 };
 
 export async function loader({ params }: LoaderFunctionArgs) {

@@ -58,7 +58,7 @@ const SKILLS: Skill[] = [
       "Optional wireframe canvas plus a clickable prototype",
       "Comments, annotations, and a shareable review link",
     ],
-    docsTo: "/docs/visual-plans",
+    docsTo: "/docs/template-plan",
   },
   {
     command: "/visual-recap",
@@ -379,7 +379,7 @@ export default function SkillsPage() {
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
           <Link
             data-an-prefetch="render"
-            to="/docs/visual-plans"
+            to="/docs/template-plan"
             className="inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
           >
             Read the Visual Plans docs
