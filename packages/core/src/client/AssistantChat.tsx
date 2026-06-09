@@ -4421,23 +4421,31 @@ const AssistantChatInner = forwardRef<
           const res = await fetch(
             `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
           );
-          if (!res.ok) return;
-          const data = await res.json();
-          if (data.threadData) {
-            importThreadData(data.threadData, { markTitleGenerated: true });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.threadData) {
+              importThreadData(data.threadData, { markTitleGenerated: true });
+            }
+            // Also skip title generation if thread already has a title
+            if (data.title) {
+              titleGeneratedRef.current = true;
+            }
           }
-          // Also skip title generation if thread already has a title
-          if (data.title) {
-            titleGeneratedRef.current = true;
-          }
-
-          // Check if there's an active run for this thread (e.g. after hot
-          // reload), and reconnect to it if it is still running.
-          await reconnectActiveRunForThread();
         } catch {
           // Start fresh
         } finally {
+          // Clear the skeleton as soon as the persisted messages are imported.
+          // The active-run reconnect probe below must NOT gate first paint — it
+          // only matters when a run is mid-flight (e.g. after a hot reload), and
+          // it streams on top of the already-rendered messages.
           setIsRestoring(false);
+        }
+        // Reconnect to an in-progress run after the skeleton has cleared, so a
+        // background `/runs/active` probe never delays showing the conversation.
+        try {
+          await reconnectActiveRunForThread();
+        } catch {
+          // No active run to reconnect to.
         }
       })();
     } else {
@@ -5455,10 +5463,7 @@ const AssistantChatInner = forwardRef<
                       {emptyStateText ?? "How can I help you?"}
                     </p>
                     {emptyStateAddon}
-                    {suggestionsLoading ? (
-                      <EmptyStateSuggestionSkeleton />
-                    ) : resolvedSuggestions &&
-                      resolvedSuggestions.length > 0 ? (
+                    {resolvedSuggestions && resolvedSuggestions.length > 0 ? (
                       <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
                         {resolvedSuggestions.map((suggestion) => (
                           <button

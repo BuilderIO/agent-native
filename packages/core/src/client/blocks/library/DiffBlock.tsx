@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   IconChevronRight,
   IconColumns,
@@ -18,9 +26,9 @@ import type {
 import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import {
   AnnotationGutterMarker,
-  InlineAnnotationNote,
   buildLineMarkerMap,
   hasRailAnnotations,
+  rangeLabel,
   resolveAnnotations,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
@@ -599,14 +607,62 @@ function DiffRead({
     [data.annotations, beforeLineCount, afterLineCount],
   );
   const hasAnnotations = hasRailAnnotations(resolved);
-  // Effective render mode. Annotated diffs always render unified so the inline
-  // notes read in flow (there is no side rail); and any diff in a container
-  // narrower than SPLIT_MIN_WIDTH falls back to unified so split's doubled
-  // gutters never crush the code. `canSplit` also gates the mode toggle so it is
-  // hidden whenever split is unavailable.
+  // Effective render mode. Annotated diffs always render unified so a marked
+  // line and its right-margin popover line up cleanly; and any diff in a
+  // container narrower than SPLIT_MIN_WIDTH falls back to unified so split's
+  // doubled gutters never crush the code. `canSplit` also gates the mode toggle
+  // so it is hidden whenever split is unavailable.
   const narrow = containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
   const canSplit = !hasAnnotations && !narrow;
   const effectiveMode: DiffMode = canSplit ? mode : "unified";
+
+  // Annotation popover (diff): a marked line shows its note as a hover popover
+  // pinned in the diff's right margin and aligned to that line — no inline notes
+  // and no permanent side rail, so the code keeps its full width. A short
+  // hover-intent delay lets the pointer travel from the line into the popover.
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleActiveChange = useCallback((index: number | null) => {
+    if (clearTimer.current) {
+      clearTimeout(clearTimer.current);
+      clearTimer.current = null;
+    }
+    if (index == null) {
+      clearTimer.current = setTimeout(() => setActiveIndex(null), 120);
+    } else {
+      setActiveIndex(index);
+    }
+  }, []);
+  useEffect(
+    () => () => {
+      if (clearTimer.current) clearTimeout(clearTimer.current);
+    },
+    [],
+  );
+  const activeAnnotation =
+    activeIndex == null
+      ? null
+      : (resolved.find((r) => r.index === activeIndex && r.range) ?? null);
+  // Vertical center of the active marker's anchor row within the section, so the
+  // popover sits beside that line. Rows are in page flow (no inner vertical
+  // scroll), so a DOM measure on activeIndex change is stable.
+  const [popoverTop, setPopoverTop] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const host = containerRef.current;
+    if (activeIndex == null || !host) {
+      setPopoverTop(null);
+      return;
+    }
+    const rowEl = host.querySelector<HTMLElement>(
+      `[data-annot-row="${activeIndex}"]`,
+    );
+    if (!rowEl) {
+      setPopoverTop(null);
+      return;
+    }
+    const hostRect = host.getBoundingClientRect();
+    const rowRect = rowEl.getBoundingClientRect();
+    setPopoverTop(rowRect.top - hostRect.top + rowRect.height / 2);
+  }, [activeIndex, containerRef]);
   // Side-scoped line → markers maps so a row only lights from its own side.
   const beforeMarkers = useMemo(
     () =>
