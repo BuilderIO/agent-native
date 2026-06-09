@@ -14,6 +14,7 @@ vi.mock("./emitter.js", () => ({
 
 import {
   forkThread,
+  listThreads,
   renameThread,
   searchThreads,
   setThreadArchived,
@@ -73,7 +74,11 @@ describe("chat thread store", () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql)) {
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        // Legacy message_count backfill probe — no legacy rows in these tests.
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, owner_email/i.test(sql)) {
@@ -223,7 +228,9 @@ describe("chat thread store", () => {
   it("searches thread text with literal LIKE metacharacters", async () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
-      if (/CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -232,9 +239,13 @@ describe("chat thread store", () => {
 
     await searchThreads("user@example.com", "100%_done");
 
+    // Match the search query specifically (its WHERE has the ESCAPE clause),
+    // not the legacy-count backfill probe that also reads from chat_threads.
     const searchCall = executeMock.mock.calls.find(([query]) => {
       const sql = typeof query === "string" ? query : query.sql;
-      return /SELECT .* FROM chat_threads WHERE/i.test(sql);
+      return (
+        /SELECT .* FROM chat_threads WHERE/i.test(sql) && /ESCAPE/i.test(sql)
+      );
     });
     expect(searchCall).toBeTruthy();
     const query = searchCall![0] as { sql: string; args: unknown[] };
@@ -244,6 +255,101 @@ describe("chat thread store", () => {
       "%100\\%\\_done%",
       "%100\\%\\_done%",
     ]);
+  });
+
+  it("lists threads without loading the thread_data blob and filters on message_count", async () => {
+    const summaryRow = {
+      id: "thread-1",
+      title: "Thread",
+      preview: "make this slide better",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 2,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+      pinned_at: null,
+      archived_at: null,
+    };
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [summaryRow], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const result = await listThreads("user@example.com", { limit: 10 });
+
+    const listCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return (
+        /SELECT .* FROM chat_threads WHERE/i.test(sql) && /ORDER BY/i.test(sql)
+      );
+    });
+    expect(listCall).toBeTruthy();
+    const sql = (listCall![0] as { sql: string }).sql;
+    // The list SELECT must NOT pull the heavy thread_data blob...
+    expect(sql).not.toContain("thread_data");
+    // ...and the "has messages" filter is the maintained column, no LIKE scan.
+    expect(sql).toContain("message_count > 0");
+    expect(sql).not.toMatch(/thread_data LIKE/i);
+    expect(result.map((t) => t.id)).toEqual(["thread-1"]);
+    expect(result[0].messageCount).toBe(1);
+  });
+
+  it("backfills message_count for legacy rows so they stay in the list", async () => {
+    // ensureTable caches its bootstrap promise at module scope, so reset the
+    // module registry to force a fresh bootstrap (and the one-time backfill)
+    // for this assertion.
+    vi.resetModules();
+    const updates: Array<{ count: number; id: string }> = [];
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      // The legacy backfill probe: a row that has messages but count = 0.
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return {
+          rows: [
+            {
+              id: "legacy-1",
+              thread_data: JSON.stringify({
+                messages: [
+                  { message: userMessage, parentId: null },
+                  { message: assistantMessage, parentId: "user-1" },
+                ],
+              }),
+              message_count: 0,
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
+      if (
+        /UPDATE chat_threads SET message_count = \? WHERE id = \?/i.test(sql)
+      ) {
+        updates.push({ count: args[0], id: args[1] });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const freshStore = await import("./store.js");
+    await freshStore.listThreads("user@example.com");
+
+    expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
   });
 
   it("renames threads with a durable title override", async () => {
@@ -270,7 +376,14 @@ describe("chat thread store", () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /ALTER TABLE/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /ALTER TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql)
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, owner_email/i.test(sql)) {
@@ -397,7 +510,14 @@ describe("chat thread store", () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /ALTER TABLE/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /ALTER TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql)
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, owner_email/i.test(sql)) {
@@ -469,7 +589,14 @@ describe("chat thread store", () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /ALTER TABLE/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /ALTER TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql)
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, owner_email/i.test(sql)) {

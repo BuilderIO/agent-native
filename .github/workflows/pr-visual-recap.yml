@@ -105,6 +105,37 @@ jobs:
               if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
             }
 
+            // Self-modifying guard, evaluated in the GATE (trusted github-script
+            // that runs NO PR-checked-out code): if this PR changes the workflow,
+            // the visual-recap/visual-plan skill, the local CLI (packages/core),
+            // or any agent config the runner would load (.claude/**, CLAUDE.md,
+            // .mcp.json), skip the ENTIRE job — not just the agent — so a PR can
+            // never rewrite what runs (skill, hooks, settings, CLI) and exfiltrate
+            // the publish/API secrets.
+            if (pr) {
+              try {
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  per_page: 100,
+                });
+                const isSensitive = (p) =>
+                  p === '.github/workflows/pr-visual-recap.yml' ||
+                  /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
+                  /(^|\/)\.claude\//.test(p) ||
+                  /(^|\/)CLAUDE\.md$/.test(p) ||
+                  /(^|\/)\.mcp\.json$/.test(p) ||
+                  /(^|\/)packages\/core\//.test(p);
+                const hits = files.map((f) => f.filename).filter(isSensitive);
+                if (hits.length) {
+                  reasons.push(`PR modifies recap-control files (${hits.slice(0, 3).join(', ')}${hits.length > 3 ? ', …' : ''}) — skipping so untrusted PR code never runs with secrets`);
+                }
+              } catch (e) {
+                reasons.push(`could not list PR files for the self-modifying guard (${e.message}); skipping to be safe`);
+              }
+            }
+
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
             // Export the NORMALIZED agent so the recap job's step conditions match
@@ -218,6 +249,10 @@ jobs:
             '*skills/visual-recap/*' \
             '*skills/visual-plan/*' \
             '*skills/visual-plans/*' \
+            '*.claude/*' \
+            '*CLAUDE.md' \
+            '*.mcp.json' \
+            '*packages/core/*' \
             | wc -l | tr -d ' ')
           if [ "${SELF:-0}" -gt 0 ]; then
             echo "self_modifying=true" >> "$GITHUB_OUTPUT"

@@ -163,6 +163,18 @@ export interface CreateSharedEditorExtensionsOptions {
   /** Optional collaborative-editing wiring. */
   collab?: SharedEditorCollab | null;
   /**
+   * Disable StarterKit's built-in undo/redo (prosemirror-history) for a
+   * controlled (non-collab) editor whose host owns its own undo authority.
+   * Default `false`. When a `collab.ydoc` is present, undo/redo is ALWAYS
+   * disabled regardless of this flag (Yjs owns history); this flag is the
+   * non-collab equivalent. The plan editor sets it so a single app-level undo
+   * stack (over the authoritative `blocks[]` tree, which includes block data
+   * the ProseMirror doc never stores) is the sole cmd+z authority — otherwise
+   * PM history and the app stack would both fire, and PM history can't see
+   * block-option edits at all.
+   */
+  disableHistory?: boolean;
+  /**
    * Injectable image uploader for the shared image block. Only used when
    * `features.image` is on. Turns a picked / pasted / dropped image File into a
    * hosted `{ src, alt? }`. Plans pass `uploadEditorImage` (the framework
@@ -262,6 +274,7 @@ export function createSharedEditorExtensions({
   extraExtensions = [],
   collab = null,
   onImageUpload = null,
+  disableHistory = false,
 }: CreateSharedEditorExtensionsOptions = {}): Array<Extension | Node | Mark> {
   const feat = { ...DEFAULT_FEATURES, ...(features ?? {}) };
   const ydoc = collab?.ydoc ?? null;
@@ -278,7 +291,9 @@ export function createSharedEditorExtensions({
       dropcursor: { color: "hsl(var(--ring))", width: 2 },
       // Yjs owns undo/redo when Collaboration is active; the StarterKit history
       // plugin and the CRDT cannot both track undo without corrupting state.
-      ...(ydoc ? { undoRedo: false } : {}),
+      // `disableHistory` is the non-collab equivalent: a controlled editor whose
+      // host (e.g. the plan editor) owns a single app-level undo authority.
+      ...(ydoc || disableHistory ? { undoRedo: false } : {}),
       // App overrides last so embedders can disable replaced nodes (paragraph,
       // blockquote, code block) or swap the dropcursor while keeping the shared
       // base + the collab undo/redo gating above.

@@ -4011,6 +4011,21 @@ const AssistantChatInner = forwardRef<
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
   const lastPersistedQueueRef = useRef<string>("[]");
+  // Cheap change-guard for `importThreadData`. The real-time sync layer
+  // refetches `/threads/:id` (or re-runs `loadHistoryRepository`) on poll /
+  // change ticks, on reconnect, and whenever the host's transcript bumps
+  // `historyReloadKey`. On a long thread the JSON.parse +
+  // normalizeThreadRepository + threadRuntime.export()/import round-trip is
+  // CPU-bound and triggers re-render churn even when the content is byte-for-
+  // byte identical to what we last imported. We hash the raw incoming payload
+  // and skip the whole pipeline when it hasn't advanced, returning the
+  // already-imported repo so callers (e.g. the reconnect loop's
+  // repoHasAssistantMessage check) see consistent data. Any real change — a
+  // new message, an arriving tool result, the server replacing an optimistic
+  // copy, or switching threads — produces a different signal and falls
+  // through to a full import.
+  const lastImportedSignatureRef = useRef<string | null>(null);
+  const lastImportedRepoRef = useRef<any>(null);
   const [showContinue, setShowContinue] = useState(false);
   const [loopLimitInfo, setLoopLimitInfo] = useState<LoopLimitInfo | null>(
     null,
@@ -4068,9 +4083,43 @@ const AssistantChatInner = forwardRef<
 
   const importThreadData = useCallback(
     (threadData: unknown, options?: { markTitleGenerated?: boolean }): any => {
+      // Cheap-signal short-circuit: if the raw payload is identical to the
+      // last one we imported, there is nothing new to parse, normalize, or
+      // re-import into the runtime. Reuse the already-imported repo so callers
+      // still get back a stable result without the CPU + re-render cost. We
+      // still honor `markTitleGenerated` because a re-fetch carrying the same
+      // content can legitimately confirm a title is settled.
+      const signature =
+        typeof threadData === "string"
+          ? threadData
+          : (() => {
+              try {
+                return JSON.stringify(threadData);
+              } catch {
+                return null;
+              }
+            })();
+      if (
+        signature !== null &&
+        signature === lastImportedSignatureRef.current
+      ) {
+        if (options?.markTitleGenerated) {
+          titleGeneratedRef.current = true;
+        }
+        return lastImportedRepoRef.current;
+      }
+
       const repo = normalizeThreadRepository(
         typeof threadData === "string" ? JSON.parse(threadData) : threadData,
       );
+      // Whether this payload settled into the runtime (either imported, or
+      // had no messages to import). Only then is it safe to remember its
+      // signature as the canonical "last imported" — a payload that
+      // `shouldImportServerThreadData` deliberately rejected (e.g. it
+      // regressed message count) must NOT be cached, so an identical re-fetch
+      // re-evaluates against the runtime exactly as before instead of
+      // short-circuiting to the rejected repo.
+      let settled = true;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
         try {
@@ -4086,11 +4135,17 @@ const AssistantChatInner = forwardRef<
             titleGeneratedRef.current = true;
           }
           threadRuntime.import(ensureMessageMetadata(repo));
+        } else {
+          settled = false;
         }
       }
       if (Array.isArray(repo?.queuedMessages)) {
         setQueuedMessages(repo.queuedMessages);
         lastPersistedQueueRef.current = JSON.stringify(repo.queuedMessages);
+      }
+      if (settled && signature !== null) {
+        lastImportedSignatureRef.current = signature;
+        lastImportedRepoRef.current = repo;
       }
       return repo;
     },

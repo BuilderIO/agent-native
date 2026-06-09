@@ -57,6 +57,14 @@ export interface SharedRichEditorProps {
   awareness?: Awareness | null;
   /** Current user info for the collaborative cursor label. */
   user?: RichMarkdownCollabUser | null;
+  /**
+   * Disable StarterKit's built-in undo/redo for a controlled (non-collab)
+   * editor whose host owns its own undo authority (see
+   * {@link CreateSharedEditorExtensionsOptions.disableHistory}). Ignored when a
+   * `ydoc` is present (Yjs always owns history then). Default `false`, so every
+   * existing embedder is unchanged.
+   */
+  disableHistory?: boolean;
   /** Override the slash-menu block command list. */
   slashItems?: SlashCommandItem[];
   /** Override the bubble-toolbar item builder. */
@@ -128,6 +136,7 @@ export function SharedRichEditor({
   ydoc = null,
   awareness = null,
   user = null,
+  disableHistory = false,
   slashItems,
   buildBubbleItems,
   getMarkdown,
@@ -154,6 +163,7 @@ export function SharedRichEditor({
         extraExtensions,
         onImageUpload,
         collab: ydoc ? { ydoc, awareness, user } : null,
+        disableHistory,
       }),
     // `preset` is retained in the dependency list so future preset-specific
     // schema branches re-create the editor; it is currently schema-neutral. The
@@ -172,6 +182,7 @@ export function SharedRichEditor({
       user?.name,
       user?.email,
       user?.color,
+      disableHistory,
     ],
   );
 
