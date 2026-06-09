@@ -348,7 +348,7 @@ export function SharePeopleTab({
   const shares = data?.shares ?? [];
 
   const handleAdd = () => {
-    const trimmed = email.trim();
+    const trimmed = email.trim().toLowerCase();
     if (!trimmed) return;
     share.mutate(
       {
