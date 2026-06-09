@@ -5,11 +5,16 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  RECAP_DIFF_BYTE_CAP,
   buildCommentBody,
+  buildRecapClaudeMcpConfig,
+  buildRecapCodexMcpConfig,
   buildRecapPrompt,
+  classifyDiff,
   diffContainsSecret,
   parseClaudeUsage,
   parseCodexUsage,
+  truncateDiffAtLineBoundary,
 } from "./recap.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 
@@ -41,6 +46,128 @@ describe("recap secret scan", () => {
       "+}",
     ].join("\n");
     expect(diffContainsSecret(diffText)).toBe(false);
+  });
+});
+
+describe("recap collect-diff classification", () => {
+  it("classifies a 1-file, <=8-line change as tiny", () => {
+    expect(classifyDiff({ bytes: 200, changed: 1, originalLines: 4 })).toEqual({
+      huge: false,
+      tiny: true,
+    });
+  });
+
+  it("does not classify a normal multi-file change as tiny or huge", () => {
+    expect(
+      classifyDiff({ bytes: 5_000, changed: 3, originalLines: 120 }),
+    ).toEqual({ huge: false, tiny: false });
+  });
+
+  it("is not tiny when a single file changes many lines", () => {
+    // 1 file but >8 changed lines — too substantial to skip.
+    expect(
+      classifyDiff({ bytes: 4_000, changed: 1, originalLines: 40 }),
+    ).toMatchObject({ tiny: false });
+  });
+
+  it("uses ORIGINAL line count (pre-truncation) for the tiny check", () => {
+    // An oversized diff is huge, and never tiny even if `changed` is small,
+    // because originalLines (captured before truncation) is large.
+    expect(
+      classifyDiff({
+        bytes: RECAP_DIFF_BYTE_CAP + 1,
+        changed: 1,
+        originalLines: 50_000,
+      }),
+    ).toEqual({ huge: true, tiny: false });
+  });
+
+  it("flags a diff over the 600KB cap as huge", () => {
+    expect(
+      classifyDiff({
+        bytes: RECAP_DIFF_BYTE_CAP + 1,
+        changed: 5,
+        originalLines: 99,
+      }),
+    ).toMatchObject({ huge: true });
+    expect(
+      classifyDiff({
+        bytes: RECAP_DIFF_BYTE_CAP,
+        changed: 5,
+        originalLines: 99,
+      }),
+    ).toMatchObject({ huge: false });
+  });
+
+  it("truncates an oversized diff at a line boundary with the footer", () => {
+    // Build a synthetic diff well over the cap, each line ending in \n.
+    const line = "+".repeat(99) + "\n"; // 100 bytes per line
+    const big = line.repeat(Math.ceil((RECAP_DIFF_BYTE_CAP + 50_000) / 100));
+    expect(Buffer.byteLength(big, "utf8")).toBeGreaterThan(RECAP_DIFF_BYTE_CAP);
+
+    const out = truncateDiffAtLineBoundary(big);
+    // Footer is appended.
+    expect(out).toContain("[diff truncated at 600KB for the recap agent]");
+    // The body (before the footer) is within the cap and ends on a complete
+    // line — no partial trailing diff line.
+    const body = out.slice(0, out.indexOf("\n\n[diff truncated"));
+    expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(
+      RECAP_DIFF_BYTE_CAP,
+    );
+    // Every retained line is a full 99-`+` line (none cut mid-way).
+    for (const retained of body.split("\n")) {
+      if (retained.length) expect(retained).toBe("+".repeat(99));
+    }
+  });
+
+  it("does not cut a multi-byte UTF-8 char at the cap boundary", () => {
+    // A line of multi-byte chars that straddles the cap must be dropped whole.
+    const emojiLine = "+" + "😀".repeat(50) + "\n"; // > 1 byte per emoji
+    const big = emojiLine.repeat(
+      Math.ceil((RECAP_DIFF_BYTE_CAP + 20_000) / Buffer.byteLength(emojiLine)),
+    );
+    const out = truncateDiffAtLineBoundary(big);
+    // No replacement char from a cut codepoint.
+    expect(out).not.toContain("�");
+    expect(out).toContain("[diff truncated at 600KB for the recap agent]");
+  });
+});
+
+describe("recap mcp-config", () => {
+  it("writes valid Claude JSON with the plan url + bearer header", () => {
+    const json = buildRecapClaudeMcpConfig(
+      "https://plan.agent-native.com/",
+      "tok-123",
+    );
+    const parsed = JSON.parse(json);
+    expect(parsed.mcpServers.plan).toEqual({
+      type: "http",
+      // Trailing slash trimmed before appending the mcp path.
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+      headers: { Authorization: "Bearer tok-123" },
+    });
+  });
+
+  it("writes Codex TOML with a JSON-stringified url and env-var bearer", () => {
+    const toml = buildRecapCodexMcpConfig("https://plan.agent-native.com");
+    expect(toml).toBe(
+      [
+        "[mcp_servers.plan]",
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'bearer_token_env_var = "PLAN_RECAP_TOKEN"',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("JSON-stringifies the Codex url so a stray quote can't break the TOML", () => {
+    // A pathological app-url containing a quote must be escaped inside the TOML
+    // basic string, never break out of it.
+    const toml = buildRecapCodexMcpConfig('https://evil"\n[hacked]');
+    // The url line stays a single, properly-escaped basic string.
+    expect(toml).toContain('url = "https://evil\\"\\n[hacked]/_agent-native/mcp"');
+    // No injected table header on its own line.
+    expect(toml).not.toMatch(/^\[hacked\]/m);
   });
 });
 

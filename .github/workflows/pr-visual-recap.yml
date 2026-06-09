@@ -202,67 +202,19 @@ jobs:
         if: steps.cli.outputs.local == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Collect a BOUNDED diff between the PR base and head. We exclude lockfiles,
-      # build output, and snapshots (noise), and cap the byte size — over the cap
-      # we set `huge=true` so the agent is told to produce a summarized recap.
+      # Collect a BOUNDED diff between the PR base and head. The CLI excludes
+      # lockfiles, build output, and snapshots (noise), caps the byte size at
+      # ~600KB (over the cap it truncates recap.diff at a line boundary and sets
+      # `huge=true` so the agent is told to summarize), and classifies `tiny`.
+      # The CLI writes the bytes/changed/huge/tiny outputs to $GITHUB_OUTPUT
+      # itself — see `recap collect-diff` in packages/core/src/cli/recap.ts.
       - name: Collect bounded diff
         id: diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git diff --no-color "$BASE_SHA"..."$HEAD_SHA" -- \
-            . \
-            ':(exclude)pnpm-lock.yaml' \
-            ':(exclude)**/dist/**' \
-            ':(exclude)**/*.snap' \
-            ':(exclude)**/*.lock' \
-            > recap.diff || true
-          git diff --stat --no-color "$BASE_SHA"..."$HEAD_SHA" -- \
-            . \
-            ':(exclude)pnpm-lock.yaml' \
-            ':(exclude)**/dist/**' \
-            ':(exclude)**/*.snap' \
-            ':(exclude)**/*.lock' \
-            > recap.stat || true
-
-          BYTES=$(wc -c < recap.diff | tr -d ' ')
-          CHANGED=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA" -- \
-            . \
-            ':(exclude)pnpm-lock.yaml' \
-            ':(exclude)**/dist/**' \
-            ':(exclude)**/*.snap' \
-            ':(exclude)**/*.lock' \
-            | wc -l | tr -d ' ')
-          echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
-          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
-
-          # Count changed lines on the ORIGINAL diff (before any byte-cap truncation),
-          # so a large diff is never misclassified as tiny after truncation.
-          ORIGINAL_LINES=$(grep -cE '^[+-]' recap.diff || true)
-
-          # ~600KB cap. Over the cap we both flag `huge` (so the agent is told to
-          # summarize) AND physically truncate recap.diff, so an oversized diff
-          # cannot overflow the agent's prompt budget when it reads the file.
-          # Truncate at a COMPLETE LINE boundary (`sed '$d'` drops the last,
-          # possibly-partial, line) so the byte cap can never cut a multi-byte
-          # UTF-8 char or a diff line mid-way and corrupt the agent's input.
-          if [ "$BYTES" -gt 614400 ]; then
-            echo "huge=true" >> "$GITHUB_OUTPUT"
-            head -c 614400 recap.diff | sed '$d' > recap.diff.capped && mv recap.diff.capped recap.diff
-            printf '\n\n[diff truncated at 600KB for the recap agent]\n' >> recap.diff
-          else
-            echo "huge=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          # Tiny diffs (<= 1 changed file AND <= 8 changed lines) aren't worth a
-          # recap — skip generation cleanly. Use ORIGINAL_LINES (captured before
-          # any truncation) so a large diff is never misclassified as tiny.
-          if [ "$CHANGED" -le 1 ] && [ "${ORIGINAL_LINES:-0}" -le 8 ]; then
-            echo "tiny=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "tiny=false" >> "$GITHUB_OUTPUT"
-          fi
+          $RECAP_CLI recap collect-diff --base "$BASE_SHA" --head "$HEAD_SHA" --out recap.diff --stat recap.stat
 
       # Secret pre-scan: refuse to hand a diff that looks like it leaks
       # credentials to the agent. Prints { suppressed, reason } and always exits 0.
@@ -327,7 +279,9 @@ jobs:
         run: |
           set -uo pipefail
           MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
-          node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({mcpServers:{plan:{type:"http",url:process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp",headers:{Authorization:"Bearer "+process.env.PLAN_RECAP_TOKEN}}}}))' "$MCP_CONFIG"
+          # Write the plan MCP config (reads PLAN_RECAP_TOKEN from env) — see
+          # `recap mcp-config` in packages/core/src/cli/recap.ts.
+          $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
           # VISUAL_RECAP_MODEL picks the Claude model; reasoning depth is model-driven
           # for Claude Code, so VISUAL_RECAP_REASONING only applies to the Codex backend.
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
@@ -344,11 +298,12 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -uo pipefail
-          mkdir -p "$HOME/.codex"
-          # JSON.stringify the URL into the TOML value so a stray quote/newline
-          # in PLAN_RECAP_APP_URL can't break out of the string (TOML basic
-          # strings share JSON's escaping); the key/env name stay literal.
-          node -e 'const fs=require("fs");const url=process.env.PLAN_RECAP_APP_URL.replace(/\/$/,"")+"/_agent-native/mcp";fs.writeFileSync(process.env.HOME+"/.codex/config.toml","[mcp_servers.plan]\nurl = "+JSON.stringify(url)+"\nbearer_token_env_var = \"PLAN_RECAP_TOKEN\"\n")'
+          # Write ~/.codex/config.toml with the plan MCP server. The CLI
+          # JSON.stringifies the URL value so a stray quote/newline in
+          # PLAN_RECAP_APP_URL can't break out of the TOML string, and creates
+          # the ~/.codex dir — see `recap mcp-config` in
+          # packages/core/src/cli/recap.ts.
+          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL"
           # Authenticate with the API key explicitly. Relying on the bare
           # OPENAI_API_KEY env var alone is unreliable on the gpt-5.5 WebSocket
           # transport: the Authorization header is dropped on the wss path and

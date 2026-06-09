@@ -7,6 +7,11 @@
  * diff and publishes the plan via the plan MCP tools. These subcommands are the
  * thin, deterministic glue around that:
  *
+ *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
+ *                 build output, snapshots), cap it at ~600KB, and classify the
+ *                 huge/tiny flags.
+ *   mcp-config    Write the plan MCP client config for the chosen backend
+ *                 (Claude Code JSON or Codex config.toml).
  *   scan          Refuse to hand a secret-leaking diff to the agent.
  *   build-prompt  Assemble the agent prompt = repo SKILL.md + a task wrapper.
  *   shot          Screenshot the published plan and upload it to the plan app's
@@ -19,7 +24,9 @@
  * Node built-ins only (plus an optional dynamic `playwright` import for `shot`).
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
@@ -135,6 +142,232 @@ export function diffContainsSecret(diffText: string): boolean {
     }
   }
   return false;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Bounded diff collection — was the workflow's "Collect bounded diff" step    */
+/* -------------------------------------------------------------------------- */
+
+/** ~600KB byte cap for the diff handed to the recap agent. */
+export const RECAP_DIFF_BYTE_CAP = 614400;
+
+/** The footer appended when a diff is truncated at the byte cap. */
+export const RECAP_DIFF_TRUNCATED_FOOTER =
+  "\n\n[diff truncated at 600KB for the recap agent]\n";
+
+/**
+ * The pathspecs the bounded diff excludes — lockfiles, build output, and
+ * snapshots are noise for a visual recap. Kept as array args (not a shell
+ * string) so the `:(exclude)` pathspecs are never mangled by a shell.
+ */
+const RECAP_DIFF_PATHSPECS: string[] = [
+  ".",
+  ":(exclude)pnpm-lock.yaml",
+  ":(exclude)**/dist/**",
+  ":(exclude)**/*.snap",
+  ":(exclude)**/*.lock",
+];
+
+/**
+ * Classify a bounded diff into the `huge` / `tiny` flags the workflow consumes.
+ *
+ * - huge: BYTES over the ~600KB cap. The agent is told to summarize AND the
+ *   diff file is physically truncated so it can't overflow the prompt budget.
+ * - tiny: <= 1 changed file AND <= 8 changed lines. Uses ORIGINAL line count
+ *   (captured before any truncation) so a large diff is never misclassified as
+ *   tiny after the byte cap drops most of its lines.
+ *
+ * Pure (no I/O) so the classification can be unit-tested without invoking git.
+ */
+export function classifyDiff(input: {
+  bytes: number;
+  changed: number;
+  originalLines: number;
+}): { huge: boolean; tiny: boolean } {
+  return {
+    huge: input.bytes > RECAP_DIFF_BYTE_CAP,
+    tiny: input.changed <= 1 && input.originalLines <= 8,
+  };
+}
+
+/**
+ * Truncate a diff to the ~600KB byte cap at a COMPLETE LINE boundary, then
+ * append the truncated footer. Dropping the last (possibly-partial) line is the
+ * equivalent of the original `head -c 614400 | sed '$d'`: it guarantees the cap
+ * never cuts a multi-byte UTF-8 char or a diff line mid-way and corrupts the
+ * agent's input. Pure (string in, string out) so it can be unit-tested.
+ */
+export function truncateDiffAtLineBoundary(text: string): string {
+  const capped = Buffer.from(text, "utf8")
+    .subarray(0, RECAP_DIFF_BYTE_CAP)
+    .toString("utf8");
+  const lastNewline = capped.lastIndexOf("\n");
+  // Drop everything after the last newline (the last, possibly-partial line),
+  // mirroring `sed '$d'`. If there is no newline at all, drop the whole partial
+  // line (empty body) — the footer still makes the truncation explicit.
+  const body = lastNewline >= 0 ? capped.slice(0, lastNewline) : "";
+  return body + RECAP_DIFF_TRUNCATED_FOOTER;
+}
+
+/** Count lines that begin with `+` or `-` (added/removed diff lines). */
+export function countDiffLines(diffText: string): number {
+  let count = 0;
+  for (const line of diffText.split("\n")) {
+    if (line.startsWith("+") || line.startsWith("-")) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Run `git diff <base>...<head> -- <pathspecs>` and return its stdout. Tolerates
+ * a non-zero git exit (the original step used `|| true`) by capturing stdout
+ * regardless. Array args — NOT a shell string — so the `:(exclude)` pathspecs
+ * survive intact.
+ */
+function gitDiff(base: string, head: string, extraArgs: string[]): string {
+  const args = [
+    "diff",
+    "--no-color",
+    ...extraArgs,
+    `${base}...${head}`,
+    "--",
+    ...RECAP_DIFF_PATHSPECS,
+  ];
+  try {
+    return execFileSync("git", args, {
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+    });
+  } catch (err: any) {
+    // Tolerate a non-zero exit (e.g. missing object) but still use whatever git
+    // wrote to stdout, exactly like the original `... > recap.diff || true`.
+    if (err && typeof err.stdout === "string") return err.stdout;
+    if (err && Buffer.isBuffer(err.stdout)) return err.stdout.toString("utf8");
+    return "";
+  }
+}
+
+/**
+ * `recap collect-diff` — the bounded-diff collection that used to be ~60 lines
+ * of inline bash. Writes recap.diff + recap.stat, classifies huge/tiny, and
+ * emits the same `bytes/changed/huge/tiny` outputs the workflow expects:
+ * appended to $GITHUB_OUTPUT when set, AND printed as JSON to stdout (so it runs
+ * and is testable outside GitHub Actions).
+ */
+function runCollectDiff(args: Record<string, string | boolean>): void {
+  const base = stringArg(args, "base");
+  const head = stringArg(args, "head");
+  const outPath = optionalArg(args, "out") ?? "recap.diff";
+  const statPath = optionalArg(args, "stat") ?? "recap.stat";
+
+  // The unified diff and the --stat summary (both excluding lockfiles/noise).
+  let diff = gitDiff(base, head, []);
+  const stat = gitDiff(base, head, ["--stat"]);
+  fs.writeFileSync(path.resolve(statPath), stat);
+
+  // ORIGINAL line count — captured BEFORE any byte-cap truncation so a large
+  // diff is never misclassified as tiny after truncation.
+  const originalLines = countDiffLines(diff);
+
+  // Changed-file count from `--name-only` over the same excludes.
+  const names = gitDiff(base, head, ["--name-only"]);
+  const changed = names.split("\n").filter((line) => line.length > 0).length;
+
+  // Write the (possibly truncated) diff and compute the on-disk byte length.
+  const bytesBefore = Buffer.byteLength(diff, "utf8");
+  const { huge } = classifyDiff({ bytes: bytesBefore, changed, originalLines });
+  if (huge) diff = truncateDiffAtLineBoundary(diff);
+  fs.writeFileSync(path.resolve(outPath), diff);
+  const bytes = fs.statSync(path.resolve(outPath)).size;
+
+  const { tiny } = classifyDiff({ bytes: bytesBefore, changed, originalLines });
+
+  // Preserve the existing steps.diff.outputs.{bytes,changed,huge,tiny} contract.
+  const githubOutput = process.env.GITHUB_OUTPUT;
+  if (githubOutput) {
+    fs.appendFileSync(
+      githubOutput,
+      `bytes=${bytes}\nchanged=${changed}\nhuge=${huge}\ntiny=${tiny}\n`,
+    );
+  }
+  process.stdout.write(`${JSON.stringify({ bytes, changed, huge, tiny })}\n`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* MCP config writers — were the two `node -e` one-liners in the agent steps   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Claude Code MCP config the recap agent loads: a single HTTP `plan` server
+ * pointing at the app's `/_agent-native/mcp` endpoint, authorized with the
+ * PLAN_RECAP_TOKEN. Pure (returns the JSON string) so it can be unit-tested.
+ */
+export function buildRecapClaudeMcpConfig(
+  appUrl: string,
+  token: string | undefined,
+): string {
+  const url = appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
+  return JSON.stringify({
+    mcpServers: {
+      plan: {
+        type: "http",
+        url,
+        headers: { Authorization: "Bearer " + token },
+      },
+    },
+  });
+}
+
+/**
+ * The Codex `config.toml` the recap agent loads. JSON.stringify the URL value so
+ * a stray quote/newline in the app URL can't break out of the TOML basic string
+ * (TOML shares JSON's escaping); the key and env-var name stay literal. Pure so
+ * it can be unit-tested.
+ */
+export function buildRecapCodexMcpConfig(appUrl: string): string {
+  const url = appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
+  return (
+    "[mcp_servers.plan]\n" +
+    "url = " +
+    JSON.stringify(url) +
+    "\n" +
+    'bearer_token_env_var = "PLAN_RECAP_TOKEN"\n'
+  );
+}
+
+/**
+ * `recap mcp-config` — write the plan MCP client config for the chosen backend,
+ * replacing the two `node -e '...'` one-liners that previously lived inline in
+ * the agent steps. PLAN_RECAP_TOKEN is read from the environment (claude only),
+ * exactly as before.
+ */
+function runMcpConfig(args: Record<string, string | boolean>): void {
+  const agent = stringArg(args, "agent").toLowerCase();
+  const appUrl = stringArg(args, "app-url");
+
+  if (agent === "claude") {
+    const out = stringArg(args, "out");
+    fs.writeFileSync(
+      path.resolve(out),
+      buildRecapClaudeMcpConfig(appUrl, process.env.PLAN_RECAP_TOKEN),
+    );
+    process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
+    return;
+  }
+
+  if (agent === "codex") {
+    const out =
+      optionalArg(args, "out") ??
+      path.join(os.homedir(), ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+    fs.writeFileSync(path.resolve(out), buildRecapCodexMcpConfig(appUrl));
+    process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
+    return;
+  }
+
+  throw new Error(
+    `Unknown --agent "${agent}" (expected "claude" or "codex")`,
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -896,6 +1129,8 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
 const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
+  agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
+  agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   agent-native recap scan --diff <path>
   agent-native recap build-prompt --pr <n> [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
@@ -907,6 +1142,12 @@ export async function runRecap(argv: string[]): Promise<void> {
   const [sub, ...rest] = argv;
   const args = parseArgs(rest);
   switch (sub) {
+    case "collect-diff":
+      runCollectDiff(args);
+      return;
+    case "mcp-config":
+      runMcpConfig(args);
+      return;
     case "scan":
       runScan(args);
       return;
