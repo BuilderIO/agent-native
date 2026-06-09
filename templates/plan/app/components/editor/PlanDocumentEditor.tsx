@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -32,12 +33,21 @@ import {
 } from "@shared/plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
+import { PlanImageNode } from "../plan/PlanImageNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
+import { usePlanUndoStack, type PlanUndoStack } from "./usePlanUndoStack";
 import { PlanBlockView } from "../plan/DocumentArea";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
 /** One tab id per browser tab, shared by every plan document editor instance. */
 const TAB_ID = generateTabId();
+
+// Legacy block types that render their own edit overlay (so the block-node adds
+// no separate corner edit pencil/popover). The image block owns a single
+// hover overlay (zoom / ⋯ with Edit + Replace), matching inline markdown images.
+function planLegacyBlockSelfEdits(blockType: string): boolean {
+  return blockType === "image";
+}
 
 /** The wrapper class the DragHandle anchors its grip + drop indicator to. */
 const WRAPPER_CLASS = "plan-document-editor";
@@ -123,6 +133,58 @@ function planBlockFromPmNode(
   return parsed[0] ?? null;
 }
 
+/**
+ * Resolve a dragged/dropped ProseMirror node back to its owning {@link PlanBlock}
+ * by POSITION — the robust resolver the drag handlers must use.
+ *
+ * A structured block is one `planBlock` atom carrying `blockId`, so it resolves
+ * directly. A `rich-text` block, however, expands to a RUN of prose nodes and
+ * {@link blocksToProseJSON} stamps `runId = block.id` on only the run's FIRST
+ * node. So the 2nd/3rd paragraph of a multi-paragraph rich-text block carries
+ * neither `blockId` nor `runId`. The old node-only resolver re-serialized just
+ * that paragraph into a FRESH id absent from `blocks[]`, so `removeBlockFromTree`
+ * / `wrapTopLevelTargetInColumns` couldn't find it and the side drop silently
+ * failed (and dragging the first paragraph truncated the block to one
+ * paragraph). Resolving by position fixes this: walk the top-level nodes
+ * tracking the current prose run's `runId` (a `planBlock` atom breaks the run),
+ * and the run in effect at `pos` is the whole owning block — so ANY paragraph
+ * of a multi-paragraph block maps to its full block.
+ */
+function planBlockForPmPosition(
+  doc: ProseMirrorNode,
+  pos: number,
+  node: ProseMirrorNode,
+  blocks: PlanBlock[],
+): PlanBlock | null {
+  const blockId = (node.attrs as { blockId?: unknown } | undefined)?.blockId;
+  if (typeof blockId === "string") {
+    const existing = findBlockInTree(blocks, blockId);
+    if (existing) return existing;
+  }
+
+  let runAtPos: string | undefined;
+  let currentRunId: string | undefined;
+  doc.forEach((child, offset) => {
+    const childBlockId = (child.attrs as { blockId?: unknown } | undefined)
+      ?.blockId;
+    if (typeof childBlockId === "string") {
+      // A structured atom breaks the surrounding prose run.
+      currentRunId = undefined;
+    } else {
+      const childRunId = (child.attrs as { runId?: unknown } | undefined)
+        ?.runId;
+      if (typeof childRunId === "string") currentRunId = childRunId;
+    }
+    if (offset === pos) runAtPos = currentRunId;
+  });
+  if (typeof runAtPos === "string") {
+    const existing = findBlockInTree(blocks, runAtPos);
+    if (existing) return existing;
+  }
+
+  return planBlockFromPmNode(node, blocks);
+}
+
 function nestedRegionInfoForView(view: EditorView): NestedRegionInfo | null {
   const region = view.dom.closest<HTMLElement>(
     ".plan-nested-document-editor-region",
@@ -182,7 +244,11 @@ function blocksForEditorView(
   return regionInfo ? (regionBlocksForInfo(blocks, regionInfo) ?? []) : blocks;
 }
 
-function replaceEditorViewBlocks(view: EditorView, blocks: PlanBlock[]): void {
+function replaceEditorViewBlocks(
+  view: EditorView,
+  blocks: PlanBlock[],
+  options: { addToHistory?: boolean } = {},
+): void {
   try {
     const doc = view.state.schema.nodeFromJSON(blocksToProseJSON(blocks));
     const tr = view.state.tr.replaceWith(
@@ -190,9 +256,20 @@ function replaceEditorViewBlocks(view: EditorView, blocks: PlanBlock[]): void {
       view.state.doc.content.size,
       doc.content,
     );
-    tr.setMeta("addToHistory", false);
+    // External reconcile repaints (agent patches, source syncs) must NOT enter
+    // the undo stack — they aren't user edits. A user DRAG-reorder must, so cmd+z
+    // reverts the move like any other edit (Notion parity). Either way the
+    // programmatic meta suppresses THIS repaint's own `onUpdate` (handleDrop /
+    // reconcile already committed the blocks); undo/redo replay the steps WITHOUT
+    // that meta, so they round-trip back through `onUpdate` → `handleChange` →
+    // `commit`, persisting the revert.
+    if (!options.addToHistory) tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
-    view.dispatch(tr.scrollIntoView());
+    // NOT `scrollIntoView()`: this rebuilds the WHOLE document in place (drop
+    // repaint / reconcile), and scrolling to the post-replace selection yanks the
+    // viewport away from where the user just dropped — a jarring jump. The user's
+    // scroll position must stay put for an in-place structural repaint.
+    view.dispatch(tr);
   } catch {
     // A stale editor view can disappear while React remounts nested regions.
   }
@@ -388,20 +465,242 @@ function applyColumnSideDrop(
   return wrapTopLevelTargetInColumns(removal.blocks, request);
 }
 
+/**
+ * Insert `sourceBlock` immediately before/after the block with `targetBlockId`,
+ * wherever that target lives in the tree (top-level, a tab, or a column). Used
+ * by cross-region vertical moves so a block can be dragged OUT of a column into
+ * the document, BETWEEN columns, or INTO a column by dropping above/below an
+ * existing block there.
+ */
+function insertBlockBeside(
+  blocks: PlanBlock[],
+  targetBlockId: string,
+  sourceBlock: PlanBlock,
+  placement: "before" | "after",
+): { blocks: PlanBlock[]; inserted: boolean } {
+  let inserted = false;
+  const out: PlanBlock[] = [];
+  for (const block of blocks) {
+    if (!inserted && block.id === targetBlockId) {
+      const clone = clonePlanBlock(sourceBlock);
+      if (placement === "before") out.push(clone, block);
+      else out.push(block, clone);
+      inserted = true;
+      continue;
+    }
+    if (!inserted && block.type === "tabs") {
+      let changed = false;
+      const tabs = block.data.tabs.map((tab) => {
+        if (inserted) return tab;
+        const r = insertBlockBeside(
+          tab.blocks,
+          targetBlockId,
+          sourceBlock,
+          placement,
+        );
+        if (r.inserted) {
+          inserted = true;
+          changed = true;
+          return { ...tab, blocks: r.blocks };
+        }
+        return tab;
+      });
+      out.push(changed ? ({ ...block, data: { tabs } } as PlanBlock) : block);
+      continue;
+    }
+    if (!inserted && block.type === "columns") {
+      let changed = false;
+      const columns = block.data.columns.map((column) => {
+        if (inserted) return column;
+        const r = insertBlockBeside(
+          column.blocks,
+          targetBlockId,
+          sourceBlock,
+          placement,
+        );
+        if (r.inserted) {
+          inserted = true;
+          changed = true;
+          return { ...column, blocks: r.blocks };
+        }
+        return column;
+      });
+      out.push(
+        changed ? ({ ...block, data: { columns } } as PlanBlock) : block,
+      );
+      continue;
+    }
+    out.push(block);
+  }
+  return { blocks: out, inserted };
+}
+
+/**
+ * Cross-region vertical move: remove the source from wherever it is, then insert
+ * it before/after the target. The plan owns this structural move (rather than
+ * the DragHandle's generic ProseMirror node transfer) so the block tree — and
+ * empty-column collapse — stays consistent for moves out of / into / between
+ * columns. Same-region reorders never reach here (handleDrop defers those to the
+ * editor's own reorder).
+ */
+/**
+ * Notion parity: a `columns` block only exists to hold ≥2 side-by-side columns.
+ * After a drag empties a column (collapsed by {@link removeBlockFromTree}) the
+ * container can be left with a single column — in Notion that dissolves back to
+ * full-width blocks. This pass unwraps any columns block that drops to one column
+ * (splicing its blocks in place) and removes a columns block that loses them all.
+ * Applied to the FINAL tree only, never mid-move, so container lookups during the
+ * remove→insert steps still see the un-normalized tree.
+ */
+function normalizeColumnBlocks(blocks: PlanBlock[]): PlanBlock[] {
+  return blocks.flatMap((block) => {
+    if (block.type === "tabs") {
+      return [
+        {
+          ...block,
+          data: {
+            tabs: block.data.tabs.map((tab) => ({
+              ...tab,
+              blocks: normalizeColumnBlocks(tab.blocks),
+            })),
+          },
+        } as PlanBlock,
+      ];
+    }
+    if (block.type === "columns") {
+      const columns = block.data.columns
+        .map((column) => ({
+          ...column,
+          blocks: normalizeColumnBlocks(column.blocks),
+        }))
+        .filter((column) => column.blocks.length > 0);
+      if (columns.length === 0) return [];
+      if (columns.length === 1) return columns[0].blocks;
+      return [{ ...block, data: { columns } } as PlanBlock];
+    }
+    return [block];
+  });
+}
+
+function applyVerticalMove(
+  blocks: PlanBlock[],
+  request: {
+    sourceBlock: PlanBlock;
+    targetBlockId: string;
+    placement: "before" | "after";
+  },
+): PlanBlock[] | null {
+  if (request.sourceBlock.id === request.targetBlockId) return null;
+  const removal = removeBlockFromTree(blocks, request.sourceBlock.id);
+  if (!removal.removed) return null;
+  const result = insertBlockBeside(
+    removal.blocks,
+    request.targetBlockId,
+    request.sourceBlock,
+    request.placement,
+  );
+  return result.inserted ? result.blocks : null;
+}
+
+/** Nearest scrollable ancestor of an element (the plan document's scroll area). */
+function findScrollableAncestor(
+  element: HTMLElement | null,
+): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  let node = element?.parentElement ?? null;
+  while (node && node !== document.body) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
 function repaintDropViews(
   context: DragHandleDropContext,
   nextBlocks: PlanBlock[],
+  rootView?: EditorView | null,
 ): void {
   const views = new Set([context.sourceView, context.view]);
+
+  // Rebuilding the document in place and re-focusing the editor would scroll the
+  // post-replace selection into view, yanking the viewport away from where the
+  // user dropped. Capture the scroll position and pin it through the rebuild AND
+  // the next frame (the nested column editors mount a frame later and can reflow
+  // the height), so a drop never moves the page.
+  const scroller = findScrollableAncestor(
+    ((rootView ?? context.view).dom as HTMLElement) ?? null,
+  );
+  const savedScrollTop = scroller?.scrollTop ?? null;
+  const restoreScroll = () => {
+    if (!scroller || savedScrollTop == null) return;
+    if (scroller.scrollTop !== savedScrollTop)
+      scroller.scrollTop = savedScrollTop;
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        if (scroller.scrollTop !== savedScrollTop) {
+          scroller.scrollTop = savedScrollTop;
+        }
+      });
+    }
+  };
+
+  // A move can dissolve structure a surgical per-region patch cannot express:
+  // emptying a column removes it, and dropping a `columns` block to a single
+  // column unwraps the container entirely (Notion parity). When the source or
+  // target region no longer exists in the new tree, its column/container changed
+  // in the ROOT document, so rebuild the whole root editor instead of patching
+  // regions that are gone. (Cross-region structural moves already stay out of
+  // per-editor undo history, so a non-historical root rebuild is consistent.)
+  if (rootView) {
+    for (const view of views) {
+      const info = nestedRegionInfoForView(view);
+      if (info && regionBlocksForInfo(nextBlocks, info) === null) {
+        replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
+        restoreScroll();
+        return;
+      }
+    }
+  }
+  // A drag is "single-editor" when the source and target live in the SAME
+  // ProseMirror view (a pure top-level reorder, or a move within one nested
+  // region). Only then is the whole reorder one editor's transaction, so it can
+  // safely enter THAT editor's undo history — pressing cmd+z reverts it cleanly.
+  // A cross-editor drag (top-level ↔ nested column/tab) repaints two independent
+  // histories; making those historical would let one cmd+z half-revert the move,
+  // so they stay out of history (status quo) and only the data-side save records
+  // them.
+  const singleEditor = views.size === 1;
   for (const view of views) {
     const regionInfo = nestedRegionInfoForView(view);
     if (regionInfo) {
       const regionBlocks = regionBlocksForInfo(nextBlocks, regionInfo);
-      if (regionBlocks) replaceEditorViewBlocks(view, regionBlocks);
+      if (regionBlocks)
+        replaceEditorViewBlocks(view, regionBlocks, {
+          addToHistory: singleEditor,
+        });
       continue;
     }
-    replaceEditorViewBlocks(view, nextBlocks);
+    replaceEditorViewBlocks(view, nextBlocks, { addToHistory: singleEditor });
   }
+  // A mouse drag grips the drag handle, not the prose, so the contenteditable is
+  // usually blurred when the drop lands. Re-focus the editor the block landed in
+  // (single-editor drags only — that view owns the undoable step) so the very
+  // next cmd+z reaches the ProseMirror undo keymap and reverts the move, instead
+  // of doing nothing because focus sat on the page body.
+  if (singleEditor && !context.view.hasFocus()) {
+    try {
+      context.view.focus();
+    } catch {
+      // View may have been torn down mid-remount; focus is best-effort.
+    }
+  }
+  restoreScroll();
 }
 
 function resolveBlockDataChange(
@@ -464,16 +763,64 @@ export function PlanDocumentEditor({
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const pendingTransferredBlocksRef = useRef(new Map<string, PlanBlock>());
+  // The ROOT editor view, captured once it mounts. Needed so a drop that
+  // dissolves a column container can rebuild the whole top-level document (the
+  // affected nested region no longer exists to patch in place).
+  const rootViewRef = useRef<EditorView | null>(null);
+  // The live Tiptap editor + its wrapper element, captured on ready. Needed so
+  // the undo stack can repaint the doc (via the injected `setContent`) and so a
+  // capture-phase cmd+z listener can be scoped to this editor's wrapper.
+  const editorRef = useRef<Editor | null>(null);
+  const wrapperRef = useRef<HTMLElement | null>(null);
+  const handleEditorReady = useCallback((editor: Editor) => {
+    rootViewRef.current = editor.view;
+    editorRef.current = editor;
+    wrapperRef.current =
+      (editor.view.dom.closest(`.${WRAPPER_CLASS}`) as HTMLElement | null) ??
+      null;
+  }, []);
+
+  // Single app-level undo authority over the authoritative `blocks[]` tree. PM
+  // history is disabled in this editor (see `disableHistory` below) because the
+  // block DATA undo needs lives in `blocks[]`, not the ProseMirror doc. Assigned
+  // after the hook runs below; read through this ref so `commit` (defined first)
+  // and the keydown listener always see the live stack.
+  const undoRef = useRef<PlanUndoStack | null>(null);
+  // True while the stack is restoring a snapshot, so `commit` skips re-recording.
+  const isRestoringRef = useRef(false);
 
   // Adopt external `content` changes (agent patches, source edits) unless the
-  // incoming value is the echo of our own last save.
+  // incoming value is the echo of one of our OWN recent saves.
   const lastEmittedRef = useRef<string>(JSON.stringify(content.blocks));
+  // Ring of recently-emitted blocks JSON (every commit AND undo/redo restore).
+  // A debounced autosave can round-trip a PRE-undo edit's value back as the
+  // `content` prop AFTER an undo has already moved us on; with only a
+  // single-value `lastEmittedRef`, that laggy echo looks "external" and would
+  // reset the undo stack (wiping redo) and re-apply the just-undone edit.
+  // Recognizing it as our own echo keeps undo/redo stable; only a genuinely
+  // external change (agent/peer) — never emitted by us — resets the stack.
+  const recentEmittedRef = useRef<string[]>([JSON.stringify(content.blocks)]);
+  const rememberEmitted = useCallback((serialized: string) => {
+    const ring = recentEmittedRef.current;
+    const dupe = ring.indexOf(serialized);
+    if (dupe !== -1) ring.splice(dupe, 1);
+    ring.push(serialized);
+    if (ring.length > 24) ring.shift();
+    lastEmittedRef.current = serialized;
+  }, []);
   useEffect(() => {
     const incoming = JSON.stringify(content.blocks);
-    if (incoming === lastEmittedRef.current) return;
-    lastEmittedRef.current = incoming;
+    if (recentEmittedRef.current.includes(incoming)) {
+      lastEmittedRef.current = incoming;
+      return;
+    }
+    rememberEmitted(incoming);
     setBlocks(content.blocks);
-  }, [content.blocks]);
+    // A genuine external/agent edit changed the baseline — the user's local
+    // undo entries reference a tree that no longer exists, so drop them rather
+    // than let cmd+z resurrect pre-agent state over the agent's change.
+    undoRef.current?.reset();
+  }, [content.blocks, rememberEmitted]);
 
   // True once the editor has been seeded with real (non-empty) content. Until
   // then an empty serialization is the pre-seed empty doc — NOT a user deletion —
@@ -483,7 +830,15 @@ export function PlanDocumentEditor({
   const hasSeededRef = useRef(false);
 
   const commit = (next: PlanBlock[]) => {
-    lastEmittedRef.current = JSON.stringify(next);
+    // Record the pre-edit tree onto the undo stack BEFORE mutating, unless this
+    // commit IS an undo/redo restore (guarded) or collab owns history. Every
+    // user edit family funnels through here — prose (handleChange), block
+    // options (onBlockDataChange), legacy block edits, and drag/cross-region
+    // moves (handleDrop) — so this one call site captures them all.
+    if (!collabEnabled && !isRestoringRef.current) {
+      undoRef.current?.record(blocksRef.current, next);
+    }
+    rememberEmitted(JSON.stringify(next));
     setBlocks(next);
     void onBlocksChange(next);
   };
@@ -521,8 +876,15 @@ export function PlanDocumentEditor({
 
   const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
     () =>
-      ({ node }) => {
-        return planBlockFromPmNode(node, blocksRef.current) ?? undefined;
+      ({ view, node, pos }) => {
+        return (
+          planBlockForPmPosition(
+            view.state.doc,
+            pos,
+            node,
+            blocksRef.current,
+          ) ?? undefined
+        );
       },
     [],
   );
@@ -539,9 +901,15 @@ export function PlanDocumentEditor({
 
   const handleDrop = useMemo<DragHandleOptions["handleDrop"]>(
     () => (data: unknown, context: DragHandleDropContext) => {
-      if (context.placement !== "left" && context.placement !== "right") {
-        return false;
-      }
+      const placement = context.placement;
+      const isSide = placement === "left" || placement === "right";
+      const isVertical = placement === "before" || placement === "after";
+      if (!isSide && !isVertical) return false;
+
+      // A vertical drop INSIDE one editor is a plain reorder — let the
+      // DragHandle's native same-editor reorder handle it (keeps undo clean). We
+      // only own CROSS-region structural moves: out of / into / between columns.
+      if (isVertical && context.sourceView === context.view) return false;
 
       const currentBlocks = blocksRef.current;
       const sourceBlocks = blocksForEditorView(
@@ -551,30 +919,52 @@ export function PlanDocumentEditor({
       const targetBlocks = blocksForEditorView(currentBlocks, context.view);
       const sourceBlock =
         (isTransferredPlanBlock(data) ? data : null) ??
-        planBlockFromPmNode(context.sourceNode, sourceBlocks);
-      const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
+        planBlockForPmPosition(
+          context.sourceView.state.doc,
+          context.sourcePos,
+          context.sourceNode,
+          sourceBlocks,
+        );
+      const targetBlock = planBlockForPmPosition(
+        context.view.state.doc,
+        context.targetPos,
+        context.targetNode,
+        targetBlocks,
+      );
       if (!sourceBlock || !targetBlock) return false;
 
-      const targetRegion = nestedRegionInfoForView(context.view);
-      if (targetRegion) {
-        const container = findBlockInTree(
-          currentBlocks,
-          targetRegion.containerBlockId,
-        );
-        if (container?.type !== "columns") return false;
+      let nextBlocks: PlanBlock[] | null;
+      if (isVertical) {
+        // Cross-region move (the editor views differ): relocate the block
+        // structurally so empty source columns collapse and the block lands in
+        // the target's list.
+        nextBlocks = applyVerticalMove(currentBlocks, {
+          sourceBlock,
+          targetBlockId: targetBlock.id,
+          placement: placement as "before" | "after",
+        });
+      } else {
+        const targetRegion = nestedRegionInfoForView(context.view);
+        if (targetRegion) {
+          const container = findBlockInTree(
+            currentBlocks,
+            targetRegion.containerBlockId,
+          );
+          if (container?.type !== "columns") return false;
+        }
+        nextBlocks = applyColumnSideDrop(currentBlocks, {
+          sourceBlock,
+          targetBlockId: targetBlock.id,
+          side: placement as SideDropSide,
+          containerBlockId: targetRegion?.containerBlockId,
+          regionId: targetRegion?.regionId,
+        });
       }
-
-      const nextBlocks = applyColumnSideDrop(currentBlocks, {
-        sourceBlock,
-        targetBlockId: targetBlock.id,
-        side: context.placement,
-        containerBlockId: targetRegion?.containerBlockId,
-        regionId: targetRegion?.regionId,
-      });
       if (!nextBlocks) return false;
 
-      commit(nextBlocks);
-      repaintDropViews(context, nextBlocks);
+      const normalized = normalizeColumnBlocks(nextBlocks);
+      commit(normalized);
+      repaintDropViews(context, normalized, rootViewRef.current);
       return true;
     },
     [],
@@ -588,13 +978,24 @@ export function PlanDocumentEditor({
       // "in sync", and it loops `setContent` (wiping edits + flushSync storm).
       RunId,
       PlanBlockNode,
+      // Markdown images in the document editor use the plan image node view so
+      // they get the same hover zoom / lightbox / replace controls as structured
+      // image blocks (features.image is off so the plain core image node, which
+      // has no node view, never coexists with this one).
+      PlanImageNode,
       DragHandle.configure({
         wrapperSelector: `.${WRAPPER_CLASS}`,
         getDragTransferData,
         receiveDragTransferData,
+        // Without this the top-level editor never lights up the left/right side
+        // drop zones (the core DragHandle gates them on `handleDrop` existing),
+        // so dragging two top-level blocks together to CREATE a new columns
+        // block was dead — only inserting into an existing column worked. Same
+        // handler we already hand down to nested regions via PlanSideDropContext.
+        handleDrop,
       }),
     ],
-    [getDragTransferData, receiveDragTransferData],
+    [getDragTransferData, receiveDragTransferData, handleDrop],
   );
 
   // When the plan opts into Notion sync, the slash menu only offers blocks that
@@ -677,6 +1078,95 @@ export function PlanDocumentEditor({
     },
     [],
   );
+
+  // Restore a prior blocks[] snapshot for undo/redo: repaint the doc through the
+  // SAME injected `setContent` the reconcile uses (rebuilds every NodeView from
+  // the restored tree) and persist, all under `isRestoringRef` so `commit` does
+  // not re-record the restore as a new edit.
+  const restore = useCallback(
+    (restored: PlanBlock[]) => {
+      isRestoringRef.current = true;
+      try {
+        // Update the side-map first so block NodeViews read the restored data
+        // immediately instead of briefly flashing the "Loading block…" placeholder.
+        blocksRef.current = restored;
+        const editor = editorRef.current;
+        if (editor && !editor.isDestroyed) {
+          setContent(editor, JSON.stringify(restored), {
+            emitUpdate: false,
+            addToHistory: false,
+          });
+        }
+        rememberEmitted(JSON.stringify(restored));
+        setBlocks(restored);
+        void onBlocksChange(restored);
+        // A drag/menu action usually blurs the prose; re-focus so the NEXT
+        // cmd+z still reaches the wrapper listener.
+        try {
+          rootViewRef.current?.focus();
+        } catch {
+          // View may be torn down mid-remount; focus is best-effort.
+        }
+      } finally {
+        isRestoringRef.current = false;
+      }
+    },
+    [setContent, onBlocksChange, rememberEmitted],
+  );
+
+  const undoStack = usePlanUndoStack({
+    restore,
+    getCurrentBlocks: () => blocksRef.current,
+  });
+  undoRef.current = undoStack;
+
+  // The plan editor disables ProseMirror history (see `disableHistory` on the
+  // editor below), so cmd+z has ONE authority: this stack. A capture-phase
+  // document listener scoped to this editor's wrapper drives it — capture so it
+  // beats ProseMirror/native, and document-level so it still fires when focus
+  // sits on the page body after a drag (no prose selection). Real form fields
+  // (a block's options inputs) keep their native per-field undo; the committed
+  // option change lands on this stack afterward.
+  useEffect(() => {
+    if (collabEnabled) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key;
+      if (key !== "z" && key !== "Z" && key !== "y" && key !== "Y") return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const wrapper = wrapperRef.current;
+      const target = event.target;
+      if (!wrapper || !(target instanceof Node)) return;
+      // Fire when focus is inside this editor OR has fallen to the bare page
+      // body after a structural drag (no prose selection) — that body case is
+      // the whole reason this is a document-level listener. Other focused
+      // elements (a different editor, a real form field) are left to their own
+      // undo authority.
+      const onPageBody =
+        target === document.body || target === document.documentElement;
+      if (!wrapper.contains(target) && !onPageBody) {
+        return;
+      }
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select")
+      ) {
+        return;
+      }
+      const stack = undoRef.current;
+      if (!stack) return;
+      const isRedo =
+        key === "y" ||
+        key === "Y" ||
+        ((key === "z" || key === "Z") && event.shiftKey);
+      event.preventDefault();
+      event.stopPropagation();
+      if (isRedo) stack.redo();
+      else stack.undo();
+    };
+    document.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      document.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [collabEnabled]);
 
   // Prose / structure edits → blocks. Seed `data` for freshly slash-inserted
   // blocks (their `planBlock` node carried only an id; `proseJSONToBlocks` gave
@@ -774,6 +1264,7 @@ export function PlanDocumentEditor({
       // image, …) through the same `PlanBlockView` dispatcher the per-block
       // reader uses, so every block type renders in the document. Edits replace
       // the whole block by id; nested rich-text edits patch that block's markdown.
+      legacyBlockSelfEdits: planLegacyBlockSelfEdits,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },
@@ -827,17 +1318,22 @@ export function PlanDocumentEditor({
           contentUpdatedAt={contentUpdatedAt}
           editable={editable}
           dialect="gfm"
-          features={{ image: true }}
+          features={{ image: false }}
           extraExtensions={extraExtensions}
           slashItems={slashItems}
           ydoc={ydoc}
           awareness={awareness}
           user={collabUser}
+          // PM history off so the app-level undo stack (which alone can see
+          // block-data edits) is the single cmd+z authority. Gated to the
+          // non-collab path; when single-doc collab lands, Yjs owns history.
+          disableHistory={!collabEnabled}
           getMarkdown={getMarkdown}
           setContent={setContent}
           normalizeValue={normalizeValue}
           wrapperClassName={WRAPPER_CLASS}
           className="plan-document-editor-surface"
+          onEditorReady={handleEditorReady}
         />
       </PlanBlockDataProvider>
     </PlanSideDropContext.Provider>
@@ -899,8 +1395,15 @@ export function NestedPlanBlocksEditor({
 
   const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
     () =>
-      ({ node }) => {
-        return planBlockFromPmNode(node, blocksRef.current) ?? undefined;
+      ({ view, node, pos }) => {
+        return (
+          planBlockForPmPosition(
+            view.state.doc,
+            pos,
+            node,
+            blocksRef.current,
+          ) ?? undefined
+        );
       },
     [],
   );
@@ -919,6 +1422,11 @@ export function NestedPlanBlocksEditor({
     () => [
       RunId,
       PlanBlockNode,
+      // Markdown images in the document editor use the plan image node view so
+      // they get the same hover zoom / lightbox / replace controls as structured
+      // image blocks (features.image is off so the plain core image node, which
+      // has no node view, never coexists with this one).
+      PlanImageNode,
       DragHandle.configure({
         wrapperSelector: `.${NESTED_WRAPPER_CLASS}`,
         getDragTransferData,
@@ -1077,6 +1585,7 @@ export function NestedPlanBlocksEditor({
         );
         commit(next);
       },
+      legacyBlockSelfEdits: planLegacyBlockSelfEdits,
       renderLegacyBlock: (
         block: PlanBlock,
         { editing }: { editing: boolean },
@@ -1135,7 +1644,7 @@ export function NestedPlanBlocksEditor({
           contentUpdatedAt={contentUpdatedAt}
           editable={editable}
           dialect="gfm"
-          features={{ image: true }}
+          features={{ image: false }}
           extraExtensions={extraExtensions}
           slashItems={slashItems}
           getMarkdown={getMarkdown}

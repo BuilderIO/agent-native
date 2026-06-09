@@ -3,8 +3,8 @@ import {
   BlockRegistry,
   serializeSpecBlock,
   introspect,
+  calloutSchema,
 } from "@agent-native/core/blocks/server";
-import { calloutSchema } from "../shared/blocks/callout.config.js";
 import {
   registerPlanBlocks,
   describePlanBlocksForAgent,
@@ -141,7 +141,6 @@ describe("plan block agent vocabulary export", () => {
       "code-tabs",
       "custom-html",
       "diagram",
-      "decision",
       "mermaid",
       "api-endpoint",
       "openapi-spec",

@@ -9,13 +9,14 @@ import {
   type BlockRenderContext,
   type NestedBlock,
 } from "@agent-native/core/blocks";
-import { PromptComposer, sendToAgentChat } from "@agent-native/core/client";
-import { useState } from "react";
+import { sendToAgentChat } from "@agent-native/core/client";
+import { useEffect, useRef, useState } from "react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import {
   ContentBlockMarkdown,
   ContentBlockMarkdownEditor,
@@ -141,7 +142,6 @@ function ContentAiBlockAction({
   blockData: unknown;
   documentId?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -166,41 +166,86 @@ function ContentAiBlockAction({
         .filter(Boolean)
         .join("\n"),
     });
-    setOpen(false);
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          data-plan-interactive
-          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-blue-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
-        >
-          Edit with AI
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        side="left"
-        sideOffset={8}
-        collisionPadding={12}
-        className="z-[270] w-[calc(100vw-24px)] max-w-[420px] p-3"
-        data-plan-interactive
+    <InlinePromptField
+      placeholder="Describe a change…"
+      ariaLabel={`Describe a change to ${label.toLowerCase()}`}
+      onSubmit={submitPrompt}
+    />
+  );
+}
+
+function InlinePromptField({
+  placeholder,
+  ariaLabel,
+  onSubmit,
+  disabled,
+}: {
+  placeholder: string;
+  ariaLabel?: string;
+  onSubmit: (text: string) => void;
+  disabled?: boolean;
+}) {
+  const [value, setValue] = useState("");
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  // Grow the field to fit wrapped lines as the user types (capped, then scrolls).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  }, [value]);
+
+  const submit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    setValue("");
+    if (ref.current) ref.current.style.height = "";
+    ref.current?.blur();
+  };
+
+  return (
+    <div
+      data-plan-interactive
+      className={cn(
+        // Static width (about halfway between the resting and expanded sizes),
+        // no width animation: the field is autofocused when the popover opens,
+        // so an on-focus width transition would fire immediately and look janky.
+        "relative inline-flex w-[290px] shrink-0 items-start overflow-hidden rounded-2xl border border-input bg-background shadow-sm transition-colors focus-within:border-ring",
+        disabled && "pointer-events-none opacity-40",
+      )}
+    >
+      <textarea
+        ref={ref}
+        rows={1}
+        value={value}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            submit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+        className="max-h-[220px] w-full cursor-text resize-none bg-transparent py-1.5 pl-3 pr-8 text-xs leading-snug text-foreground outline-none placeholder:text-muted-foreground"
+      />
+      <kbd
+        aria-hidden
+        className="pointer-events-none absolute right-1.5 top-1.5 rounded border border-border bg-background/80 px-1 font-sans text-[10px] leading-tight text-muted-foreground opacity-60"
       >
-        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-          Edit {label}
-        </p>
-        <PromptComposer
-          autoFocus
-          placeholder={`Tell the agent how to edit this ${label.toLowerCase()}...`}
-          draftScope={`content:block:${blockId}`}
-          attachmentsEnabled={false}
-          plusMenuMode="hidden"
-          onSubmit={submitPrompt}
-        />
-      </PopoverContent>
-    </Popover>
+        ⏎
+      </kbd>
+    </div>
   );
 }
 

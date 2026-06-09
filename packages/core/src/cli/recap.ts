@@ -212,7 +212,7 @@ export function buildRecapPrompt(input: {
     `2. Call the **set-resource-visibility** tool on the \`plan\` MCP server with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` so the recap is login-gated to the org, never public.`,
   );
   lines.push(
-    `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/plans/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
+    `3. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
   );
   lines.push("");
   lines.push(
@@ -346,7 +346,9 @@ async function upsertComment(input: {
 }
 
 function planIdFromUrl(url: string): string | null {
-  const match = url.match(/\/plans\/([A-Za-z0-9_-]+)/);
+  // Accept both /recaps/<id> (the canonical recap route the agent now writes)
+  // and /plans/<id> (legacy URLs) so the sticky-comment rebuild keeps working.
+  const match = url.match(/\/(?:recaps|plans)\/([A-Za-z0-9_-]+)/);
   return match ? match[1] : null;
 }
 
@@ -371,8 +373,6 @@ function originOf(url: string): string {
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const headShort = (env.HEAD_SHA || "").slice(0, 7);
-  const aid =
-    "_A visual recap is an aid, not a replacement for reviewing the diff._";
   const lines: string[] = [MARKER];
 
   if (env.SUPPRESSED === "true") {
@@ -390,8 +390,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Reason: \`${reason}\`. Updated for \`${headShort}\`.`);
-    lines.push("");
-    lines.push(aid);
     return lines.join("\n");
   }
 
@@ -406,8 +404,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Updated for \`${headShort}\`.`);
-    lines.push("");
-    lines.push(aid);
     return lines.join("\n");
   }
 
@@ -423,7 +419,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const sameOriginOk = appUrl === "" || sameOrigin(planUrl, appUrl);
   const base = (appUrl || originOf(planUrl)).replace(/\/$/, "");
   const safeUrl =
-    planId && base && sameOriginOk ? `${base}/plans/${planId}` : "";
+    planId && base && sameOriginOk ? `${base}/recaps/${planId}` : "";
   if (!safeUrl) {
     lines.push("### Visual recap — generation failed");
     lines.push("");
@@ -432,8 +428,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
     lines.push("");
     lines.push(`Updated for \`${headShort}\`.`);
-    lines.push("");
-    lines.push(aid);
     return lines.join("\n");
   }
 
@@ -461,7 +455,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
   }
   lines.push("");
-  lines.push(`Updated for \`${headShort}\`. ${aid}`);
+  lines.push(`Updated for \`${headShort}\`.`);
   lines.push("");
   lines.push(`<!-- plan-id: ${planId} -->`);
   return lines.join("\n");
@@ -519,12 +513,28 @@ async function uploadRecapImage(input: {
       },
       body: bytes,
     });
-    if (!res.ok) return null;
+    // Surface failures on stderr — stdout carries the machine-readable JSON the
+    // workflow parses, so it must stay clean. A silent null here is exactly what
+    // made the missing-inline-thumbnail failure undebuggable from CI logs.
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      process.stderr.write(
+        `[recap shot] image upload failed: ${res.status} ${res.statusText} ${detail.slice(0, 300)}\n`,
+      );
+      return null;
+    }
     const json = (await res.json().catch(() => null)) as {
       imageUrl?: string;
     } | null;
-    return json?.imageUrl ?? null;
-  } catch {
+    if (!json?.imageUrl) {
+      process.stderr.write(
+        `[recap shot] image upload returned no imageUrl (status ${res.status})\n`,
+      );
+      return null;
+    }
+    return json.imageUrl;
+  } catch (err) {
+    process.stderr.write(`[recap shot] image upload error: ${String(err)}\n`);
     return null;
   }
 }
@@ -583,7 +593,7 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
   try {
     browser = await chromium!.launch({ args: ["--no-sandbox"] });
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 900 },
+      viewport: { width: 1450, height: 1450 },
       deviceScaleFactor: 2,
     });
     if (attachToken) {
@@ -623,7 +633,12 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    await page.screenshot({ path: out, fullPage: true });
+    // Zoom out slightly so more content fits. Keep the plan title (h1) in frame:
+    // the recap reads better led by its own title than cropped to the body.
+    await page.evaluate(() => {
+      (document.documentElement as HTMLElement).style.zoom = "80%";
+    });
+    await page.screenshot({ path: out });
     captured = true;
     await browser.close();
   } catch (err) {

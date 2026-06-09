@@ -57,6 +57,14 @@ export interface SharedRichEditorProps {
   awareness?: Awareness | null;
   /** Current user info for the collaborative cursor label. */
   user?: RichMarkdownCollabUser | null;
+  /**
+   * Disable StarterKit's built-in undo/redo for a controlled (non-collab)
+   * editor whose host owns its own undo authority (see
+   * {@link CreateSharedEditorExtensionsOptions.disableHistory}). Ignored when a
+   * `ydoc` is present (Yjs always owns history then). Default `false`, so every
+   * existing embedder is unchanged.
+   */
+  disableHistory?: boolean;
   /** Override the slash-menu block command list. */
   slashItems?: SlashCommandItem[];
   /** Override the bubble-toolbar item builder. */
@@ -89,6 +97,13 @@ export interface SharedRichEditorProps {
   initialAppliedUpdatedAt?: string | null;
   /** Extra class on the editor wrapper (e.g. a drag-handle `wrapperSelector` hook). */
   wrapperClassName?: string;
+  /**
+   * Fires once the editor instance exists. Lets a host capture the root
+   * `editor.view` — e.g. to repaint the WHOLE document after a structural block
+   * move (a column emptied and its container dissolved) that a surgical
+   * per-region patch can't express, since the change is in the root doc itself.
+   */
+  onEditorReady?: (editor: import("@tiptap/react").Editor) => void;
 }
 
 /**
@@ -121,6 +136,7 @@ export function SharedRichEditor({
   ydoc = null,
   awareness = null,
   user = null,
+  disableHistory = false,
   slashItems,
   buildBubbleItems,
   getMarkdown,
@@ -129,6 +145,7 @@ export function SharedRichEditor({
   shouldSeed,
   initialAppliedUpdatedAt,
   wrapperClassName,
+  onEditorReady,
 }: SharedRichEditorProps) {
   const readMarkdown = getMarkdown ?? getEditorMarkdown;
   const onChangeRef = useRef(onChange);
@@ -146,6 +163,7 @@ export function SharedRichEditor({
         extraExtensions,
         onImageUpload,
         collab: ydoc ? { ydoc, awareness, user } : null,
+        disableHistory,
       }),
     // `preset` is retained in the dependency list so future preset-specific
     // schema branches re-create the editor; it is currently schema-neutral. The
@@ -164,6 +182,7 @@ export function SharedRichEditor({
       user?.name,
       user?.email,
       user?.color,
+      disableHistory,
     ],
   );
 
@@ -231,6 +250,10 @@ export function SharedRichEditor({
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
   }, [editable, editor]);
+
+  useEffect(() => {
+    if (editor) onEditorReady?.(editor);
+  }, [editor, onEditorReady]);
 
   useEffect(() => () => editor?.destroy(), [editor]);
 

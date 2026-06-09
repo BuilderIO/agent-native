@@ -166,6 +166,7 @@ beforeAll(async () => {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       brief TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'plan',
       status TEXT NOT NULL DEFAULT 'draft',
       source TEXT NOT NULL DEFAULT 'manual',
       repo_path TEXT,

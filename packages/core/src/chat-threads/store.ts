@@ -86,6 +86,31 @@ async function ensureTable(): Promise<void> {
           // Column already exists.
         }
       }
+      // Indexes for the hot read paths. Both the sidebar list and the
+      // scoped/per-resource list filter on owner_email (and optionally
+      // scope) and sort by updated_at. Keep these dialect-agnostic (no
+      // DESC, partial, or PG-only syntax) so they apply identically on
+      // SQLite and the configured Postgres. `IF NOT EXISTS` makes them
+      // idempotent across restarts.
+      for (const ddl of [
+        `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
+        `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
+      ]) {
+        try {
+          await client.execute(ddl);
+        } catch {
+          // Index already exists or the dialect rejected a duplicate.
+        }
+      }
+      // One-time backfill of message_count for legacy rows written before
+      // the column was maintained. The list/summary path now reads
+      // message_count directly (instead of re-parsing the thread_data blob)
+      // and filters on `message_count > 0`, so any legacy row that has
+      // messages but a stale `message_count = 0` would otherwise vanish from
+      // the sidebar. Recompute the count from thread_data and persist it so
+      // the hot path can stay blob-free. Idempotent: only touches rows where
+      // the count is still 0 but the blob clearly contains a messages array.
+      await backfillLegacyMessageCounts(client);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -93,6 +118,31 @@ async function ensureTable(): Promise<void> {
     });
   }
   return _initPromise;
+}
+
+/**
+ * Recompute `message_count` from `thread_data` for legacy rows that still
+ * have a stale `message_count = 0` despite carrying a messages array in the
+ * blob. Without this, dropping the `thread_data` payload (and the
+ * `OR thread_data LIKE '%"messages"%'` filter) from the list path would make
+ * those rows disappear from the sidebar. Runs once at table bootstrap and is
+ * idempotent — after the first pass no row matches the WHERE clause again.
+ */
+async function backfillLegacyMessageCounts(
+  client: ReturnType<typeof getDbExec>,
+): Promise<void> {
+  const { rows } = await client.execute({
+    sql: `SELECT id, thread_data, message_count FROM chat_threads WHERE message_count = 0 AND thread_data LIKE '%"messages"%'`,
+    args: [],
+  });
+  for (const r of rows) {
+    const count = deriveMessageCount(r.thread_data, 0);
+    if (count <= 0) continue;
+    await client.execute({
+      sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0`,
+      args: [count, r.id as string],
+    });
+  }
 }
 
 function generateId(): string {
@@ -227,10 +277,11 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
 }
 
 function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
-  const threadData = r.thread_data as string | undefined;
-  const storedCount = Number(r.message_count);
-  const messageCount = deriveMessageCount(threadData, storedCount);
-  if (messageCount <= 0) return null;
+  // The summary path never loads `thread_data`; the count comes from the
+  // dedicated `message_count` column (maintained on write, backfilled for
+  // legacy rows at bootstrap). Empty threads are filtered out of the list.
+  const messageCount = Number(r.message_count);
+  if (!Number.isFinite(messageCount) || messageCount <= 0) return null;
   return {
     id: r.id as string,
     title: r.title as string,
@@ -285,7 +336,14 @@ export async function createThread(
 }
 
 const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at`;
-const SUMMARY_COLUMNS = `id, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at`;
+// The list/summary path deliberately omits `thread_data`: it is the full
+// message-history JSON blob and selecting it for every row turns "open the
+// sidebar" into "download every conversation". The summary derives nothing
+// from the blob anymore — preview and message_count are dedicated columns
+// (message_count is maintained on write and backfilled for legacy rows at
+// bootstrap). The detail path (`THREAD_COLUMNS` / `getThread`) still returns
+// the full blob.
+const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at`;
 
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
@@ -414,10 +472,11 @@ export async function listThreads(
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
   const client = getDbExec();
-  const filters: string[] = [
-    `owner_email = ?`,
-    `(message_count > 0 OR thread_data LIKE '%"messages"%')`,
-  ];
+  // `message_count > 0` is the authoritative "has messages" signal: it is
+  // maintained on every write and backfilled for legacy rows at bootstrap,
+  // so the old `OR thread_data LIKE '%"messages"%'` substring scan over the
+  // full blob is no longer needed here.
+  const filters: string[] = [`owner_email = ?`, `message_count > 0`];
   const args: (string | number)[] = [ownerEmail];
   if (opts.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
@@ -448,9 +507,12 @@ export async function searchThreads(
   await ensureTable();
   const client = getDbExec();
   const pattern = `%${escapeLike(query)}%`;
+  // The count-guard uses the maintained/backfilled `message_count` column
+  // (same as listThreads). The content match still scans `thread_data` —
+  // search legitimately needs to look inside message history.
   const filters: string[] = [
     `owner_email = ?`,
-    `(message_count > 0 OR thread_data LIKE '%"messages"%')`,
+    `message_count > 0`,
     `(title LIKE ? ESCAPE '\\' OR preview LIKE ? ESCAPE '\\' OR thread_data LIKE ? ESCAPE '\\')`,
   ];
   const args: (string | number)[] = [ownerEmail, pattern, pattern, pattern];

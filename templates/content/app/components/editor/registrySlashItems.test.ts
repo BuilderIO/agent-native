@@ -7,12 +7,19 @@ import {
   seedRegistryBlockRaw,
 } from "./registrySlashItems";
 
+// The block types Content offers in its slash menu, in registry order. Excludes
+// the registered-but-not-offered blocks: `columns` (needs nested editing) and
+// `question-form` / `visual-questions` (agent-intake forms, a plan workflow).
 const STANDARD_LIBRARY_BLOCK_TYPES = [
   "checklist",
   "table-block",
+  "code",
   "code-tabs",
   "custom-html",
   "tabs",
+  "callout",
+  "diagram",
+  "wireframe",
   "mermaid",
   "api-endpoint",
   "openapi-spec",
@@ -22,6 +29,9 @@ const STANDARD_LIBRARY_BLOCK_TYPES = [
   "json-explorer",
   "annotated-code",
 ] as const;
+
+/** Blocks registered in Content but intentionally hidden from the slash menu. */
+const HIDDEN_FROM_SLASH_MENU = ["columns", "question-form", "visual-questions"];
 
 /**
  * T7 — registry-derived slash items + Notion gating for content's slash menu.
@@ -55,7 +65,7 @@ describe("buildRegistrySlashItems", () => {
     const items = buildRegistrySlashItems(contentBlockRegistry);
     const authorableBlockSpecs = contentBlockRegistry
       .list("block")
-      .filter((spec) => spec.type !== "columns");
+      .filter((spec) => !HIDDEN_FROM_SLASH_MENU.includes(spec.type));
     expect(items.length).toBe(authorableBlockSpecs.length);
     // Includes the shared dev-doc / structured library labels.
     const titles = items.map((i) => i.title);

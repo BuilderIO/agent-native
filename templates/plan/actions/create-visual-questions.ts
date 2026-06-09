@@ -81,7 +81,7 @@ const visualQuestionsSchema = z
 
 export default defineAction({
   description:
-    "Create a visual intake questionnaire as an Agent-Native Plan. Use this for explicit /visual-questions workflows when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before a later plan.",
+    "Create a visual intake questionnaire as an Agent-Native Plan. Use this for explicit /visual-questions workflows when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before a later plan. The only supported output is the published questionnaire this tool returns — never deliver the questions as inline chat content; an inline questionnaire is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
   schema: z
     .object({
       title: z.string().optional().describe("Short questionnaire title"),

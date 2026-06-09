@@ -1,17 +1,17 @@
 import { z } from "zod";
-import type { BlockMdxConfig } from "@agent-native/core/blocks/server";
+import type { BlockMdxConfig } from "../types.js";
 
 /**
- * Pure (React-free) part of the PLAN-SPECIFIC diagram block: its data schema and
- * MDX round-trip config. Shared by the server MDX adapter (`plan-mdx.ts`) and the
- * client spec (`planBlocks.tsx`). Keeping this React-free means importing it into
- * a server module never pulls React into the Nitro/SSR bundle.
+ * Pure (React-free) part of the shared `diagram` block: its data schema and MDX
+ * round-trip config. Lives in core so BOTH apps' server/shared registries
+ * (`plan-block-registry.ts`, `nfm-registry.ts`) and the client spec
+ * (`diagram.tsx`) consume one definition. Keeping it React-free means importing
+ * it into a server module never pulls React into the Nitro/SSR bundle.
  *
- * The schema MUST stay data-compatible with the `diagram` branch of
- * `planBlockSchema` (`plan-content.ts` `diagramDataSchema`), and the MDX `tag` +
- * attribute shape MUST match the legacy `<Diagram … data={…} />` encoding
- * (`plan-mdx.ts` `serializeBlock`/`parseBlock`) — the whole `data` object is one
- * JSON `data` prop — so stored `.mdx` round-trips byte-compatibly.
+ * The MDX `tag` + attribute shape MUST match the legacy `<Diagram … data={…} />`
+ * encoding — the whole `data` object is serialized as one JSON `data` prop — so
+ * stored `.mdx` round-trips byte-compatibly (the block originated in the plan
+ * template before moving here).
  */
 
 export interface DiagramNode {
@@ -39,7 +39,7 @@ export interface DiagramData {
   /**
    * Preferred authoring path for architecture/code diagrams: a scoped, inert
    * HTML/SVG fragment. Use .diagram-* primitives and --wf-* tokens; the
-   * renderer supplies Tailwind-backed theme tokens plus sketch/clean style hooks.
+   * renderer supplies theme-token-backed styling plus sketch/clean style hooks.
    */
   html?: string;
   css?: string;
@@ -120,10 +120,9 @@ const diagramNoteSchema = z.object({
 }) as z.ZodType<DiagramNote>;
 
 /**
- * Data-compatible with `diagramDataSchema` in `plan-content.ts`. The block can
- * be a flexible HTML/SVG fragment or a legacy positional node/edge/note graph,
- * so it ships a custom read-only `Edit` rather than relying on the schema
- * auto-editor. Editing stays comment/patch-driven.
+ * The block can be a flexible HTML/SVG fragment or a legacy positional
+ * node/edge/note graph, so it ships a custom `Edit` rather than relying on the
+ * schema auto-editor. Editing stays comment/patch-driven.
  */
 export const diagramSchema = z
   .object({

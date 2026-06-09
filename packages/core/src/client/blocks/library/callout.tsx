@@ -1,33 +1,44 @@
-import type { BlockEditProps, BlockReadProps } from "@agent-native/core/blocks";
+import { IconPencil } from "@tabler/icons-react";
+import { cn } from "../../utils.js";
+import { defineBlock } from "../types.js";
+import type { BlockReadProps, BlockEditProps } from "../types.js";
 import {
   CALLOUT_TONES,
+  calloutMdx,
+  calloutSchema,
   type CalloutData,
   type CalloutTone,
-} from "@shared/blocks/callout.config";
-import { IconPencil } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { PlanMarkdownReader } from "../PlanMarkdownReader";
+} from "./callout.config.js";
 
 /**
- * Read-only renderer for a `callout` block. Mirrors the legacy `PlanBlockView`
- * callout branch byte-for-byte (same `plan-block plan-callout` section + title +
- * `PlanMarkdownReader` body) so converting the block to the registry does not
- * change the rendered output. A `data-tone` attribute is set when a tone is
- * present so future tone styling can hook in without touching the markup.
+ * Standard `callout` block — an emphasized note with a tone (info / decision /
+ * risk / warning / success) and a markdown body. Lives in core so any app can
+ * register it (it originated in the plan template).
+ *
+ * The section carries BOTH the app-neutral `an-callout` classes (styled by
+ * core's `blocks.css` with shadcn theme tokens, so it looks right in any app)
+ * and the legacy `plan-callout` classes (styled by the plan template's own
+ * stylesheet). Plan therefore renders byte-identically to before; content (and
+ * any other app) gets the theme-token treatment. `data-tone` drives the accent
+ * in both. The body renders through `ctx.renderMarkdown` so each app supplies
+ * its own GFM renderer (plan's react-markdown reader, content's, etc.).
  */
 export function CalloutBlock({
   data,
   blockId,
   title,
+  ctx,
 }: BlockReadProps<CalloutData>) {
   return (
     <section
-      className="plan-block plan-callout"
+      className="an-block an-callout plan-block plan-callout"
       data-block-id={blockId}
       data-tone={data.tone}
     >
-      {title && <div className="plan-block-label">{title}</div>}
-      <PlanMarkdownReader markdown={data.body} />
+      {title && <div className="an-block-label plan-block-label">{title}</div>}
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <div className="an-callout-body whitespace-pre-wrap">{data.body}</div>
+      )}
     </section>
   );
 }
@@ -74,8 +85,8 @@ export function CalloutBlockEdit({
                   className={cn(
                     "rounded-md border border-transparent px-2 py-1 text-xs font-semibold capitalize transition-colors",
                     activeTone === tone
-                      ? "border-plan-line bg-plan-block/70 text-plan-text"
-                      : "text-plan-muted hover:bg-plan-block/70 hover:text-plan-text",
+                      ? "border-border bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                   aria-pressed={activeTone === tone}
                   onClick={() => setTone(tone)}
@@ -91,11 +102,11 @@ export function CalloutBlockEdit({
 
   return (
     <section
-      className="plan-block plan-callout group/callout relative pr-10"
+      className="an-block an-callout plan-block plan-callout group/callout relative pr-10"
       data-block-id={blockId}
       data-tone={data.tone}
     >
-      {title && <div className="plan-block-label">{title}</div>}
+      {title && <div className="an-block-label plan-block-label">{title}</div>}
       {toneSettings && (
         <div className="absolute right-2 top-2 z-10">{toneSettings}</div>
       )}
@@ -118,3 +129,20 @@ export function CalloutBlockEdit({
     </section>
   );
 }
+
+/** Full client spec for the shared `callout` block (schema + MDX + Read/Edit). */
+export const calloutBlock = defineBlock<CalloutData>({
+  type: "callout",
+  schema: calloutSchema,
+  mdx: calloutMdx,
+  Read: CalloutBlock,
+  Edit: CalloutBlockEdit,
+  placement: ["block"],
+  editSurface: "inline",
+  label: "Callout",
+  description:
+    "An emphasized note with a tone (info/decision/risk/warning/success) and a markdown body.",
+  // `body` is a `markdown(min(1))` field, so a fresh callout needs non-empty
+  // placeholder prose; `tone` defaults to the neutral "info" register.
+  empty: () => ({ tone: "info", body: "Callout text" }),
+});

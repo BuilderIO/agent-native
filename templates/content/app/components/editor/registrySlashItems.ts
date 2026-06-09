@@ -92,10 +92,17 @@ export function buildRegistrySlashItems(
     registry,
     {
       notionCompatibleOnly: options.notionCompatibleOnly,
-      // Columns need recursive nested block editing before they are usable in
-      // Content's inline NFM editor. Keep the parser/registry aware of the block
-      // shape, but do not offer authoring until the generic nested editor lands.
-      includeSpec: (spec) => spec.type !== "columns",
+      // A few shared library blocks are registered (so saved docs and source
+      // round-trip), but not offered in Content's authoring slash menu:
+      //   - `columns` needs recursive nested block editing before it is usable in
+      //     Content's inline NFM editor.
+      //   - `question-form` / `visual-questions` are agent-intake forms (they
+      //     submit answers back to a planning agent), which is a plan workflow,
+      //     not a content-authoring block.
+      // The genuinely document-friendly rich blocks (callout, decision, diagram,
+      // wireframe, and the dev-doc/structured set) ARE offered.
+      includeSpec: (spec) =>
+        !["columns", "question-form", "visual-questions"].includes(spec.type),
       toItem: (spec, insert) => ({
         title: spec.label,
         description: getRegistryBlockSlashDescription(spec),

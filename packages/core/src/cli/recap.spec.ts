@@ -64,7 +64,7 @@ describe("recap prompt builder", () => {
     expect(prompt).toContain("set-resource-visibility");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).toContain(
-      "https://plan.agent-native.com/plans/<the returned plan id>",
+      "https://plan.agent-native.com/recaps/<the returned plan id>",
     );
     // No RECAP_JSON contract.
     expect(prompt).not.toContain("RECAP_JSON");
@@ -86,37 +86,38 @@ describe("recap prompt builder", () => {
 describe("recap comment body", () => {
   it("embeds an inline screenshot + link and a plan-id marker on success", () => {
     const body = buildCommentBody({
-      PLAN_URL: "https://plan.agent-native.com/plans/plan-abc123",
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL:
         "https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png",
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      "[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png)](https://plan.agent-native.com/plans/plan-abc123)",
+      "[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png)](https://plan.agent-native.com/recaps/plan-abc123)",
     );
     expect(body).toContain("Open the interactive recap");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
   });
 
-  it("rebuilds a canonical link (origin + plan id), dropping any crafted path/query", () => {
+  it("rebuilds a canonical /recaps/ link from a legacy /plans/ URL, dropping any crafted path/query", () => {
     const body = buildCommentBody({
-      // Same-origin URL, but with markdown-breakout junk appended to the path.
+      // Legacy same-origin /plans/ URL, but with markdown-breakout junk appended
+      // to the path. The rebuild canonicalizes to /recaps/ and drops the junk.
       PLAN_URL:
         "https://plan.agent-native.com/plans/plan-abc123)](https://evil.example.com)",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      "[Open the interactive recap](https://plan.agent-native.com/plans/plan-abc123)",
+      "[Open the interactive recap](https://plan.agent-native.com/recaps/plan-abc123)",
     );
     expect(body).not.toContain("evil.example.com");
   });
 
   it("drops a same-origin image URL that is not a canonical recap-image path", () => {
     const body = buildCommentBody({
-      PLAN_URL: "https://plan.agent-native.com/plans/plan-abc123",
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL: "https://plan.agent-native.com/evil.png)](javascript:0)",
       HEAD_SHA: "abcdef1",
@@ -138,7 +139,7 @@ describe("recap comment body", () => {
 
   it("falls back to a link-only comment when the screenshot upload failed", () => {
     const body = buildCommentBody({
-      PLAN_URL: "https://plan.agent-native.com/plans/plan-abc123",
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL: "",
       HEAD_SHA: "abcdef1",
@@ -149,7 +150,7 @@ describe("recap comment body", () => {
 
   it("drops the link when the plan URL origin does not match the app origin", () => {
     const body = buildCommentBody({
-      PLAN_URL: "https://evil.example.com/plans/plan-abc123",
+      PLAN_URL: "https://evil.example.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL: "",
       HEAD_SHA: "abcdef1",

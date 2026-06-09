@@ -1,0 +1,32 @@
+{
+  "name": "agent-native-visual-plans",
+  "version": "1.0.0+codex.625a1a77f166",
+  "description": "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
+  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
+  "homepage": "https://plan.agent-native.com",
+  "license": "MIT",
+  "keywords": [
+    "agent-native",
+    "visual-plans",
+    "mcp",
+    "skills",
+    "app-backed-skill"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Agent-Native Plan",
+    "shortDescription": "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
+    "longDescription": "Agent-Native Plan packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill.",
+    "developerName": "Agent-Native",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://plan.agent-native.com",
+    "defaultPrompt": [
+      "Open Agent-Native Plan where useful",
+      "Use Agent-Native Plan for app-backed workflows",
+      "Search Agent-Native Plan and return usable context"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

@@ -134,6 +134,27 @@ export default runMigrations(
       version: 15,
       sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
     },
+    // v16: performance indexes for ownable list/read access paths and the
+    // folder-membership join. Strictly additive; plain
+    // `CREATE INDEX IF NOT EXISTS` works on both SQLite and Postgres.
+    // - ownable tables: scoped reads filter on (owner_email, org_id) and sort
+    //   by the list column (compositions/design_systems list by updated_at,
+    //   folders list by created_at).
+    // - *_shares tables: the accessFilter EXISTS subquery looks up grants by
+    //   (resource_id, principal_type, principal_id).
+    // - folder_memberships is traversed by both FK columns (joined/filtered by
+    //   folder_id in list-folders; deleted/moved by composition_id).
+    {
+      version: 16,
+      sql: `CREATE INDEX IF NOT EXISTS compositions_owner_org_updated_idx ON compositions (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_systems (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS folders_owner_org_created_idx ON folders (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS composition_shares_resource_principal_idx ON composition_shares (resource_id, principal_type, principal_id);
+CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id);
+CREATE INDEX IF NOT EXISTS folder_shares_resource_principal_idx ON folder_shares (resource_id, principal_type, principal_id);
+CREATE INDEX IF NOT EXISTS folder_memberships_folder_id_idx ON folder_memberships (folder_id);
+CREATE INDEX IF NOT EXISTS folder_memberships_composition_id_idx ON folder_memberships (composition_id)`,
+    },
   ],
   { table: "videos_migrations" },
 );

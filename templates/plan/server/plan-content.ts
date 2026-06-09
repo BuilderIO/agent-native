@@ -2383,17 +2383,20 @@ function blockFromSection(section: SectionLike, index: number): PlanBlock {
     };
   }
   if (section.type === "decisions") {
+    // Legacy "decisions" section → a decision-tone `callout` (the `decision`
+    // block was retired). The section title is the question; each body line is an
+    // option.
+    const optionLines = markdownLines(section.body).map((line) => `- ${line}`);
+    const body =
+      [`**${section.title}**`, optionLines.join("\n")]
+        .filter(Boolean)
+        .join("\n\n") ||
+      section.title ||
+      "Decision";
     return {
       id: section.id || createPlanBlockId(section.title),
-      type: "decision",
-      title: section.title,
-      data: {
-        question: section.title,
-        options: markdownLines(section.body).map((line, optionIndex) => ({
-          id: `option-${optionIndex + 1}`,
-          label: line,
-        })),
-      },
+      type: "callout",
+      data: { tone: "decision", body },
     };
   }
   return {
@@ -2968,9 +2971,6 @@ function renderBlockHtml(block: PlanBlock): string {
   }
   if (block.type === "image") {
     return renderImageHtml(block);
-  }
-  if (block.type === "decision") {
-    return `<section class="plan-block">${title}<h3>${escapeHtml(block.data.question)}</h3><div class="chips">${block.data.options.map((option) => `<span>${escapeHtml(option.label)}</span>`).join("")}</div></section>`;
   }
   if (block.type === "tabs") {
     return `<section class="plan-block">${title}<div class="tab-export">${block.data.tabs.map((tab) => `<article><h3>${escapeHtml(tab.label)}</h3>${tab.blocks.map(renderBlockHtml).join("")}</article>`).join("")}</div></section>`;

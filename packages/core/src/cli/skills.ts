@@ -34,7 +34,7 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plan|visual-recap|visual-questions|ui-plan|prototype-plan|plan-design|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
@@ -416,13 +416,23 @@ for example, a new \`Edit with AI\` action in a popover header belongs in the
 top-right header slot, aligned with the title, not in the body or footer. Use
 the same frame size, scale, outer padding, border radius, and visual density on
 both sides unless the change itself alters those properties, and let the frame
-height fit the content rather than leaving a tall empty lower half. Choose the
-before/after layout by geometry: use a \`columns\` block labeled \`Before\`/\`After\`
-when each state stays legible side by side; stack \`Before\` then \`After\`
-vertically in normal document flow when the surface is very wide, when
-full-width scanning matters, or when columns would shrink or crop the detail.
-Label each state visibly (for example, a header pill) so cropped screenshots
-stay unambiguous.
+height fit the content rather than leaving a tall empty lower half.
+
+**Name the states with the column header, never inside the frame.** Put the two
+states in a \`columns\` block and set each column's \`label\` to \`Before\` and
+\`After\` — the renderer draws that label as an \`h4\` heading above each frame. Do
+NOT bake a \`Before\`/\`After\` pill, title, or heading into the wireframe \`html\`: a
+label placed inside reads as part of the product UI, lands in a random corner,
+and clutters the comparison. The column header is the one and only place the
+state name belongs.
+
+**Let the surface choose side-by-side vs. stacked.** The \`columns\` renderer lays
+narrow surfaces (\`mobile\`, \`popover\`, \`panel\`) out side by side, and
+automatically stacks wide surfaces (\`desktop\`, \`browser\`) vertically at full
+document width so a large frame is never crushed into a half-width column and
+cropped. Author both wireframes with the real \`surface\` and the matching
+\`Before\`/\`After\` column labels; do not hand-stack the pair into separate
+top-level wireframes or duplicate the state name as body content.
 
 **Good example — a contacts list, surface \`browser\`.** A small, real screen
 composed from the helper classes and tokens, layout in inline flex, no fonts or
@@ -598,7 +608,7 @@ only for tiny previews or genuinely linear step flows. Repeat a wireframe in the
 for a genuinely new detail view or comparison. Skip the visual surface entirely
 for non-visual work and write a clean rich document. For a simple binary UI
 visual choice, show the two directions in the canvas only; do not repeat the
-same options as body wireframes, a \`decision\` block, or prose. Put the actual
+same options as body wireframes or prose. Put the actual
 choice in the bottom "Open Questions" form.
 
 **Use the right block, and make it carry substance.** For the authoritative,
@@ -607,19 +617,28 @@ machine-checked list of block types and their data schemas, call \`get-plan-bloc
 so you never emit a block the editor cannot render or round-trip:
 
 - \`rich-text\` for plan prose with real bold/italic/code/links and nested lists.
-- \`code\` for the file map: show how the few load-bearing files actually change
-  as real, syntax-highlighted code — the new action, the changed schema, the
-  wiring point. Highlight only the files worth reading; never an exhaustive list
-  of every touched file, and never a prose-only description of a file. When more
-  than one file matters, group the \`code\` blocks in a vertical \`tabs\` block
-  (the standard tab primitive) rather than a bespoke container. Reach for
-  \`annotated-code\` instead only when a snippet needs line-anchored margin notes.
-  If the exact code is unknown, show the smallest plausible planned shape or a
+- \`annotated-code\` for the file map: when a load-bearing file is worth
+  highlighting, prefer the annotated walkthrough over a bare \`code\` block — carry
+  the real, syntax-highlighted code AND anchor short margin notes to the lines
+  that actually change (the new action, the changed schema, the wiring point), so
+  the reader sees what matters and why instead of code for code's sake. Each
+  annotation is \`{ lines: "12" | "12-18"; label?; note }\`; keep a few high-signal
+  notes per file, not one per line. Highlight only the files worth reading; never
+  an exhaustive list of every touched file, and never a prose-only description of
+  a file. Drop to a plain \`code\` block only for a throwaway snippet with nothing
+  to call out. When more than one file matters, group the blocks in a vertical
+  \`tabs\` block (the standard tab primitive) rather than a bespoke container. If
+  the exact code is unknown, show the smallest plausible planned shape or a
   commented stub naming what to fill in. (\`code-tabs\` and \`implementation-map\`
   are legacy: their renderers stay for old plans, but do not author new ones.)
-- \`decision\` for two or three option cards with consequences. These are static
-  records; do not style them like clickable tabs or chips unless the renderer
-  truly supports changing the selection.
+- For a decision: if the reviewer must still pick between a genuinely-open
+  either/or, put it in the bottom Open Questions \`question-form\` as a \`single\`
+  question — one option per real alternative, each with a short detail and
+  \`recommended: true\` on the one you would choose; do not also restate the same
+  choice elsewhere. If you have already committed to an approach, state it as
+  settled prose or a \`callout\` with \`tone="decision"\`, optionally with a
+  \`columns\` block for a side-by-side comparison of the options you weighed — not
+  as a confusing mid-document form for a question you have already answered.
 - \`columns\` for side-by-side before/after or current/target comparisons where
   each side needs real nested blocks; label the columns clearly and avoid
   stacking comparison blocks vertically when parallel reading is the point.
@@ -648,6 +667,11 @@ so you never emit a block the editor cannot render or round-trip:
 **Open questions live at the bottom as a form when answers would change the
 plan.** Surface answerable unresolved decisions in a final \`question-form\`
 block titled "Open Questions" so the renderer presents it as a distinct section.
+That bottom form is the ONLY place that enumerates the open questions: never add
+a second "Open Questions" heading, list, or recap of the same questions earlier
+in the document. A one-line pointer in the overview prose ("a few decisions are
+still open — see Open Questions below") is fine, but do not reproduce the
+question list or a parallel questions/decisions section above it.
 Use \`single\` or \`multi\` for clear choices, \`freeform\` for constraints,
 \`recommended: true\` for the default you would pick, and option \`wireframe\` /
 \`diagram\` previews only when the options are not already visible in the top
@@ -656,8 +680,7 @@ reviewer can answer with a custom option — never add an explicit "Other" optio
 yourself; set \`allowOther: false\` only when a free-text answer makes no sense.
 Keep non-answerable assumptions or risks as concise \`callout\` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
-narrative, and never ask the same question in both a \`decision\` block and a
-\`question-form\`.
+narrative, and never ask the same question twice.
 
 **\`custom-html\` is a bounded escape hatch only** — a single complete fragment
 inside a block, never \`html\`/\`head\`/\`body\`/\`script\` tags, never a generic
@@ -687,8 +710,9 @@ correct desktop footprint, theme, and one subtle whole-frame wobble. Plain-text
 designer notes sit spaced off the frame, pointing only at the controls that need
 explanation. Below it, a Claude/Codex-grade document: objective and
 done-criteria, a few \`code\` blocks (grouped in a vertical \`tabs\` block when
-more than one) showing the real shape of the load-bearing files, a \`decision\`
-card weighing two real approaches,
+more than one) showing the real shape of the load-bearing files, a \`callout\`
+with \`tone="decision"\` stating the chosen approach with a \`columns\` block
+weighing the two real options behind it,
 and a validation step — none of it repeating the canvas. If the task also
 changes a multi-step completion flow, the same top area includes a Prototype tab
 whose screens use the same labels and states as the canvas artboards, with
@@ -766,6 +790,16 @@ plan needs a richer review surface.
   patterns first; name actual files, symbols, and data shapes instead of
   inventing them. Check existing \`actions/\` before proposing endpoints and prefer
   named client helpers over raw fetch. Delegate wide exploration to a sub-agent.
+  Lead with reuse: for each step, name what it reuses — existing actions, schema,
+  components, helpers — before what it adds, so the plan explains the genuinely new
+  delta instead of redescribing what already exists.
+- **Decide the hard-to-reverse bets first.** For non-trivial backend, data, or API
+  work, sketch where the feature is headed, then call out the decisions that are
+  expensive to undo once data or callers depend on them — wire format, public ids,
+  data-model shape, auth and ownership boundaries — and get those right in the plan
+  even if most of the feature ships later. Then scope to the smallest first cut that
+  proves the approach without foreclosing it, stating both what is in and what is
+  explicitly deferred.
 - **Preserve existing plans.** If the user pasted, referenced, or already has a
   Codex / Claude Code / Markdown plan, treat it as source material. Preserve its
   intent, do not invent codebase facts, label inferred visuals as inferred, and
@@ -818,7 +852,10 @@ plan needs a richer review surface.
    model. Plans should load out of the box for the local agent and local browser
    session; if a signed-in embedded browser cannot read a local plan that an
    anonymous/tool check can read, fix the app/action ownership or access path
-   rather than patching one plan by hand.
+   rather than patching one plan by hand. For high-stakes plans (architecture,
+   backend, data, multi-file, or risky), also kick off the self-review pass in
+   **Self-Review Before Handoff** while the user reads, instead of blocking the
+   handoff on it.
 5. Call \`get-plan-feedback\` before editing, after review, after any long pause,
    and before the final response. Treat \`anchorDetails\`, resolver intent, recent
    review events, and any focused screenshots from browser handoff as the source
@@ -829,6 +866,34 @@ plan needs a richer review surface.
    plan.
 7. Export with \`export-visual-plan\` only when the user wants a shareable receipt
    or repo-check-in artifacts.
+
+## Self-Review Before Handoff
+
+For high-stakes plans — architecture, backend, data-model, migration, multi-file,
+or otherwise risky work — run one adversarial self-review pass before treating the
+plan as final. Skip it for small, UI-only, or single-decision plans where the cost
+outweighs the value. Keep the pass cheap and non-blocking:
+
+- **Surface the plan first, review concurrently.** Post the link and let the user
+  start reading, then run the review in parallel — never make the user wait on it.
+- **Review the written plan; do not re-research.** Critique the plan text and its
+  own blocks. The grounding was already done while drafting, so the review checks
+  the output instead of re-exploring the repo.
+- **Spawn one skeptical reviewer** whose only job is to find what is weak, missing,
+  or wrong — not to praise. Point it at: hard-to-reverse decisions made implicitly
+  or not at all (wire format, public ids, data-model shape, auth, ownership); steps
+  not anchored in real files or symbols; a menu of options where the plan should
+  commit to one; obvious missing decisions ("what happens when X?", "why not Y?");
+  and padding or single-step filler.
+- **Fix vs. ask.** Apply clear-cut fixes yourself with \`update-visual-plan\`
+  \`contentPatches\` — vague non-goals, unanchored claims, an obvious missing
+  decision. Route genuine judgment calls back to the user instead: add them to the
+  bottom \`question-form\` Open Questions block or batch them into the normal
+  ask-user-question flow. Do not silently decide them.
+- **Do not surprise the user mid-read.** On a large plan, apply the patches before
+  the editor loads; otherwise note briefly that a self-review is running so the
+  plan changing under them is expected. When you next respond, summarize what the
+  review changed and what it surfaced for the user to decide.
 
 ## Visual Surface Choice
 
@@ -1413,6 +1478,26 @@ schema, API, file, and architecture changes become the same \`data-model\`,
 now they summarize work that exists. A reviewer scans the shape of the change
 before spending attention on the literal lines.
 
+## Always Publish As An Agent-Native Plan — Never Inline
+
+The deliverable is ALWAYS a published Agent-Native Plan, created with the
+\`create-visual-recap\` tool on the \`plan\` MCP server. NEVER hand the recap to the
+user as inline chat content — not Markdown prose, not an ASCII sketch, not a
+table, not a fenced "wireframe", not a "here's the recap" summary. A recap's
+entire value is the hosted, interactive, annotatable plan; an inline summary is
+not a recap, it is the thing a recap replaces. The only supported output is to
+publish the plan and return its absolute URL.
+
+If the \`plan\` MCP server's tools are not available, do NOT improvise an inline
+recap as a fallback. The usual cause is a connector that did not finish
+connecting this session (it registers zero tools), NOT necessarily an auth
+problem — so do not assume the user must authenticate. Stop and tell the user
+how to restore it: reconnect the plan MCP server (in Claude Code, run \`/mcp\` and
+reconnect, or restart the session); only if it is genuinely unauthenticated, run
+\`agent-native connect <plan-app-url>\` or re-authenticate via \`/mcp\`. Then publish
+once the tool is reachable. Falling back to inline content is a defect, not a
+degraded mode.
+
 ## When To Use
 
 Build a recap when a PR or commit is large, multi-file, or touches schema, API
@@ -1510,25 +1595,42 @@ text-match screenshot is not enough; visually inspect the captured image.
 ## Open And Report The Recap
 
 After creating the recap, link the reviewer to the rendered plan with an
-**absolute URL**. Never make the primary link a local \`plan.mdx\` file, a local
+**absolute URL on the origin whose database actually holds the plan**. That
+origin is the Plan MCP server you just created the recap through — NOT whatever
+dev server you happen to know is running. The create tool returns the correct
+link; report THAT. Never make the primary link a local \`plan.mdx\` file, a local
 mirror folder, or a relative path such as \`/plans/<id>\`.
+
+A recap lives only in the database of the MCP that created it. A separately
+running local dev server (e.g. \`http://localhost:8081\`) has its OWN database and
+will NOT contain a recap created through the hosted MCP, so a hand-built
+\`localhost\` link returns "Plan not found". This is the most common recap
+mistake — do not guess an origin you have not confirmed shares the MCP's data.
 
 Resolve the URL in this order:
 
-1. When creating a recap for local edits and a running local/dev Plan app origin
-   is known, prefer that local origin even if \`plan.mdx\` includes a hosted
-   \`visualUrl\`, e.g. \`http://localhost:8081/plans/<id>\`.
-2. Use the absolute \`visualUrl\` exported in \`plan.mdx\` frontmatter when present,
-   e.g. \`https://plan.agent-native.com/plans/<id>\`.
-3. If the action returns only a relative \`url\`/\`path\` and the running app origin
-   is known, construct an absolute URL from that origin, e.g.
-   \`http://localhost:5173/plans/<id>\`.
-4. If only the plan id is available, build the hosted absolute URL
-   \`https://plan.agent-native.com/plans/<id>\` and say if that URL was inferred.
+1. Use the absolute URL the create tool RETURNS — \`openLink.webUrl\`, else the
+   \`visualUrl\` in the returned \`plan.mdx\` frontmatter, else \`url\`/\`path\`
+   resolved against the MCP server's own origin (for the hosted MCP that is
+   \`https://plan.agent-native.com\`). This always points at the database that has
+   the plan.
+2. Use a \`localhost\`/dev origin ONLY when the recap was created through a Plan
+   MCP bound to that same origin — i.e. that MCP's url is
+   \`http://localhost:<port>/_agent-native/mcp\`. Creating through the hosted MCP
+   and linking to localhost is the exact mismatch that 404s.
+3. If only a plan id is available, build the MCP origin's absolute URL
+   (hosted: \`https://plan.agent-native.com/plans/<id>\`) and say it was inferred.
+
+If the user wants to review on localhost but the recap was created through the
+hosted MCP, say so plainly: the local dev server cannot see it. To view a recap
+on localhost (e.g. to exercise un-deployed local renderer changes), they must
+connect a LOCAL Plan MCP (\`http://localhost:<port>/_agent-native/mcp\`) and
+re-create the recap through it so it lands in the local database; offer to do
+that rather than handing over a localhost URL that will not resolve.
 
 When running in Codex and the Browser/in-app side browser tools are available,
-open the absolute recap URL there automatically after creation. Still include the
-same absolute URL in the final response. Local mirror files like
+open the returned absolute recap URL there automatically after creation. Still
+include the same absolute URL in the final response. Local mirror files like
 \`plans/<slug>/plan.mdx\` may be mentioned only as secondary source-control
 artifacts, not as the main way to open the recap.
 
@@ -1538,12 +1640,17 @@ Map each kind of change to the block that carries it, derived mechanically from
 the actual diff:
 
 - **Schema / migration change** → \`data-model\` for the resulting entities,
-  fields, and relations, plus a \`diff\` with \`mode: "split"\` for the literal SQL
-  or schema text that changed. The \`data-model\` shows the new shape; the split
-  \`diff\` shows exactly what moved.
+  fields, and relations. Flag what moved per field/entity with
+  \`change: "added" | "modified" | "removed" | "renamed"\`, and for a changed type
+  set \`was\` to the prior value (e.g. the old column type) — grounded in the real
+  migration diff. That diff-aware \`data-model\` is the headline; reach for a split
+  \`diff\` of the literal SQL only when the exact statement still matters, not by
+  default.
 - **API / action / route change** → \`api-endpoint\` with the method, path,
-  params, request, and responses as they are after the change. Mark removed
-  endpoints with \`deprecated: true\` and explain in prose.
+  params, request, and responses as they are after the change. Flag each changed
+  param/response with \`change\` (and \`was\` on a param whose type/shape changed),
+  and set \`change\` on the endpoint root for a wholly added or removed route. Mark
+  removed endpoints with \`deprecated: true\` and explain in prose.
   Keep multiple API endpoints in the normal single-column document flow unless
   they are an explicit before/after contract comparison.
 - **Compatibility-sensitive change** → short \`rich-text\` notes beside the
@@ -1552,14 +1659,35 @@ the actual diff:
   pair that note with a split \`diff\` for the literal lines.
 - **Any meaningful code hunk** → \`diff\` with \`mode: "split"\`, carrying the real
   \`before\` / \`after\` text and the \`filename\` / \`language\`. Split mode is the
-  default for a recap because before/after legibility is the whole point.
-  When several key files each need a substantial diff, group those \`diff\` blocks
-  in a reusable \`tabs\` block with \`orientation: "vertical"\` so file labels form a
-  left rail and the selected file's split diff renders on the right. Keep each
-  tab label to the file path or a short basename plus directory hint.
+  default for a recap because before/after legibility is the whole point. Give
+  every \`diff\` a one-line \`summary\` saying what the hunk changes and why; it
+  renders as a description above the code so the reviewer reads intent first.
+  Never leave a diff unlabeled.
+  For the KEY changed files, attach \`annotations\` to the \`diff\` so the recap
+  calls out what each important hunk does — this is the headline affordance for
+  annotating the key files updated. Each annotation is
+  \`{ side?: "before" | "after"; lines: "13" | "13-15"; label?: string; note }\`
+  and anchors to the AFTER-side line numbers by default (set \`side: "before"\` to
+  point at removed lines). Keep it to a few high-signal notes per file, not one
+  per line.
+  When several key files each need a substantial diff, introduce the group with a
+  \`rich-text\` heading block whose markdown is \`## Key changes\`, then place the
+  \`diff\` blocks under it in a reusable \`tabs\` block with
+  \`orientation: "vertical"\` so file labels form a left rail and the selected
+  file's split diff renders on the right. Let that heading label the section — do
+  NOT also set a \`title\` on the \`tabs\` block. Keep each tab label to the file
+  path or a short basename plus directory hint.
   If the recap ends with more than one supporting diff, that trailing diff
-  appendix should be one vertical \`tabs\` block, not a stack of separate \`diff\`
-  blocks.
+  appendix should be one vertical \`tabs\` block under its own \`## Key changes\`
+  heading, not a stack of separate \`diff\` blocks.
+- **Brand-new file or a substantial added block with no meaningful "before"** →
+  \`annotated-code\` rather than a one-sided split \`diff\`. Carry the real new code
+  with its \`filename\` / \`language\` and anchor a few high-signal notes to the lines
+  that matter (\`{ lines: "12" | "12-18"; label?; note }\`) so the reviewer reads
+  what the new code does, not code for code's sake. Keep split \`diff\` for true
+  before/after hunks where the removed lines still carry meaning, and group
+  several annotated walkthroughs in a vertical \`tabs\` block the same way diffs are
+  grouped.
 - **Files added / removed / renamed** → \`file-tree\` with each entry's \`change\`
   flag (\`added\`, \`removed\`, \`modified\`, \`renamed\`) and a short \`note\`; attach a
   \`snippet\` only when one tells the reviewer something the path does not.
@@ -1607,9 +1735,10 @@ For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state
 sequence when that better matches the change. The visual headline must show
 exact placement, realistic chrome, and adequate padding before any abstract
-explanation. The Wireframe Quality core owns the before/after layout choice
-(side-by-side \`columns\` vs. vertical stack, picked by geometry); never
-hand-build a side-by-side wireframe layout in \`custom-html\`. For document-body
+explanation. The Wireframe Quality core owns the before/after layout choice —
+the \`columns\` renderer keeps narrow surfaces side by side and auto-stacks wide
+\`desktop\`/\`browser\` frames vertically; never hand-build a side-by-side
+wireframe layout in \`custom-html\`. For document-body
 comparisons, there is no other multi-column primitive — \`columns\` plus split
 \`diff\` are the whole comparison vocabulary. Do not hand-build side-by-side
 layouts in \`custom-html\`, and do not stack two \`data-model\` blocks vertically
@@ -1798,7 +1927,7 @@ Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
 not put shared secrets in skill files.
 `;
 
-const BUILT_IN_APP_SKILLS = {
+export const BUILT_IN_APP_SKILLS = {
   assets: {
     skillName: "assets",
     manifest: normalizeAppSkillManifest({
@@ -1893,17 +2022,13 @@ const BUILT_IN_APP_SKILLS = {
     skillName: "visual-plan",
     extraSkills: {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
-      "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
-      "ui-plan": UI_PLAN_SKILL_MD,
-      "prototype-plan": PROTOTYPE_PLAN_SKILL_MD,
-      "plan-design": PLAN_DESIGN_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
       displayName: "Agent-Native Plan",
       description:
-        "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, optional UI wireframes/prototypes, annotations, feedback, and HTML export.",
+        "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
@@ -1912,7 +2037,7 @@ const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -1929,34 +2054,6 @@ const BUILT_IN_APP_SKILLS = {
           description:
             "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review.",
         },
-        {
-          id: "visual-questions",
-          action: "create-visual-questions",
-          path: "/plans",
-          description:
-            "Create a visual intake questionnaire before generating or updating an Agent-Native plan.",
-        },
-        {
-          id: "ui-plan",
-          action: "create-ui-plan",
-          path: "/plans",
-          description:
-            "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below.",
-        },
-        {
-          id: "prototype-plan",
-          action: "create-prototype-plan",
-          path: "/plans",
-          description:
-            "Create a prototype-first Agent-Native plan with a functional live prototype above the document.",
-        },
-        {
-          id: "plan-design",
-          action: "create-plan-design",
-          path: "/plans",
-          description:
-            "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab.",
-        },
       ],
       skills: [
         {
@@ -1968,26 +2065,6 @@ const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-recap",
           visibility: "exported",
           exportAs: "visual-recap",
-        },
-        {
-          path: "skills/visual-questions",
-          visibility: "exported",
-          exportAs: "visual-questions",
-        },
-        {
-          path: "skills/ui-plan",
-          visibility: "exported",
-          exportAs: "ui-plan",
-        },
-        {
-          path: "skills/prototype-plan",
-          visibility: "exported",
-          exportAs: "prototype-plan",
-        },
-        {
-          path: "skills/plan-design",
-          visibility: "exported",
-          exportAs: "plan-design",
         },
       ],
       hostAdapters: [
@@ -2069,17 +2146,6 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-recaps": "visual-plans",
   "code-review-recap": "visual-plans",
   "code-review-recaps": "visual-plans",
-  "visual-questions": "visual-plans",
-  "visual-question": "visual-plans",
-  "ui-plan": "visual-plans",
-  "ui-plans": "visual-plans",
-  "prototype-plan": "visual-plans",
-  "prototype-plans": "visual-plans",
-  "plan-design": "visual-plans",
-  "plan-designs": "visual-plans",
-  "design-plan": "visual-plans",
-  "design-plans": "visual-plans",
-  prototype: "visual-plans",
   "html-plan": "visual-plans",
   "plan-mode": "visual-plans",
   plannotate: "visual-plans",
@@ -2104,10 +2170,6 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "visual-plan",
     "visual-recap",
     "code-review-recap",
-    "visual-questions",
-    "ui-plan",
-    "prototype-plan",
-    "plan-design",
     "html-plan",
     "plannotate",
   ],

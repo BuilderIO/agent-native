@@ -124,6 +124,14 @@ plugin directory containing `skills/<name>/SKILL.md` and `.mcp.json`. In Claude
 Code, add the marketplace, install `agent-native-assets@agent-native-apps`,
 reload plugins, then authenticate the URL-only MCP connector from `/mcp`.
 
+Generated plugin manifests are set up to auto-update: the Claude Code
+marketplace entry sets `autoUpdate: true` (with commit-SHA versioning) and the
+Codex plugin `version` embeds a content hash of the bundled skills and MCP
+endpoint, so installed plugins pick up skill changes without re-packing. The
+Plan app is published this way as a ready-to-add marketplace at the repo root —
+see [Plan plugin & marketplace](/docs/plan-plugin) for the end-to-end install
+and auto-update flow.
+
 ## Creating custom skills {#creating-skills}
 
 Create a skill when:

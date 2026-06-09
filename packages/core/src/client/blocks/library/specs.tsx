@@ -9,6 +9,10 @@ import { codeTabsBlock } from "./code-tabs.js";
 import { htmlBlock } from "./html.js";
 import { tabsBlock } from "./tabs.js";
 import { columnsBlock } from "./columns.js";
+import { calloutBlock } from "./callout.js";
+import { questionFormBlock, visualQuestionsBlock } from "./question-form.js";
+import { diagramBlock } from "./diagram.js";
+import { wireframeBlock } from "./wireframe.js";
 
 // Dev-doc blocks: React-free schema + MDX config paired with the shared React
 // Read/Edit renderers. Composed into full specs below with canonical metadata.
@@ -265,6 +269,11 @@ export const libraryBlockSpecs: BlockSpec<any>[] = [
   htmlBlock,
   tabsBlock,
   columnsBlock,
+  calloutBlock,
+  questionFormBlock,
+  visualQuestionsBlock,
+  diagramBlock,
+  wireframeBlock,
   ...devDocBlockSpecs,
 ];
 

@@ -219,8 +219,8 @@ describe("shared block tab rails", () => {
 
     const tablist = container.querySelector<HTMLElement>('[role="tablist"]');
     expect(tablist?.getAttribute("aria-orientation")).toBe("vertical");
-    expect(tablist?.className).toContain("md:flex-col");
-    expect(tablist?.className).toContain("md:overflow-y-auto");
+    expect(tablist?.className).toContain("@xl/tabs:flex-col");
+    expect(tablist?.className).toContain("@xl/tabs:overflow-y-auto");
     expect(
       tablist?.querySelector<HTMLElement>('[role="tab"] span')?.className,
     ).toContain("truncate");

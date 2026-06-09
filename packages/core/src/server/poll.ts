@@ -476,14 +476,40 @@ async function doCheckExternalDbChanges(): Promise<void> {
   try {
     const db = getDbExec();
 
+    // These reads are independent — each compares the DB against module-level
+    // high-water marks (`_lastAppStateTs`, etc.) rather than another query's
+    // result, and none of them mutate state before processing below. On a
+    // serverless SQL backend every `await` is a network round-trip, so running
+    // them concurrently shaves stacked latency off every poll cycle. Results
+    // are still processed in the original sequential order, and conditional
+    // follow-up queries (action/extension marker detail rows, tool-shares) stay
+    // sequential within their branch where they depend on these results.
+    const [
+      appResult,
+      actionMarkerTs,
+      refreshResult,
+      extensionMarkerTs,
+      settingsTs,
+      extensionsMaxUpdatedAt,
+    ] = await Promise.all([
+      db.execute({
+        sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
+        args: [_lastAppStateTs],
+      }),
+      readActionMarkerMaxUpdatedAt(db),
+      db.execute({
+        sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
+        args: [SCREEN_REFRESH_KEY],
+      }),
+      readExtensionMarkerMaxUpdatedAt(db),
+      readMaxUpdatedAt(db, "settings"),
+      readMaxUpdatedAtRaw(db, "tools"),
+    ]);
+
     // Check application_state for external writes. Preserve the changed key so
     // clients can invalidate one-shot command queries (`navigate`, `__set_url__`)
     // only when those command rows actually change; noisy keys such as
     // `slide-fit-check` should not wake navigation readers.
-    const appResult = await db.execute({
-      sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
-      args: [_lastAppStateTs],
-    });
     if (appResult.rows.length > 0) {
       const appTs = appResult.rows.reduce(
         (max, row) => Math.max(max, timestampValue(row.updated_at)),
@@ -515,7 +541,8 @@ async function doCheckExternalDbChanges(): Promise<void> {
     // event. This lets dev-mode `pnpm action ...` child processes and
     // serverless action invocations wake the web server's SSE/poll loop as a
     // first-class source:"action" event rather than a generic app-state bump.
-    const actionMarkerTs = await readActionMarkerMaxUpdatedAt(db);
+    // `actionMarkerTs` was read above; the detail-row query below is conditional
+    // on it and depends on its result, so it stays sequential.
     if (actionMarkerTs > _lastActionMarkerTs) {
       const actionMarkerResult = await db.execute({
         sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
@@ -536,10 +563,7 @@ async function doCheckExternalDbChanges(): Promise<void> {
     // tool writes to application_state under a well-known key; when its
     // updated_at bumps, emit a distinct event so the client invalidates
     // all queries (not just the ones matching its default queryKey prefix).
-    const refreshResult = await db.execute({
-      sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
-      args: [SCREEN_REFRESH_KEY],
-    });
+    // `refreshResult` was read above.
     const refreshTs = refreshResult.rows.reduce(
       (max, row) => Math.max(max, timestampValue(row.updated_at)),
       0,
@@ -588,8 +612,8 @@ async function doCheckExternalDbChanges(): Promise<void> {
     // Extension mutations write a durable marker row so delete and hide/unhide
     // operations are visible across serverless invocations. Translate those
     // marker rows back into extension-source events for targeted client
-    // invalidation while preserving user/org scope.
-    const extensionMarkerTs = await readExtensionMarkerMaxUpdatedAt(db);
+    // invalidation while preserving user/org scope. `extensionMarkerTs` was read
+    // above; the detail-row query below depends on it and stays sequential.
     if (extensionMarkerTs > _lastExtensionMarkerTs) {
       const extensionMarkerResult = await db.execute({
         sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
@@ -608,8 +632,7 @@ async function doCheckExternalDbChanges(): Promise<void> {
       _lastExtensionMarkerTs = extensionMarkerTs;
     }
 
-    // Check settings for external writes
-    const settingsTs = await readMaxUpdatedAt(db, "settings");
+    // Check settings for external writes. `settingsTs` was read above.
     if (settingsTs > _lastSettingsTs) {
       if (_lastSettingsTs > 0) {
         recordChange({ source: "settings", type: "change", key: "*" });
@@ -620,7 +643,8 @@ async function doCheckExternalDbChanges(): Promise<void> {
     // Extension rows live in the legacy physical `tools` table. Keep this as a
     // compatibility fallback for direct table writes, but scope events to the
     // resource owner/share targets instead of broadcasting deployment-wide.
-    const extensionsMaxUpdatedAt = await readMaxUpdatedAtRaw(db, "tools");
+    // `extensionsMaxUpdatedAt` was read above; the per-row query below is
+    // conditional on `extensionsTs` and stays sequential.
     const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
     if (extensionsTs > _lastExtensionsTs) {
       const since = _lastExtensionsUpdatedAt;

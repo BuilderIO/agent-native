@@ -39,6 +39,16 @@ type PlanContentRendererProps = {
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
   onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
+  /**
+   * Immediately reflect a STRUCTURAL block change (drag-to-columns, reorder,
+   * insert/delete) into the source-of-truth query cache, BEFORE the debounced
+   * server save lands. Without this the lagging `get-visual-plan` poll re-supplies
+   * the pre-edit content during the save window and the reconcile briefly reverts
+   * the new layout ("drop works, then undoes, then comes back"). Called only on
+   * structural changes — a per-keystroke optimistic write would make the editor's
+   * `value` track local state and loop the reconcile.
+   */
+  onOptimisticBlocks?: (blocks: PlanBlock[]) => void;
   onMetadataChange?: (patch: {
     title?: string;
     brief?: string;
@@ -57,9 +67,37 @@ type PlanContentRendererProps = {
   collabUser?: RichMarkdownCollabUser | null;
   /** Focus the reader on the live prototype only, for popout windows. */
   prototypeOnly?: boolean;
+  /** Render as a read-only visual recap ("Visual Recap" eyebrow, recap copy). */
+  isRecap?: boolean;
   visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
+
+/**
+ * Identity of the block TREE — ids, types, and nesting (including tab/column
+ * children) — ignoring rich-text markdown and block `data`. A drop, reorder, or
+ * insert/delete changes this signature; a pure text edit does not. Used to fire
+ * the optimistic cache write ONLY for structural changes.
+ */
+function blockStructureSignature(blocks: PlanBlock[]): string {
+  const walk = (list: PlanBlock[]): string =>
+    list
+      .map((block) => {
+        if (block.type === "tabs") {
+          return `tabs:${block.id}[${block.data.tabs
+            .map((tab) => `${tab.id}(${walk(tab.blocks)})`)
+            .join(",")}]`;
+        }
+        if (block.type === "columns") {
+          return `columns:${block.id}[${block.data.columns
+            .map((column) => `${column.id}(${walk(column.blocks)})`)
+            .join(",")}]`;
+        }
+        return `${block.type}:${block.id}`;
+      })
+      .join("|");
+  return walk(blocks);
+}
 
 /**
  * Thin composition shell: the spatial board (CanvasArea) on top when present,
@@ -73,6 +111,7 @@ export function PlanContentRenderer({
   fallbackBrief,
   onContentChange,
   onContentPatch,
+  onOptimisticBlocks,
   onMetadataChange,
   onVisualQuestionsSubmit,
   contentUpdatedAt,
@@ -84,12 +123,15 @@ export function PlanContentRenderer({
   prototypeOnly = false,
   visualSurfaceMode,
   onVisualSurfaceModeChange,
+  isRecap = false,
 }: PlanContentRendererProps) {
-  const planLabel = content.prototype
-    ? "Prototype Plan"
-    : content.canvas?.title === "UI Flow"
-      ? "UI Plan"
-      : "Visual Plan";
+  const planLabel = isRecap
+    ? "Visual Recap"
+    : content.prototype
+      ? "Prototype Plan"
+      : content.canvas?.title === "UI Flow"
+        ? "UI Plan"
+        : "Visual Plan";
   const updateBlock = async (id: string, nextBlock: PlanBlock) => {
     if (
       onContentPatch &&
@@ -240,6 +282,18 @@ export function PlanContentRenderer({
       });
   };
   const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
+    // A STRUCTURAL change (drag-to-columns, reorder, insert/delete) must hit the
+    // source-of-truth immediately, so the editor's authoritative `value` tracks
+    // the new layout and the lagging poll never reverts it before the debounced
+    // save lands. Text edits skip this (their structure is unchanged) to avoid
+    // making `value` track every keystroke, which would loop the reconcile.
+    if (
+      onOptimisticBlocks &&
+      blockStructureSignature(nextBlocks) !==
+        blockStructureSignature(content.blocks)
+    ) {
+      onOptimisticBlocks(nextBlocks);
+    }
     pendingBlocksRef.current = nextBlocks;
     scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
   };
@@ -289,7 +343,18 @@ export function PlanContentRenderer({
           regionLabel,
           compactVisuals,
         }) => (
+          // Key by container + region so a container that renders only its
+          // ACTIVE region at one position (tabs) gets a FRESH nested editor on
+          // every switch. Without it React reuses the one instance and only
+          // swaps `blocks`; the nested `useCollabReconcile` then treats the new
+          // region's content as a recent echo and skips re-applying it, so the
+          // Tiptap doc keeps the previous tab's nodes while the side-map swaps to
+          // the new tab — surfacing as "every tab shows the same diff" and, once
+          // the stale node's id is gone from the side-map, a permanent
+          // "Loading diff block…". Columns already render each region at its own
+          // keyed position, so this is a no-op there.
           <NestedPlanBlocksEditor
+            key={`${containerBlockId}::${regionId}`}
             blocks={blocks as PlanBlock[]}
             contentUpdatedAt={contentUpdatedAt}
             planId={planId}
@@ -315,6 +380,22 @@ export function PlanContentRenderer({
       editingDisabled,
       notionCompatibleOnly,
     ],
+  );
+
+  // On wide recap screens the "Files touched" tree moves to a permanent left
+  // sidebar (mirroring the right-hand contents rail) instead of sitting in the
+  // document body. Keep the block in the document so it stays the editable
+  // source of truth and is never dropped on save; render a read-only mirror in
+  // the aside, and hide the in-flow copy at the same breakpoint the rail appears
+  // (see `filesSidebarHideCss`). Gated to recaps so ordinary plans are
+  // unaffected, and to the first file-tree block (the conventional files-touched
+  // summary).
+  const filesSidebarBlock = useMemo(
+    () =>
+      isRecap
+        ? content.blocks.find((block) => block.type === "file-tree")
+        : undefined,
+    [isRecap, content.blocks],
   );
 
   return (
@@ -344,7 +425,6 @@ export function PlanContentRenderer({
         )}
         {!prototypeOnly && (
           <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
-            <PlanTableOfContents content={content} />
             <header className="border-b border-plan-line pb-8">
               <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
                 {planLabel}
@@ -353,7 +433,7 @@ export function PlanContentRenderer({
                 as="h1"
                 value={content.title || fallbackTitle}
                 editable={metadataEditable}
-                className="max-w-3xl text-[2rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.5rem]"
+                className="max-w-3xl text-[1.8rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.25rem]"
                 placeholder="Untitled plan"
                 onCommit={(title) => onMetadataChange?.({ title })}
               />
@@ -367,41 +447,105 @@ export function PlanContentRenderer({
               />
             </header>
 
-            <div className="plan-document-flow">
-              {documentEditable ? (
-                // The whole body is ONE editable rich-markdown document; custom
-                // blocks are inline `planBlock` NodeViews. Read-only / review / SSR
-                // keeps the per-block render below (no Tiptap mounts server-side).
-                <PlanDocumentEditor
-                  content={content}
-                  contentUpdatedAt={contentUpdatedAt}
-                  planId={planId}
-                  collabUser={collabUser}
-                  editable
-                  onBlocksChange={replaceBlocks}
-                  onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                />
-              ) : (
-                content.blocks.map((block) => (
-                  <PlanBlockView
-                    key={block.id}
-                    block={block}
-                    onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
-                    onRichTextChange={updateRichTextBlock}
-                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+            {/* The side rails (contents on the right, recap files on the left)
+                live in this wrapper, which begins below the header — so the rails
+                start level with the body content instead of the title, while
+                their nested `…__nav` stays sticky near the top on scroll. The
+                wrapper bleeds back out to the shell's padding box (see
+                global.css) so the rails keep their original margin anchor. */}
+            <div className="plan-document-body">
+              <PlanTableOfContents
+                content={content}
+                isRecap={isRecap}
+                omitBlockId={filesSidebarBlock?.id}
+              />
+              {filesSidebarBlock && (
+                <>
+                  <style>{filesSidebarHideCss(filesSidebarBlock.id)}</style>
+                  <aside
+                    className="plan-document-files"
+                    aria-label={filesSidebarBlock.title || "Files touched"}
+                  >
+                    <div className="plan-document-files__nav">
+                      <PlanBlockView
+                        block={{
+                          ...filesSidebarBlock,
+                          id: `${filesSidebarBlock.id}__aside`,
+                        }}
+                        editingDisabled
+                        contentUpdatedAt={contentUpdatedAt}
+                        planId={planId}
+                        collabUser={collabUser}
+                      />
+                    </div>
+                  </aside>
+                </>
+              )}
+
+              <div className="plan-document-flow">
+                {documentEditable ? (
+                  // The whole body is ONE editable rich-markdown document; custom
+                  // blocks are inline `planBlock` NodeViews. Read-only / review /
+                  // SSR keeps the per-block render below (no Tiptap server-side).
+                  <PlanDocumentEditor
+                    content={content}
                     contentUpdatedAt={contentUpdatedAt}
-                    editingDisabled={editingDisabled}
                     planId={planId}
                     collabUser={collabUser}
+                    editable
+                    onBlocksChange={replaceBlocks}
+                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
                   />
-                ))
-              )}
+                ) : (
+                  content.blocks.map((block) => (
+                    <PlanBlockView
+                      key={block.id}
+                      block={block}
+                      onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
+                      onRichTextChange={updateRichTextBlock}
+                      onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                      contentUpdatedAt={contentUpdatedAt}
+                      editingDisabled={editingDisabled}
+                      planId={planId}
+                      collabUser={collabUser}
+                    />
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}
       </article>
     </BlockRegistryProvider>
   );
+}
+
+/**
+ * Scoped CSS that, at the contents-rail breakpoint (1400px), hides the in-flow
+ * copy of the relocated "Files touched" block (its mirror lives in the left
+ * `.plan-document-files` aside) and restores first-block spacing on whatever
+ * block now leads the document body. The hide uses a descendant selector so it
+ * matches both the read-mode `.plan-block` and the editable-mode
+ * `.plan-block-node` wrappers; the spacing reset only matches the read-mode
+ * direct-child layout (the editable mode draws no per-block top border, so there
+ * is nothing to reset there). The aside mirror carries a distinct `…__aside` id,
+ * so it is never caught by these rules.
+ */
+function filesSidebarHideCss(blockId: string): string {
+  const id = blockId.replace(/["\\]/g, "\\$&");
+  const leadReset = [
+    ".plan-block",
+    ".plan-callout",
+    ".plan-questions-block",
+    ".an-block-panel",
+    ".plan-block-node",
+  ]
+    .map((sel) => `.plan-document-flow > [data-block-id="${id}"] + ${sel}`)
+    .join(",\n");
+  return `@media (min-width: 1400px){
+.plan-document-flow [data-block-id="${id}"]{display:none}
+${leadReset}{margin-top:2.25rem;padding-top:0;border-top:0}
+}`;
 }
 
 function EditableHeaderText({

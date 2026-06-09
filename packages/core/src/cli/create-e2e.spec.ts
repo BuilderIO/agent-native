@@ -331,8 +331,12 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 
   it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
-    const rootPkg = readPkg(wsDir);
-    expect(rootPkg.pnpm?.overrides?.["better-auth"]).toBe("1.6.0");
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+    expect(wsYaml).toContain("better-auth");
+    expect(wsYaml).toContain("1.6.0");
   });
 
   it("keeps the default workspace starter app branded as a blank app", async () => {

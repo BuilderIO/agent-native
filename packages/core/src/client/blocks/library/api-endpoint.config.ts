@@ -47,12 +47,35 @@ export const API_PARAM_LOCATIONS: ApiParamLocation[] = [
   "body",
 ];
 
+/**
+ * Diff state for a route / param / response, shared with the `file-tree` and
+ * `data-model` blocks so a recap reads consistently across all three. Drives the
+ * same change chips (Added / Modified / Removed / Renamed). Absent ⇒ no chip,
+ * rendered exactly as before diff support existed.
+ */
+export type ApiEndpointChange = "added" | "modified" | "removed" | "renamed";
+
+export const API_ENDPOINT_CHANGES: ApiEndpointChange[] = [
+  "added",
+  "modified",
+  "removed",
+  "renamed",
+];
+
 export interface ApiEndpointParam {
   name: string;
   in: ApiParamLocation;
   type?: string;
   required?: boolean;
   description?: string;
+  /** Diff state for this parameter (drives the change chip). */
+  change?: ApiEndpointChange;
+  /**
+   * Prior value when `change === "modified"` — e.g. the old type (`string`) or
+   * the old required flag (`optional`). Shown struck-through before the current
+   * value so a reviewer can see the before/after at a glance.
+   */
+  was?: string;
 }
 
 export interface ApiEndpointRequest {
@@ -64,6 +87,8 @@ export interface ApiEndpointResponse {
   status: string;
   description?: string;
   example?: string;
+  /** Diff state for this response (e.g. a new `409` is "added"). */
+  change?: ApiEndpointChange;
 }
 
 export interface ApiEndpointData {
@@ -74,10 +99,14 @@ export interface ApiEndpointData {
   description?: string;
   auth?: string;
   deprecated?: boolean;
+  /** Diff state for the whole route (added/removed/renamed endpoint). */
+  change?: ApiEndpointChange;
   params?: ApiEndpointParam[];
   request?: ApiEndpointRequest;
   responses?: ApiEndpointResponse[];
 }
+
+const apiChangeSchema = z.enum(["added", "modified", "removed", "renamed"]);
 
 const apiParamSchema = z.object({
   name: z.string().trim().min(1).max(160),
@@ -85,6 +114,8 @@ const apiParamSchema = z.object({
   type: z.string().trim().max(120).optional(),
   required: z.boolean().optional(),
   description: z.string().trim().max(1_000).optional(),
+  change: apiChangeSchema.optional(),
+  was: z.string().trim().max(400).optional(),
 }) as z.ZodType<ApiEndpointParam>;
 
 const apiRequestSchema = z.object({
@@ -96,6 +127,7 @@ const apiResponseSchema = z.object({
   status: z.string().trim().min(1).max(40),
   description: z.string().trim().max(1_000).optional(),
   example: z.string().max(20_000).optional(),
+  change: apiChangeSchema.optional(),
 }) as z.ZodType<ApiEndpointResponse>;
 
 /**
@@ -111,18 +143,31 @@ export const apiEndpointSchema = z.object({
   description: z.string().max(20_000).optional(),
   auth: z.string().trim().max(200).optional(),
   deprecated: z.boolean().optional(),
+  change: apiChangeSchema.optional(),
   params: z.array(apiParamSchema).max(60).optional(),
   request: apiRequestSchema.optional(),
   responses: z.array(apiResponseSchema).max(40).optional(),
 }) as unknown as z.ZodType<ApiEndpointData>;
 
+/** Coerce a serialized `change` attribute back to the enum (drops garbage). */
+function readChange(value: string | undefined): ApiEndpointChange | undefined {
+  return value && API_ENDPOINT_CHANGES.includes(value as ApiEndpointChange)
+    ? (value as ApiEndpointChange)
+    : undefined;
+}
+
 /**
- * MDX config: `<Endpoint method path summary auth deprecated params request
- * responses>\n\n{description}\n\n</Endpoint>`. `description` is the prose body
- * (`childrenField`), so it is excluded from the attribute bag and survives as
- * real inline-editable MDX prose. The remaining keys are emitted in a STABLE
- * order (method, path, summary, auth, deprecated, params, request, responses);
- * `undefined` values are dropped by the shared `prop()` encoder.
+ * MDX config: `<Endpoint method path summary auth deprecated change params
+ * request responses>\n\n{description}\n\n</Endpoint>`. `description` is the prose
+ * body (`childrenField`), so it is excluded from the attribute bag and survives
+ * as real inline-editable MDX prose. The remaining keys are emitted in a STABLE
+ * order (method, path, summary, auth, deprecated, change, params, request,
+ * responses); `undefined` values are dropped by the shared `prop()` encoder.
+ *
+ * The root `change` is a flat string attribute; the per-param `change` + `was`
+ * and per-response `change` ride along inside the `params` / `responses` JSON
+ * props (the whole arrays are serialized verbatim), so all three diff levels
+ * round-trip without extra encoding.
  *
  * `fromAttrs` tolerates missing/partial attributes for backward-compat, mirrors
  * the schema defaults, and reads the prose `children` into `description`.
@@ -136,6 +181,7 @@ export const apiEndpointMdx: BlockMdxConfig<ApiEndpointData> = {
     summary: data.summary,
     auth: data.auth,
     deprecated: data.deprecated,
+    change: data.change,
     params: data.params,
     request: data.request as Record<string, unknown> | undefined,
     responses: data.responses,
@@ -151,6 +197,7 @@ export const apiEndpointMdx: BlockMdxConfig<ApiEndpointData> = {
       description: description.length > 0 ? description : undefined,
       auth: attrs.string("auth"),
       deprecated: attrs.bool("deprecated"),
+      change: readChange(attrs.string("change")),
       params: attrs.array<ApiEndpointParam>("params"),
       request: request ?? undefined,
       responses: attrs.array<ApiEndpointResponse>("responses"),

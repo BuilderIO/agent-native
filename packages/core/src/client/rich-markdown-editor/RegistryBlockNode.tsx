@@ -97,6 +97,25 @@ export interface RegistryBlockDataValue<
     block: TBlock,
     options: { editing: boolean },
   ) => ReactNode;
+  /**
+   * Optional: render a schema-driven (or otherwise custom) editor for a legacy
+   * block in place of the raw-JSON fallback. Receives an `onChange` that commits
+   * the block's new `data`. Return `null`/`undefined` to keep the JSON editor for
+   * that block type. The returned editor is expected to autosave through
+   * `onChange` (no Save button is shown), matching registered panel blocks.
+   */
+  renderLegacyBlockEditor?: (
+    block: TBlock,
+    args: { onChange: (nextData: unknown) => void },
+  ) => ReactNode;
+  /**
+   * Return `true` for legacy block types that render their OWN edit affordance
+   * inside `renderLegacyBlock` (e.g. an image block with its own hover toolbar).
+   * For those types the node view renders the legacy block in edit mode and adds
+   * NO separate corner edit surface (no pencil / JSON / form popover), so the
+   * block owns a single, self-contained control overlay.
+   */
+  legacyBlockSelfEdits?: (blockType: string) => boolean;
 }
 
 const RegistryBlockDataContext =
@@ -129,6 +148,22 @@ export function useRegistryBlockData<
 
 function clickedInteractiveChild(target: HTMLElement) {
   if (target.closest("button,input,textarea,select,a,[role='textbox']")) {
+    return true;
+  }
+
+  // The block drag-handle grip is a `role="button"` div that lives in the editor
+  // wrapper, and nested container blocks (columns/tabs) render their own inner
+  // editors — each its own grip. A container block's `onMouseDownCapture`
+  // selection handler runs in a SEPARATE React root (Tiptap mounts every node
+  // view as its own root), so its `stopPropagation()` halts the NATIVE mousedown
+  // right there, before it can reach an inner grip or inner editor. Treat the
+  // grip and anything inside a nested editor region as interactive so the outer
+  // container never hijacks a mousedown meant for inner machinery — this is what
+  // makes dragging a block OUT of / BETWEEN columns (a nested grip) work at all.
+  if (
+    target.closest(".drag-handle") ||
+    target.closest(".plan-nested-document-editor-region")
+  ) {
     return true;
   }
 
@@ -324,8 +359,18 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
       }
     }
   } else if (sideMap?.renderLegacyBlock) {
-    body = sideMap.renderLegacyBlock(block, { editing: false });
-    if (editable && sideMap.onBlockDataChange) {
+    // Self-editing legacy blocks (e.g. image) render their own edit affordance
+    // inside their overlay, so render them in edit mode and add NO separate
+    // corner edit surface — the block owns a single, self-contained overlay.
+    const selfEdits =
+      editable && Boolean(sideMap.legacyBlockSelfEdits?.(blockType));
+    body = sideMap.renderLegacyBlock(block, { editing: selfEdits });
+    if (editable && sideMap.onBlockDataChange && !selfEdits) {
+      // Prefer a host-provided schema/custom editor (a real form) over the raw
+      // JSON fallback when the host knows how to edit this legacy block type.
+      const customEditor = sideMap.renderLegacyBlockEditor?.(block, {
+        onChange: (nextData) => commitBlockData(nextData),
+      });
       editSurface = (
         <LegacyJsonEditSurface
           block={block}
@@ -334,6 +379,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
           renderEditSurface={registryValue?.ctx.renderEditSurface}
           onChange={(nextBlock) => commitBlockData(nextBlock)}
           selected={shellHovered}
+          customEditor={customEditor}
         />
       );
     }
@@ -349,6 +395,10 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       className="plan-block-node"
       data-block-id={blockId}
+      // Mirror the block type onto the wrapper so the document flow can detect a
+      // RUN of consecutive blocks of the same type (e.g. api-endpoint) and
+      // collapse the divider + gap between them, matching the read-only path.
+      data-block-type={blockType || undefined}
       data-plan-block-selected={props.selected ? "" : undefined}
       data-notion-incompatible={incompatibleWithNotion ? "" : undefined}
       onMouseDownCapture={selectNode}
@@ -387,6 +437,7 @@ export function LegacyJsonEditSurface({
   renderEditSurface,
   onChange,
   selected,
+  customEditor,
 }: {
   block: RegistryBlockSideMapBlock;
   open: boolean;
@@ -394,6 +445,12 @@ export function LegacyJsonEditSurface({
   renderEditSurface?: BlockRenderContext["renderEditSurface"];
   onChange: (nextData: unknown) => void;
   selected: boolean;
+  /**
+   * A host-provided form editor (e.g. {@link SchemaBlockEditor}). When present it
+   * replaces the raw-JSON textarea + Save button; the form autosaves through its
+   * own `onChange`.
+   */
+  customEditor?: ReactNode;
 }) {
   const serializedBlockData = useMemo(
     () => JSON.stringify(block.data, null, 2),
@@ -432,7 +489,7 @@ export function LegacyJsonEditSurface({
       <IconPencil className="size-4" />
     </button>
   );
-  const editor = (
+  const jsonEditor = (
     <div className="grid gap-3">
       <textarea
         data-plan-interactive
@@ -449,16 +506,19 @@ export function LegacyJsonEditSurface({
           Invalid JSON: {parseError}
         </p>
       ) : null}
-      <button
-        type="button"
-        data-plan-interactive
-        className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
-        onClick={saveDraft}
-      >
-        Save
-      </button>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          data-plan-interactive
+          className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
+          onClick={saveDraft}
+        >
+          Save
+        </button>
+      </div>
     </div>
   );
+  const editor = customEditor ?? jsonEditor;
   if (!renderEditSurface) return open ? editor : trigger;
   return renderEditSurface({
     title: block.title ?? "Block",

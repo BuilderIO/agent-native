@@ -1,0 +1,12 @@
+{
+  "name": "agent-native-apps",
+  "interface": {
+    "displayName": "Agent-Native app-backed skills that bundle instructions, MCP connectors, and UI surfaces."
+  },
+  "plugins": [
+    {
+      "name": "agent-native-visual-plans",
+      "source": { "source": "local", "path": "./agent-native-visual-plans" }
+    }
+  ]
+}

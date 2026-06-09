@@ -482,7 +482,7 @@ function SortableRow({
                 onTouchStart={onPrefetch}
                 className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
               >
-                <span className="truncate">{name}</span>
+                <span className="block truncate">{name}</span>
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right">{name}</TooltipContent>

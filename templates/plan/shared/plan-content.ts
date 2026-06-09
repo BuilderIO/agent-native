@@ -35,7 +35,6 @@ export type PlanBlockType =
   | "wireframe"
   | "diagram"
   | "image"
-  | "decision"
   | "tabs"
   | "columns"
   | "custom-html"
@@ -396,24 +395,6 @@ export type PlanImageBlock = PlanBlockBase & {
   };
 };
 
-export type PlanDecisionBlock = PlanBlockBase & {
-  type: "decision";
-  data: {
-    question: string;
-    options: Array<{
-      id: string;
-      label: string;
-      detail?: string;
-      /**
-       * Authored recommendation only. A reviewer's actual selection does NOT
-       * live here — responses belong in plan_comments / events, never in the
-       * canonical plan body.
-       */
-      recommended?: boolean;
-    }>;
-  };
-};
-
 export type PlanTabsBlock = PlanBlockBase & {
   type: "tabs";
   data: {
@@ -450,7 +431,11 @@ export type PlanQuestionOption = {
   id: string;
   label: string;
   detail?: string;
-  /** Authored recommendation only — see PlanDecisionBlock note. */
+  /**
+   * Authored recommendation only. A reviewer's actual selection does NOT live
+   * here — responses belong in plan_comments / events, never in the canonical
+   * plan body.
+   */
   recommended?: boolean;
   wireframe?: PlanWireframeBlock["data"];
   diagram?: PlanDiagramBlock["data"];
@@ -502,18 +487,26 @@ export type PlanApiEndpointBlock = PlanBlockBase & {
     description?: string;
     auth?: string;
     deprecated?: boolean;
+    /** Diff state for the whole route (added/removed/renamed endpoint). */
+    change?: "added" | "modified" | "removed" | "renamed";
     params?: Array<{
       name: string;
       in: "path" | "query" | "header" | "body";
       type?: string;
       required?: boolean;
       description?: string;
+      /** Diff state for this parameter. */
+      change?: "added" | "modified" | "removed" | "renamed";
+      /** Prior value when change === "modified" (e.g. the old type). */
+      was?: string;
     }>;
     request?: { contentType?: string; example?: string };
     responses?: Array<{
       status: string;
       description?: string;
       example?: string;
+      /** Diff state for this response. */
+      change?: "added" | "modified" | "removed" | "renamed";
     }>;
   };
 };
@@ -534,6 +527,8 @@ export type PlanDataModelBlock = PlanBlockBase & {
       id: string;
       name: string;
       note?: string;
+      /** Diff state for the whole table (added/removed/renamed entity). */
+      change?: "added" | "modified" | "removed" | "renamed";
       fields: Array<{
         name: string;
         type?: string;
@@ -542,6 +537,10 @@ export type PlanDataModelBlock = PlanBlockBase & {
         nullable?: boolean;
         default?: string;
         note?: string;
+        /** Diff state for this field. */
+        change?: "added" | "modified" | "removed" | "renamed";
+        /** Prior value when change === "modified" (e.g. the old type). */
+        was?: string;
       }>;
     }>;
     relations?: Array<{
@@ -553,6 +552,19 @@ export type PlanDataModelBlock = PlanBlockBase & {
   };
 };
 
+/**
+ * A line-anchored note attached to one side of a `diff` block, mirroring the
+ * `annotated-code` annotation shape.
+ */
+export interface DiffAnnotation {
+  /** Which side the line ref targets; defaults to "after". */
+  side?: "before" | "after";
+  /** 1-based line ref against that side's text: "13" or "13-15". */
+  lines: string;
+  label?: string;
+  note: string;
+}
+
 export type PlanDiffBlock = PlanBlockBase & {
   type: "diff";
   data: {
@@ -561,6 +573,7 @@ export type PlanDiffBlock = PlanBlockBase & {
     before: string;
     after: string;
     mode?: "unified" | "split";
+    annotations?: DiffAnnotation[];
   };
 };
 
@@ -609,7 +622,6 @@ export type PlanBlock =
   | PlanLegacyWireframeBlock
   | PlanDiagramBlock
   | PlanImageBlock
-  | PlanDecisionBlock
   | PlanTabsBlock
   | PlanColumnsBlock
   | PlanCustomHtmlBlock
@@ -987,6 +999,25 @@ export type PlanContentPatch =
 
 const idSchema = z.string().trim().min(1).max(120);
 
+/**
+ * Shared diff-state enum reused by file-tree entries, data-model entities and
+ * fields, and api-endpoint routes/params/responses so every block expresses the
+ * same vocabulary for added/modified/removed/renamed.
+ */
+const diffChangeSchema = z.enum(["added", "modified", "removed", "renamed"]);
+
+/**
+ * Shared 1-based line-ref schema (e.g. "3" or "3-5") reused by `annotated-code`
+ * and `diff` annotations so both validate line refs identically.
+ */
+const annotationLinesSchema = z
+  .string()
+  .trim()
+  .regex(/^\d+(\s*-\s*\d+)?$/, {
+    message: 'lines must be a 1-based line ref like "3" or "3-5"',
+  })
+  .max(40);
+
 const baseBlockSchema = z.object({
   id: idSchema,
   title: z
@@ -1349,7 +1380,7 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
     });
   });
 
-const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
+export const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
   .object({
     assetId: z.string().trim().min(1).max(200).optional(),
     url: z.string().trim().max(2_000).url().optional(),
@@ -1380,22 +1411,6 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
   placeholder: z.string().trim().max(240).optional(),
   required: z.boolean().optional(),
 });
-
-export const decisionDataSchema: z.ZodType<PlanDecisionBlock["data"]> =
-  z.object({
-    question: z.string().trim().min(1).max(500),
-    options: z
-      .array(
-        z.object({
-          id: idSchema,
-          label: z.string().trim().min(1).max(200),
-          detail: z.string().trim().max(800).optional(),
-          recommended: z.boolean().optional(),
-        }),
-      )
-      .min(1)
-      .max(20),
-  });
 
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
@@ -1504,10 +1519,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       data: imageDataSchema,
     }),
     baseBlockSchema.extend({
-      type: z.literal("decision"),
-      data: decisionDataSchema,
-    }),
-    baseBlockSchema.extend({
       type: z.literal("tabs"),
       data: z.object({
         tabs: z
@@ -1590,6 +1601,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         description: z.string().max(20_000).optional(),
         auth: z.string().trim().max(200).optional(),
         deprecated: z.boolean().optional(),
+        change: diffChangeSchema.optional(),
         params: z
           .array(
             z.object({
@@ -1598,6 +1610,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               type: z.string().trim().max(120).optional(),
               required: z.boolean().optional(),
               description: z.string().trim().max(1_000).optional(),
+              change: diffChangeSchema.optional(),
+              was: z.string().trim().max(400).optional(),
             }),
           )
           .max(60)
@@ -1614,6 +1628,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               status: z.string().trim().min(1).max(40),
               description: z.string().trim().max(1_000).optional(),
               example: z.string().max(20_000).optional(),
+              change: diffChangeSchema.optional(),
             }),
           )
           .max(40)
@@ -1636,6 +1651,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               id: idSchema,
               name: z.string().trim().min(1).max(160),
               note: z.string().trim().max(600).optional(),
+              change: diffChangeSchema.optional(),
               fields: z
                 .array(
                   z.object({
@@ -1646,6 +1662,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
                     nullable: z.boolean().optional(),
                     default: z.string().trim().max(400).optional(),
                     note: z.string().trim().max(600).optional(),
+                    change: diffChangeSchema.optional(),
+                    was: z.string().trim().max(400).optional(),
                   }),
                 )
                 .max(80),
@@ -1674,6 +1692,17 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         before: z.string().max(100_000),
         after: z.string().max(100_000),
         mode: z.enum(["unified", "split"]).optional(),
+        annotations: z
+          .array(
+            z.object({
+              side: z.enum(["before", "after"]).optional(),
+              lines: annotationLinesSchema,
+              label: z.string().trim().max(160).optional(),
+              note: z.string().trim().min(1).max(4_000),
+            }),
+          )
+          .max(80)
+          .optional(),
       }),
     }),
     baseBlockSchema.extend({
@@ -1684,9 +1713,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
           .array(
             z.object({
               path: z.string().trim().min(1).max(500),
-              change: z
-                .enum(["added", "modified", "removed", "renamed"])
-                .optional(),
+              change: diffChangeSchema.optional(),
               note: z.string().trim().max(2_000).optional(),
               snippet: z.string().max(50_000).optional(),
               language: z.string().trim().max(40).optional(),
@@ -1713,13 +1740,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
         annotations: z
           .array(
             z.object({
-              lines: z
-                .string()
-                .trim()
-                .regex(/^\d+(\s*-\s*\d+)?$/, {
-                  message: 'lines must be a 1-based line ref like "3" or "3-5"',
-                })
-                .max(40),
+              lines: annotationLinesSchema,
               label: z.string().trim().max(160).optional(),
               note: z.string().trim().min(1).max(4_000),
             }),
@@ -2143,12 +2164,45 @@ const OLD_BLOCK_TYPE_ALIASES: Record<string, PlanBlockType> = {
   "sketch-diagram": "diagram",
 };
 
+/**
+ * The `decision` block was retired (it duplicated a `callout` with `tone:
+ * "decision"` plus a `columns`/list comparison). Any stored decision block is
+ * migrated on load into a decision-tone `callout` whose markdown body carries the
+ * question and the options (recommended one flagged), so existing plans keep
+ * loading and rendering instead of failing the (now decision-less) schema. The
+ * block id/title/summary are preserved.
+ */
+function decisionBlockToCallout(
+  block: Record<string, unknown>,
+): Record<string, unknown> {
+  const data = (block.data ?? {}) as Record<string, unknown>;
+  const question = typeof data.question === "string" ? data.question : "";
+  const options = Array.isArray(data.options) ? data.options : [];
+  const lines = options.map((opt) => {
+    const o = (opt ?? {}) as Record<string, unknown>;
+    const label = typeof o.label === "string" ? o.label : "";
+    const detail = typeof o.detail === "string" ? o.detail : "";
+    const head = `- **${label}**${o.recommended === true ? " — recommended" : ""}`;
+    return detail ? `${head}: ${detail}` : head;
+  });
+  const body =
+    [question ? `**${question}**` : "", lines.join("\n")]
+      .filter(Boolean)
+      .join("\n\n") || "Decision";
+  const { data: _data, ...rest } = block;
+  return { ...rest, type: "callout", data: { tone: "decision", body } };
+}
+
 function migrateBlock(raw: unknown): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const block = raw as Record<string, unknown>;
   const type = typeof block.type === "string" ? block.type : undefined;
   if (type && OLD_BLOCK_TYPE_ALIASES[type]) {
     block.type = OLD_BLOCK_TYPE_ALIASES[type];
+  }
+  // Retired `decision` block → decision-tone `callout` (see helper above).
+  if (block.type === "decision") {
+    return decisionBlockToCallout(block);
   }
   // Recurse into tabs children.
   if (block.type === "tabs" && block.data && typeof block.data === "object") {

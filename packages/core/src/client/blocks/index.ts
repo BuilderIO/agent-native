@@ -143,6 +143,78 @@ export {
   type ColumnsData,
   type ColumnsColumn,
 } from "./library/columns.config.js";
+export {
+  calloutBlock,
+  CalloutBlock,
+  CalloutBlockEdit,
+} from "./library/callout.js";
+export {
+  calloutSchema,
+  calloutMdx,
+  CALLOUT_TONES,
+  type CalloutData,
+  type CalloutTone,
+} from "./library/callout.config.js";
+export {
+  questionFormBlock,
+  visualQuestionsBlock,
+  QuestionFormRead,
+  VisualQuestionsRead,
+  QuestionFormEdit,
+} from "./library/question-form.js";
+export {
+  questionFormSchema,
+  questionFormMdx,
+  visualQuestionsSchema,
+  visualQuestionsMdx,
+  type QuestionFormData,
+  type QuestionFormOption,
+  type QuestionFormQuestion,
+  type QuestionMode,
+  type VisualQuestionsData,
+} from "./library/question-form.config.js";
+export { diagramBlock, DiagramRead, DiagramEdit } from "./library/diagram.js";
+export {
+  diagramSchema,
+  diagramMdx,
+  type DiagramData,
+  type DiagramNode,
+  type DiagramEdge,
+  type DiagramNote,
+} from "./library/diagram.config.js";
+export {
+  wireframeBlock,
+  WireframeBlock,
+  WireframeEditor,
+} from "./library/wireframe.js";
+export {
+  wireframeSchema,
+  wireframeMdx,
+  createStableWireframeNodeId,
+  WIREFRAME_SURFACES,
+  WIREFRAME_EL_NAMES,
+  type WireframeData,
+  type WireframeNode,
+  type WireframeElName,
+  type WireframeTone,
+  type WireframeSurface,
+  type WireframeRenderMode,
+} from "./library/wireframe.config.js";
+export {
+  Screen,
+  renderNode,
+  renderNodes,
+  hasRenderer,
+  NODE_REGISTRY,
+  KitConfigContext,
+  RoughOverlay,
+  HTML_ROUGH_SELECTOR,
+  useWireframeStyle,
+  setWireframeStyle,
+  toggleWireframeStyle,
+  useIsDark,
+  type WireframeStyle,
+} from "./library/wireframe-kit.js";
 
 // Dev-doc block library (React `Read`/`Edit` renderers + their React-free
 // schema/MDX config). Apps register these alongside their own blocks, supplying

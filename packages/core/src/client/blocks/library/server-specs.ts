@@ -24,6 +24,29 @@ import {
   type ColumnsData,
 } from "./columns.config.js";
 import {
+  calloutSchema,
+  calloutMdx,
+  type CalloutData,
+} from "./callout.config.js";
+import {
+  questionFormSchema,
+  questionFormMdx,
+  visualQuestionsSchema,
+  visualQuestionsMdx,
+  type QuestionFormData,
+  type VisualQuestionsData,
+} from "./question-form.config.js";
+import {
+  diagramSchema,
+  diagramMdx,
+  type DiagramData,
+} from "./diagram.config.js";
+import {
+  wireframeSchema,
+  wireframeMdx,
+  type WireframeData,
+} from "./wireframe.config.js";
+import {
   mermaidSchema,
   mermaidMdx,
   type MermaidData,
@@ -150,6 +173,56 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     label: "Columns",
     description:
       "A multi-column side-by-side layout container; each column holds its own list of blocks. Ideal for before/after or current/target comparisons.",
+  }),
+  defineBlock<CalloutData>({
+    type: "callout",
+    schema: calloutSchema,
+    mdx: calloutMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    label: "Callout",
+    description:
+      "An emphasized note with a tone (info/decision/risk/warning/success) and a markdown body.",
+  }),
+  defineBlock<QuestionFormData>({
+    type: "question-form",
+    schema: questionFormSchema,
+    mdx: questionFormMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    label: "Question form",
+    description:
+      "An interactive respondent-facing form block for open questions, single-choice or multi-choice option rows, freeform answers, recommended options, and optional wireframe/diagram previews.",
+  }),
+  defineBlock<VisualQuestionsData>({
+    type: "visual-questions",
+    schema: visualQuestionsSchema,
+    mdx: visualQuestionsMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    label: "Visual questions",
+    description:
+      "A visual-intake question block with the same editable question/option shape as question-form.",
+  }),
+  defineBlock<DiagramData>({
+    type: "diagram",
+    schema: diagramSchema,
+    mdx: diagramMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    label: "Diagram",
+    description:
+      "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
+  }),
+  defineBlock<WireframeData>({
+    type: "wireframe",
+    schema: wireframeSchema,
+    mdx: wireframeMdx,
+    Read: ServerReadStub,
+    placement: ["block"],
+    label: "Wireframe",
+    description:
+      "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface frame (desktop/mobile/popover/panel/browser).",
   }),
   defineBlock<MermaidData>({
     type: "mermaid",

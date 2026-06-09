@@ -202,6 +202,13 @@ describe("app skill packaging", () => {
     expect(
       fs.existsSync(path.join(outDir, ".codex-plugin", "plugin.json")),
     ).toBe(true);
+    const codexPlugin = JSON.parse(
+      fs.readFileSync(
+        path.join(outDir, ".codex-plugin", "plugin.json"),
+        "utf-8",
+      ),
+    );
+    expect(codexPlugin.version).toMatch(/^1\.0\.0\+codex\.[0-9a-f]{12}$/);
     expect(fs.existsSync(path.join(outDir, ".mcp.json"))).toBe(true);
     const claudeMarketplaceRoot = path.join(
       outDir,

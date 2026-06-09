@@ -1,0 +1,1388 @@
+/**
+ * Shared styling for the core block library (`client/blocks/library/*`).
+ *
+ * The block components emit app-neutral `an-block*` / `an-callout` classes that
+ * resolve against shadcn/ui theme tokens (`--foreground`, `--muted-foreground`,
+ * `--border`, `--card`, `--ring`) which EVERY template already defines — so the
+ * blocks render correctly in any app (plan, content, future templates) using
+ * that app's own palette. Templates may still add their own block classes for a
+ * bespoke look; because this file is imported via `agent-native.css` BEFORE a
+ * template's `global.css`, any template rule of equal specificity wins (this is
+ * how the plan template keeps its existing `.plan-callout` treatment while
+ * content gets the theme-token version here).
+ *
+ * Callout tone accents are fixed semantic hues (info=blue, decision=violet,
+ * risk=red, warning=amber, success=green) rather than theme tokens, since their
+ * meaning is universal; the dark variants are brightened to read on dark
+ * surfaces.
+ */
+
+:root {
+  --an-callout-info: 218 85% 57%;
+  --an-callout-decision: 262 83% 58%;
+  --an-callout-risk: 0 84% 60%;
+  --an-callout-warning: 25 95% 48%;
+  --an-callout-success: 142 71% 38%;
+
+  /* Standardized small code-body size for every monospace code surface in the
+     core block library (diffs, annotated-code, JSON explorer, Mermaid source,
+     etc.). The block components reference this via `[font-size:var(--plan-code-size)]`;
+     without a definition the declaration is invalid and code falls back to the
+     large prose size. The plan template overrides this var in its own
+     `global.css`; this is the cross-app default. */
+  --plan-code-size: 0.75rem;
+}
+
+.dark {
+  --an-callout-info: 218 85% 67%;
+  --an-callout-decision: 263 88% 74%;
+  --an-callout-risk: 0 84% 67%;
+  --an-callout-warning: 28 96% 60%;
+  --an-callout-success: 142 60% 52%;
+}
+
+/* Small, muted eyebrow label above a block (block title). */
+.an-block-label {
+  margin: 0 0 1rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+
+/* Callout: a self-contained tinted box with a left accent bar and a tone. */
+.an-callout {
+  max-width: 860px;
+  border-left: 3px solid hsl(var(--border));
+  border-radius: 0 8px 8px 0;
+  padding-block: 0.9rem;
+  padding-left: 1.25rem;
+}
+
+/* The body editor/reader may carry a leading margin; the box padding owns the
+   top rhythm, so drop it (a label, when present, keeps its own margin-bottom). */
+.an-callout > .an-rich-md-wrapper {
+  margin-top: 0;
+}
+
+.an-callout[data-tone="info"] {
+  --an-callout-accent: var(--an-callout-info);
+}
+.an-callout[data-tone="decision"] {
+  --an-callout-accent: var(--an-callout-decision);
+}
+.an-callout[data-tone="risk"] {
+  --an-callout-accent: var(--an-callout-risk);
+}
+.an-callout[data-tone="warning"] {
+  --an-callout-accent: var(--an-callout-warning);
+}
+.an-callout[data-tone="success"] {
+  --an-callout-accent: var(--an-callout-success);
+}
+
+.an-callout[data-tone] {
+  border-left-color: hsl(var(--an-callout-accent));
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--an-callout-accent) / 0.08),
+    hsl(var(--an-callout-accent) / 0.02) 38%,
+    transparent 72%
+  );
+}
+
+.an-callout[data-tone] .an-block-label {
+  color: hsl(var(--an-callout-accent));
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Migrated plan block contract.
+
+   The core block library (`client/blocks/library/*`) still emits the legacy
+   `.plan-*` class names and the `text/bg/border-plan-*` color utilities. Those
+   were originally defined ONLY in `templates/plan/app/global.css`, so the
+   blocks rendered UNSTYLED in any other app (e.g. content). The structural
+   geometry below is migrated verbatim from plan; the only change is that COLOR
+   values now resolve against shadcn theme tokens (`--foreground`,
+   `--muted-foreground`, `--border`, `--muted`) instead of plan's `--plan-*`
+   surface vars — so each app renders the blocks in its own palette.
+
+   PLAN STAYS PIXEL-IDENTICAL. This file loads (via `agent-native.css`) BEFORE a
+   template's `global.css`, so plan's later-declared copies still win:
+     • Color utilities live in `@layer utilities` (matching plan); within the
+       layer, plan's later copy wins → plan unchanged, content gets these.
+     • Structural classes are un-layered (matching plan); source order makes
+       plan's later copy win.
+   Plan's document-layout / canvas / wireframe / chrome rules are NOT migrated —
+   they stay plan-only.
+
+   Token mapping:
+     --plan-text       → --foreground
+     --plan-muted      → --muted-foreground
+     --plan-line       → --border
+     --plan-block      → --muted
+     --plan-code       → --muted
+     --plan-code-text  → --foreground
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Color utilities (layered so plan's later copy wins) ─────────────────── */
+@layer utilities {
+  .bg-plan-block {
+    background-color: hsl(var(--muted));
+  }
+
+  .bg-plan-code {
+    background-color: hsl(var(--muted));
+  }
+
+  .text-plan-text {
+    color: hsl(var(--foreground));
+  }
+
+  .text-plan-muted {
+    color: hsl(var(--muted-foreground));
+  }
+
+  .text-plan-code-text {
+    color: hsl(var(--foreground));
+  }
+
+  .border-plan-line {
+    border-color: hsl(var(--border));
+  }
+}
+
+/* ── Block label + per-column header (structural) ────────────────────────── */
+
+/* Small, muted eyebrow label above a block (block title). */
+.plan-block-label {
+  margin: 0 0 1rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+
+/* Per-column header for `columns` comparison blocks (e.g. Before / After). */
+.plan-columns-label {
+  margin: 0 0 0.6rem;
+  color: hsl(var(--foreground));
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+
+/* Nested block spacing (a block inside another block). */
+.plan-block .plan-block {
+  margin-top: 1.75rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.plan-block .plan-block .plan-block-label {
+  margin-bottom: 0.75rem;
+}
+
+/* Canonical document body / lede text size. */
+.plan-doc-body {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+
+/* ── Notion-like rich-text block prose ───────────────────────────────────── */
+.plan-rich-markdown-editor {
+  max-width: 820px;
+  color: hsl(var(--foreground));
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose {
+  color: hsl(var(--foreground));
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose > :first-child {
+  margin-top: 0;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose > :last-child {
+  margin-bottom: 0;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose p {
+  margin: 0.9rem 0;
+  color: hsl(var(--muted-foreground));
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown {
+  max-width: none;
+  min-height: 1.5rem;
+  color: inherit;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown .an-rich-md-prose {
+  min-height: 1.5rem;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown .an-rich-md-prose p {
+  min-height: 1.5rem;
+  margin: 0;
+  color: inherit;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown
+  .an-rich-md-prose
+  > :first-child {
+  margin-top: 0;
+}
+
+.plan-rich-markdown-editor.an-table-cell-markdown
+  .an-rich-md-prose
+  > :last-child {
+  margin-bottom: 0;
+}
+
+/* Annotated-code side notes: compact prose so a note matches its small card. */
+.plan-annotation-note > .plan-rich-markdown-editor {
+  margin-top: 0;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: inherit;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose p {
+  margin: 0;
+  color: inherit;
+}
+.plan-annotation-note .plan-rich-markdown-editor .an-rich-md-prose p + p {
+  margin-top: 0.45rem;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose h1,
+.plan-rich-markdown-editor .an-rich-md-prose h2,
+.plan-rich-markdown-editor .an-rich-md-prose h3,
+.plan-rich-markdown-editor .an-rich-md-prose h4 {
+  color: hsl(var(--foreground));
+  font-weight: 640;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose h1 {
+  margin: 2.2rem 0 0.85rem;
+  font-size: 1.75rem;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose h2 {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.45rem;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose h3 {
+  margin: 1.6rem 0 0.6rem;
+  font-size: 1.2rem;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose h4 {
+  margin: 1.3rem 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose ul:not(.an-rich-md-task-list),
+.plan-rich-markdown-editor .an-rich-md-prose ol,
+.plan-rich-markdown-editor .an-rich-md-task-list {
+  margin: 0.85rem 0;
+  color: hsl(var(--muted-foreground));
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose li {
+  margin: 0.35rem 0;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose li::marker {
+  color: hsl(var(--border));
+}
+
+.plan-rich-markdown-editor .an-rich-md-link {
+  color: hsl(var(--ring));
+  text-decoration-color: hsl(var(--ring) / 0.55);
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose strong {
+  color: hsl(var(--foreground));
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose blockquote {
+  margin: 1.1rem 0;
+  border-left-color: hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose hr {
+  border-top-color: hsl(var(--border));
+}
+
+/* Inline code only — never the block code inside <pre>. */
+.plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+/* Block code surface fallback for any stray bare <pre>. */
+.plan-rich-markdown-editor .an-rich-md-prose pre {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.plan-rich-markdown-editor .an-rich-md-table th,
+.plan-rich-markdown-editor .an-rich-md-table td {
+  border-color: hsl(var(--border));
+}
+
+.plan-rich-markdown-editor .an-rich-md-table th {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.plan-rich-markdown-editor .an-rich-md-table td {
+  color: hsl(var(--muted-foreground));
+}
+
+.plan-rich-markdown-editor .an-rich-md-task-list li input[type="checkbox"] {
+  accent-color: hsl(var(--ring));
+}
+
+/* ── Code block — shared read/edit surface (structural) ──────────────────── */
+
+/* Read-only surface (Shiki-highlighted, collapses past `--plan-code-max-lines`). */
+.plan-code-surface {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+}
+
+.plan-code-surface-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.4rem 0.85rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.plan-code-surface-lang {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: hsl(var(--muted-foreground));
+}
+
+.plan-code-surface-scroll {
+  position: relative;
+  overflow: auto;
+  font-size: var(--plan-code-size);
+  line-height: 1.6;
+}
+
+/* Collapsed: clamp to N lines (+ the pre's top padding) and hide the rest. */
+.plan-code-surface[data-collapsed="true"] .plan-code-surface-scroll {
+  max-height: calc(var(--plan-code-max-lines, 30) * 1lh + 0.85rem);
+  overflow: hidden;
+}
+
+.plan-code-surface-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3.5rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, hsl(var(--muted)) 92%);
+}
+
+.plan-code-surface-toggle {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.85rem;
+  border-top: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+
+.plan-code-surface-toggle:hover {
+  color: hsl(var(--foreground));
+  background: color-mix(in srgb, hsl(var(--muted)) 60%, transparent);
+}
+
+.plan-code-surface .plan-shiki,
+.plan-code-surface pre {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  background: var(--shiki-light-bg, hsl(var(--muted))) !important;
+  color: var(--shiki-light, hsl(var(--foreground)));
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--plan-code-size);
+  line-height: 1.6;
+}
+
+.plan-code-surface pre code {
+  color: inherit;
+  background: none;
+  padding: 0;
+}
+
+.plan-code-surface .plan-shiki pre,
+.plan-code-surface .plan-shiki code {
+  background: var(--shiki-light-bg, transparent) !important;
+}
+
+.plan-code-surface .plan-shiki pre span {
+  color: var(--shiki-light);
+}
+
+.dark .plan-code-surface .plan-shiki,
+.dark .plan-code-surface .plan-shiki pre {
+  background: var(--shiki-dark-bg, hsl(var(--muted))) !important;
+  color: var(--shiki-dark, hsl(var(--foreground)));
+}
+
+.dark .plan-code-surface .plan-shiki pre span {
+  color: var(--shiki-dark);
+}
+
+/* `code` primitive block: read wraps the surface with a borderless filename
+   header + hover chrome; edit is a single-bordered auto-growing surface. */
+.plan-code {
+  position: relative;
+}
+
+.plan-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.15rem 0.4rem;
+}
+
+.plan-code-filename {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.plan-code-muted {
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+
+.plan-code-chrome {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.plan-code:hover .plan-code-chrome,
+.plan-code:focus-within .plan-code-chrome {
+  opacity: 1;
+}
+
+.plan-code-chrome-float {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+}
+
+.plan-code-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.75rem;
+  width: 1.75rem;
+  border-radius: 7px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background-color 0.12s;
+}
+
+.plan-code-chip:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
+}
+
+.plan-code-lang-select {
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border-radius: 7px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.plan-code-lang-select:hover {
+  color: hsl(var(--foreground));
+}
+
+/* Editable surface: ONE border, auto-grows to content (no drag-to-resize). */
+.plan-code-editing {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  /* Sit on the page background like the diff block — no distinct surface fill. */
+  background: transparent;
+}
+
+.plan-code-editing .plan-code-head {
+  padding: 0.4rem 0.5rem 0.4rem 0.85rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.plan-code-editing:hover .plan-code-chrome,
+.plan-code-editing:focus-within .plan-code-chrome {
+  opacity: 1;
+}
+
+/* Read view of the `code` block reuses the shared CodeSurface — flatten it for
+   the `code` primitive only so the snippet sits on the page (no gray box). */
+.plan-code .plan-code-surface {
+  background: transparent;
+}
+.plan-code .plan-code-surface .plan-shiki,
+.plan-code .plan-code-surface pre,
+.dark .plan-code .plan-code-surface .plan-shiki,
+.dark .plan-code .plan-code-surface pre {
+  background: transparent !important;
+}
+
+.plan-code-editor-body {
+  position: relative;
+  overflow: auto;
+}
+
+.plan-code-editor-layer,
+.plan-code-editor-input {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.plan-code-editor-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: hsl(var(--foreground));
+  /* This is a <pre>; a base `pre {}` style would leak in a bg + border + larger
+     font-size. Override so it's flat and lines up exactly with the textarea. */
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  font-size: 0.78rem !important;
+  line-height: 1.6 !important;
+}
+
+.plan-code-editor-input {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 2.5rem;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: hsl(var(--foreground));
+  outline: none;
+}
+
+.plan-code-editor-input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Collapsed long snippet: fade the clipped bottom into the page background. */
+.plan-code-editor-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3rem;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    hsl(var(--background)) 92%
+  );
+}
+
+.plan-code-caption {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.plan-code-caption-input {
+  width: 100%;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+  outline: none;
+}
+
+/* ── Editor node view (Tiptap): language picker header + highlighted <pre> ─── */
+.an-code-block {
+  position: relative;
+  margin: 1.1rem 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--muted));
+  overflow: hidden;
+}
+
+.an-code-block__header {
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 0.55rem;
+  border-bottom: 1px solid hsl(var(--border));
+  min-height: 2rem;
+}
+
+.an-code-block__lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.an-code-block__lang:hover {
+  background: color-mix(in srgb, hsl(var(--muted)) 70%, transparent);
+  color: hsl(var(--foreground));
+}
+
+.an-code-block__lang--readonly,
+.an-code-block__lang--readonly:hover {
+  cursor: default;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+/* The node-view wrapper owns the surface (border + bg), so the inner <pre> is
+   transparent. Scoped via `.an-rich-md-prose` so it applies in every editor. */
+.an-rich-md-prose .an-code-block pre {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.an-code-block pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* Language picker popover (rendered in a portal by the shared Popover). */
+.an-code-block__search {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.an-code-block__list {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+
+.an-code-block__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.an-code-block__option:hover {
+  background: hsl(var(--accent));
+}
+
+.an-code-block__option.is-active {
+  color: hsl(var(--primary));
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Wireframe kit + inline diagram + HTML-artboard styling.
+
+   Copied verbatim from the plan template's wireframe CSS
+   (wireframe/html-artboard.css + wireframe/kit/plan-wireframe-tokens.css).
+   These already reference plan palette vars with shadcn theme-token
+   FALLBACKS — e.g. var(--plan-text, hsl(var(--foreground))) — so in plan
+   they resolve to plan's palette (unchanged) and in any other app they
+   resolve to that app's theme tokens. Loaded globally here so the shared
+   wireframe + diagram blocks render in any app, not just plan.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Question form / visual questions: respondent-facing intake block. */
+.an-questions-block {
+  max-width: 860px;
+}
+
+/*
+ * HTML artboard styling.
+ *
+ * The model writes a plain, semantic HTML mockup of a screen. This stylesheet
+ * gives that HTML the wireframe look WITHOUT the model having to specify colors,
+ * fonts, or borders: it themes bare elements via tokens that flip on
+ * [data-theme], swaps the font on [data-style] (sketchy handwriting vs clean
+ * sans), and exposes --wf-* tokens + a few helper classes the model can lean on.
+ * The rough.js overlay then redraws the bordered boxes as hand-drawn strokes.
+ *
+ * Scope: `.plan-html-frame`. Everything is contained so model HTML can't leak
+ * into the app chrome.
+ */
+
+.plan-html-frame {
+  --wf-ink: var(--plan-text, hsl(var(--foreground)));
+  --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));
+  --wf-line: var(--plan-line, hsl(var(--border)));
+  /* Hand-drawn sketch stroke. Separate from --wf-ink (text) so the rough.js
+     overlay can run a touch softer than the body text — most important in dark
+     mode, where near-white text ink as a stroke makes harsh, eye-straining
+     borders. In light mode it matches the ink. */
+  /* Sketch stroke = a soft gray a step more pronounced than the hairline
+     --wf-line, so rough (broken) strokes still read clearly. Gentle, not hard
+     ink; text stays the dark --wf-ink above. */
+  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --wf-paper: var(--plan-document, hsl(var(--background)));
+  --wf-card: var(--plan-block, hsl(var(--card)));
+  --wf-accent: hsl(var(--ring));
+  --wf-accent-fg: hsl(var(--primary-foreground));
+  --wf-accent-soft: color-mix(in srgb, var(--wf-accent) 11%, transparent);
+  --wf-warn: hsl(var(--destructive));
+  --wf-ok: var(--wf-accent);
+  --wf-radius: 9px;
+
+  --wf-font-hand: "Excalifont", "Comic Sans MS", "Bradley Hand", cursive;
+  --wf-font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --wf-font: var(--wf-font-hand);
+
+  position: relative;
+  width: 100%;
+  /* `min-height` (not a fixed `height: 100%`) so an HTML mockup fills the
+     auto-height artboard's floor yet grows with its content instead of clipping.
+     The frame shell (ArtboardFrame) owns the height policy; the prototype-live
+     scroll mode below pins to 100% for an internally-scrolling canvas. */
+  min-height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--wf-paper);
+  color: var(--wf-ink);
+  font-family: var(--wf-font);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.plan-html-frame-content {
+  width: 100%;
+  min-height: 100%;
+}
+
+.plan-html-frame[data-prototype-live="true"] {
+  overflow: auto;
+}
+.plan-html-frame[data-prototype-live="true"] > .plan-html-frame-content {
+  height: 100%;
+  min-height: 0;
+  overflow: auto !important;
+  overscroll-behavior: contain;
+}
+
+.plan-html-frame[data-style="clean"] {
+  --wf-font: var(--wf-font-clean);
+}
+
+.plan-html-frame[data-render-mode="design"] {
+  --wf-font: var(--wf-font-clean);
+  background: transparent;
+  color: inherit;
+  font-family: var(--wf-font-clean);
+  font-size: 16px;
+  line-height: normal;
+}
+
+:where(.plan-html-frame[data-render-mode="design"] .plan-html-frame-content)
+  :where(h1, h2, h3, p, small, a, button, input, textarea, select, hr) {
+  all: revert;
+  box-sizing: border-box;
+}
+
+.plan-html-frame[data-render-mode="design"] button,
+.plan-html-frame[data-render-mode="design"] [role="button"],
+.plan-html-frame[data-render-mode="design"] [data-goto] {
+  cursor: pointer;
+}
+
+.plan-html-frame[data-render-mode="design"] [data-plan-design-selected] {
+  outline: 2px solid hsl(var(--ring)) !important;
+  outline-offset: 2px;
+}
+
+.plan-html-frame * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* Bare semantic elements get the wireframe look from tokens. */
+.plan-html-frame:not([data-render-mode="design"]) h1 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 8px;
+}
+.plan-html-frame:not([data-render-mode="design"]) h2 {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 6px;
+}
+.plan-html-frame:not([data-render-mode="design"]) h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.plan-html-frame:not([data-render-mode="design"]) p {
+  margin: 0 0 8px;
+}
+.plan-html-frame:not([data-render-mode="design"]) small,
+.plan-html-frame:not([data-render-mode="design"]) .wf-muted {
+  color: var(--wf-muted);
+  font-size: 12.5px;
+}
+.plan-html-frame:not([data-render-mode="design"]) a {
+  color: var(--wf-accent);
+  text-decoration: none;
+}
+.plan-html-frame:not([data-render-mode="design"]) hr {
+  border: 0;
+  border-top: 1.4px solid var(--wf-line);
+  margin: 10px 0;
+}
+
+.plan-html-frame:not([data-render-mode="design"]) button,
+.plan-html-frame:not([data-render-mode="design"]) .wf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--wf-ink);
+  /* Opaque paper fill (not transparent) so a floating / overlapping button —
+     a FAB, a sticky toolbar action like "+ Add habit" — never shows the
+     content behind it through its body. */
+  background: var(--wf-paper);
+  border: 1.4px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  padding: 7px 14px;
+  cursor: default;
+}
+.plan-html-frame[data-prototype-live="true"]
+  :is(button, .wf-btn, [role="button"], [data-goto]) {
+  cursor: pointer;
+}
+.plan-html-frame[data-prototype-live="true"] :is(button, .wf-btn):active {
+  transform: translateY(1px);
+}
+.plan-html-frame[data-prototype-live="true"] [hidden] {
+  display: none !important;
+}
+.plan-html-frame[data-prototype-live="true"] .is-done,
+.plan-html-frame[data-prototype-live="true"] [data-done="true"] {
+  color: var(--wf-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.plan-html-frame:not([data-render-mode="design"]) button.primary,
+.plan-html-frame:not([data-render-mode="design"]) .wf-btn.primary,
+.plan-html-frame:not([data-render-mode="design"]) [data-primary] {
+  background: var(--wf-accent);
+  border-color: var(--wf-accent);
+  color: var(--wf-accent-fg);
+}
+
+.plan-html-frame:not([data-render-mode="design"]) input,
+.plan-html-frame:not([data-render-mode="design"]) textarea,
+.plan-html-frame:not([data-render-mode="design"]) select {
+  font: inherit;
+  color: var(--wf-ink);
+  background: var(--wf-card);
+  border: 1.4px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  padding: 8px 10px;
+  width: 100%;
+}
+.plan-html-frame:not([data-render-mode="design"]) input[type="checkbox"],
+.plan-html-frame:not([data-render-mode="design"]) input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--wf-accent);
+  flex: 0 0 auto;
+}
+
+.plan-html-frame:not([data-render-mode="design"]) .wf-card,
+.plan-html-frame:not([data-render-mode="design"]) .wf-box {
+  background: var(--wf-card);
+  border: 1.4px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  padding: 12px;
+}
+.plan-html-frame:not([data-render-mode="design"]) .wf-pill,
+.plan-html-frame:not([data-render-mode="design"]) .wf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1.4px solid var(--wf-line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12.5px;
+}
+.plan-html-frame:not([data-render-mode="design"]) .wf-pill.accent {
+  border-color: var(--wf-accent);
+  color: var(--wf-accent);
+  background: var(--wf-accent-soft);
+}
+
+/* Once rough has drawn, hide the crisp borders so there's no doubling. Pills
+   keep their rounded crisp border (the rough overlay rounds them too). */
+.plan-html-frame[data-rough-ready]
+  :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
+  border-color: transparent !important;
+}
+
+/* Skeleton register: neutral textless geometry. */
+.plan-html-frame[data-skeleton="true"] {
+  --wf-ink: var(--plan-muted-line, hsl(var(--border)));
+  --wf-muted: var(--plan-muted-line, hsl(var(--border)));
+  --wf-line: var(--plan-placeholder-line, hsl(var(--border)));
+  --wf-card: var(--plan-block, hsl(var(--card)));
+  --wf-accent: var(--plan-muted-line, hsl(var(--border)));
+  --wf-accent-soft: var(--plan-block, hsl(var(--card)));
+}
+.plan-html-frame[data-skeleton="true"] * {
+  color: transparent !important;
+}
+
+/*
+ * Inline architecture/code diagrams.
+ *
+ * These are document-local HTML/SVG fragments, not top-canvas wireframes. They
+ * share the wireframe sketch preference so the same viewer toggle can switch
+ * authored diagrams between crisp and hand-drawn presentation.
+ */
+
+.plan-diagram-shell {
+  position: relative;
+  width: 100%;
+}
+
+.plan-diagram-frame {
+  --wf-ink: var(--plan-text, hsl(var(--foreground)));
+  --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));
+  --wf-line: var(--plan-line, hsl(var(--border)));
+  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --wf-paper: var(--plan-document, hsl(var(--background)));
+  --wf-card: var(--plan-block, hsl(var(--card)));
+  --wf-accent: hsl(var(--ring));
+  --wf-accent-fg: hsl(var(--primary-foreground));
+  --wf-accent-soft: color-mix(in srgb, var(--wf-accent) 11%, transparent);
+  --wf-warn: hsl(var(--destructive));
+  --wf-ok: var(--wf-accent);
+  --wf-radius: 8px;
+  --wf-font-hand: "Excalifont", "Comic Sans MS", "Bradley Hand", cursive;
+  --wf-font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --wf-font: var(--wf-font-clean);
+
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: var(--wf-paper);
+  color: var(--wf-ink);
+  font-family: var(--wf-font);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.plan-diagram-frame[data-style="sketchy"] {
+  --wf-font: var(--wf-font-hand);
+  line-height: 1.32;
+}
+
+.plan-diagram-frame * {
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.plan-diagram-frame-content {
+  width: 100%;
+}
+
+.plan-diagram-frame svg {
+  display: block;
+  max-width: 100%;
+}
+
+.plan-diagram-frame :is(h1, h2, h3, p, small, strong) {
+  margin: 0;
+}
+
+.plan-diagram-frame :is(h1, h2, h3, strong) {
+  color: var(--wf-ink);
+}
+
+.plan-diagram-frame h1 {
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.plan-diagram-frame h2 {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.plan-diagram-frame h3 {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.plan-diagram-frame :is(p, small, .diagram-muted) {
+  color: var(--wf-muted);
+}
+
+.plan-diagram-frame
+  :is(.diagram-panel, .diagram-card, .diagram-node, .diagram-box) {
+  border: 1.25px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  background: var(--wf-card);
+}
+
+.plan-diagram-frame
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    [class*="card"],
+    [class*="panel"],
+    [class*="box"]
+  ) {
+  border-color: var(--wf-line) !important;
+  background: var(--wf-card) !important;
+  color: var(--wf-ink) !important;
+}
+
+.plan-diagram-frame :is(.diagram-node, .diagram-box, .diagram-card) {
+  max-width: 100%;
+}
+
+.plan-diagram-frame :is(.diagram-node, .diagram-box, .diagram-card) small {
+  display: block;
+  max-width: 100%;
+}
+
+.plan-diagram-frame :is(.diagram-muted, [class*="muted"], small) {
+  color: var(--wf-muted) !important;
+}
+
+.plan-diagram-frame
+  :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"]) {
+  border-color: var(--wf-line) !important;
+  background: var(--wf-paper) !important;
+  color: var(--wf-ink) !important;
+}
+
+.plan-diagram-frame :is(.diagram-accent, [class*="accent"], [class*="active"]) {
+  border-color: var(--wf-accent) !important;
+  color: var(--wf-accent) !important;
+  background: var(--wf-accent-soft) !important;
+}
+
+.plan-diagram-frame :is(svg, line, path, polyline, polygon, rect, circle) {
+  stroke: var(--wf-line) !important;
+}
+
+.plan-diagram-frame
+  :is(rect, circle, ellipse, polygon)[fill]:not([fill="none"]) {
+  fill: var(--wf-card) !important;
+}
+
+.plan-diagram-frame svg text {
+  fill: var(--wf-ink) !important;
+}
+
+.plan-diagram-frame[data-style="sketchy"]
+  :is(.diagram-node, .diagram-box, .diagram-card) {
+  line-height: 1.16;
+}
+
+.plan-diagram-frame[data-style="sketchy"] :is(.diagram-node, .diagram-box) {
+  padding-inline: 7px;
+}
+
+.plan-diagram-frame .diagram-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--wf-line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--wf-ink);
+  background: var(--wf-paper);
+}
+
+.plan-diagram-frame :is(.diagram-accent, .diagram-pill.accent) {
+  --rough-stroke: var(--wf-accent);
+  border-color: var(--wf-accent) !important;
+  color: var(--wf-accent) !important;
+  background: var(--wf-accent-soft) !important;
+}
+
+.plan-diagram-frame :is(.diagram-ok, .diagram-pill.ok) {
+  --rough-stroke: var(--wf-ok);
+  border-color: var(--wf-ok) !important;
+  color: var(--wf-ok) !important;
+  background: color-mix(in srgb, var(--wf-ok) 10%, transparent) !important;
+}
+
+.plan-diagram-frame :is(.diagram-warn, .diagram-pill.warn) {
+  --rough-stroke: var(--wf-warn);
+  border-color: var(--wf-warn) !important;
+  color: var(--wf-warn) !important;
+  background: color-mix(in srgb, var(--wf-warn) 10%, transparent) !important;
+}
+
+.plan-diagram-frame[data-rough-ready]
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    .diagram-pill,
+    [class*="card"],
+    [class*="box"],
+    [class*="panel"],
+    [class*="pill"],
+    [data-rough],
+    hr
+  ) {
+  border-color: transparent !important;
+}
+
+/*
+ * Plan wireframe design tokens.
+ *
+ * The MODEL emits a lean kit tree (no geometry, no CSS). This stylesheet owns
+ * ALL visual quality for the wireframe primitives: ink/paper/accent palette,
+ * density-driven spacing/type, and the hand-drawn fonts. Every kit component in
+ * ./* reads these CSS vars, so density / accent / theme are switchable by
+ * toggling a single attribute on a `.plan-wf` scope — never by changing nodes.
+ *
+ * Scope: `.plan-wf` (set on the Screen wrapper). Tokens are scoped, not global,
+ * so wireframes can sit alongside the normal app chrome without leaking fonts
+ * or colors.
+ */
+
+/* Hand-drawn fonts. Excalifont is served by the app; no remote font dependency. */
+
+.plan-wf {
+  /* ---- Theme palette ----------------------------------------------------- */
+  --ink: var(--plan-text, hsl(var(--foreground)));
+  --ink-soft: var(--plan-muted, hsl(var(--muted-foreground)));
+  --line: var(--plan-line, hsl(var(--border)));
+  /* Sketch stroke = a soft gray a step more pronounced than --line so rough
+     strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */
+  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --paper: var(--plan-document, hsl(var(--background)));
+  --card: var(--plan-block, hsl(var(--card)));
+  --accent: hsl(var(--ring));
+  --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);
+  --warn: hsl(var(--destructive));
+  --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);
+  --ok: var(--accent);
+  --ok-soft: color-mix(in srgb, var(--ok) 15%, transparent);
+
+  /* Page backdrop behind artboards (board surface, not the screen paper). */
+  --plan-wf-page-bg: var(--plan-canvas, hsl(var(--background)));
+
+  /* ---- Fonts ------------------------------------------------------------- */
+  --font-hand:
+    "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  --font-script:
+    "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  --font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+
+  /* ---- Density (regular default) ----------------------------------------- */
+  /* Density is selected via [data-density]; individual tokens below. */
+  --gap: 11px;
+  --pad: 12px;
+  --fs: 14px;
+  --radius: 7px;
+  --stroke: 1.4px;
+
+  /* ---- Sketch wobble ----------------------------------------------------- */
+  /* Default crisp (low sketch). setSketch() helper overrides these inline. */
+  --wobble: none;
+}
+
+/* Density variants. Match the reference DENSITY map exactly. */
+.plan-wf[data-density="compact"] {
+  --gap: 7px;
+  --pad: 9px;
+  --fs: 13px;
+  --radius: 6px;
+  --stroke: 1.3px;
+}
+
+.plan-wf[data-density="regular"] {
+  --gap: 11px;
+  --pad: 12px;
+  --fs: 14px;
+  --radius: 7px;
+  --stroke: 1.4px;
+}
+
+.plan-wf[data-density="roomy"] {
+  --gap: 15px;
+  --pad: 17px;
+  --fs: 15px;
+  --radius: 9px;
+  --stroke: 1.6px;
+}
+
+/* ---- Clean style: drop the hand-drawn font for a normal sans ------------- */
+/* In clean mode the rough overlay is off and frames get crisp CSS borders, so
+   the handwriting font reads as out of place — switch to the sans stack. */
+.plan-wf[data-style="clean"] {
+  --font-hand: var(--font-clean);
+  --font-script: var(--font-clean);
+}
+
+/* ---- Rough sketch layer -------------------------------------------------- */
+/* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).
+   Once it has measured + drawn, hide the crisp CSS borders so there is never a
+   doubled border — fills and text stay, only the outline is replaced. */
+.plan-wf[data-rough-ready] [data-rough] {
+  border-color: transparent !important;
+}
+
+/* ---- Skeleton / neutral loading register --------------------------------- */
+/* One block flips the WHOLE kit to a textless skeleton: no ink, no rough, no
+   color — every primitive already reads these vars, so nothing else changes.
+   A skeleton is boxes + bars only; real labels collapse to transparent so the
+   silhouette is preserved without readable copy. */
+.plan-wf[data-skeleton="true"] {
+  --ink: var(--skeleton-fill);
+  --ink-soft: var(--skeleton-fill);
+  --line: var(--skeleton-fill);
+  --card: var(--skeleton-block);
+  --accent: var(--skeleton-fill);
+  --accent-soft: var(--skeleton-block);
+  --warn: var(--skeleton-fill);
+  --warn-soft: var(--skeleton-block);
+  --ok: var(--skeleton-fill);
+  --ok-soft: var(--skeleton-block);
+  --stroke: 0px;
+  --skeleton-fill: var(--plan-muted-line, hsl(var(--border)));
+  --skeleton-block: var(--plan-block, hsl(var(--card)));
+}
+/* Textless: hide real labels but keep their layout footprint. */
+.plan-wf[data-skeleton="true"] * {
+  color: transparent !important;
+  border-color: transparent !important;
+}
+/* Soft rounded placeholder bars in skeleton mode. */
+.plan-wf[data-skeleton="true"] {
+  --radius: 7px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .plan-wf[data-skeleton="true"] {
+    animation: plan-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes plan-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}

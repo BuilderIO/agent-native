@@ -8,6 +8,8 @@ import {
   serializeSpecBlock,
   createAttrReader,
   parseSpecBlock,
+  attributeValue,
+  type MdxAttrNode,
   type MdxJsxNode,
 } from "./mdx.js";
 import {
@@ -40,7 +42,7 @@ function calloutSpec(): BlockSpec<{ tone?: "info" | "risk"; body: string }> {
 }
 
 describe("block registry", () => {
-  it("registers by type and tag, and rejects duplicates", () => {
+  it("registers by type and tag", () => {
     const registry = new BlockRegistry();
     registerBlocks(registry, [calloutSpec()]);
     expect(registry.has("callout")).toBe(true);
@@ -48,9 +50,26 @@ describe("block registry", () => {
     expect(registry.get("callout")?.label).toBe("Callout");
     expect(registry.getByTag("Callout")?.type).toBe("callout");
     expect([...registry.tags()]).toEqual(["Callout"]);
-    expect(() => registry.register(calloutSpec())).toThrow(
-      /already registered/,
-    );
+  });
+
+  it("overrides on re-registration (last wins) instead of throwing", () => {
+    const registry = new BlockRegistry();
+    registerBlocks(registry, [calloutSpec()]);
+    // Re-registering the same type must not throw; it replaces the prior spec.
+    expect(() =>
+      registry.register({ ...calloutSpec(), label: "Callout v2" }),
+    ).not.toThrow();
+    expect(registry.get("callout")?.label).toBe("Callout v2");
+    // Still a single tag entry (no orphan) after the override.
+    expect([...registry.tags()]).toEqual(["Callout"]);
+
+    // Re-registering with a changed MDX tag drops the stale tag mapping.
+    registry.register({
+      ...calloutSpec(),
+      mdx: { ...calloutSpec().mdx, tag: "Note" },
+    });
+    expect(registry.getByTag("Note")?.type).toBe("callout");
+    expect(registry.hasTag("Callout")).toBe(false);
   });
 
   it("lists only specs flagged as Notion-compatible", () => {
@@ -155,6 +174,79 @@ describe("registry MDX round-trip", () => {
     );
     expect(parsed?.type).toBe("callout");
     expect(parsed?.data).toEqual({ tone: "risk", body: "Be **careful**." });
+  });
+
+  // Build an `mdxJsxAttributeValueExpression` whose `data.estree` mirrors the
+  // shape remark-mdx emits at runtime. The estree-walking branch of
+  // `attributeValue` is what the wireframe/plan parsers rely on, so the test
+  // exercises that exact path.
+  function exprAttr(
+    name: string,
+    source: string,
+    expression: Record<string, unknown>,
+  ): MdxAttrNode {
+    return {
+      type: "mdxJsxAttribute",
+      name,
+      value: {
+        type: "mdxJsxAttributeValueExpression",
+        value: source,
+        data: {
+          estree: {
+            type: "Program",
+            body: [{ type: "ExpressionStatement", expression }],
+          },
+        },
+      },
+    } as MdxAttrNode;
+  }
+
+  it("resolves a template-literal attribute with no expressions to its cooked string", () => {
+    const attr = exprAttr("html", "`<div>hi</div>`", {
+      type: "TemplateLiteral",
+      expressions: [],
+      quasis: [
+        {
+          type: "TemplateElement",
+          value: { cooked: "<div>hi</div>", raw: "<div>hi</div>" },
+        },
+      ],
+    });
+    expect(attributeValue(attr)).toBe("<div>hi</div>");
+  });
+
+  it("throws on a template-literal attribute that interpolates ${…}", () => {
+    const attr = exprAttr("html", "`<div>${value}</div>`", {
+      type: "TemplateLiteral",
+      expressions: [{ type: "Identifier", name: "value" }],
+      quasis: [
+        { type: "TemplateElement", value: { cooked: "<div>", raw: "<div>" } },
+        { type: "TemplateElement", value: { cooked: "</div>", raw: "</div>" } },
+      ],
+    });
+    expect(() => attributeValue(attr)).toThrow(/template literal|\$\{/i);
+  });
+
+  it("still resolves plain string-literal and JSON expression attributes", () => {
+    expect(
+      attributeValue({
+        type: "mdxJsxAttribute",
+        name: "html",
+        value: "<div>x</div>",
+      } as MdxAttrNode),
+    ).toBe("<div>x</div>");
+    expect(
+      attributeValue(
+        exprAttr("widths", "[1, 2, 3]", {
+          type: "ArrayExpression",
+          elements: [
+            { type: "Literal", value: 1 },
+            { type: "Literal", value: 2 },
+            { type: "Literal", value: 3 },
+          ],
+        }),
+      ),
+    ).toEqual([1, 2, 3]);
   });
 
   it("createAttrReader resolves string/array/object attributes", () => {

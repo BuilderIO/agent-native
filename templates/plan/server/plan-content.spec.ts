@@ -333,6 +333,132 @@ function findWireframeNode(
   return null;
 }
 
+describe("diff-aware blocks round-trip", () => {
+  it("preserves change/was on data-model + api-endpoint and diff annotations", () => {
+    const content = planContentSchema.parse({
+      version: 1,
+      title: "Diff-aware",
+      brief: "Schema, API, and annotated diffs survive a round-trip.",
+      blocks: [
+        {
+          id: "dm",
+          type: "data-model",
+          data: {
+            entities: [
+              {
+                id: "plans",
+                name: "plans",
+                change: "modified",
+                fields: [
+                  { name: "id", type: "uuid", pk: true },
+                  { name: "kind", type: "text", change: "added" },
+                  {
+                    name: "content",
+                    type: "jsonb",
+                    change: "modified",
+                    was: "text",
+                  },
+                  { name: "legacy_html", type: "text", change: "removed" },
+                ],
+              },
+            ],
+          },
+        },
+        {
+          id: "ep",
+          type: "api-endpoint",
+          data: {
+            method: "POST",
+            path: "/actions/:name",
+            change: "modified",
+            params: [
+              {
+                name: "scope",
+                in: "query",
+                required: true,
+                change: "modified",
+                was: "optional",
+              },
+              { name: "dryRun", in: "query", type: "boolean", change: "added" },
+            ],
+            responses: [
+              { status: "200" },
+              { status: "409", description: "Conflict", change: "added" },
+            ],
+          },
+        },
+        {
+          id: "df",
+          type: "diff",
+          data: {
+            filename: "server/plugins/auth.ts",
+            language: "ts",
+            before:
+              "const token = readBearer(req)\nreturn verifyLegacy(token)\n",
+            after:
+              "const token = readBearer(req)\nreturn verifyMcp(token, aud)\n",
+            mode: "unified",
+            annotations: [
+              {
+                lines: "2",
+                label: "MCP verify",
+                note: "Routes the bearer path through MCP verify.",
+              },
+              {
+                side: "before",
+                lines: "2",
+                note: "Drops the legacy verifier.",
+              },
+            ],
+          },
+        },
+      ],
+    } as PlanContent);
+
+    const parsed = parsePlanContent(serializePlanContent(content));
+    expect(parsed).not.toBeNull();
+
+    const dm = parsed?.blocks.find((block) => block.id === "dm");
+    expect(dm?.type).toBe("data-model");
+    if (dm?.type === "data-model") {
+      expect(dm.data.entities[0]?.change).toBe("modified");
+      const fields = dm.data.entities[0]?.fields ?? [];
+      expect(fields.find((field) => field.name === "kind")?.change).toBe(
+        "added",
+      );
+      const contentField = fields.find((field) => field.name === "content");
+      expect(contentField?.change).toBe("modified");
+      expect(contentField?.was).toBe("text");
+      expect(fields.find((field) => field.name === "legacy_html")?.change).toBe(
+        "removed",
+      );
+    }
+
+    const ep = parsed?.blocks.find((block) => block.id === "ep");
+    expect(ep?.type).toBe("api-endpoint");
+    if (ep?.type === "api-endpoint") {
+      expect(ep.data.change).toBe("modified");
+      expect(ep.data.params?.find((param) => param.name === "scope")?.was).toBe(
+        "optional",
+      );
+      expect(
+        ep.data.params?.find((param) => param.name === "dryRun")?.change,
+      ).toBe("added");
+      expect(
+        ep.data.responses?.find((res) => res.status === "409")?.change,
+      ).toBe("added");
+    }
+
+    const df = parsed?.blocks.find((block) => block.id === "df");
+    expect(df?.type).toBe("diff");
+    if (df?.type === "diff") {
+      expect(df.data.annotations).toHaveLength(2);
+      expect(df.data.annotations?.[0]?.lines).toBe("2");
+      expect(df.data.annotations?.[1]?.side).toBe("before");
+    }
+  });
+});
+
 describe("custom-html safety", () => {
   it("serializes, parses, and rejects full custom HTML documents at validation", () => {
     const content = createUiPlanContent({
@@ -690,6 +816,45 @@ describe("back-compat parsing and migration", () => {
     expect(diagram?.type).toBe("diagram");
     if (wire?.type === "legacy-wireframe") {
       expect(wire.data.regions).toHaveLength(1);
+    }
+  });
+
+  it("migrates a retired decision block into a decision-tone callout", () => {
+    const legacy = {
+      version: 2,
+      title: "Old plan",
+      brief: "Has a decision block from before it was retired.",
+      blocks: [
+        {
+          id: "dec-1",
+          type: "decision",
+          data: {
+            question: "Which approach?",
+            options: [
+              {
+                id: "o1",
+                label: "Ship shared blocks",
+                detail: "One source of truth.",
+                recommended: true,
+              },
+              { id: "o2", label: "Keep copies", detail: "More drift." },
+            ],
+          },
+        },
+      ],
+    };
+    // Stored decision blocks must keep loading (the schema no longer has a
+    // `decision` member) by migrating to a callout, not failing the whole plan.
+    const parsed = parsePlanContent(JSON.stringify(legacy));
+    expect(parsed).not.toBeNull();
+    const block = parsed?.blocks.find((b) => b.id === "dec-1");
+    expect(block?.type).toBe("callout");
+    if (block?.type === "callout") {
+      expect(block.data.tone).toBe("decision");
+      expect(block.data.body).toContain("Which approach?");
+      expect(block.data.body).toContain("Ship shared blocks");
+      expect(block.data.body).toContain("recommended");
+      expect(block.data.body).toContain("Keep copies");
     }
   });
 

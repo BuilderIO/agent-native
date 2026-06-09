@@ -89,6 +89,13 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
           delete pkg.pnpm;
         }
       }
+      // Pin @assistant-ui/store and @assistant-ui/tap so pre-existing workspaces
+      // whose root pnpm-workspace.yaml pre-dates this fix are still protected.
+      // The constraints exclude the breaking store@0.2.14/tap@0.6.0 combination
+      // that causes Vite pre-bundling failures via a missing ./react-shim export.
+      pkg.devDependencies = pkg.devDependencies ?? {};
+      pkg.devDependencies["@assistant-ui/store"] ??= ">=0.2.9 <0.2.14";
+      pkg.devDependencies["@assistant-ui/tap"] ??= "^0.5.14";
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {
       // Non-fatal: leave package.json unchanged.
@@ -98,11 +105,18 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   // 2) Remove standalone-only files that would confuse the workspace layout.
   for (const f of [
     "learnings.defaults.md",
-    // If the template shipped its own workspace marker / stray monorepo
-    // files, strip them here too.
+    // pnpm-workspace.yaml marks a directory as a pnpm workspace root.
+    // Leaving it in an app directory nested under a parent workspace causes
+    // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND when the app depends on workspace:*
+    // packages (e.g. @<scope>/shared). Overrides belong at the workspace root.
+    "pnpm-workspace.yaml",
   ]) {
     const p = path.join(appDir, f);
-    if (fs.existsSync(p)) fs.unlinkSync(p);
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {
+      // Non-fatal: leave the file in place.
+    }
   }
 
   // 3) Templates document action commands from the framework repo layout.

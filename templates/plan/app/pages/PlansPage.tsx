@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAt,
   IconArrowLeft,
@@ -37,6 +38,7 @@ import {
   IconSun,
   IconX,
   IconSend,
+  IconSearch,
   IconRefresh,
   IconRestore,
 } from "@tabler/icons-react";
@@ -141,7 +143,12 @@ import {
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
-import type { PlanBundle, PlanSource, PlanVersionSummary } from "@shared/types";
+import type {
+  PlanBundle,
+  PlanKind,
+  PlanSource,
+  PlanVersionSummary,
+} from "@shared/types";
 import {
   extractCommentMentions,
   formatPlanCommentAnchorForAgent,
@@ -1851,6 +1858,38 @@ export function PlansPage() {
   );
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
+  const queryClient = useQueryClient();
+  // Reflect a structural block edit (drag-to-columns, reorder) into the
+  // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
+  // tracks the new layout instead of lagging the debounced (600ms) save. This
+  // keeps every reader of the plan content consistent with what the editor shows
+  // the moment the drop lands. The reconcile's own non-collab stale-poll guard is
+  // what actually stops a lagging refetch from reverting the layout, so this does
+  // NOT bump `updatedAt` — leaving the server's timestamp intact so a genuinely
+  // newer agent/external edit still wins.
+  const writeBlocksOptimistically = useCallback(
+    (blocks: PlanBlock[]) => {
+      if (!selectedId) return;
+      queryClient.setQueryData(
+        ["action", "get-visual-plan", { id: selectedId }],
+        (prev: (PlanBundle & { html?: string }) | undefined) => {
+          if (!prev?.plan?.content) return prev;
+          return {
+            ...prev,
+            plan: {
+              ...prev.plan,
+              content: { ...prev.plan.content, blocks },
+            },
+          };
+        },
+      );
+    },
+    [queryClient, selectedId],
+  );
+  // Recaps are read-only review surfaces: text can't be edited inline (the agent
+  // owns the content), but highlighting + commenting stay available because those
+  // affordances key off `bundle`/`session`, not `canEditPlanContent`.
+  const isRecap = bundle?.plan.kind === "recap";
   const accessResourceId = bundle?.plan.id ?? selectedId ?? "";
   const planAccessQuery = useActionQuery<PlanAccessResponse>(
     "list-resource-shares",
@@ -1859,7 +1898,8 @@ export function PlansPage() {
   );
   const effectivePlanAccessRole =
     planAccessQuery.data?.role ?? bundle?.access?.role ?? null;
-  const canEditPlanContent = canEditPlanContentRole(effectivePlanAccessRole);
+  const canEditPlanContent =
+    !isRecap && canEditPlanContentRole(effectivePlanAccessRole);
   const canResolveCommentThreads = Boolean(
     bundle && (session || canEditPlanContent),
   );
@@ -1988,7 +2028,7 @@ export function PlansPage() {
     }
   }, [canvasMarkupMode, visualSurfaceMode]);
 
-  useSetPageTitle(bundle?.plan.title || "Plan");
+  useSetPageTitle(bundle?.plan.title || (isRecap ? "Recap" : "Plan"));
   useSetHeaderActions(
     !sessionLoading && !session && !selectedId ? (
       <Button
@@ -2042,7 +2082,8 @@ export function PlansPage() {
 
   const planAgentContext = useMemo(() => {
     if (!bundle) return "";
-    const path = appPath(`/plans/${selectedId ?? bundle.plan.id}`);
+    const base = bundle.plan.kind === "recap" ? "recaps" : "plans";
+    const path = appPath(`/${base}/${selectedId ?? bundle.plan.id}`);
     const url =
       typeof window === "undefined" ? path : `${window.location.origin}${path}`;
     return buildPlanAgentContext({ bundle, documentHtml, url });
@@ -2050,8 +2091,9 @@ export function PlansPage() {
 
   const planShareUrl = useMemo(() => {
     if (!selectedId || typeof window === "undefined") return undefined;
-    return `${window.location.origin}${appPath(`/plans/${selectedId}`)}`;
-  }, [selectedId]);
+    const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
+    return `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
+  }, [selectedId, bundle?.plan.kind]);
 
   useEffect(() => {
     const onSidebarState = (event: Event) => {
@@ -2304,9 +2346,7 @@ export function PlansPage() {
         window.localStorage.setItem(PREFERRED_EDITOR_STORAGE_KEY, editor);
       }
       if (data?.type === "agent-native-plan-link-blocked") {
-        toast.info(
-          "Plan links are disabled in review so the document stays put.",
-        );
+        toast.info("Links are disabled in review so the document stays put.");
       }
       if (data?.type === "agent-native-plan-doc-state" && data.state) {
         documentStateRef.current = data.state;
@@ -2359,7 +2399,7 @@ export function PlansPage() {
   const copyPlanLink = async () => {
     if (!planShareUrl) return;
     await navigator.clipboard.writeText(planShareUrl);
-    toast.success("Plan link copied");
+    toast.success(isRecap ? "Recap link copied" : "Plan link copied");
   };
 
   const openPrototypeWindow = () => {
@@ -2871,15 +2911,15 @@ export function PlansPage() {
         (thread) => commentThreadStatus(thread) === "open",
       );
       const capture = await captureFocusedFeedbackImages(openThreads);
+      const recapBase = bundle.plan.kind === "recap" ? "recaps" : "plans";
+      const reviewPath = `/${recapBase}/${selectedId ?? bundle.plan.id}`;
       const context = buildPlanAgentContext({
         bundle,
         documentHtml,
         url:
           typeof window === "undefined"
-            ? appPath(`/plans/${selectedId ?? bundle.plan.id}`)
-            : `${window.location.origin}${appPath(
-                `/plans/${selectedId ?? bundle.plan.id}`,
-              )}`,
+            ? appPath(reviewPath)
+            : `${window.location.origin}${appPath(reviewPath)}`,
         screenshotNote: capture.note,
       });
       sendToAgentChat({
@@ -3122,15 +3162,17 @@ export function PlansPage() {
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
+              viewerEmail={session?.email ?? null}
             />
           ) : !bundle && planQuery.isLoading ? (
-            <PlanSkeleton />
+            <PlanSkeleton isRecap={location.pathname.startsWith("/recaps")} />
           ) : !bundle ? (
             <PlanLoadError
               planId={params.id}
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
+              viewerEmail={session?.email ?? null}
             />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
@@ -3146,6 +3188,7 @@ export function PlansPage() {
                 <PlanShareControl
                   planId={bundle.plan.id}
                   planTitle={bundle.plan.title}
+                  isRecap={isRecap}
                   localShareUrl={planShareUrl}
                   hostedPlanId={bundle.plan.hostedPlanId}
                   hostedPlanUrl={bundle.plan.hostedPlanUrl}
@@ -3476,7 +3519,7 @@ export function PlansPage() {
               {reviewMode !== "none" && (
                 <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
                   {reviewMode === "comment"
-                    ? "Click the plan or select text to comment"
+                    ? `Click the ${isRecap ? "recap" : "plan"} or select text to comment`
                     : reviewMode === "text"
                       ? "Click the canvas to place a note"
                       : "Drag on the canvas to draw a callout"}
@@ -3505,6 +3548,11 @@ export function PlansPage() {
                       onContentPatch={
                         canEditPlanContent ? patchStructuredContent : undefined
                       }
+                      onOptimisticBlocks={
+                        canEditPlanContent
+                          ? writeBlocksOptimistically
+                          : undefined
+                      }
                       onMetadataChange={
                         canEditPlanContent ? updatePlanMetadata : undefined
                       }
@@ -3517,6 +3565,7 @@ export function PlansPage() {
                       planId={bundle.plan.id}
                       collabUser={collabUser}
                       prototypeOnly={prototypeOnly}
+                      isRecap={isRecap}
                       visualSurfaceMode={visualSurfaceMode}
                       onVisualSurfaceModeChange={setVisualSurfaceMode}
                       onVisualQuestionsSubmit={(summary) => {
@@ -3684,12 +3733,13 @@ export function PlansPage() {
 }
 
 // Shared copy for the rich access-management share popover. The public note
-// makes clear that anyone-with-link can view, but commenting on a public plan
-// still needs an agent-native account (comments are attributed + scoped).
-const PLAN_SHARE_VISIBILITY_COPY = {
+// makes clear that anyone-with-link can view, but commenting on a public
+// plan/recap still needs an agent-native account (comments are attributed +
+// scoped). `noun` is "plan" or "recap" so recaps read as recaps everywhere.
+const buildShareVisibilityCopy = (noun: string) => ({
   private: {
     label: "Private",
-    description: "Only invited people can open this plan",
+    description: `Only invited people can open this ${noun}`,
   },
   org: {
     label: "Organization",
@@ -3699,10 +3749,10 @@ const PLAN_SHARE_VISIBILITY_COPY = {
     label: "Public",
     description: "Anyone with the link can view",
   },
-} as const;
+});
 
-const PLAN_SHARE_ACCESS_NOTE =
-  "Anyone with edit access can change the plan. Viewing a public plan needs no account, but commenting on it requires an agent-native account.";
+const buildShareAccessNote = (noun: string) =>
+  `Anyone with edit access can change the ${noun}. Viewing a public ${noun} needs no account, but commenting on it requires an agent-native account.`;
 
 /**
  * Share affordance for a plan. People with a session (logged in, or local dev
@@ -3715,6 +3765,7 @@ const PLAN_SHARE_ACCESS_NOTE =
 function PlanShareControl({
   planId,
   planTitle,
+  isRecap = false,
   localShareUrl,
   hostedPlanId,
   hostedPlanUrl,
@@ -3722,11 +3773,14 @@ function PlanShareControl({
 }: {
   planId: string;
   planTitle: string;
+  isRecap?: boolean;
   localShareUrl?: string;
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const noun = isRecap ? "recap" : "plan";
+  const Noun = isRecap ? "Recap" : "Plan";
   const { session, isLoading: sessionLoading } = useSession();
   const publishPlan = usePublishVisualPlan();
   const [publishOpen, setPublishOpen] = useState(false);
@@ -3798,7 +3852,7 @@ function PlanShareControl({
               authUrl: result.authUrl,
               connectCommand: result.connectCommand,
             });
-            toast.message("Create a free account to publish this plan");
+            toast.message(`Create a free account to publish this ${noun}`);
             return;
           }
           setPublishedPlan({
@@ -3821,13 +3875,13 @@ function PlanShareControl({
         resourceId={managedShareResourceId}
         resourceTitle={planTitle}
         shareUrl={managedShareUrl}
-        shareUrlLabel="Plan link"
+        shareUrlLabel={`${Noun} link`}
         shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
         shareUrlPlacement="top"
-        peopleAccessLabel="People with plan access"
-        generalAccessLabel="General plan access"
-        accessNote={PLAN_SHARE_ACCESS_NOTE}
-        visibilityCopy={PLAN_SHARE_VISIBILITY_COPY}
+        peopleAccessLabel={`People with ${noun} access`}
+        generalAccessLabel={`General ${noun} access`}
+        accessNote={buildShareAccessNote(noun)}
+        visibilityCopy={buildShareVisibilityCopy(noun)}
         trigger="icon"
         triggerClassName="pointer-events-auto size-8"
         onOpenChange={onOpenChange}
@@ -3853,13 +3907,13 @@ function PlanShareControl({
               variant="ghost"
               size="icon"
               className="pointer-events-auto size-8"
-              aria-label="Share plan"
+              aria-label={`Share ${noun}`}
             >
               <IconShare3 className="size-4" />
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>Share plan</TooltipContent>
+        <TooltipContent>Share {noun}</TooltipContent>
       </Tooltip>
       <PopoverContent
         align="end"
@@ -3868,12 +3922,12 @@ function PlanShareControl({
       >
         <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
           <IconWorld className="size-4 text-muted-foreground" />
-          Share this plan
+          Share this {noun}
         </div>
         <p className="mb-3 text-xs leading-5 text-muted-foreground">
           {effectivePublishedUrl
-            ? "This local plan has a hosted copy for sharing. Open the hosted plan to manage access."
-            : "Create a free account to publish this plan to a shareable link. You can keep editing locally with your coding agent until you do."}
+            ? `This local ${noun} has a hosted copy for sharing. Open the hosted ${noun} to manage access.`
+            : `Create a free account to publish this ${noun} to a shareable link. You can keep editing locally with your coding agent until you do.`}
         </p>
 
         {authPrompt ? (
@@ -3987,15 +4041,19 @@ function PlanShareControl({
   );
 }
 
-function PlanSkeleton() {
+function PlanSkeleton({ isRecap = false }: { isRecap?: boolean }) {
+  // Recaps are document-only review surfaces that almost never use the top
+  // canvas, so skip the canvas placeholder for them while keeping it for plans.
   return (
     <div
       className="plan-content-surface h-full min-h-0 overflow-auto bg-plan-document text-plan-text"
       role="status"
-      aria-label="Loading plan"
+      aria-label={isRecap ? "Loading recap" : "Loading plan"}
     >
-      <span className="sr-only">Loading plan</span>
-      <PlanCanvasSkeleton />
+      <span className="sr-only">
+        {isRecap ? "Loading recap" : "Loading plan"}
+      </span>
+      {!isRecap && <PlanCanvasSkeleton />}
       <PlanDocumentSkeleton />
     </div>
   );
@@ -4232,32 +4290,73 @@ function PlanLoadError({
   onRetry,
   onCreate,
   canCreate,
+  viewerEmail,
 }: {
   planId?: string;
   error?: unknown;
   onRetry: () => void;
   onCreate: () => void;
   canCreate: boolean;
+  /** The signed-in identity for THIS origin, or null when anonymous. */
+  viewerEmail?: string | null;
 }) {
   const message =
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
       : "This plan could not be loaded from the current session.";
 
+  // "Not found" here almost always means an identity or origin mismatch, not a
+  // genuinely missing plan — the access resolver deliberately conflates the two
+  // (it won't leak whether a private plan exists). So present it like a GitHub
+  // 404: it isn't a crash, the plan just isn't visible to you here, and signing
+  // in (or switching account/server) may be all that's needed. Anything else is
+  // a real load failure, kept distinct so we don't mislabel it as "not found".
+  const notFound = /not found/i.test(message);
+  const signedIn = Boolean(viewerEmail);
+
   return (
     <div className="flex h-full items-center justify-center bg-background p-8">
       <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 text-left shadow-sm">
         <div className="flex items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
-            <IconAlertTriangle className="size-5" />
-          </div>
+          {notFound ? (
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground">
+              <IconSearch className="size-5" />
+            </div>
+          ) : (
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
+              <IconAlertTriangle className="size-5" />
+            </div>
+          )}
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight">
-              Plan did not load
+              {notFound ? "Plan not found" : "Plan did not load"}
             </h2>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              {message}
-            </p>
+            {notFound ? (
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {signedIn ? (
+                  <>
+                    Plans are private per account and server — it may belong to
+                    a different account, or live on another server (e.g. the
+                    hosted app, not this localhost). Signed in as{" "}
+                    <span className="font-medium text-foreground">
+                      {viewerEmail}
+                    </span>
+                    .
+                  </>
+                ) : (
+                  <>
+                    Plans are private, so you may need to{" "}
+                    <span className="font-medium text-foreground">sign in</span>{" "}
+                    to view this one — or it may live on another server (e.g.
+                    the hosted app).
+                  </>
+                )}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {message}
+              </p>
+            )}
             {planId && (
               <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
                 {planId}
@@ -4272,7 +4371,7 @@ function PlanLoadError({
           </Button>
           <Button type="button" variant="outline" onClick={onCreate}>
             <IconPlus className="size-4" />
-            {canCreate ? "New Plan" : "Sign in to create"}
+            {canCreate ? "New Plan" : "Sign in"}
           </Button>
         </div>
       </div>
@@ -4354,6 +4453,7 @@ function PlansOverview({
     id: string;
     title: string;
     brief: string;
+    kind: PlanKind;
     status: string;
     updatedAt: string;
     openCommentCount: number;
@@ -4389,7 +4489,11 @@ function PlansOverview({
           {plans.map((plan) => (
             <Link
               key={plan.id}
-              to={`/plans/${plan.id}`}
+              to={
+                plan.kind === "recap"
+                  ? `/recaps/${plan.id}`
+                  : `/plans/${plan.id}`
+              }
               className="rounded-lg border border-border bg-background p-4 transition-colors hover:bg-accent/35"
             >
               <div className="flex items-start justify-between gap-3">
@@ -4577,6 +4681,7 @@ function PlanHistorySheet({
                   fallbackBrief={selectedVersion.plan.brief}
                   contentUpdatedAt={selectedVersion.plan.updatedAt}
                   editingDisabled
+                  isRecap={selectedVersion.plan.kind === "recap"}
                   planId={null}
                 />
               ) : selectedVersion?.html ? (
@@ -5818,7 +5923,7 @@ function AnnotationsPanel({
         <div className="space-y-3 p-3">
           {visibleThreads.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
-              No annotations yet. Click Comment, then click the plan.
+              No annotations yet. Click Comment, then click to place one.
             </p>
           ) : (
             visibleThreads.map((thread) => {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconChevronRight,
   IconFile,
@@ -293,6 +293,40 @@ export function FileTreeRead({
   const toggleFile = (index: number) =>
     setOpenFiles((current) => ({ ...current, [index]: !current[index] }));
 
+  // The recap "Files touched" left rail (only) widens into the document as a
+  // flyout while the tree is the reader's active focus AND a file's detail is
+  // open, then collapses back to a slim rail when they click elsewhere or close
+  // the last open file. `data-files-expanded` on the root drives the rail width
+  // via CSS (`:has()`); it is inert anywhere the tree renders inline.
+  const rootRef = useRef<HTMLElement>(null);
+  const [active, setActive] = useState(false);
+  const anyFileOpen = useMemo(
+    () => Object.values(openFiles).some(Boolean),
+    [openFiles],
+  );
+  const railExpanded = active && anyFileOpen;
+
+  useEffect(() => {
+    if (!railExpanded) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const root = rootRef.current;
+      if (
+        root &&
+        event.target instanceof Node &&
+        !root.contains(event.target)
+      ) {
+        // Clicking away collapses the rail and closes any open file detail, so
+        // it returns to the clean slim state rather than leaving notes open in
+        // the cramped width.
+        setActive(false);
+        setOpenFiles({});
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [railExpanded]);
+
   // Change tally for the summary header.
   const counts = useMemo(() => {
     const tally = { added: 0, modified: 0, removed: 0, renamed: 0 };
@@ -326,7 +360,7 @@ export function FileTreeRead({
             aria-expanded={!collapsed}
             onClick={() => toggleFolder(node.path)}
             style={{ paddingLeft: indent + 8 }}
-            className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm transition-colors hover:bg-accent/40"
+            className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors hover:bg-accent/40"
           >
             <IconChevronRight
               className={cn(
@@ -362,7 +396,7 @@ export function FileTreeRead({
           onClick={hasDetail ? () => toggleFile(node.index) : undefined}
           style={{ paddingLeft: indent + 8 }}
           className={cn(
-            "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm transition-colors",
+            "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
             hasDetail ? "hover:bg-accent/40" : "cursor-default",
           )}
         >
@@ -436,14 +470,20 @@ export function FileTreeRead({
   };
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      ref={rootRef}
+      className="plan-block"
+      data-block-id={blockId}
+      data-files-expanded={railExpanded ? "" : undefined}
+      onPointerDown={() => setActive(true)}
+    >
       {title && <div className="plan-block-label">{title}</div>}
 
       <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-block">
         {/* Summary header: file count + change tally. */}
         <div className="flex flex-wrap items-center gap-2 border-b border-plan-line bg-accent/20 px-3 py-2">
           {data.title && (
-            <span className="text-sm font-semibold text-plan-text">
+            <span className="text-[13px] font-semibold text-plan-text">
               {data.title}
             </span>
           )}

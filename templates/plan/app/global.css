@@ -48,6 +48,12 @@
   --sidebar-accent-foreground: 30 5% 13%;
   --sidebar-border: 36 10% 86%;
   --sidebar-ring: 218 85% 57%;
+  /* ── Plan document font sizes — edit here to resize globally ──────────────
+     --plan-code-size  : all monospace code surfaces (diffs, annotated-code,
+                         code blocks, JSON explorer, file trees, etc.)
+     --plan-body-size  : prose body text across all plan document blocks       */
+  --plan-code-size: 1rem;
+  --plan-body-size: 1rem;
 }
 
 .dark {
@@ -249,11 +255,70 @@
   border-top: 0;
 }
 
+/* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
+ * (Swagger / Stripe house style) — not a stack of full-width cards each fenced
+ * off by the generic block divider + 3.5rem gap. When an api-endpoint block
+ * directly follows another (read-mode `.plan-block` or editable-mode
+ * `.plan-block-node`, both tagged `data-block-type="api-endpoint"`), drop the
+ * top border, the inter-block margin, and the divider padding so the rows abut.
+ * The first endpoint of a run keeps the normal divider/gap above it (it still
+ * matches the generic rule), and a non-endpoint block after the run keeps normal
+ * spacing too — only endpoint-after-endpoint collapses. */
+.plan-document-flow
+  > [data-block-type="api-endpoint"]
+  + [data-block-type="api-endpoint"] {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Flush card chrome: merge each endpoint's card with the one above it so a run
+ * shares a single outline instead of stacking doubled borders + rounded corners.
+ * Square the inner joins, pull each follower up 1px to overlap the shared edge,
+ * and round only the run's outer corners (first card's top, last card's bottom).
+ * `:has()` is supported in every browser the recap renders in. */
+.plan-document-flow
+  > [data-block-type="api-endpoint"]
+  + [data-block-type="api-endpoint"]
+  .an-api-endpoint-card {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.plan-document-flow
+  > [data-block-type="api-endpoint"]:has(+ [data-block-type="api-endpoint"])
+  .an-api-endpoint-card {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 .plan-document-flow .an-rich-md-prose > h1,
 .plan-document-flow .an-rich-md-prose > h2,
 .plan-document-flow .an-rich-md-prose > h3,
 .plan-document-flow [data-block-id] {
   scroll-margin-top: 2rem;
+}
+
+/* Wrapper around the document body + side rails. The rails anchor to this
+ * (not the shell) so they begin below the header instead of level with the
+ * title. */
+.plan-document-body {
+  position: relative;
+}
+
+@media (min-width: 1400px) {
+  .plan-document-body {
+    /* `flow-root` stops the first block's top margin from collapsing through the
+     * wrapper, so the wrapper's top edge sits flush at the header's bottom border
+     * — where the rails (top: 0) begin. The negative inline margin mirrors the
+     * shell's `sm:px-10` padding so the wrapper's padding box matches the shell's
+     * — keeping the `calc(100% + …)` rail offsets unchanged — and the matching
+     * inline padding restores the body content's original inset. */
+    display: flow-root;
+    margin-inline: -2.5rem;
+    padding-inline: 2.5rem;
+  }
 }
 
 .plan-document-toc {
@@ -263,7 +328,7 @@
 @media (min-width: 1400px) {
   .plan-document-toc {
     position: absolute;
-    top: 3.5rem;
+    top: 0;
     bottom: 0;
     left: calc(100% + 1.25rem);
     z-index: 2;
@@ -322,6 +387,125 @@
   }
 }
 
+/* Recap "Files touched" left rail. Hidden by default (the block renders inline
+ * in the document body); on wide screens it mirrors the right-hand contents rail
+ * as a permanent left sidebar, positioned in the margin beside the centered
+ * document shell. The in-flow copy is hidden at this same breakpoint (see
+ * `filesSidebarHideCss`). Mirrors `.plan-document-toc` geometry on the opposite
+ * edge. */
+.plan-document-files {
+  display: none;
+}
+
+@media (min-width: 1400px) {
+  .plan-document-files {
+    --files-rail-width: 14rem;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    /* Anchor the LEFT edge in the margin (not the right) so the rail widens
+     * rightward — into the document as a flyout — when a file is focused,
+     * instead of growing left off the viewport edge where there is no room.
+     * Collapsed, the right edge still sits 1.25rem left of the document body,
+     * mirroring the contents rail. */
+    left: calc(-1.25rem - var(--files-rail-width));
+    /* Left-anchored: release `right` so `width` is honored (an absolutely
+     * positioned box with both left and right set ignores `width`). */
+    right: auto;
+    z-index: 2;
+    display: block;
+    width: var(--files-rail-width);
+    pointer-events: none;
+    transition: width 0.18s ease;
+  }
+
+  /* While a file's note/snippet is the reader's active focus, widen the rail
+   * over the document so annotations are readable; it collapses back the moment
+   * focus leaves (click elsewhere) or the last open file is closed. The opaque
+   * card + raised z-index let it read as a panel above the prose. */
+  .plan-document-files:has(.plan-block[data-files-expanded]) {
+    width: 26rem;
+    z-index: 30;
+  }
+
+  .plan-document-files__nav {
+    position: sticky;
+    top: 1.25rem;
+    max-height: calc(100vh - 2.5rem);
+    overflow-y: auto;
+    padding: 0.25rem 0 1.5rem;
+    pointer-events: auto;
+    /* Sit back as a low-prominence marginal rail; lift to full strength only
+     * when the reader hovers, focuses, or expands a file into the flyout. */
+    opacity: 0.7;
+    transition: opacity 0.18s ease;
+  }
+
+  .plan-document-files__nav:hover,
+  .plan-document-files__nav:focus-within,
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-document-files__nav {
+    opacity: 1;
+  }
+
+  /* Drop the document-flow top divider/spacing the mirrored block would
+   * otherwise inherit, and let its label sit flush at the top of the rail. */
+  .plan-document-files__nav > .plan-block,
+  .plan-document-files__nav .plan-block {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  /* In the rail the file-tree block sheds its card chrome so it reads as a
+   * plain list in the margin: no fill, no radius, and only a slim right divider
+   * (top/left/bottom borders fade to transparent). Border WIDTH stays 1px on
+   * every edge at all times, so expanding animates only the border COLOR
+   * (transparent → line), never the width — which would jank. The inline copy
+   * in the document body keeps its full card. */
+  .plan-document-files__nav .plan-block > .rounded-xl {
+    border-radius: 0;
+    border-color: transparent;
+    border-right-color: var(--plan-line);
+    background-color: transparent;
+    transition:
+      border-color 0.18s ease,
+      border-radius 0.18s ease,
+      background-color 0.18s ease;
+  }
+
+  /* The summary header (file count + change tally) loses its tint + divider
+   * too while collapsed. */
+  .plan-document-files__nav .plan-block > .rounded-xl > :first-child {
+    background-color: transparent;
+    border-bottom-color: transparent;
+    transition:
+      background-color 0.18s ease,
+      border-color 0.18s ease;
+  }
+
+  /* Expanded flyout restores the panel chrome — top/left/right border, radius,
+   * and fill — fading the borders in from transparent. Bottom stays borderless
+   * so the panel reads as anchored to the document edge. */
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-block
+    > .rounded-xl {
+    border-radius: 0.75rem;
+    border-top-color: var(--plan-line);
+    border-left-color: var(--plan-line);
+    border-right-color: var(--plan-line);
+    background-color: var(--plan-block);
+  }
+
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-block
+    > .rounded-xl
+    > :first-child {
+    background-color: hsl(var(--accent) / 0.2);
+    border-bottom-color: var(--plan-line);
+  }
+}
+
 /* Small, muted block label (not a document heading). Block titles used to render
  * as large <h2> headings that read like the block's type name; they now render
  * as this restrained eyebrow label instead. */
@@ -331,6 +515,20 @@
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+
+/* Per-column header for `columns` comparison blocks (e.g. Before / After).
+ * Renders as a small heading ABOVE each column so a comparison names its states
+ * outside the content — the state label lives here, never baked into a child
+ * wireframe's mockup. Sits a touch more present than the eyebrow block label so
+ * it reads clearly above a full wireframe frame. */
+.plan-columns-label {
+  margin: 0 0 0.6rem;
+  color: var(--plan-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1.3;
 }
 
@@ -362,7 +560,7 @@
  * rich-text and callout prose (`.an-rich-md-prose`, 1.0625rem). Block headings
  * and labels keep their own larger sizes; this is only for body/lede paragraphs. */
 .plan-doc-body {
-  font-size: 1.0625rem;
+  font-size: var(--plan-body-size);
   line-height: 1.75;
 }
 
@@ -374,7 +572,7 @@
 
 .plan-rich-markdown-editor .an-rich-md-prose {
   color: var(--plan-text);
-  font-size: 1.0625rem;
+  font-size: var(--plan-body-size);
   line-height: 1.75;
 }
 
@@ -541,7 +739,7 @@
 .plan-prose {
   max-width: 820px;
   color: var(--plan-text);
-  font-size: 1.0625rem;
+  font-size: var(--plan-body-size);
   line-height: 1.75;
 }
 
@@ -708,7 +906,7 @@
 .plan-code-surface-scroll {
   position: relative;
   overflow: auto;
-  font-size: 0.8rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
 }
 
@@ -754,7 +952,7 @@
   background: var(--shiki-light-bg, var(--plan-code)) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
 }
 
@@ -771,7 +969,6 @@
 
 .plan-code-surface .plan-shiki pre span {
   color: var(--shiki-light);
-  background: var(--shiki-light-bg);
 }
 
 .dark .plan-code-surface .plan-shiki,
@@ -782,7 +979,32 @@
 
 .dark .plan-code-surface .plan-shiki pre span {
   color: var(--shiki-dark);
-  background: var(--shiki-dark-bg);
+}
+
+/* File-tree snippets render inside file rows (and the cramped recap "Files
+ * touched" rail), not as full-width document code. Shrink the whole code surface
+ * — glyphs via the `--plan-code-size` var plus the lang label and padding — so it
+ * reads compact and clearly smaller than the row/note text around it. */
+.an-file-tree-snippet {
+  --plan-code-size: 0.6875rem;
+}
+
+.an-file-tree-snippet :where(pre, code, .plan-code-surface-scroll) {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.an-file-tree-snippet .plan-code-surface .plan-shiki,
+.an-file-tree-snippet .plan-code-surface pre {
+  padding: 0.55rem 0.7rem;
+}
+
+.an-file-tree-snippet .plan-code-surface-bar {
+  padding: 0.3rem 0.7rem;
+}
+
+.an-file-tree-snippet .plan-code-surface-lang {
+  font-size: 0.625rem;
 }
 
 /* `code` primitive block: read wraps the single-bordered .plan-code-surface with
@@ -806,7 +1028,7 @@
   gap: 0.4rem;
   min-width: 0;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   font-weight: 600;
   color: var(--plan-text);
 }
@@ -878,7 +1100,8 @@
   overflow: hidden;
   border: 1px solid var(--plan-line);
   border-radius: 12px;
-  background: var(--plan-code);
+  /* Sit on the page background like the diff block — no distinct surface fill. */
+  background: transparent;
 }
 
 .plan-code-editing .plan-code-head {
@@ -891,6 +1114,20 @@
   opacity: 1;
 }
 
+/* Read view of the `code` block reuses the shared CodeSurface — flatten it for
+   the `code` primitive only: drop the `--plan-code` fill AND the Shiki theme
+   background so the snippet sits on the page like the diff block (no gray box).
+   Other consumers of .plan-code-surface (code-tabs, API specs) keep their fill. */
+.plan-code .plan-code-surface {
+  background: transparent;
+}
+.plan-code .plan-code-surface .plan-shiki,
+.plan-code .plan-code-surface pre,
+.dark .plan-code .plan-code-surface .plan-shiki,
+.dark .plan-code .plan-code-surface pre {
+  background: transparent !important;
+}
+
 .plan-code-editor-body {
   position: relative;
   overflow: auto;
@@ -901,7 +1138,7 @@
   margin: 0;
   padding: 0.85rem 1.1rem;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
   white-space: pre;
   tab-size: 2;
@@ -913,6 +1150,16 @@
   overflow: hidden;
   pointer-events: none;
   color: var(--plan-code-text);
+  /* This is a <pre>; a base `pre {}` style leaks in a gray bg + border (the
+     "lighter gray box + inner border") AND a larger `font-size: 0.86em` via
+     `.an-rich-md-prose pre`. Override so it's flat and matches the textarea +
+     annotated-code (the single .plan-code-editing border is the only chrome,
+     and the overlay font must line up exactly with .plan-code-editor-input). */
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  font-size: var(--plan-code-size) !important;
+  line-height: 1.6 !important;
 }
 
 .plan-code-editor-input {
@@ -931,6 +1178,16 @@
 
 .plan-code-editor-input::placeholder {
   color: var(--plan-muted);
+}
+
+/* Collapsed long snippet: fade the clipped bottom into the page background
+   (the surface is transparent), with the shared .plan-code-surface-toggle below. */
+.plan-code-editor-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--plan-document) 92%);
 }
 
 .plan-code-caption {
@@ -1009,7 +1266,7 @@
   background: transparent;
   color: var(--plan-code-text);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
   overflow-x: auto;
 }
@@ -1065,7 +1322,15 @@
 .plan-callout {
   max-width: 860px;
   border-left: 3px solid hsl(var(--ring));
+  padding-block: 0.9rem;
   padding-left: 1.25rem;
+}
+
+/* The body editor/reader carries a default `mt-4`; inside a callout the block's
+ * own vertical padding owns the top rhythm, so drop that leading margin. A label,
+ * when present, keeps its own `margin-bottom` for the label→body gap. */
+.plan-callout > .plan-rich-markdown-editor {
+  margin-top: 0;
 }
 
 /* Tone styling: `data-tone` is set by the callout reader/editor (it defaults to
@@ -1699,11 +1964,53 @@
   padding: 0.125rem 0;
 }
 
+/* The top-level and nested editable document editors are NOT wrapped in
+ * `.plan-rich-markdown-editor`, so their prose would otherwise fall back to the
+ * core 0.95rem / em-scaled-heading defaults — smaller than the read view and the
+ * inline callout/rich-text editors, which use the canonical 1.0625rem body.
+ * Mirror the read-view body + heading sizing here so edit and read modes match
+ * and inline callouts no longer read larger than the surrounding copy. */
+.plan-document-editor .an-rich-md-prose,
+.plan-nested-document-editor .an-rich-md-prose {
+  font-size: var(--plan-body-size);
+  line-height: 1.75;
+}
+.plan-document-editor .an-rich-md-prose h1,
+.plan-nested-document-editor .an-rich-md-prose h1 {
+  font-size: 1.75rem;
+}
+.plan-document-editor .an-rich-md-prose h2,
+.plan-nested-document-editor .an-rich-md-prose h2 {
+  font-size: 1.45rem;
+}
+.plan-document-editor .an-rich-md-prose h3,
+.plan-nested-document-editor .an-rich-md-prose h3 {
+  font-size: 1.2rem;
+}
+.plan-document-editor .an-rich-md-prose h4,
+.plan-nested-document-editor .an-rich-md-prose h4 {
+  font-size: 1.05rem;
+}
+
 /* Inline custom blocks inside the document flow get their own breathing room;
  * the inner `.plan-block` section shouldn't re-add the top divider/margins. */
 .plan-document-editor .plan-block-node {
   position: relative;
   margin: 2rem 0;
+}
+
+/* Markdown images (inside prose) normally carry their vertical margin on the
+ * <img> itself. That margin sits INSIDE the `.plan-image` wrapper, so the
+ * absolutely-positioned hover actions (top-right) float into the gap above the
+ * image instead of sitting flush on it. Move the spacing onto the wrapper so the
+ * image fills it from the top edge and the controls sit flush — matching the
+ * structured image block, whose image has no intrinsic margin. */
+.an-rich-md-prose .plan-image > img {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.an-rich-md-prose .plan-image {
+  margin-block: 0.75rem;
 }
 
 .plan-nested-document-editor .plan-block-node {
@@ -1730,6 +2037,27 @@
 .plan-document-editor .plan-block-node .plan-block {
   margin-top: 0;
   padding-top: 0;
+  border-top: 0;
+}
+
+/* Callouts are self-contained tinted boxes, not divider-separated sections, so
+ * they keep their own symmetric internal top padding in BOTH layouts. The
+ * read-mode per-block layout otherwise gives plain blocks a divider + 2.25rem top
+ * padding, and the editable NodeView layout zeroes inner-block padding — both
+ * wrong for a boxed callout. Block-to-block spacing still comes from the block /
+ * NodeView margins; only the internal padding + divider are reset here. (The
+ * matching `padding-bottom` lives on the base `.plan-callout` rule and already
+ * wins, since neither layout rule sets it.)
+ *
+ * `.plan-block .plan-callout` covers callouts nested inside another block (e.g. a
+ * `tabs` panel or `columns`), where the generic `.plan-block .plan-block` rule
+ * zeroes `padding-top` and would otherwise leave the box visibly tighter on top
+ * than the bottom. */
+.plan-document-flow > .plan-callout,
+.plan-block .plan-callout,
+.plan-document-editor .plan-block-node .plan-callout,
+.plan-nested-document-editor .plan-block-node .plan-callout {
+  padding-top: 0.9rem;
   border-top: 0;
 }
 
@@ -1819,6 +2147,22 @@
   box-shadow: 0 0 0 1px var(--plan-document);
   pointer-events: none;
   transform: translateY(-1px);
+}
+
+/*
+ * Column (side) drop: a drag landing in a block's left/right region builds a
+ * Notion-style columns layout instead of reordering. The bar is bolder and
+ * glows so the column-build intent is unmistakable before release — distinct
+ * from the thin horizontal reorder line. The core DragHandle sizes/positions it
+ * inline (a vertical bar on the target's edge) and toggles this class.
+ */
+.notion-drop-indicator--column {
+  transform: none;
+  background: hsl(var(--ring));
+  box-shadow:
+    0 0 0 1px var(--plan-document),
+    0 0 0 2px hsl(var(--ring) / 0.25),
+    0 0 10px hsl(var(--ring) / 0.55);
 }
 
 .plan-document-editor .plan-block-node,

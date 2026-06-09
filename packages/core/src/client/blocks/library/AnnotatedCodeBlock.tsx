@@ -11,6 +11,12 @@ import {
   inferLanguageFromFilename,
   normalizeCodeLanguage,
 } from "./code-highlight.js";
+import {
+  AnnotationNoteRail,
+  buildLineMarkerMap,
+  hasRailAnnotations,
+  resolveAnnotations,
+} from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
@@ -32,46 +38,6 @@ import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
  * Editing is panel-driven (config-style, like the diff/HTML blocks): a monospace
  * code Textarea, filename/language Inputs, and add/remove-able annotation rows.
  */
-
-/* ── Line-ref parsing ──────────────────────────────────────────────────────── */
-
-/**
- * Parse a 1-based `lines` ref (`"3"` or `"3-5"`) into an inclusive `[start,end]`
- * pair, clamped to `[1, lineCount]`. Returns `null` for malformed or fully
- * out-of-range refs so callers can ignore them gracefully. A reversed range
- * (`"5-3"`) is normalized; a partially out-of-range range is clamped.
- */
-function parseLineRange(
-  ref: string,
-  lineCount: number,
-): { start: number; end: number } | null {
-  const match = /^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$/.exec(ref);
-  if (!match) return null;
-  let start = Number.parseInt(match[1], 10);
-  let end = match[2] != null ? Number.parseInt(match[2], 10) : start;
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  if (start > end) [start, end] = [end, start];
-  // Fully outside the file → ignore.
-  if (end < 1 || start > lineCount) return null;
-  return { start: Math.max(1, start), end: Math.min(lineCount, end) };
-}
-
-interface ResolvedAnnotation {
-  /** Index in the original `annotations` array (stable hover key). */
-  index: number;
-  /** 1-based marker number (authoring order). */
-  marker: number;
-  annotation: AnnotatedCodeAnnotation;
-  range: { start: number; end: number } | null;
-}
-
-/** Human label for a resolved annotation's line span ("Line 8" / "Lines 3–6"). */
-function rangeLabel(item: ResolvedAnnotation): string {
-  if (!item.range) return `Lines ${item.annotation.lines}`;
-  return item.range.start === item.range.end
-    ? `Line ${item.range.start}`
-    : `Lines ${item.range.start}–${item.range.end}`;
-}
 
 /* ── Read ──────────────────────────────────────────────────────────────────── */
 
@@ -104,33 +70,15 @@ function AnnotatedCodeRead({
     [lines, language],
   );
 
-  const resolved = useMemo<ResolvedAnnotation[]>(
-    () =>
-      (data.annotations ?? []).map((annotation, index) => ({
-        index,
-        marker: index + 1,
-        annotation,
-        range: parseLineRange(annotation.lines, lineCount),
-      })),
+  const resolved = useMemo(
+    () => resolveAnnotations(data.annotations, () => lineCount),
     [data.annotations, lineCount],
   );
 
   // line number (1-based) → resolved annotations covering it.
-  const lineMarkers = useMemo(() => {
-    const map = new Map<number, ResolvedAnnotation[]>();
-    for (const item of resolved) {
-      if (!item.range) continue;
-      for (let n = item.range.start; n <= item.range.end; n += 1) {
-        const list = map.get(n) ?? [];
-        list.push(item);
-        map.set(n, list);
-      }
-    }
-    return map;
-  }, [resolved]);
+  const lineMarkers = useMemo(() => buildLineMarkerMap(resolved), [resolved]);
 
-  const sideAnnotations = resolved.filter((item) => item.range);
-  const hasAnnotations = sideAnnotations.length > 0;
+  const hasAnnotations = hasRailAnnotations(resolved);
   const langChip = data.language?.trim();
 
   const codeSurface = (
@@ -149,7 +97,7 @@ function AnnotatedCodeRead({
         </div>
       )}
       <div className="overflow-x-auto py-1.5">
-        <div className="min-w-full font-mono text-[12.5px] leading-[22px]">
+        <div className="min-w-full font-mono [font-size:var(--plan-code-size)] leading-[22px]">
           {lines.map((_text, idx) => {
             const lineNo = idx + 1;
             const markers = lineMarkers.get(lineNo);
@@ -207,43 +155,19 @@ function AnnotatedCodeRead({
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
       {hasAnnotations ? (
-        <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]">
-          {codeSurface}
-          <div className="flex flex-col gap-2.5">
-            {sideAnnotations.map((item) => {
-              const isActive = activeIndex === item.index;
-              return (
-                <div
-                  key={item.index}
-                  onMouseEnter={() => setActiveIndex(item.index)}
-                  onMouseLeave={() => setActiveIndex(null)}
-                  className={cn(
-                    "rounded-lg border px-3.5 py-2.5 transition-colors",
-                    isActive
-                      ? "border-amber-400/70 bg-amber-50 dark:border-amber-300/40 dark:bg-amber-300/[0.08]"
-                      : "border-plan-line bg-plan-block/40 hover:border-amber-400/50",
-                  )}
-                >
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
-                      {rangeLabel(item)}
-                    </span>
-                    {item.annotation.label && (
-                      <span className="text-[13px] font-semibold text-plan-text">
-                        {item.annotation.label}
-                      </span>
-                    )}
-                  </div>
-                  <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-plan-text/85">
-                    {ctx.renderMarkdown ? (
-                      ctx.renderMarkdown(item.annotation.note)
-                    ) : (
-                      <p>{item.annotation.note}</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+        // The side rail stays for annotated-code, but responds to the block's
+        // OWN width via a container query: side-by-side when there's room,
+        // stacked below the code (single-column grid) when the container is
+        // narrow — e.g. nested inside a vertical-tabs content column.
+        <div className="@container/code">
+          <div className="grid items-start gap-3 @xl/code:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]">
+            {codeSurface}
+            <AnnotationNoteRail
+              items={resolved}
+              activeIndex={activeIndex}
+              onActiveChange={setActiveIndex}
+              ctx={ctx}
+            />
           </div>
         </div>
       ) : (
@@ -256,7 +180,8 @@ function AnnotatedCodeRead({
 
 /* ── Edit (panel) ──────────────────────────────────────────────────────────── */
 
-const codeAreaClass = "min-h-[160px] font-mono text-xs leading-5";
+const codeAreaClass =
+  "min-h-[160px] font-mono [font-size:var(--plan-code-size)] leading-5";
 
 function AnnotatedCodeEdit({
   data,

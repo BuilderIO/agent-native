@@ -14,6 +14,8 @@ metadata:
 
 All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. Do not store durable app data in the filesystem.
 
+When you add a data model, a list, or a read path, also follow the `performance` skill: project only the columns a list renders, index the columns hot queries filter/sort on, and avoid query waterfalls — so apps stay fast as data grows.
+
 ## How It Works
 
 Agent-native apps use Drizzle ORM over the configured SQL backend. Local development works out of the box with a SQLite file at `data/app.db`; production and shared preview deploys need a persistent `DATABASE_URL` because container/serverless filesystems can reset. The code should behave the same across backends, but the local SQLite file is not durable once deployed.

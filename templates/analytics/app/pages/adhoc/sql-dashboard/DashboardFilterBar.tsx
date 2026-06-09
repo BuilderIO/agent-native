@@ -22,7 +22,7 @@ import {
   IconDeviceFloppy,
   IconFilterOff,
 } from "@tabler/icons-react";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterType } from "./types";
 import {
   Collapsible,
   CollapsibleContent,
@@ -38,15 +38,32 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Date-valued filters whose default may use the "Nd" / "today" shorthand. */
+const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
+  "date",
+  "date-range",
+  "toggle-date",
+]);
+
 /**
- * Resolve a filter's "default" string. Supports literal values, plus shorthand
- * tokens "Nd" (N days ago) and "today" used by date / date-range / toggle-date filters.
+ * Resolve a filter's "default" string.
+ *
+ * For date-valued filters (date / date-range / toggle-date) the shorthand
+ * tokens "Nd" (N days ago) and "today" are expanded into a concrete
+ * YYYY-MM-DD date. For value filters (select / text / toggle) the default is
+ * a LITERAL — e.g. a `select` whose option value is "90d" must stay "90d", not
+ * be mis-expanded into a date. Expanding it would break the control (the date
+ * matches no option, so the dropdown renders blank) and break every panel
+ * whose SQL gates on `'{{id}}' = '90d'` (the date matches no branch, so the
+ * WHERE is false and the panel returns "No data").
  */
-function resolveDefault(raw: string | undefined): string {
+function resolveDefault(raw: string | undefined, type: FilterType): string {
   if (!raw) return "";
-  const m = /^(\d+)d$/.exec(raw);
-  if (m) return daysAgo(parseInt(m[1], 10));
-  if (raw === "today") return daysAgo(0);
+  if (DATE_FILTER_TYPES.has(type)) {
+    const m = /^(\d+)d$/.exec(raw);
+    if (m) return daysAgo(parseInt(m[1], 10));
+    if (raw === "today") return daysAgo(0);
+  }
   return raw;
 }
 
@@ -59,7 +76,7 @@ export function resolveFilterVars(
     if (f.type === "date-range") {
       const startKey = `${f.id}Start`;
       const endKey = `${f.id}End`;
-      out[startKey] = getParam(startKey) || resolveDefault(f.default);
+      out[startKey] = getParam(startKey) || resolveDefault(f.default, f.type);
       out[endKey] = getParam(endKey) || daysAgo(0);
     } else if (f.type === "toggle" || f.type === "toggle-date") {
       // Toggles have no "off value" default — if the user hasn't opted in
@@ -69,7 +86,7 @@ export function resolveFilterVars(
       out[f.id] = getParam(f.id);
     } else {
       const v = getParam(f.id);
-      out[f.id] = v || resolveDefault(f.default);
+      out[f.id] = v || resolveDefault(f.default, f.type);
     }
   }
   return out;
@@ -365,7 +382,8 @@ function FilterControl({
   }
 
   if (filter.type === "select") {
-    const current = vars[filter.id] || resolveDefault(filter.default);
+    const current =
+      vars[filter.id] || resolveDefault(filter.default, filter.type);
     return (
       <div className="flex flex-col gap-1">
         <label className="text-xs text-muted-foreground font-medium">
@@ -427,7 +445,9 @@ function FilterControl({
             className="text-xs h-8 px-3"
             onClick={() =>
               setValue({
-                [filter.id]: active ? "" : resolveDefault(filter.default),
+                [filter.id]: active
+                  ? ""
+                  : resolveDefault(filter.default, filter.type),
               })
             }
           >

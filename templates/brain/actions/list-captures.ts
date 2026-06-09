@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
@@ -102,8 +102,32 @@ export default defineAction({
       captureClauses.push(eq(schema.brainRawCaptures.kind, args.kind));
     }
 
+    // Project only the columns the list path uses. The heavy `content` blob is
+    // never fetched unless a preview was explicitly requested, and even then we
+    // pull only a truncated slice via substr (portable across Postgres and
+    // SQLite, both 1-indexed). `contentPreview` collapses whitespace, so we
+    // over-fetch a margin so the trimmed preview still reaches previewLength.
+    const previewSliceLength = args.includePreview
+      ? Math.min(args.previewLength * 4, 4000)
+      : 0;
     const rows = await db
-      .select()
+      .select({
+        id: schema.brainRawCaptures.id,
+        sourceId: schema.brainRawCaptures.sourceId,
+        externalId: schema.brainRawCaptures.externalId,
+        title: schema.brainRawCaptures.title,
+        kind: schema.brainRawCaptures.kind,
+        status: schema.brainRawCaptures.status,
+        capturedAt: schema.brainRawCaptures.capturedAt,
+        metadataJson: schema.brainRawCaptures.metadataJson,
+        createdAt: schema.brainRawCaptures.createdAt,
+        updatedAt: schema.brainRawCaptures.updatedAt,
+        ...(args.includePreview
+          ? {
+              contentPreviewRaw: sql<string>`substr(${schema.brainRawCaptures.content}, 1, ${previewSliceLength})`,
+            }
+          : {}),
+      })
       .from(schema.brainRawCaptures)
       .where(and(...captureClauses))
       .orderBy(desc(schema.brainRawCaptures.capturedAt))
@@ -140,9 +164,10 @@ export default defineAction({
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),
-            preview: args.includePreview
-              ? contentPreview(row.content, args.previewLength)
-              : undefined,
+            preview:
+              args.includePreview && "contentPreviewRaw" in row
+                ? contentPreview(row.contentPreviewRaw, args.previewLength)
+                : undefined,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
           },

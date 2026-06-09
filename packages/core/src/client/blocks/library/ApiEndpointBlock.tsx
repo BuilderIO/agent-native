@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  IconArrowNarrowRight,
   IconChevronRight,
   IconLock,
   IconPlus,
@@ -8,6 +9,7 @@ import {
 import { cn } from "../../utils.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
+  ApiEndpointChange,
   ApiEndpointData,
   ApiEndpointMethod,
   ApiEndpointParam,
@@ -15,6 +17,7 @@ import type {
   ApiParamLocation,
 } from "./api-endpoint.config.js";
 import {
+  API_ENDPOINT_CHANGES,
   API_ENDPOINT_METHODS,
   API_PARAM_LOCATIONS,
 } from "./api-endpoint.config.js";
@@ -74,6 +77,123 @@ function statusPillClass(status: string): string {
     return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
   // 3xx and everything else → neutral slate.
   return "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
+}
+
+/* ── Theme-aware change tokens (shared vocabulary with file-tree/data-model) ── */
+
+/**
+ * Change-chip palette — IDENTICAL to `FileTreeBlock`'s `CHANGE_BADGE` so a route /
+ * param / response chip reads the same as a file or field change chip elsewhere
+ * in the recap. Tinted background + saturated text in BOTH the `.dark` plan theme
+ * and light mode via Tailwind `dark:` variants (never a dark-only palette).
+ */
+const CHANGE_BADGE: Record<ApiEndpointChange, string> = {
+  added:
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  modified: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  removed: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
+  renamed:
+    "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+};
+
+/** Single-letter glyph shown in the compact chip (VS Code gutter convention). */
+const CHANGE_GLYPH: Record<ApiEndpointChange, string> = {
+  added: "A",
+  modified: "M",
+  removed: "D",
+  renamed: "R",
+};
+
+/** Human label for the chip text + its `title` / `aria-label`. */
+const CHANGE_LABEL: Record<ApiEndpointChange, string> = {
+  added: "Added",
+  modified: "Modified",
+  removed: "Removed",
+  renamed: "Renamed",
+};
+
+/** Accent ink echoing a change color, for the name/path it applies to. */
+const CHANGE_INK: Record<ApiEndpointChange, string> = {
+  added: "text-emerald-700 dark:text-emerald-300",
+  modified: "text-blue-700 dark:text-blue-300",
+  removed: "text-red-600 line-through dark:text-red-300",
+  renamed: "text-violet-700 dark:text-violet-300",
+};
+
+/**
+ * A change chip: compact single-glyph badge (A/M/D/R) by default, or a labeled
+ * pill (`variant="label"`) for the endpoint header where there is room. Matches
+ * the file-tree change badge so the recap reads consistently.
+ */
+function ChangeChip({
+  change,
+  variant = "glyph",
+  className,
+}: {
+  change: ApiEndpointChange;
+  variant?: "glyph" | "label";
+  className?: string;
+}) {
+  if (variant === "label") {
+    return (
+      <span
+        title={CHANGE_LABEL[change]}
+        className={cn(
+          "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+          CHANGE_BADGE[change],
+          className,
+        )}
+      >
+        {CHANGE_LABEL[change]}
+      </span>
+    );
+  }
+  return (
+    <span
+      title={CHANGE_LABEL[change]}
+      aria-label={CHANGE_LABEL[change]}
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+        CHANGE_BADGE[change],
+        className,
+      )}
+    >
+      {CHANGE_GLYPH[change]}
+    </span>
+  );
+}
+
+/**
+ * Before → after for a modified param: the prior `was` value struck through, a
+ * narrow arrow, then the current value (e.g. `optional → required`, or the old
+ * type → the new type). When `was` is absent we just show the current value.
+ */
+function WasArrowCurrent({
+  was,
+  current,
+}: {
+  was?: string;
+  current: React.ReactNode;
+}) {
+  if (!was) return <>{current}</>;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="text-plan-muted line-through">{was}</span>
+      <IconArrowNarrowRight className="size-3 shrink-0 text-plan-muted" />
+      {current}
+    </span>
+  );
+}
+
+/**
+ * A param carries a single `was` (prior value) for a `modified` change, but that
+ * value may describe either the required flag or the type. Decide which column
+ * the before→after belongs to: a `was` of `required`/`optional` is a required
+ * flag flip; anything else is treated as the prior type.
+ */
+function wasIsRequiredFlag(was: string): boolean {
+  const v = was.trim().toLowerCase();
+  return v === "required" || v === "optional";
 }
 
 /** Guess a fence language from a content type so examples highlight nicely. */
@@ -155,9 +275,19 @@ export function ApiEndpointRead({
     Boolean(data.auth);
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    // `data-block-type` lets the document flow detect a RUN of consecutive
+    // api-endpoint blocks and collapse the divider + gap between them (see
+    // `.plan-document-flow` rules in the plan template's global.css), so a list
+    // of endpoints reads as one tight scannable group instead of separate
+    // full-width cards. `an-api-endpoint-card` is the flush-able card surface
+    // those rules round/merge at the run's edges.
+    <section
+      className="plan-block"
+      data-block-id={blockId}
+      data-block-type="api-endpoint"
+    >
       {title && <div className="plan-block-label">{title}</div>}
-      <div className="overflow-hidden rounded-xl border border-plan-line bg-plan-block">
+      <div className="an-api-endpoint-card overflow-hidden rounded-xl border border-plan-line bg-plan-block">
         {/* Collapsed summary row — the whole row toggles. */}
         <button
           type="button"
@@ -185,12 +315,17 @@ export function ApiEndpointRead({
           </span>
           <span
             className={cn(
-              "min-w-0 truncate font-mono text-sm font-semibold text-plan-text",
+              "min-w-0 truncate font-mono text-sm font-semibold",
+              // `change` ink composes with `deprecated`: a deprecated route
+              // still mutes/strikes its path; a changed route tints it (a
+              // removed route also strikes via CHANGE_INK).
+              data.change ? CHANGE_INK[data.change] : "text-plan-text",
               data.deprecated && "text-plan-muted line-through",
             )}
           >
             {data.path}
           </span>
+          {data.change && <ChangeChip change={data.change} variant="label" />}
           {data.deprecated && (
             <DevBadge className="shrink-0 border-amber-500/40 text-amber-600 dark:text-amber-300">
               Deprecated
@@ -245,41 +380,87 @@ export function ApiEndpointRead({
                       </tr>
                     </thead>
                     <tbody>
-                      {params.map((param, index) => (
-                        <tr
-                          key={`${param.name}-${index}`}
-                          className="border-t border-plan-line align-top"
-                        >
-                          <td className="px-3 py-2 font-mono text-xs font-semibold text-plan-text">
-                            {param.name}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span
-                              className={cn(
-                                "rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold",
-                                PARAM_IN_BADGE[param.in],
-                              )}
-                            >
-                              {param.in}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs text-plan-muted">
-                            {param.type || "—"}
-                          </td>
-                          <td className="px-3 py-2 text-xs">
-                            {param.required ? (
-                              <span className="font-medium text-red-600 dark:text-red-300">
-                                required
+                      {params.map((param, index) => {
+                        const change = param.change;
+                        // A `modified` `was` describes either the required flag
+                        // or the prior type; route it to the right column.
+                        const wasForRequired =
+                          change === "modified" &&
+                          param.was &&
+                          wasIsRequiredFlag(param.was)
+                            ? param.was
+                            : undefined;
+                        const wasForType =
+                          change === "modified" &&
+                          param.was &&
+                          !wasIsRequiredFlag(param.was)
+                            ? param.was
+                            : undefined;
+                        return (
+                          <tr
+                            key={`${param.name}-${index}`}
+                            className="border-t border-plan-line align-top"
+                          >
+                            <td className="px-3 py-2 font-mono text-xs font-semibold">
+                              <span className="flex items-center gap-1.5">
+                                <span
+                                  className={cn(
+                                    change
+                                      ? CHANGE_INK[change]
+                                      : "text-plan-text",
+                                  )}
+                                >
+                                  {param.name}
+                                </span>
+                                {change && <ChangeChip change={change} />}
                               </span>
-                            ) : (
-                              <span className="text-plan-muted">optional</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-plan-muted">
-                            {param.description || "—"}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={cn(
+                                  "rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold",
+                                  PARAM_IN_BADGE[param.in],
+                                )}
+                              >
+                                {param.in}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs text-plan-muted">
+                              <WasArrowCurrent
+                                was={wasForType}
+                                current={
+                                  <span
+                                    className={cn(
+                                      wasForType && "text-plan-text",
+                                    )}
+                                  >
+                                    {param.type || "—"}
+                                  </span>
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-xs">
+                              <WasArrowCurrent
+                                was={wasForRequired}
+                                current={
+                                  param.required ? (
+                                    <span className="font-medium text-red-600 dark:text-red-300">
+                                      required
+                                    </span>
+                                  ) : (
+                                    <span className="text-plan-muted">
+                                      optional
+                                    </span>
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-xs text-plan-muted">
+                              {param.description || "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -329,9 +510,23 @@ export function ApiEndpointRead({
                           {response.status}
                         </span>
                         {response.description && (
-                          <span className="text-sm text-plan-muted">
+                          <span
+                            className={cn(
+                              "text-sm",
+                              response.change
+                                ? CHANGE_INK[response.change]
+                                : "text-plan-muted",
+                            )}
+                          >
                             {response.description}
                           </span>
+                        )}
+                        {response.change && (
+                          <ChangeChip
+                            change={response.change}
+                            variant="label"
+                            className="ml-auto"
+                          />
                         )}
                       </div>
                       {response.example && (
@@ -357,6 +552,18 @@ export function ApiEndpointRead({
 /* ── Edit (panel form) ─────────────────────────────────────────────────────── */
 
 const fieldLabelClass = "text-xs font-medium text-muted-foreground";
+
+/**
+ * Options for a change `DevSelect` — a leading "No change" entry (decodes to
+ * `undefined`) plus the four diff states, mirroring the file-tree editor.
+ */
+const CHANGE_SELECT_OPTIONS = [
+  { value: "none", label: "No change" },
+  ...API_ENDPOINT_CHANGES.map((change) => ({
+    value: change,
+    label: CHANGE_LABEL[change],
+  })),
+];
 
 /**
  * Panel editor for an `api-endpoint` block. A property form: method (Select),
@@ -466,7 +673,7 @@ export function ApiEndpointEdit({
         />
       </label>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_120px_auto] items-end gap-3">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabelClass}>Auth</span>
           <DevInput
@@ -477,6 +684,21 @@ export function ApiEndpointEdit({
             onChange={(event) =>
               patch({ auth: event.target.value || undefined })
             }
+          />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className={fieldLabelClass}>Change</span>
+          <DevSelect
+            className="h-9"
+            value={data.change ?? "none"}
+            disabled={!editable}
+            onValueChange={(value) =>
+              patch({
+                change:
+                  value === "none" ? undefined : (value as ApiEndpointChange),
+              })
+            }
+            options={CHANGE_SELECT_OPTIONS}
           />
         </label>
         <label className="flex items-center gap-2 pb-2">
@@ -582,6 +804,33 @@ export function ApiEndpointEdit({
                 })
               }
             />
+            {/* Diff state: change kind + the prior value (`was`) shown
+                struck-through before the current one when "modified". */}
+            <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+              <DevSelect
+                className="h-8"
+                value={param.change ?? "none"}
+                disabled={!editable}
+                onValueChange={(value) =>
+                  updateParam(index, {
+                    change:
+                      value === "none"
+                        ? undefined
+                        : (value as ApiEndpointChange),
+                  })
+                }
+                options={CHANGE_SELECT_OPTIONS}
+              />
+              <DevInput
+                className="h-8 font-mono text-xs"
+                value={param.was ?? ""}
+                disabled={!editable || param.change !== "modified"}
+                placeholder="was (e.g. optional, or old type)"
+                onChange={(event) =>
+                  updateParam(index, { was: event.target.value || undefined })
+                }
+              />
+            </div>
           </div>
         ))}
       </div>
@@ -674,6 +923,23 @@ export function ApiEndpointEdit({
                 })
               }
             />
+            <label className="flex items-center gap-2">
+              <span className={fieldLabelClass}>Change</span>
+              <DevSelect
+                className="h-8 w-[120px]"
+                value={response.change ?? "none"}
+                disabled={!editable}
+                onValueChange={(value) =>
+                  updateResponse(index, {
+                    change:
+                      value === "none"
+                        ? undefined
+                        : (value as ApiEndpointChange),
+                  })
+                }
+                options={CHANGE_SELECT_OPTIONS}
+              />
+            </label>
           </div>
         ))}
       </div>

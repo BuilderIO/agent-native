@@ -466,6 +466,10 @@ export function EventDetailPopover({
   }, [editingField]);
 
   const meetingLink = extractMeetingLink(event);
+  // On a draft, a chosen provider isn't created until the event is saved. Show
+  // it as already attached (with a remove control) rather than as a placeholder.
+  const pendingConferenceProvider =
+    !meetingLink && isDraft ? event.pendingConferenceProvider : undefined;
   const availabilityValue: AvailabilityValue =
     event.transparency === "transparent" ? "transparent" : "opaque";
   const visibilityValue: VisibilityValue =
@@ -584,7 +588,6 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     if (!event.id || updateEvent.isPending) return;
     if (isDraft) {
       onDraftUpdate?.(event.id, { addGoogleMeet: true, addZoom: false });
-      toast("Google Meet will be added when the event is created");
       return;
     }
     setPendingVideoProvider("meet");
@@ -621,7 +624,6 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     if (zoomStatus.data?.connected) {
       if (isDraft) {
         onDraftUpdate?.(event.id, { addZoom: true, addGoogleMeet: false });
-        toast("Zoom will be added when the event is created");
         return;
       }
       setPendingVideoProvider("zoom");
@@ -678,6 +680,11 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     zoomStatus.data?.configured,
     zoomStatus.data?.connected,
   ]);
+
+  const handleRemovePendingConference = useCallback(() => {
+    if (!event.id) return;
+    onDraftUpdate?.(event.id, { addGoogleMeet: false, addZoom: false });
+  }, [event.id, onDraftUpdate]);
 
   const handleSaveDescription = useCallback(() => {
     const trimmed = editDescription.trim();
@@ -1501,6 +1508,39 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                       )}
                     </div>
                   )}
+                </div>
+              </>
+            ) : pendingConferenceProvider ? (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
+                  <div className="flex w-full items-center rounded-xl bg-[#4965E0] py-2 pl-4 pr-2 text-white">
+                    {pendingConferenceProvider === "zoom" ? (
+                      <IconBrandZoom className="mr-2 h-5 w-5 opacity-90" />
+                    ) : (
+                      <IconVideo className="mr-2 h-5 w-5 opacity-90" />
+                    )}
+                    <span className="text-[15px] font-semibold">
+                      {pendingConferenceProvider === "zoom"
+                        ? "Zoom"
+                        : "Google Meet"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRemovePendingConference}
+                      aria-label={`Remove ${
+                        pendingConferenceProvider === "zoom"
+                          ? "Zoom"
+                          : "Google Meet"
+                      }`}
+                      className="ml-auto rounded-md p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                    >
+                      <IconX className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground/60">
+                    Conferencing link is added when you save the event.
+                  </p>
                 </div>
               </>
             ) : !isOverlay ? (
