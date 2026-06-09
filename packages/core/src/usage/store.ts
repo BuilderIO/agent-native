@@ -78,6 +78,20 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /haiku/i,
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
+  // OpenAI / Codex models (cents per 1M tokens). Without these, a Codex recap
+  // model like "gpt-5.5" falls through to the default (Sonnet) row and is
+  // mispriced. Published rates as of 2026-06; OpenAI bills cached input at a
+  // discount and has no separate cache-write token charge, so cacheWrite is 0
+  // (recap usage passes 0 cache-write anyway). The /gpt-5\.5/ row must precede
+  // /gpt-5/ since the latter also matches "gpt-5.5".
+  {
+    match: /gpt-5\.5/i,
+    pricing: { input: 500, output: 3000, cacheRead: 50, cacheWrite: 0 },
+  },
+  {
+    match: /gpt-5/i,
+    pricing: { input: 125, output: 1000, cacheRead: 12.5, cacheWrite: 0 },
+  },
   // default → sonnet pricing
   {
     match: /.*/,

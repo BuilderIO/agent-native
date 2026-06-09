@@ -496,7 +496,9 @@
     border-top-color: var(--plan-line);
     border-left-color: var(--plan-line);
     border-right-color: var(--plan-line);
-    background-color: var(--plan-block);
+    /* Match the page (document) surface, not the card fill, so the flyout reads
+     * as a continuation of the page rather than a raised card. */
+    background-color: var(--plan-document);
   }
 
   .plan-document-files:has(.plan-block[data-files-expanded])

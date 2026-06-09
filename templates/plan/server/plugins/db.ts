@@ -190,6 +190,35 @@ UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual 
       version: 20,
       sql: `CREATE INDEX IF NOT EXISTS plan_events_plan_created_idx ON plan_events(plan_id, created_at)`,
     },
+    {
+      // Token usage + derived cost for the LLM run that produced a recap. All
+      // nullable and additive — only populated for kind="recap" rows by the PR
+      // Visual Recap workflow. Cost is centicents (1/100¢), matching core's
+      // token_usage.cost_cents_x100 so the two surfaces are directly comparable.
+      version: 21,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_agent TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_model TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_input_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_output_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cache_read_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cache_write_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cost_cents_x100 INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cost_source TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_recorded_at TEXT`,
+        // SQLite has no ADD COLUMN IF NOT EXISTS; runMigrations only runs this
+        // once (tracked in plans_migrations), so a plain ALTER per column is safe.
+        sqlite: `ALTER TABLE plans ADD COLUMN usage_agent TEXT;
+ALTER TABLE plans ADD COLUMN usage_model TEXT;
+ALTER TABLE plans ADD COLUMN usage_input_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN usage_output_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN usage_cache_read_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN usage_cache_write_tokens INTEGER;
+ALTER TABLE plans ADD COLUMN usage_cost_cents_x100 INTEGER;
+ALTER TABLE plans ADD COLUMN usage_cost_source TEXT;
+ALTER TABLE plans ADD COLUMN usage_recorded_at TEXT`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );
