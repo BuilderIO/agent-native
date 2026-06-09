@@ -90,7 +90,7 @@ The connector points at a **hosted** app, so the Plan app's actions and behavior
 
 Optional discoverability, if you want a public listing:
 
-- **Claude Code** has a community marketplace you can *optionally* submit to for listing (submission plus an automated review). The official, Anthropic-curated marketplace is listed at Anthropic's discretion — there is no open self-serve application. Neither is required to use the install commands above.
+- **Claude Code** has a community marketplace you can _optionally_ submit to for listing (submission plus an automated review). The official, Anthropic-curated marketplace is listed at Anthropic's discretion — there is no open self-serve application. Neither is required to use the install commands above.
 - **Codex** has an OpenAI-curated plugin catalog (a closed allow-list, sourced as a partnership rather than a self-serve submission). Self-hosted git marketplaces and the CLI route need no submission to work.
 
 In short: ship it as a self-hosted/public git marketplace and users install directly; submit to a curated catalog only if you want it listed for discovery.
