@@ -1821,25 +1821,25 @@
  * inline callout/rich-text editors, which use the canonical 1.0625rem body.
  * Mirror the read-view body + heading sizing here so edit and read modes match
  * and inline callouts no longer read larger than the surrounding copy. */
-.plan-document-editor > .an-rich-md-prose,
-.plan-nested-document-editor > .an-rich-md-prose {
+.plan-document-editor .an-rich-md-prose,
+.plan-nested-document-editor .an-rich-md-prose {
   font-size: 1.0625rem;
   line-height: 1.75;
 }
-.plan-document-editor > .an-rich-md-prose h1,
-.plan-nested-document-editor > .an-rich-md-prose h1 {
+.plan-document-editor .an-rich-md-prose h1,
+.plan-nested-document-editor .an-rich-md-prose h1 {
   font-size: 1.75rem;
 }
-.plan-document-editor > .an-rich-md-prose h2,
-.plan-nested-document-editor > .an-rich-md-prose h2 {
+.plan-document-editor .an-rich-md-prose h2,
+.plan-nested-document-editor .an-rich-md-prose h2 {
   font-size: 1.45rem;
 }
-.plan-document-editor > .an-rich-md-prose h3,
-.plan-nested-document-editor > .an-rich-md-prose h3 {
+.plan-document-editor .an-rich-md-prose h3,
+.plan-nested-document-editor .an-rich-md-prose h3 {
   font-size: 1.2rem;
 }
-.plan-document-editor > .an-rich-md-prose h4,
-.plan-nested-document-editor > .an-rich-md-prose h4 {
+.plan-document-editor .an-rich-md-prose h4,
+.plan-nested-document-editor .an-rich-md-prose h4 {
   font-size: 1.05rem;
 }
 
