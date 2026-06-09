@@ -1242,7 +1242,16 @@ function ImageBlock({
             "max-h-[640px] w-full rounded-lg",
             block.data.fit === "cover" ? "object-cover" : "object-contain",
           )}
-          onEdit={editable ? () => setEditOpen(true) : undefined}
+          onEdit={
+            editable
+              ? () =>
+                  // Defer one macrotask so the ⋯ dropdown fully closes before
+                  // the edit popover opens — otherwise Radix treats the
+                  // dropdown's dismissal as an outside interaction and instantly
+                  // closes the popover (flash open → close).
+                  window.setTimeout(() => setEditOpen(true), 0)
+              : undefined
+          }
           onReplace={editable ? () => fileInputRef.current?.click() : undefined}
         />
       ) : (
