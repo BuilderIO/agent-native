@@ -81,7 +81,8 @@ describe("diff block config", () => {
       after: "const x = 1\nconst y = 3\nconst z = 4\nconsole.log(x, y, z)",
       mode: "split",
     };
-    expect(roundTrip(data)).toEqual(data);
+    // No annotations attribute is emitted, so the decode adds the empty default.
+    expect(roundTrip(data)).toEqual({ ...data, annotations: [] });
   });
 
   it("round-trips losslessly when optional fields are absent", () => {
@@ -89,13 +90,15 @@ describe("diff block config", () => {
       before: "old line",
       after: "new line",
     };
-    // No optional attributes are emitted, so the decode yields `undefined`.
+    // No optional attributes are emitted, so the decode yields undefined
+    // filename/language/mode and an empty annotations array (forgiving default).
     expect(roundTrip(data)).toEqual({
       filename: undefined,
       language: undefined,
       mode: undefined,
       before: data.before,
       after: data.after,
+      annotations: [],
     });
   });
 
@@ -106,6 +109,70 @@ describe("diff block config", () => {
       mode: undefined,
       before: "",
       after: "",
+      annotations: [],
     });
+  });
+
+  it("parses diff data with line-anchored annotations", () => {
+    const data = {
+      filename: "src/add.ts",
+      before: "function add(a, b) {\n  return a + b;\n}",
+      after: "function add(a: number, b: number): number {\n  return a + b;\n}",
+      annotations: [
+        {
+          side: "after" as const,
+          lines: "1",
+          label: "Types",
+          note: "Adds explicit parameter and return types.",
+        },
+        { side: "before" as const, lines: "1", note: "The untyped original." },
+      ],
+    };
+    expect(diffSchema.parse(data)).toEqual(data);
+  });
+
+  it("defaults annotation side to after when omitted", () => {
+    const parsed = diffSchema.parse({
+      before: "a",
+      after: "b",
+      annotations: [{ lines: "1", note: "no side" }],
+    }) as DiffData;
+    // `side` stays optional in storage; the renderer treats absent as "after".
+    expect(parsed.annotations?.[0]).toEqual({ lines: "1", note: "no side" });
+  });
+
+  it("rejects an annotation with a malformed line ref", () => {
+    expect(() =>
+      diffSchema.parse({
+        before: "a",
+        after: "b",
+        annotations: [{ lines: "first", note: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an annotation with an empty note", () => {
+    expect(() =>
+      diffSchema.parse({
+        before: "a",
+        after: "b",
+        annotations: [{ lines: "1", note: "" }],
+      }),
+    ).toThrow();
+  });
+
+  it("round-trips annotations losslessly through toAttrs/fromAttrs", () => {
+    const data: DiffData = {
+      filename: "src/server/auth.ts",
+      language: "typescript",
+      before: "const x = 1\nconst y = 2\nconsole.log(x, y)",
+      after: "const x = 1\nconst y = 3\nconst z = 4\nconsole.log(x, y, z)",
+      mode: "split",
+      annotations: [
+        { side: "after", lines: "2-3", label: "New", note: "Adds `z`." },
+        { side: "before", lines: "2", note: "The old `y`." },
+      ],
+    };
+    expect(roundTrip(data)).toEqual(data);
   });
 });

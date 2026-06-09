@@ -1893,7 +1893,7 @@ Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
 not put shared secrets in skill files.
 `;
 
-const BUILT_IN_APP_SKILLS = {
+export const BUILT_IN_APP_SKILLS = {
   assets: {
     skillName: "assets",
     manifest: normalizeAppSkillManifest({

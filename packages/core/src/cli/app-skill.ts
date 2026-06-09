@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import { type ClientId, buildHttpMcpEntry } from "./mcp-config-writers.js";
 import { resolveClients, writeConfigs } from "./connect.js";
@@ -44,6 +45,12 @@ export interface AppSkillManifest {
   id: string;
   displayName: string;
   description: string;
+  /**
+   * Optional semver base for generated plugin manifests. Codex keys its plugin
+   * cache on the version string, so the packer appends a content hash to this
+   * base; leave it unset to default to "1.0.0".
+   */
+  version?: string;
   hosted: {
     url: string;
     mcpUrl: string;
@@ -296,6 +303,7 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
     description:
       stringValue(raw.description) ??
       `Agent-native app-backed skill for ${id}.`,
+    ...(stringValue(raw.version) ? { version: stringValue(raw.version) } : {}),
     hosted: {
       url: hostedUrl,
       mcpUrl: hostedMcpUrl,
@@ -631,14 +639,51 @@ function claudeMarketplaceName(): string {
   return "agent-native-apps";
 }
 
+export function exportedSkillContentHash(
+  manifestDir: string,
+  skills: AppSkillManifestSkill[],
+  manifest: AppSkillManifest,
+): string {
+  const parts = skills
+    .map((skill) => {
+      const file = path.join(manifestDir, skill.path, "SKILL.md");
+      const body = fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : "";
+      return `${skillExportName(skill)}\n${body}`;
+    })
+    .sort();
+  parts.push(`mcp:${manifest.hosted.mcpUrl}`);
+  return createHash("sha256")
+    .update(parts.join("\n \n"))
+    .digest("hex")
+    .slice(0, 12);
+}
+
+/**
+ * Plugin version embeds a content hash of the exported skills + MCP endpoint.
+ * Codex keys its plugin cache on the version string, so a changed skill or MCP
+ * URL yields a new version and `codex plugin marketplace upgrade` (which runs
+ * on startup) delivers the update automatically — no manual semver bump per
+ * edit. Claude Code uses commit-SHA versioning instead (plugin.json omits
+ * version), so it auto-updates on every push.
+ */
+export function resolvePluginVersion(
+  manifest: AppSkillManifest,
+  manifestDir: string,
+  skills: AppSkillManifestSkill[],
+): string {
+  const base = manifest.version ?? "1.0.0";
+  return `${base}+codex.${exportedSkillContentHash(manifestDir, skills, manifest)}`;
+}
+
 function writeCodexPluginAdapter(
   manifest: AppSkillManifest,
   outDir: string,
+  version: string,
 ): void {
   const name = pluginName(manifest);
   writeJson(path.join(outDir, ".codex-plugin", "plugin.json"), {
     name,
-    version: "0.1.0",
+    version,
     description: manifest.description,
     author: {
       name: "Agent-Native",
@@ -703,6 +748,7 @@ function writeClaudeMarketplaceAdapter(
         displayName: manifest.displayName,
         description: manifest.description,
         source: `./plugins/${name}`,
+        autoUpdate: true,
         homepage: manifest.hosted.url,
         keywords: [
           "agent-native",
@@ -838,6 +884,7 @@ export function buildAppSkillPack(
   if (skills.length === 0) {
     throw new Error("Manifest has no exported or both-visibility skills.");
   }
+  const pluginVersion = resolvePluginVersion(manifest, loaded.dir, skills);
 
   fs.mkdirSync(target, { recursive: true });
   const appSource = resolveLocalSourceDir(loaded);
@@ -872,7 +919,7 @@ export function buildAppSkillPack(
   ];
 
   if (manifest.hostAdapters.includes("codex-plugin")) {
-    writeCodexPluginAdapter(manifest, target);
+    writeCodexPluginAdapter(manifest, target, pluginVersion);
     files.push(
       path.join(target, ".codex-plugin", "plugin.json"),
       path.join(target, ".mcp.json"),

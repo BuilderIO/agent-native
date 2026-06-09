@@ -698,7 +698,6 @@ function DiffRead({
               language={language}
               rowLimit={rowLimit}
               markersForRow={markersForRow}
-              anchoredRow={anchoredRow}
               activeIndex={activeIndex}
               onActiveChange={setActiveIndex}
             />
