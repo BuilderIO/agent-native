@@ -125,6 +125,7 @@ jobs:
                   /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p) ||
                   /(^|\/)\.claude\//.test(p) ||
                   /(^|\/)CLAUDE\.md$/.test(p) ||
+                  /(^|\/)AGENTS\.md$/.test(p) ||
                   /(^|\/)\.mcp\.json$/.test(p) ||
                   /(^|\/)packages\/core\//.test(p);
                 const hits = files.map((f) => f.filename).filter(isSensitive);
@@ -231,33 +232,15 @@ jobs:
           # ~600KB cap. Over the cap we both flag `huge` (so the agent is told to
           # summarize) AND physically truncate recap.diff, so an oversized diff
           # cannot overflow the agent's prompt budget when it reads the file.
+          # Truncate at a COMPLETE LINE boundary (`sed '$d'` drops the last,
+          # possibly-partial, line) so the byte cap can never cut a multi-byte
+          # UTF-8 char or a diff line mid-way and corrupt the agent's input.
           if [ "$BYTES" -gt 614400 ]; then
             echo "huge=true" >> "$GITHUB_OUTPUT"
-            head -c 614400 recap.diff > recap.diff.capped && mv recap.diff.capped recap.diff
+            head -c 614400 recap.diff | sed '$d' > recap.diff.capped && mv recap.diff.capped recap.diff
             printf '\n\n[diff truncated at 600KB for the recap agent]\n' >> recap.diff
           else
             echo "huge=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          # Self-modifying guard: if this PR changes the recap workflow or any
-          # visual-recap/visual-plan skill file, skip the agent — do NOT run the
-          # PR's version of those files against the publish/API secrets. A PR
-          # could otherwise rewrite the skill/workflow to exfiltrate secrets
-          # (especially the Codex backend, which runs with sandboxing disabled).
-          SELF=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA" -- \
-            '.github/workflows/pr-visual-recap.yml' \
-            '*skills/visual-recap/*' \
-            '*skills/visual-plan/*' \
-            '*skills/visual-plans/*' \
-            '*.claude/*' \
-            '*CLAUDE.md' \
-            '*.mcp.json' \
-            '*packages/core/*' \
-            | wc -l | tr -d ' ')
-          if [ "${SELF:-0}" -gt 0 ]; then
-            echo "self_modifying=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "self_modifying=false" >> "$GITHUB_OUTPUT"
           fi
 
           # Tiny diffs (<= 1 changed file AND <= 8 changed lines) aren't worth a
@@ -305,7 +288,7 @@ jobs:
       # Build the agent prompt = the repo's visual-recap SKILL.md + a task wrapper.
       - name: Build recap prompt
         id: prompt
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.diff.outputs.self_modifying != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         run: |
           set -euo pipefail
           PREV=""
@@ -325,7 +308,7 @@ jobs:
       # failed agent run becomes an explanatory comment, not a red X.
       - name: Run agent (Claude Code)
         id: claude
-        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.diff.outputs.self_modifying != 'true'
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -342,7 +325,7 @@ jobs:
 
       - name: Run agent (Codex)
         id: codex
-        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.diff.outputs.self_modifying != 'true'
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -389,7 +372,7 @@ jobs:
       # The agent's only hand-off: recap-url.txt with the published plan URL.
       - name: Read plan URL
         id: url
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.diff.outputs.self_modifying != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         run: |
           set -uo pipefail
           PLAN_URL=""
@@ -441,13 +424,11 @@ jobs:
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
-          SELF_MODIFYING: ${{ steps.diff.outputs.self_modifying }}
         run: |
           set -euo pipefail
           ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
-          # On a tiny diff, or when the agent was skipped because the PR modifies
-          # the recap skill/workflow, only REFRESH an existing recap comment —
-          # never create a new one — so we add no noise but also can't leave a
-          # stale prior recap behind.
-          if [ "${DIFF_TINY:-}" = "true" ] || [ "${SELF_MODIFYING:-}" = "true" ]; then ARGS+=(--update-only); fi
+          # On a tiny diff, only REFRESH an existing recap comment — never create
+          # a new one — so we add no noise but also can't leave a stale prior
+          # recap behind.
+          if [ "${DIFF_TINY:-}" = "true" ]; then ARGS+=(--update-only); fi
           $RECAP_CLI "${ARGS[@]}"

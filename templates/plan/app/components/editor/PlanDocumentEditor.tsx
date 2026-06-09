@@ -790,18 +790,37 @@ export function PlanDocumentEditor({
   const isRestoringRef = useRef(false);
 
   // Adopt external `content` changes (agent patches, source edits) unless the
-  // incoming value is the echo of our own last save.
+  // incoming value is the echo of one of our OWN recent saves.
   const lastEmittedRef = useRef<string>(JSON.stringify(content.blocks));
+  // Ring of recently-emitted blocks JSON (every commit AND undo/redo restore).
+  // A debounced autosave can round-trip a PRE-undo edit's value back as the
+  // `content` prop AFTER an undo has already moved us on; with only a
+  // single-value `lastEmittedRef`, that laggy echo looks "external" and would
+  // reset the undo stack (wiping redo) and re-apply the just-undone edit.
+  // Recognizing it as our own echo keeps undo/redo stable; only a genuinely
+  // external change (agent/peer) — never emitted by us — resets the stack.
+  const recentEmittedRef = useRef<string[]>([JSON.stringify(content.blocks)]);
+  const rememberEmitted = useCallback((serialized: string) => {
+    const ring = recentEmittedRef.current;
+    const dupe = ring.indexOf(serialized);
+    if (dupe !== -1) ring.splice(dupe, 1);
+    ring.push(serialized);
+    if (ring.length > 24) ring.shift();
+    lastEmittedRef.current = serialized;
+  }, []);
   useEffect(() => {
     const incoming = JSON.stringify(content.blocks);
-    if (incoming === lastEmittedRef.current) return;
-    lastEmittedRef.current = incoming;
+    if (recentEmittedRef.current.includes(incoming)) {
+      lastEmittedRef.current = incoming;
+      return;
+    }
+    rememberEmitted(incoming);
     setBlocks(content.blocks);
     // A genuine external/agent edit changed the baseline — the user's local
     // undo entries reference a tree that no longer exists, so drop them rather
     // than let cmd+z resurrect pre-agent state over the agent's change.
     undoRef.current?.reset();
-  }, [content.blocks]);
+  }, [content.blocks, rememberEmitted]);
 
   // True once the editor has been seeded with real (non-empty) content. Until
   // then an empty serialization is the pre-seed empty doc — NOT a user deletion —
@@ -819,7 +838,7 @@ export function PlanDocumentEditor({
     if (!collabEnabled && !isRestoringRef.current) {
       undoRef.current?.record(blocksRef.current, next);
     }
-    lastEmittedRef.current = JSON.stringify(next);
+    rememberEmitted(JSON.stringify(next));
     setBlocks(next);
     void onBlocksChange(next);
   };
@@ -1078,7 +1097,7 @@ export function PlanDocumentEditor({
             addToHistory: false,
           });
         }
-        lastEmittedRef.current = JSON.stringify(restored);
+        rememberEmitted(JSON.stringify(restored));
         setBlocks(restored);
         void onBlocksChange(restored);
         // A drag/menu action usually blurs the prose; re-focus so the NEXT
@@ -1092,7 +1111,7 @@ export function PlanDocumentEditor({
         isRestoringRef.current = false;
       }
     },
-    [setContent, onBlocksChange],
+    [setContent, onBlocksChange, rememberEmitted],
   );
 
   const undoStack = usePlanUndoStack({
@@ -1116,7 +1135,15 @@ export function PlanDocumentEditor({
       if (!(event.metaKey || event.ctrlKey)) return;
       const wrapper = wrapperRef.current;
       const target = event.target;
-      if (!wrapper || !(target instanceof Node) || !wrapper.contains(target)) {
+      if (!wrapper || !(target instanceof Node)) return;
+      // Fire when focus is inside this editor OR has fallen to the bare page
+      // body after a structural drag (no prose selection) — that body case is
+      // the whole reason this is a document-level listener. Other focused
+      // elements (a different editor, a real form field) are left to their own
+      // undo authority.
+      const onPageBody =
+        target === document.body || target === document.documentElement;
+      if (!wrapper.contains(target) && !onPageBody) {
         return;
       }
       if (
