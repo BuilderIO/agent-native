@@ -638,7 +638,8 @@ function repaintDropViews(
   const savedScrollTop = scroller?.scrollTop ?? null;
   const restoreScroll = () => {
     if (!scroller || savedScrollTop == null) return;
-    if (scroller.scrollTop !== savedScrollTop) scroller.scrollTop = savedScrollTop;
+    if (scroller.scrollTop !== savedScrollTop)
+      scroller.scrollTop = savedScrollTop;
     if (typeof requestAnimationFrame === "function") {
       requestAnimationFrame(() => {
         if (scroller.scrollTop !== savedScrollTop) {

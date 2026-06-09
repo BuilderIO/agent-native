@@ -78,6 +78,57 @@ export function isValidEmail(value: string): boolean {
   return EMAIL_RE.test(value.trim());
 }
 
+/**
+ * Splits a pasted blob of recipients (comma/semicolon/newline separated) into the
+ * valid emails to add (deduped, case-insensitively, against `existing` and each
+ * other) plus any non-email leftover to keep in the input. Returns `null` when the
+ * paste should not be intercepted (single token, or nothing email-like) so the
+ * caller can fall through to normal paste behavior.
+ */
+export function extractPastedRecipients(
+  text: string,
+  existing: string[],
+): { added: string[]; leftover: string } | null {
+  if (!text || !/[,;\n]/.test(text)) return null;
+  const tokens = text
+    .split(/[,;\n]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const emails = tokens.filter(isValidEmail);
+  if (emails.length === 0) return null;
+  const seen = new Set(existing.map((r) => r.toLowerCase()));
+  const added: string[] = [];
+  for (const email of emails) {
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    added.push(email);
+  }
+  const leftover = tokens.filter((t) => !isValidEmail(t)).join(", ");
+  return { added, leftover };
+}
+
+/**
+ * Computes the new comma-separated values for two recipient fields when a token is
+ * moved from one to the other (drag between To/Cc/Bcc). Removes `value` from the
+ * source and appends it to the target unless already present (case-insensitive).
+ */
+export function computeRecipientMove(
+  fromRaw: string,
+  toRaw: string,
+  value: string,
+): { from: string; to: string } {
+  const fromList = parseRecipients(fromRaw).filter((r) => r !== value);
+  const toList = parseRecipients(toRaw);
+  const alreadyThere = toList.some(
+    (r) => r.toLowerCase() === value.toLowerCase(),
+  );
+  return {
+    from: serializeRecipients(fromList),
+    to: serializeRecipients(alreadyThere ? toList : [...toList, value]),
+  };
+}
+
 // ─── AliasPopover ─────────────────────────────────────────────────────────────
 
 interface AliasPopoverProps {
@@ -395,28 +446,17 @@ export function RecipientInput({
   // them into chips. A single token with no delimiter falls through to the normal
   // paste so it lands in the input and locks in on blur.
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const text = e.clipboardData.getData("text");
-    if (!text || !/[,;\n]/.test(text)) return;
-    const tokens = text
-      .split(/[,;\n]+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
-    const emails = tokens.filter(isValidEmail);
-    if (emails.length === 0) return;
+    const result = extractPastedRecipients(
+      e.clipboardData.getData("text"),
+      recipients,
+    );
+    if (!result) return; // single token / nothing email-like → normal paste
     e.preventDefault();
-    const existing = new Set(recipients.map((r) => r.toLowerCase()));
-    const toAdd: string[] = [];
-    for (const email of emails) {
-      const key = email.toLowerCase();
-      if (existing.has(key)) continue;
-      existing.add(key);
-      toAdd.push(email);
-    }
-    if (toAdd.length > 0) {
-      onChange(serializeRecipients([...recipients, ...toAdd]));
+    if (result.added.length > 0) {
+      onChange(serializeRecipients([...recipients, ...result.added]));
     }
     // Preserve any non-email leftovers (e.g. a half-typed address) in the input.
-    setInputValue(tokens.filter((t) => !isValidEmail(t)).join(", "));
+    setInputValue(result.leftover);
     setShowSuggestions(false);
   };
 

@@ -55,8 +55,7 @@ import {
 } from "./compose-draft-context";
 import {
   RecipientInput,
-  parseRecipients,
-  serializeRecipients,
+  computeRecipientMove,
   type RecipientField,
 } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
@@ -427,18 +426,14 @@ export function ComposeModal({
     to: RecipientField,
   ) => {
     if (!activeId || !activeDraft || from === to) return;
-    const fromList = parseRecipients(activeDraft[from] ?? "").filter(
-      (r) => r !== value,
-    );
-    const toList = parseRecipients(activeDraft[to] ?? "");
-    const alreadyThere = toList.some(
-      (r) => r.toLowerCase() === value.toLowerCase(),
+    const moved = computeRecipientMove(
+      activeDraft[from] ?? "",
+      activeDraft[to] ?? "",
+      value,
     );
     const partial: Partial<ComposeState> = {};
-    partial[from] = serializeRecipients(fromList);
-    partial[to] = serializeRecipients(
-      alreadyThere ? toList : [...toList, value],
-    );
+    partial[from] = moved.from;
+    partial[to] = moved.to;
     onUpdate(activeId, partial);
   };
 

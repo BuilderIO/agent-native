@@ -1412,22 +1412,6 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
   required: z.boolean().optional(),
 });
 
-export const decisionDataSchema: z.ZodType<PlanDecisionBlock["data"]> =
-  z.object({
-    question: z.string().trim().min(1).max(500),
-    options: z
-      .array(
-        z.object({
-          id: idSchema,
-          label: z.string().trim().min(1).max(200),
-          detail: z.string().trim().max(800).optional(),
-          recommended: z.boolean().optional(),
-        }),
-      )
-      .min(1)
-      .max(20),
-  });
-
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
     questions: z.array(planQuestionSchema).min(1).max(40),
@@ -1533,10 +1517,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
     baseBlockSchema.extend({
       type: z.literal("image"),
       data: imageDataSchema,
-    }),
-    baseBlockSchema.extend({
-      type: z.literal("decision"),
-      data: decisionDataSchema,
     }),
     baseBlockSchema.extend({
       type: z.literal("tabs"),

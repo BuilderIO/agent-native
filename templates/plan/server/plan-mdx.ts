@@ -376,9 +376,6 @@ function serializeBlock(block: PlanBlock): string {
   if (block.type === "image") {
     return `<Image${prop("id", block.id)}${title}${summary}${editable}${prop("assetId", block.data.assetId)}${prop("url", block.data.url)}${prop("alt", block.data.alt)}${prop("caption", block.data.caption)}${prop("fit", block.data.fit)} />`;
   }
-  if (block.type === "decision") {
-    return `<Decision${prop("id", block.id)}${title}${summary}${editable}${prop("question", block.data.question)}${prop("options", block.data.options)} />`;
-  }
   if (block.type === "tabs") {
     return `<TabsBlock${prop("id", block.id)}${title}${summary}${editable}${prop("tabs", block.data.tabs)}${prop("orientation", block.data.orientation === "vertical" ? block.data.orientation : undefined)} />`;
   }
@@ -850,14 +847,25 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     };
   }
   if (name === "Decision") {
-    return {
-      ...base,
-      type: "decision",
-      data: {
-        question: stringAttr(node, "question") ?? base.title ?? "Decision",
-        options: arrayAttr(node, "options") ?? [],
-      },
-    };
+    // The `decision` block was retired; a legacy `<Decision>` round-trips into a
+    // decision-tone `callout` whose body carries the question + options (matching
+    // the stored-content migration in `plan-content.ts`).
+    const question = stringAttr(node, "question") ?? base.title ?? "Decision";
+    const options = (arrayAttr(node, "options") ?? []) as Array<{
+      label?: string;
+      detail?: string;
+      recommended?: boolean;
+    }>;
+    const lines = options.map((option) => {
+      const head = `- **${option.label ?? ""}**${
+        option.recommended === true ? " — recommended" : ""
+      }`;
+      return option.detail ? `${head}: ${option.detail}` : head;
+    });
+    const body =
+      [`**${question}**`, lines.join("\n")].filter(Boolean).join("\n\n") ||
+      "Decision";
+    return { ...base, type: "callout", data: { tone: "decision", body } };
   }
   if (name === "TabsBlock") {
     return {
