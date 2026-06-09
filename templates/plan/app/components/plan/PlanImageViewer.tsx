@@ -46,6 +46,12 @@ export type PlanImageViewerProps = {
   /** Render full-width block layout (structured blocks) vs. intrinsic inline. */
   block?: boolean;
   /**
+   * When provided, an "Edit details" item appears in the menu (image blocks wire
+   * it to a form for url/alt/caption/fit). Read-only surfaces and inline
+   * markdown images omit it.
+   */
+  onEdit?: () => void;
+  /**
    * When provided, a "Replace image" item appears in the menu. The editor wires
    * this to a file picker + re-upload; read-only surfaces omit it.
    */
@@ -66,6 +72,7 @@ export function PlanImageViewer({
   imgClassName,
   loading = "lazy",
   block = false,
+  onEdit,
   onReplace,
   showControls = false,
   uploading = false,
@@ -140,16 +147,20 @@ export function PlanImageViewer({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
-            {onReplace ? (
+            {onEdit || onReplace ? (
               <>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    onReplace();
-                  }}
-                >
-                  <IconRefresh size={16} className="mr-2" />
-                  Replace image
-                </DropdownMenuItem>
+                {onEdit ? (
+                  <DropdownMenuItem onSelect={() => onEdit()}>
+                    <IconPencil size={16} className="mr-2" />
+                    Edit details
+                  </DropdownMenuItem>
+                ) : null}
+                {onReplace ? (
+                  <DropdownMenuItem onSelect={() => onReplace()}>
+                    <IconRefresh size={16} className="mr-2" />
+                    Replace image
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
               </>
             ) : null}

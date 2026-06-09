@@ -376,33 +376,6 @@ export function PlanContentRenderer({
         )}
         {!prototypeOnly && (
           <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
-            <PlanTableOfContents
-              content={content}
-              isRecap={isRecap}
-              omitBlockId={filesSidebarBlock?.id}
-            />
-            {filesSidebarBlock && (
-              <>
-                <style>{filesSidebarHideCss(filesSidebarBlock.id)}</style>
-                <aside
-                  className="plan-document-files"
-                  aria-label={filesSidebarBlock.title || "Files touched"}
-                >
-                  <div className="plan-document-files__nav">
-                    <PlanBlockView
-                      block={{
-                        ...filesSidebarBlock,
-                        id: `${filesSidebarBlock.id}__aside`,
-                      }}
-                      editingDisabled
-                      contentUpdatedAt={contentUpdatedAt}
-                      planId={planId}
-                      collabUser={collabUser}
-                    />
-                  </div>
-                </aside>
-              </>
-            )}
             <header className="border-b border-plan-line pb-8">
               <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
                 {planLabel}
@@ -425,35 +398,71 @@ export function PlanContentRenderer({
               />
             </header>
 
-            <div className="plan-document-flow">
-              {documentEditable ? (
-                // The whole body is ONE editable rich-markdown document; custom
-                // blocks are inline `planBlock` NodeViews. Read-only / review / SSR
-                // keeps the per-block render below (no Tiptap mounts server-side).
-                <PlanDocumentEditor
-                  content={content}
-                  contentUpdatedAt={contentUpdatedAt}
-                  planId={planId}
-                  collabUser={collabUser}
-                  editable
-                  onBlocksChange={replaceBlocks}
-                  onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                />
-              ) : (
-                content.blocks.map((block) => (
-                  <PlanBlockView
-                    key={block.id}
-                    block={block}
-                    onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
-                    onRichTextChange={updateRichTextBlock}
-                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+            {/* The side rails (contents on the right, recap files on the left)
+                live in this wrapper, which begins below the header — so the rails
+                start level with the body content instead of the title, while
+                their nested `…__nav` stays sticky near the top on scroll. The
+                wrapper bleeds back out to the shell's padding box (see
+                global.css) so the rails keep their original margin anchor. */}
+            <div className="plan-document-body">
+              <PlanTableOfContents
+                content={content}
+                isRecap={isRecap}
+                omitBlockId={filesSidebarBlock?.id}
+              />
+              {filesSidebarBlock && (
+                <>
+                  <style>{filesSidebarHideCss(filesSidebarBlock.id)}</style>
+                  <aside
+                    className="plan-document-files"
+                    aria-label={filesSidebarBlock.title || "Files touched"}
+                  >
+                    <div className="plan-document-files__nav">
+                      <PlanBlockView
+                        block={{
+                          ...filesSidebarBlock,
+                          id: `${filesSidebarBlock.id}__aside`,
+                        }}
+                        editingDisabled
+                        contentUpdatedAt={contentUpdatedAt}
+                        planId={planId}
+                        collabUser={collabUser}
+                      />
+                    </div>
+                  </aside>
+                </>
+              )}
+
+              <div className="plan-document-flow">
+                {documentEditable ? (
+                  // The whole body is ONE editable rich-markdown document; custom
+                  // blocks are inline `planBlock` NodeViews. Read-only / review /
+                  // SSR keeps the per-block render below (no Tiptap server-side).
+                  <PlanDocumentEditor
+                    content={content}
                     contentUpdatedAt={contentUpdatedAt}
-                    editingDisabled={editingDisabled}
                     planId={planId}
                     collabUser={collabUser}
+                    editable
+                    onBlocksChange={replaceBlocks}
+                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
                   />
-                ))
-              )}
+                ) : (
+                  content.blocks.map((block) => (
+                    <PlanBlockView
+                      key={block.id}
+                      block={block}
+                      onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
+                      onRichTextChange={updateRichTextBlock}
+                      onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                      contentUpdatedAt={contentUpdatedAt}
+                      editingDisabled={editingDisabled}
+                      planId={planId}
+                      collabUser={collabUser}
+                    />
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}

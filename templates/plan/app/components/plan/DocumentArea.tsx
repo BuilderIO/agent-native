@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconCheck,
   IconChevronDown,
@@ -9,7 +9,14 @@ import {
   IconSend,
   IconX,
 } from "@tabler/icons-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,14 +27,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { RichMarkdownCollabUser } from "@agent-native/core/client";
+import {
+  uploadEditorImage,
+  type RichMarkdownCollabUser,
+} from "@agent-native/core/client";
 import {
   BlockView,
+  SchemaBlockEditor,
   blockEditSurface,
   useOptionalBlockRegistry,
+  type BlockRenderContext,
 } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import type { PlanBlock, PlanQuestion } from "@shared/plan-content";
+import {
+  imageDataSchema,
+  type PlanBlock,
+  type PlanQuestion,
+} from "@shared/plan-content";
 import {
   KitWireframeBlock,
   SketchDiagram,
@@ -254,7 +270,13 @@ export function PlanBlockView({
     );
   }
   if (block.type === "image") {
-    return <ImageBlock block={block} />;
+    return (
+      <ImageBlock
+        block={block}
+        onChange={onChange}
+        editingDisabled={editingDisabled}
+      />
+    );
   }
   if (block.type === "decision") {
     return (
@@ -1123,15 +1145,63 @@ function HighlightedCode({
 }
 
 /* ── Image block ───────────────────────────────────────────────────────── */
+
+// The image block edits its own details (url/alt/caption/fit) through the schema
+// auto-editor; the image schema has no markdown/asset fields so a bare ctx is
+// enough.
+const IMAGE_FORM_CTX: BlockRenderContext = { dialect: "gfm" };
+
+type PlanImageData = Extract<PlanBlock, { type: "image" }>["data"];
+
 function ImageBlock({
   block,
+  onChange,
+  editingDisabled = false,
 }: {
   block: Extract<PlanBlock, { type: "image" }>;
+  onChange?: (block: PlanBlock) => Promise<void> | void;
+  editingDisabled?: boolean;
 }) {
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
+  const editable = !!onChange && !editingDisabled;
+  const [editOpen, setEditOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const commitData = (data: PlanImageData) => onChange?.({ ...block, data });
+
+  async function handleReplaceFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    const toastId = toast.loading("Replacing image…");
+    try {
+      const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
+      commitData({
+        ...block.data,
+        url: nextSrc,
+        alt: block.data.alt || nextAlt || "image",
+      });
+      toast.success("Image replaced.", { id: toastId });
+    } catch (error) {
+      console.error("Image replace failed:", error);
+      toast.error("Could not replace the image.", { id: toastId });
+    }
+  }
+
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
+      {editable && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={handleReplaceFile}
+        />
+      )}
       {src ? (
         <PlanImageViewer
           src={src}
@@ -1140,18 +1210,37 @@ function ImageBlock({
           block
           className="mt-4"
           imgClassName={cn(
-            "max-h-[640px] w-full rounded-xl border border-plan-line bg-plan-block",
+            "max-h-[640px] w-full rounded-lg",
             block.data.fit === "cover" ? "object-cover" : "object-contain",
           )}
+          onEdit={editable ? () => setEditOpen(true) : undefined}
+          onReplace={editable ? () => fileInputRef.current?.click() : undefined}
         />
       ) : (
-        <div className="mt-4 flex h-48 items-center justify-center rounded-xl border border-dashed border-plan-line bg-plan-block text-plan-muted">
+        <div className="mt-4 flex h-48 items-center justify-center rounded-lg border border-dashed border-plan-line bg-plan-block text-plan-muted">
           <IconPhoto className="mr-2 size-5" />
           {block.data.alt}
         </div>
       )}
       {block.data.caption && (
         <p className="mt-3 text-sm text-plan-muted">{block.data.caption}</p>
+      )}
+      {editable && (
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className="max-w-md" data-plan-interactive>
+            <DialogHeader>
+              <DialogTitle>Image details</DialogTitle>
+            </DialogHeader>
+            <SchemaBlockEditor
+              data={block.data}
+              schema={imageDataSchema}
+              onChange={(next) => commitData(next as PlanImageData)}
+              editable
+              blockId={block.id}
+              ctx={IMAGE_FORM_CTX}
+            />
+          </DialogContent>
+        </Dialog>
       )}
     </section>
   );

@@ -113,8 +113,7 @@ async function sideDrop(
   if (!g || !t) return;
 
   // Land ~24px inside the chosen edge (inside the >=48px side zone), vertical mid.
-  const xTarget =
-    side === "right" ? t.x + t.width - 24 : t.x + 24;
+  const xTarget = side === "right" ? t.x + t.width - 24 : t.x + 24;
   const yTarget = t.y + t.height / 2;
 
   await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);

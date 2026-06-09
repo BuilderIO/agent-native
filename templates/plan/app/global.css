@@ -256,6 +256,28 @@
   scroll-margin-top: 2rem;
 }
 
+/* Wrapper around the document body + side rails. The rails anchor to this
+ * (not the shell) so they begin below the header instead of level with the
+ * title. */
+.plan-document-body {
+  position: relative;
+}
+
+@media (min-width: 1400px) {
+  .plan-document-body {
+    /* `flow-root` stops the first block's top margin from collapsing through the
+     * wrapper, so its top edge sits flush at the header's bottom border and the
+     * rails (top: 2.25rem) line up with the first body block. The negative inline
+     * margin mirrors the shell's `sm:px-10` padding so the wrapper's padding box
+     * matches the shell's — keeping the `calc(100% + …)` rail offsets unchanged —
+     * and the matching inline padding restores the body content's original
+     * inset. */
+    display: flow-root;
+    margin-inline: -2.5rem;
+    padding-inline: 2.5rem;
+  }
+}
+
 .plan-document-toc {
   display: none;
 }
@@ -263,7 +285,7 @@
 @media (min-width: 1400px) {
   .plan-document-toc {
     position: absolute;
-    top: 3.5rem;
+    top: 2.25rem;
     bottom: 0;
     left: calc(100% + 1.25rem);
     z-index: 2;
@@ -335,7 +357,7 @@
 @media (min-width: 1400px) {
   .plan-document-files {
     position: absolute;
-    top: 3.5rem;
+    top: 2.25rem;
     bottom: 0;
     right: calc(100% + 1.25rem);
     z-index: 2;
@@ -1760,16 +1782,6 @@
 .plan-document-editor .plan-block-node {
   position: relative;
   margin: 2rem 0;
-}
-
-/* An editable block node renders its edit pencil at the top-right
- * (`.plan-block-node__edit`). For image blocks that ALSO render their own
- * hover toolbar (zoom + ⋯) at the top-right, shift the image actions left so
- * they sit clear of the pencil instead of overlapping it. Read-only views and
- * inline markdown images (not inside a block-node shell) keep the default
- * top-right position. */
-.plan-block-node__shell .plan-image__actions {
-  right: 2.75rem;
 }
 
 .plan-nested-document-editor .plan-block-node {
