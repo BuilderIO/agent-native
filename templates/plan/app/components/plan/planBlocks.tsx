@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconCheck,
-  IconMessageChatbot,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -1122,9 +1121,13 @@ export function PlanAiBlockAction({
           ref={triggerRef}
           type="button"
           data-plan-interactive
-          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-blue-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
+          aria-label={`Describe a change to ${label.toLowerCase()}`}
+          className="flex h-7 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-input bg-background px-3 text-xs text-muted-foreground shadow-sm transition-colors hover:border-ring hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          Edit with AI
+          <span>Describe a change…</span>
+          <kbd className="rounded border border-border px-1 font-sans text-[10px] leading-tight text-muted-foreground">
+            ⏎
+          </kbd>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -1230,7 +1233,8 @@ function PlanAiFieldAction({
         data-ai-field-action={fieldLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-muted-foreground opacity-80 shadow-sm transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover/field:opacity-100 group-focus-within/field:opacity-100 data-[state=open]:opacity-100 disabled:pointer-events-none disabled:opacity-40"
+        aria-label={`Describe a change to the ${fieldLabel.toLowerCase()}`}
+        className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-input bg-background px-2.5 text-[11px] text-muted-foreground opacity-80 shadow-sm transition-opacity hover:border-ring hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover/field:opacity-100 group-focus-within/field:opacity-100 data-[state=open]:opacity-100 disabled:pointer-events-none disabled:opacity-40"
         disabled={disabled}
         onClick={() => {
           setOpen((nextOpen) => {
@@ -1240,8 +1244,10 @@ function PlanAiFieldAction({
           });
         }}
       >
-        <IconMessageChatbot className="size-3.5" />
-        Edit with AI
+        <span>Describe a change…</span>
+        <kbd className="rounded border border-border px-1 font-sans text-[9px] leading-tight">
+          ⏎
+        </kbd>
       </button>
       {open && container
         ? createPortal(

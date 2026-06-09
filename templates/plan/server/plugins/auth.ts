@@ -27,7 +27,13 @@ export default createAuthPlugin({
   workspaceAppAudience: "internal",
   // Public review links can load without a session. Plan creation stays behind
   // auth so the UI does not create placeholder plans for signed-out visitors.
-  workspaceAppPublicPaths: ["/", "/plans", "/plans/plan_", "/recaps"],
+  workspaceAppPublicPaths: [
+    "/",
+    "/plans",
+    "/plans/plan_",
+    "/recaps",
+    "/diff-kitchen-sink",
+  ],
   publicPaths: [...PUBLIC_PLAN_ACTION_PATHS, ...LOCAL_MODE_ACTION_PATHS],
   marketing: {
     appName: "Agent-Native Plan",

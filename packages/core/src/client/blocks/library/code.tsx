@@ -1,6 +1,5 @@
 import {
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -135,7 +134,6 @@ function CodeEditorSurface({
   onCodeChange: (code: string) => void;
   onLanguageChange: (language: string | undefined) => void;
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightLayerRef = useRef<HTMLPreElement>(null);
   const selectId = useId();
   const resolvedLanguage =
@@ -144,14 +142,10 @@ function CodeEditorSurface({
     () => highlightCode(code, resolvedLanguage),
     [resolvedLanguage, code],
   );
-
-  // Auto-grow to content height — no drag-to-resize handle.
-  useLayoutEffect(() => {
-    const node = textareaRef.current;
-    if (!node) return;
-    node.style.height = "auto";
-    node.style.height = `${node.scrollHeight}px`;
-  }, [code]);
+  // Size the editor to its content by line count — deterministic, with no
+  // layout measurement (the old scrollHeight auto-grow fired before paint and
+  // left the box clamped to a single line). `wrap="off"` means one row per line.
+  const lineCount = code ? code.split("\n").length : 1;
 
   const syncScroll = (event: UIEvent<HTMLTextAreaElement>) => {
     const layer = highlightLayerRef.current;
@@ -206,10 +200,10 @@ function CodeEditorSurface({
           </code>
         </pre>
         <textarea
-          ref={textareaRef}
           data-plan-interactive
           spellCheck={false}
           wrap="off"
+          rows={Math.max(3, lineCount + 1)}
           className="plan-code-editor-input"
           value={code}
           disabled={!editable}

@@ -175,9 +175,13 @@ function ContentAiBlockAction({
         <button
           type="button"
           data-plan-interactive
-          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-blue-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
+          aria-label={`Describe a change to ${label.toLowerCase()}`}
+          className="flex h-7 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-input bg-background px-3 text-xs text-muted-foreground shadow-sm transition-colors hover:border-ring hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          Edit with AI
+          <span>Describe a change…</span>
+          <kbd className="rounded border border-border px-1 font-sans text-[10px] leading-tight text-muted-foreground">
+            ⏎
+          </kbd>
         </button>
       </PopoverTrigger>
       <PopoverContent

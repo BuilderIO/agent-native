@@ -126,7 +126,7 @@ export interface BlockRenderContext {
     ariaLabel?: string;
   }) => React.ReactNode;
   /**
-   * Render an app-owned "Edit with AI" affordance for a focused/editable block
+   * Render an app-owned edit-by-prompt affordance ("Describe a change…") for a focused/editable block
    * field. Core block editors pass the current field value and nearby companion
    * fields; the host app decides how to collect the prompt and route it to the
    * agent sidebar. This keeps reusable core blocks from importing app-specific
@@ -185,7 +185,7 @@ export interface BlockRenderContext {
     onOpenChange?: (open: boolean) => void;
     trigger: React.ReactNode;
     children: React.ReactNode;
-    /** Metadata for host-provided contextual controls such as "Edit with AI". */
+    /** Metadata for host-provided contextual controls such as the edit-by-prompt CTA. */
     blockId?: string;
     blockType?: string;
     blockTitle?: string;

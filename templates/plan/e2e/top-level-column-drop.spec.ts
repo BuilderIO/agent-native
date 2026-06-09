@@ -135,12 +135,9 @@ function blockNode(blockId: string): string {
 
 test.describe("top-level side-drop creates columns", () => {
   test.beforeEach(async ({ page }) => {
-    page.on("console", (m) => {
-      const text = m.text();
-      if (text.includes("[coldrop]")) {
-        // eslint-disable-next-line no-console
-        console.log("PAGE", text);
-      }
+    page.on("pageerror", (e) => {
+      // eslint-disable-next-line no-console
+      console.log("PAGEERROR", String(e).slice(0, 300));
     });
   });
 
@@ -265,5 +262,64 @@ test.describe("top-level side-drop creates columns", () => {
         { timeout: 15_000 },
       )
       .toBe(true);
+  });
+
+  test("structured IMAGE block dropped beside a rich-text block (with an embedded image) wraps both in columns", async ({
+    page,
+  }) => {
+    // Mirrors the real "Image hover demo" plan: a rich-text heading that itself
+    // contains a markdown image, plus a separate structured `image` block. Uses
+    // 4 blocks so the image can drop onto a NON-adjacent target.
+    const planId = await createPlan(page, [
+      {
+        id: "heading",
+        type: "rich-text",
+        data: {
+          markdown:
+            "### Try the image controls\n\n![A scenic landscape](https://picsum.photos/seed/embed/1200/640)",
+        },
+      },
+      { id: "c1", type: "callout", data: { tone: "info", body: "C-ONE" } },
+      {
+        id: "pic",
+        type: "image",
+        data: {
+          url: "https://picsum.photos/seed/structured/1200/640",
+          alt: "Structured image block",
+          fit: "cover",
+        },
+      },
+      { id: "c2", type: "callout", data: { tone: "info", body: "C-TWO" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("pic"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Drag the structured image block onto the LEFT of the heading (non-adjacent).
+    const heading =
+      ".plan-document-editor-surface .an-rich-md-prose h3:has-text('Try the image controls')";
+    await sideDrop(page, blockNode("pic"), heading, "left");
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          return groups.some(
+            (ids) => ids.includes("pic") && ids.includes("heading"),
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+
+    await expect(
+      page.locator(".plan-nested-document-editor-region"),
+    ).toHaveCount(2, { timeout: 8_000 });
+    await page.screenshot({
+      path: "test-results/image-block-columns.png",
+      fullPage: true,
+    });
   });
 });

@@ -25,9 +25,9 @@ import { test, expect, type Page, type APIResponse } from "@playwright/test";
  *     `.an-block-edit-popover`) — NOT an inline text editor.
  *   - DiagramBlockEdit.tsx → inside that popover, each field is wrapped in a
  *     `.group/field` and carries an `AiEditableFieldLabel`; the host renders the
- *     field's "Edit with AI" action (`PlanAiFieldAction` in planBlocks.tsx) as a
- *     button `[data-ai-field-action="<field label>"]` with the text "Edit with
- *     AI". Clicking it opens a second popover containing a `PromptComposer`
+ *     field's edit-by-prompt action (`PlanAiFieldAction` in planBlocks.tsx) as a
+ *     button `[data-ai-field-action="<field label>"]` with the text "Describe a
+ *     change…". Clicking it opens a second popover containing a `PromptComposer`
  *     (Tiptap → a `role=textbox` contenteditable `.ProseMirror`).
  *   - use-wireframe-style.ts → the viewer-level "sketchy"/"clean" style toggle is
  *     localStorage-backed; the real UI toggle is the "Plan actions" dropdown
@@ -438,8 +438,8 @@ test.describe("diagram block: corner edit (pencil) popover", () => {
   });
 });
 
-test.describe("diagram block: Edit with AI", () => {
-  test("an html/css field exposes an 'Edit with AI' action that opens a prompt composer", async ({
+test.describe("diagram block: edit by prompt", () => {
+  test("an html/css field exposes an edit-by-prompt action that opens a prompt composer", async ({
     page,
   }) => {
     const blockId = "blk-diagram-ai";
@@ -460,11 +460,12 @@ test.describe("diagram block: Edit with AI", () => {
     const editPopover = page.locator(".an-block-edit-popover").first();
     await expect(editPopover).toBeVisible({ timeout: 10_000 });
 
-    // The "Edit with AI" button is rendered next to an html/css field label
-    // field label (AiEditableFieldLabel → PlanAiFieldAction). SELECTOR RISK:
-    // `[data-ai-field-action]` is the stable handle (the button text is also
-    // "Edit with AI"). The CSS field uses the same field action component as the
-    // large HTML field without coupling this test to the HTML textarea's height.
+    // The edit-by-prompt button is rendered next to an html/css field label
+    // (AiEditableFieldLabel → PlanAiFieldAction). SELECTOR RISK:
+    // `[data-ai-field-action]` is the stable handle (the button text reads
+    // "Describe a change…"). The CSS field uses the same field action component
+    // as the large HTML field without coupling this test to the HTML textarea's
+    // height.
     const fieldLabel = "CSS";
     const cssField = editPopover
       .getByLabel(fieldLabel, { exact: true })
@@ -475,9 +476,9 @@ test.describe("diagram block: Edit with AI", () => {
       .first();
     await expect(
       aiButton,
-      "the CSS field should expose an 'Edit with AI' action",
+      "the CSS field should expose an edit-by-prompt action",
     ).toBeVisible({ timeout: 8_000 });
-    await expect(aiButton).toContainText("Edit with AI");
+    await expect(aiButton).toContainText("Describe a change");
     await expect(aiButton).toBeInViewport();
 
     // Clicking it opens a SECOND popover with a prompt composer (NOT a plain
