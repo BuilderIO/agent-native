@@ -67,6 +67,7 @@ jobs:
           HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
           AGENT: ${{ env.VISUAL_RECAP_AGENT }}
+          VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -103,6 +104,13 @@ jobs:
               if (process.env.HAS_OPENAI !== 'true') reasons.push('OPENAI_API_KEY not configured (codex backend)');
             } else {
               if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
+            }
+
+            // Validate VISUAL_RECAP_MODEL if set — an unchecked value could be injected
+            // by a repo settings writer and passed straight to the agent CLI.
+            const model = process.env.VISUAL_RECAP_MODEL || '';
+            if (model && !/^[a-zA-Z0-9._-]{1,80}$/.test(model)) {
+              reasons.push(`invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})`);
             }
 
             // Self-modifying guard, evaluated in the GATE (trusted github-script
@@ -229,6 +237,10 @@ jobs:
           echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
           echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
 
+          # Count changed lines on the ORIGINAL diff (before any byte-cap truncation),
+          # so a large diff is never misclassified as tiny after truncation.
+          ORIGINAL_LINES=$(grep -cE '^[+-]' recap.diff || true)
+
           # ~600KB cap. Over the cap we both flag `huge` (so the agent is told to
           # summarize) AND physically truncate recap.diff, so an oversized diff
           # cannot overflow the agent's prompt budget when it reads the file.
@@ -244,9 +256,9 @@ jobs:
           fi
 
           # Tiny diffs (<= 1 changed file AND <= 8 changed lines) aren't worth a
-          # recap — skip generation cleanly.
-          LINES=$(grep -cE '^[+-]' recap.diff || true)
-          if [ "$CHANGED" -le 1 ] && [ "${LINES:-0}" -le 8 ]; then
+          # recap — skip generation cleanly. Use ORIGINAL_LINES (captured before
+          # any truncation) so a large diff is never misclassified as tiny.
+          if [ "$CHANGED" -le 1 ] && [ "${ORIGINAL_LINES:-0}" -le 8 ]; then
             echo "tiny=true" >> "$GITHUB_OUTPUT"
           else
             echo "tiny=false" >> "$GITHUB_OUTPUT"
