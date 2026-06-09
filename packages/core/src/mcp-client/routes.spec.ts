@@ -70,6 +70,14 @@ describe("formatMcpConnectError", () => {
     );
   });
 
+  it("prioritizes auth failures over generic Streamable HTTP failures", () => {
+    expect(
+      formatMcpConnectError("Streamable HTTP error: non-200 status code 401"),
+    ).toBe(
+      "The MCP server rejected the request. Reconnect or update the required Authorization header.",
+    );
+  });
+
   it("explains non-MCP JSON responses", () => {
     expect(
       formatMcpConnectError(

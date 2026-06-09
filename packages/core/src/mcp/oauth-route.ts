@@ -24,7 +24,7 @@ import {
   getOAuthCode,
   getOAuthRefreshToken,
   registerOAuthClient,
-  rotateOAuthRefreshToken,
+  touchOAuthRefreshToken,
 } from "./oauth-store.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
@@ -107,6 +107,48 @@ function configuredBasePath(): string {
   );
 }
 
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function configuredPublicBaseUrl(): string | undefined {
+  for (const key of [
+    "WORKSPACE_OAUTH_ORIGIN",
+    "VITE_WORKSPACE_OAUTH_ORIGIN",
+    "APP_URL",
+    "VITE_APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+  ]) {
+    const raw = process.env[key]?.trim();
+    if (!raw) continue;
+    try {
+      const url = new URL(raw);
+      url.search = "";
+      url.hash = "";
+      return stripTrailingSlash(`${url.origin}${url.pathname}`);
+    } catch {
+      // Ignore invalid operator-provided URL values and fall back to headers.
+    }
+  }
+  return undefined;
+}
+
+function appendConfiguredBasePath(baseUrl: string): string {
+  const basePath = configuredBasePath();
+  if (!basePath) return stripTrailingSlash(baseUrl);
+  try {
+    const url = new URL(baseUrl);
+    const pathname = normalizeBasePath(url.pathname);
+    if (pathname === basePath || pathname.endsWith(`${basePath}`)) {
+      return stripTrailingSlash(`${url.origin}${pathname}`);
+    }
+    return stripTrailingSlash(`${url.origin}${pathname}${basePath}`);
+  } catch {
+    return `${stripTrailingSlash(baseUrl)}${basePath}`;
+  }
+}
+
 function deriveOrigin(event: H3Event): string {
   const forwardedProto = getHeader(event, "x-forwarded-proto");
   const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
@@ -119,9 +161,9 @@ function deriveOrigin(event: H3Event): string {
 }
 
 export function getMcpOAuthIssuer(event: H3Event): string | undefined {
-  const origin = deriveOrigin(event);
-  if (!origin) return undefined;
-  return `${origin}${configuredBasePath()}`;
+  const baseUrl = configuredPublicBaseUrl() || deriveOrigin(event);
+  if (!baseUrl) return undefined;
+  return appendConfiguredBasePath(baseUrl);
 }
 
 export function getMcpOAuthResource(event: H3Event): string | undefined {
@@ -734,30 +776,25 @@ async function handleRefreshTokenGrant(
       "Refresh token belongs to another client",
     );
   }
-  const nextRefreshToken = generateOpaqueToken();
-  const row = await rotateOAuthRefreshToken({
-    oldRefreshToken: refreshToken,
-    newRefreshToken: nextRefreshToken,
-  });
-  if (!row) return oauthError("invalid_grant", "Invalid refresh token");
+  await touchOAuthRefreshToken(refreshToken).catch(() => undefined);
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
   const accessToken = await signMcpOAuthAccessToken({
-    ownerEmail: row.ownerEmail,
-    orgId: row.orgId,
-    orgDomain: row.orgDomain,
-    clientId: row.clientId,
-    scope: row.scope,
-    resource: row.resource,
+    ownerEmail: existing.ownerEmail,
+    orgId: existing.orgId,
+    orgDomain: existing.orgDomain,
+    clientId: existing.clientId,
+    scope: existing.scope,
+    resource: existing.resource,
     issuer,
   });
   return json({
     access_token: accessToken,
     token_type: "Bearer",
     expires_in: 3600,
-    refresh_token: nextRefreshToken,
-    scope: row.scope,
+    refresh_token: refreshToken,
+    scope: existing.scope,
   });
 }
 

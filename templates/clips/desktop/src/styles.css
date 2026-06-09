@@ -2057,28 +2057,29 @@ body[data-clips-route="recording-pill"] #root {
  * Full-screen transparent overlay shown after the user clicks Stop and
  * before the browser opens at /r/:id. The Tauri window is transparent +
  * decorations-less (see `show_finalizing` in lib.rs), so we paint a
- * rounded-pill card centered on the desktop with a spinner and caption.
+ * compact card tucked into the bottom-left with a spinner and caption.
  * The window also has ignore_cursor_events(true), so clicks pass through
- * to whatever is beneath — the user can't disrupt the finalize by
- * clicking around.
+ * to whatever is beneath and the progress card stays out of the way.
  */
 .finalizing-root {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 24px;
   background: transparent;
   pointer-events: none;
 }
 
 .finalizing-card {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 28px 36px;
-  border-radius: 22px;
+  gap: 7px 10px;
+  width: min(320px, calc(100vw - 48px));
+  padding: 12px 14px;
+  border-radius: 16px;
   background: rgba(20, 22, 28, 0.94);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -2087,8 +2088,6 @@ body[data-clips-route="recording-pill"] #root {
     0 14px 40px rgba(0, 0, 0, 0.45),
     0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
-  min-width: 260px;
-  max-width: min(420px, calc(100vw - 48px));
 }
 
 /*
@@ -2097,10 +2096,10 @@ body[data-clips-route="recording-pill"] #root {
  * rotated continuously.
  */
 .finalizing-spinner {
-  width: 36px;
-  height: 36px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.18);
+  border: 2px solid rgba(255, 255, 255, 0.18);
   border-top-color: #ffffff;
   animation: finalizing-spin 0.9s linear infinite;
 }
@@ -2112,16 +2111,18 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .finalizing-caption {
-  font-size: 14px;
+  min-width: 0;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.1px;
   color: white;
-  text-align: center;
+  text-align: left;
 }
 
 .finalizing-progress {
-  width: 220px;
-  height: 5px;
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 4px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
@@ -2135,12 +2136,12 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .finalizing-sub {
-  font-size: 12px;
+  grid-column: 1 / -1;
+  font-size: 11px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.65);
-  text-align: center;
-  margin-top: -4px;
-  max-width: 340px;
+  text-align: left;
+  max-width: 100%;
   line-height: 1.35;
 }
 
@@ -2288,7 +2289,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 10px;
   /* Equal inset on all four sides from the pill edge to the buttons. */
   padding: 10px;
@@ -2309,6 +2310,7 @@ body[data-clips-route="recording-pill"] #root {
 .toolbar-v:hover,
 .toolbar-v:focus-within {
   height: 234px;
+  justify-content: flex-start;
   border-radius: 26px;
 }
 
@@ -2398,20 +2400,28 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin-top: 2px;
+  height: 0;
+  margin-top: 0;
+  overflow: hidden;
   opacity: 0;
   transform: translateY(-6px);
   pointer-events: none;
+  visibility: hidden;
   transition:
+    height 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin-top 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 130ms ease-out,
     transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .toolbar-v:hover .toolbar-v-hover-actions,
 .toolbar-v:focus-within .toolbar-v-hover-actions {
+  height: 88px;
+  margin-top: 2px;
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+  visibility: visible;
 }
 
 .toolbar-v-action {

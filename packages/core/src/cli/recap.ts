@@ -365,9 +365,7 @@ function runMcpConfig(args: Record<string, string | boolean>): void {
     return;
   }
 
-  throw new Error(
-    `Unknown --agent "${agent}" (expected "claude" or "codex")`,
-  );
+  throw new Error(`Unknown --agent "${agent}" (expected "claude" or "codex")`);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -403,6 +401,7 @@ export function readRepoSkillMd(cwd: string = process.cwd()): {
 export function buildRecapPrompt(input: {
   skillMd: string;
   pr: string;
+  repo?: string;
   head?: string;
   appUrl: string;
   diffPath: string;
@@ -420,6 +419,12 @@ export function buildRecapPrompt(input: {
   lines.push("");
   lines.push("## Inputs (read them from disk with your Read tool)");
   lines.push(`- PR number: **#${input.pr}**`);
+  if (input.repo) {
+    lines.push(`- Repository: **${input.repo}**`);
+    lines.push(
+      `- Pull request URL: https://github.com/${input.repo}/pull/${input.pr}`,
+    );
+  }
   if (input.head) lines.push(`- Head commit: \`${input.head}\``);
   lines.push(`- Unified diff: \`${input.diffPath}\` (read this file)`);
   if (input.statPath)
@@ -715,6 +720,7 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
   const prompt = buildRecapPrompt({
     skillMd: skill.text,
     pr: stringArg(args, "pr"),
+    repo: optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY,
     head: optionalArg(args, "head"),
     appUrl: optionalArg(args, "app-url") ?? "https://plan.agent-native.com",
     diffPath: optionalArg(args, "diff") ?? "recap.diff",
@@ -1132,7 +1138,7 @@ Usage:
   agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   agent-native recap scan --diff <path>
-  agent-native recap build-prompt --pr <n> [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--out <path>]
+  agent-native recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--out <path>]
   agent-native recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png]
   agent-native recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   agent-native recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>

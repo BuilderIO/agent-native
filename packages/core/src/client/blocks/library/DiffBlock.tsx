@@ -577,7 +577,7 @@ function dispatchDiffModeChange(mode: DiffMode): void {
 }
 
 function usePreferredDiffMode(authoredMode: DiffMode | undefined) {
-  const [mode, setMode] = useState<DiffMode>(authoredMode ?? "unified");
+  const [mode, setMode] = useState<DiffMode>(authoredMode ?? "split");
 
   useEffect(() => {
     if (authoredMode) return;
@@ -645,11 +645,9 @@ function DiffRead({
   summary,
   ctx,
 }: BlockReadProps<DiffData>) {
-  // Default layout when none is authored is UNIFIED — a single column reads
-  // cleanly at any width, while split's doubled line-number gutters cut code off
-  // in a constrained box (a recap's vertical-tabs panel or a comparison column).
-  // An explicitly authored `mode` still wins, and the Unified/Split toggle below
-  // stays fully functional — only the starting default changes.
+  // Default layout when none is authored is SPLIT so reviewers can compare
+  // before/after code side-by-side. An explicitly authored `mode` or stored
+  // viewer preference still wins, and truly narrow hosts can fall back below.
   const inNarrowContainer = useInNarrowContainer();
   const [mode, setMode] = usePreferredDiffMode(data.mode);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
@@ -694,9 +692,9 @@ function DiffRead({
   const hasAnnotations = hasRailAnnotations(resolved);
   // Effective render mode. Annotations live in a SEPARATE right-hand rail (not
   // over the code), so they no longer force a mode. When no mode was authored, a
-  // narrow container falls back to unified so split's doubled gutters never
-  // crush the code; an explicitly authored `mode` wins even in a narrow host.
-  // `canSplit` only hides the toggle for auto-mode narrow fallbacks.
+  // truly narrow container still falls back to unified so split's doubled
+  // gutters never crush the code; an explicitly authored `mode` wins even in a
+  // narrow host. `canSplit` only hides the toggle for auto-mode narrow fallbacks.
   const measuredNarrow =
     containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
   const narrow = data.mode == null && (measuredNarrow || inNarrowContainer);
@@ -712,7 +710,11 @@ function DiffRead({
   // into the card (which cancels the close while hovered).
   const onRowEnter = useCallback(
     (index: number, rowEl: HTMLElement) => {
-      const anchor = anchorFromElements(codeRef.current, rowEl);
+      const startRow =
+        codeRef.current?.querySelector<HTMLElement>(
+          `[data-annot-row="${index}"]`,
+        ) ?? rowEl;
+      const anchor = anchorFromElements(codeRef.current, startRow);
       if (anchor) hover.open(index, anchor);
     },
     [hover],
@@ -1386,7 +1388,7 @@ const codeAreaClass =
 
 function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
   const patch = (next: Partial<DiffData>) => onChange({ ...data, ...next });
-  const mode: DiffMode = data.mode ?? "unified";
+  const mode: DiffMode = data.mode ?? "split";
   const annotations = data.annotations ?? [];
 
   const updateAnnotation = (index: number, next: Partial<DiffAnnotation>) =>

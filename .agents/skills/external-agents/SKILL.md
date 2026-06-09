@@ -95,9 +95,9 @@ For local stdio proxying, Codex/Cowork compatibility, or clients without
 remote MCP OAuth, use the hosted connect fallback:
 
 ```bash
-npx @agent-native/core connect https://dispatch.agent-native.com
+npx @agent-native/core@latest connect https://dispatch.agent-native.com
 # or, for an isolated app:
-npx @agent-native/core connect https://mail.agent-native.com
+npx @agent-native/core@latest connect https://mail.agent-native.com
 ```
 
 The command opens the app in the browser, the user clicks **Authorize**, and a
@@ -110,6 +110,19 @@ Re-running `agent-native connect <url> --client claude-code` over an older
 Claude bearer-token entry is the migration path: the CLI replaces
 `Authorization` headers with URL-only OAuth config and tells the user to
 authenticate from `/mcp`.
+
+To re-authenticate an already-installed local/fallback client without
+reinstalling skills or connectors, use:
+
+```bash
+npx @agent-native/core@latest reconnect https://dispatch.agent-native.com --client codex
+# or:
+npx @agent-native/core@latest connect reconnect https://dispatch.agent-native.com --client codex
+```
+
+With no URL, `reconnect` searches the selected client config for the existing
+Agent Native MCP entry. Pass `--name <serverName>` when the config has multiple
+entries or a custom server name.
 
 Under the hood: a logged-in browser session mints an `A2A_SECRET`-signed JWT
 carrying the caller's `sub` + `org_domain` and a unique `jti`, so tool runs
@@ -339,14 +352,17 @@ and mutating actions are filtered out (`filterPublicAgentActions`). The full
 surface appears when authenticated as a real caller: a deployed /
 `AGENT_MODE=production` app, or a local app reached through `connect` /
 `agent-native mcp install` (which provisions an identity-bearing token). A
-sparse `tools/list` means you are hitting an unauthenticated dev endpoint —
-connect or present a token rather than assuming the action is missing.
+sparse or empty `tools/list` is diagnostic, not proof of auth failure: check
+OAuth scopes, compact-catalog filtering, and the client/server auth status
+before telling the user they are unauthenticated.
 
 ## Do
 
 - Do connect local/fallback clients to Dispatch with
-  `npx @agent-native/core connect https://dispatch.agent-native.com`; use a
-  direct app URL only when the host should be isolated to one app.
+  `npx @agent-native/core@latest connect https://dispatch.agent-native.com`;
+  use `npx @agent-native/core@latest reconnect ...` for reauth without
+  reinstalling; use a direct app URL only when the host should be isolated to
+  one app.
 - Do add a `link` builder to any action that produces or lists a navigable
   resource (draft, event, dashboard, document).
 - Do add `mcpApp` when a UI-capable MCP host should render an inline review or

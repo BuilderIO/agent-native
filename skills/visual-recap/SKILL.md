@@ -90,12 +90,12 @@ evidence:
 
 - A `file-tree` of the changed files with each entry's `change` flag, so the
   reviewer sees the footprint of the work at a glance.
-- The `diff` of the KEY changed files, grouped under a `## Key changes`
-  `rich-text` heading in a single vertical `tabs` block (file labels as the left
-  rail), with a one-line `summary` and a few `annotations` on each — so the
-  reviewer can drop from the high-altitude shape straight into the load-bearing
-  code. Leave `mode` unset so each diff renders unified — the default — because a
-  tab panel is too narrow for split's side-by-side gutters to stay legible.
+- The split `diff` of the KEY changed files, grouped under a `## Key changes`
+  `rich-text` heading in a single horizontal `tabs` block (the default
+  orientation, one file per tab), with a one-line `summary` and a few
+  `annotations` on each — so the reviewer can drop from the high-altitude shape
+  straight into the load-bearing code. Use horizontal file tabs, not a vertical
+  side rail, so the selected file has enough width for the side-by-side diff.
 
 Skip the diff appendix only for a genuinely tiny change that reviews faster as
 plain diff (see "When To Use"); for any change worth recapping, the file-tree and
@@ -445,16 +445,14 @@ the actual diff:
 - **Compatibility-sensitive change** → short `rich-text` notes beside the
   relevant `data-model` / `api-endpoint` block. Name the changed field,
   endpoint, or behavior and mark whether it is breaking, risky, or non-breaking;
-  pair that note with a `diff` for the literal lines.
-- **Any meaningful code hunk** → `diff` carrying the real `before` / `after` text
-  and the `filename` / `language`. Leave `mode` unset: unified is the default and
-  the right choice for a recap, since recap diffs almost always sit inside a
-  width-constrained container (a vertical-tabs panel or a comparison column)
-  where split's two line-number gutters cut the code off. Reach for `mode:
-  "split"` only for a standalone, full-document-width diff where side-by-side
-  genuinely helps. Give every `diff` a one-line `summary` saying what the hunk
-  changes and why; it renders as a description above the code so the reviewer
-  reads intent first. Never leave a diff unlabeled.
+  pair that note with a split `diff` for the literal lines.
+- **Any meaningful code hunk** → `diff` with `mode: "split"`, carrying the real
+  `before` / `after` text and the `filename` / `language`. Split mode is the
+  default for recap code review because before/after legibility is the point;
+  use `mode: "unified"` only for a genuinely narrow standalone hunk where
+  side-by-side would hide the code. Give every `diff` a one-line `summary`
+  saying what the hunk changes and why; it renders as a description above the
+  code so the reviewer reads intent first. Never leave a diff unlabeled.
   For the KEY changed files, attach `annotations` to the `diff` so the recap
   calls out what each important hunk does — this is the headline affordance for
   annotating the key files updated. Each annotation is
@@ -465,22 +463,22 @@ the actual diff:
   When several key files each need a substantial diff, introduce the group with a
   `rich-text` heading block whose markdown is `## Key changes`, then place the
   `diff` blocks under it in a reusable `tabs` block with
-  `orientation: "vertical"` so file labels form a left rail and the selected
-  file's diff renders unified on the right. Leave each diff's `mode` unset — the
-  tab panel is too narrow for split — and let the unified default carry it. Let
-  that heading label the section — do NOT also set a `title` on the `tabs` block.
-  Keep each tab label to the file path or a short basename plus directory hint.
+  horizontal orientation (omit `orientation`, or set `orientation:
+  "horizontal"` only if being explicit) so the selected file's split diff gets
+  the full document width. Let that heading label the section — do NOT also set
+  a `title` on the `tabs` block. Keep each tab label to the file path or a short
+  basename plus directory hint.
   If the recap ends with more than one supporting diff, that trailing diff
-  appendix should be one vertical `tabs` block under its own `## Key changes`
+  appendix should be one horizontal `tabs` block under its own `## Key changes`
   heading, not a stack of separate `diff` blocks.
 - **Brand-new file or a substantial added block with no meaningful "before"** →
-  `annotated-code` rather than a one-sided `diff`. Carry the real new code
+  `annotated-code` rather than a one-sided split `diff`. Carry the real new code
   with its `filename` / `language` and anchor a few high-signal notes to the lines
   that matter (`{ lines: "12" | "12-18"; label?; note }`) so the reviewer reads
-  what the new code does, not code for code's sake. Keep `diff` for true
+  what the new code does, not code for code's sake. Keep split `diff` for true
   before/after hunks where the removed lines still carry meaning, and group
-  several annotated walkthroughs in a vertical `tabs` block the same way diffs are
-  grouped.
+  several annotated walkthroughs in a horizontal `tabs` block the same way diffs
+  are grouped.
 - **Files added / removed / renamed** → `file-tree` with each entry's `change`
   flag (`added`, `removed`, `modified`, `renamed`) and a short `note`; attach a
   `snippet` only when one tells the reviewer something the path does not.
@@ -712,14 +710,12 @@ Optional attrs: `title`, `collapsedDepth` (number, default 2).
 
 Tag is `Diff`. Required attrs: `before`, `after` (multiline source strings).
 Optional attrs: `filename`, `language`, `mode` (`unified | split`), `annotations`.
-Leave `mode` unset: it defaults to **unified**, which reads cleanly at any width
-and is what recap diffs want — they almost always live inside a width-constrained
-container (a vertical-tabs panel or a comparison column) where split's two
-line-number gutters cut the code off. Only set `mode: "split"` for a standalone,
-full-document-width diff where side-by-side genuinely helps. The reader always
-exposes a Unified/Split toggle (when there is room), so a viewer can switch
-either way regardless of the authored default. Give every diff a `summary` (the
-shared envelope attr) so the reviewer reads intent first.
+Use `mode: "split"` for recap code diffs. Unset mode also starts split in normal
+full-width document flow, but explicit split keeps generated recaps predictable.
+Use `mode: "unified"` only for a narrow standalone hunk where side-by-side would
+hide the code. The reader exposes a Unified/Split toggle when there is room, so a
+viewer can still switch either way. Give every diff a `summary` (the shared
+envelope attr) so the reviewer reads intent first.
 
 - `annotations={[{ side?, lines, label?, note }]}` — `side` ∈ `before | after`
   (default `after`); `lines` is a 1-based ref like `"13"` or `"13-15"`.
@@ -809,15 +805,15 @@ structured comparisons.
 
 Tag is `TabsBlock` — NOT `Tabs`, and there is NO nested `<Tab>` element. Required
 attr: `tabs` (1–12). Optional attr: `orientation` (`horizontal | vertical`; use
-`vertical` for a file rail). The whole `tabs` array (including nested child
-blocks) is ONE JSON prop; do NOT nest the tabs or their child blocks as MDX
-elements. Label the section with a preceding `## Key changes` `RichText` heading
-rather than a `title` on the block.
+the default horizontal orientation for key-file code/diff tabs; reserve
+`vertical` for compact non-code side rails). The whole `tabs` array (including
+nested child blocks) is ONE JSON prop; do NOT nest the tabs or their child blocks
+as MDX elements. Label the section with a preceding `## Key changes` `RichText`
+heading rather than a `title` on the block.
 
 ```mdx
 <TabsBlock
   id="tabs-key"
-  orientation="vertical"
   tabs={[
     { id: "t-route", label: "routes/tasks.ts", blocks: [ /* Diff block objects */ ] },
     { id: "t-schema", label: "db/schema.ts", blocks: [ /* Diff block objects */ ] }
@@ -866,10 +862,10 @@ comparisons there are two primitives, and they cover the whole need together:
   "the schema went from X to Y" or "the endpoint contract changed like this."
   Do not use `columns` simply to compact or group a list of API endpoints.
 - **`diff`** — for **code**. It renders the literal removed and added lines. Use
-  it for the actual hunks. Leave `mode` unset so it renders unified (the default,
-  legible at any width); reserve `mode: "split"` for a standalone full-width diff
-  where side-by-side genuinely helps — never inside a tabs panel or column, where
-  split's doubled gutters cut the code off.
+  it for the actual hunks. Use split mode by default for recap code review;
+  reserve `mode: "unified"` for genuinely narrow standalone hunks where
+  side-by-side would hide the code. Key-file diff groups should use horizontal
+  tabs so split diffs get the full document width.
 
 For UI diffs, wireframes are the visual comparison primitive. Use before/after
 wireframes when the comparison clarifies the change; use after-only or a state

@@ -6,6 +6,7 @@ import {
   type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
 import { BlockRegistryProvider } from "@agent-native/core/blocks";
@@ -437,14 +438,22 @@ export function PlanContentRenderer({
                 placeholder="Untitled plan"
                 onCommit={(title) => onMetadataChange?.({ title })}
               />
-              <EditableHeaderText
-                as="p"
-                value={content.brief || fallbackBrief}
-                editable={metadataEditable}
-                className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
-                placeholder="Add a short plan summary"
-                onCommit={(brief) => onMetadataChange?.({ brief })}
-              />
+              {metadataEditable ? (
+                <EditableHeaderText
+                  as="p"
+                  value={content.brief || fallbackBrief}
+                  editable
+                  className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
+                  placeholder="Add a short plan summary"
+                  onCommit={(brief) => onMetadataChange?.({ brief })}
+                />
+              ) : (
+                <HeaderBriefText
+                  value={content.brief || fallbackBrief}
+                  className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
+                  linkGithubPrReferences={isRecap}
+                />
+              )}
             </header>
 
             {/* The side rails (contents on the right, recap files on the left)
@@ -577,6 +586,55 @@ function filesSidebarHideCss(blockId: string): string {
 .plan-document-flow [data-block-id="${id}"]{display:none}
 ${leadReset}{margin-top:2.25rem;padding-top:0}
 }`;
+}
+
+const GITHUB_PR_REFERENCE_RE =
+  /\b([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9._-]+)#([1-9]\d*)\b/g;
+
+function renderGithubPrReferences(value: string): ReactNode {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of value.matchAll(GITHUB_PR_REFERENCE_RE)) {
+    const index = match.index ?? 0;
+    const [label, owner, repo, number] = match;
+    if (index > lastIndex) nodes.push(value.slice(lastIndex, index));
+    nodes.push(
+      <a
+        key={`${owner}/${repo}#${number}-${index}`}
+        href={`https://github.com/${encodeURIComponent(
+          owner,
+        )}/${encodeURIComponent(repo)}/pull/${number}`}
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-plan-text underline decoration-plan-line underline-offset-4"
+        data-plan-interactive
+      >
+        {label}
+      </a>,
+    );
+    lastIndex = index + label.length;
+  }
+
+  if (nodes.length === 0) return value;
+  if (lastIndex < value.length) nodes.push(value.slice(lastIndex));
+  return nodes;
+}
+
+function HeaderBriefText({
+  value,
+  className,
+  linkGithubPrReferences,
+}: {
+  value: string;
+  className: string;
+  linkGithubPrReferences: boolean;
+}) {
+  return (
+    <p className={className}>
+      {linkGithubPrReferences ? renderGithubPrReferences(value) : value}
+    </p>
+  );
 }
 
 function EditableHeaderText({

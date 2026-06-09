@@ -166,7 +166,7 @@ export function StorageSetupCard({
         </div>
       </button>
 
-      {err && <p className="text-xs text-destructive">{err}</p>}
+      {err && <p className="text-xs text-muted-foreground">{err}</p>}
 
       {/* S3 — secondary option */}
       {!connected && (

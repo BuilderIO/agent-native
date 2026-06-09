@@ -156,9 +156,23 @@ export function TabsBlockReader({
             onSelect={setActiveId}
             orientation={orientation}
           />
-          {active && (
-            <NarrowContainerProvider>
-              <div className={cn(vertical && "min-w-0")}>
+          {active &&
+            (vertical ? (
+              <NarrowContainerProvider>
+                <div className="min-w-0">
+                  {active.blocks.map((child) => (
+                    <div key={child.id}>
+                      {ctx.renderBlock?.({
+                        block: child,
+                        editing: false,
+                        compactVisuals: compact,
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </NarrowContainerProvider>
+            ) : (
+              <div>
                 {active.blocks.map((child) => (
                   <div key={child.id}>
                     {ctx.renderBlock?.({
@@ -169,8 +183,7 @@ export function TabsBlockReader({
                   </div>
                 ))}
               </div>
-            </NarrowContainerProvider>
-          )}
+            ))}
         </div>
       </div>
     </section>

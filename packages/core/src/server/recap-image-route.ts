@@ -68,12 +68,9 @@ async function resolveUploadSession(
   const session = await getSession(event).catch(() => null);
   if (session?.email) return session;
 
-  // Trim once and reuse the trimmed value everywhere. Match verifyAuth's check
-  // exactly — a literal, case-sensitive `Bearer ` prefix (not `/i`, not `\s+`) —
-  // so this pre-check never accepts a header that verifyAuth would then reject
-  // (e.g. lowercase `bearer` or a tab separator).
   const authHeader = getHeader(event, "authorization")?.trim();
-  if (!authHeader || !/^Bearer \S/.test(authHeader)) return null;
+  const bearer = /^Bearer\s+(.+)$/i.exec(authHeader ?? "")?.[1]?.trim();
+  if (!authHeader || !bearer) return null;
 
   try {
     const [{ getMcpOAuthResource }, { verifyAuth, resolveOrgIdFromDomain }] =
@@ -91,7 +88,7 @@ async function resolveUploadSession(
       identity.orgId ?? (await resolveOrgIdFromDomain(identity.orgDomain));
     return {
       email: identity.userEmail,
-      token: authHeader.replace(/^Bearer /, "").trim(),
+      token: bearer,
       ...(orgId ? { orgId } : {}),
     };
   } catch (error) {

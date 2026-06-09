@@ -477,7 +477,7 @@ export function MicrophoneVisualizer({
       <div
         className={cn(
           "relative overflow-hidden rounded-lg border bg-background",
-          live && hasSignal ? "border-sky-400/60" : "border-border",
+          live && hasSignal ? "border-foreground/45" : "border-border",
         )}
       >
         <canvas
@@ -489,7 +489,7 @@ export function MicrophoneVisualizer({
           <div
             className={cn(
               "pointer-events-none absolute right-2 top-2 h-2 w-2 rounded-full",
-              hasSignal ? "bg-sky-400" : "bg-muted-foreground/40",
+              hasSignal ? "bg-foreground" : "bg-muted-foreground/40",
             )}
           />
         )}
@@ -497,7 +497,7 @@ export function MicrophoneVisualizer({
       <p
         className={cn(
           "mt-2 text-[11px] leading-snug text-muted-foreground",
-          error && "text-destructive",
+          error && "text-foreground",
         )}
       >
         {helper}

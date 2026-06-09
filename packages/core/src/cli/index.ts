@@ -613,6 +613,19 @@ switch (command) {
     break;
   }
 
+  case "reconnect":
+  case "reauth": {
+    // Refresh an existing remote MCP auth/config entry without reinstalling
+    // app skills or running the broader connector setup path.
+    import("./connect.js")
+      .then((m) => m.runConnect(["reconnect", ...args]))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "app-skill": {
     // Package or install an agent-native app as a skill-backed MCP/app bundle.
     import("./app-skill.js")
@@ -746,6 +759,8 @@ Usage:
                                 browser device-code flow. --all connects every
                                 first-party app; --token is the no-browser
                                 fallback. Usually run for you by 'skills add'.
+  agent-native reconnect [url]  Re-authenticate an existing MCP entry without
+                                reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
   agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|prototype-plan|plan-design

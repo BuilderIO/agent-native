@@ -120,6 +120,6 @@ repository configures both secrets:
 - `PLAN_RECAP_TOKEN` — a publish token for creating and replacing private recap
   plans.
 
-The workflow should treat recap generation as informational only: it can update
-a sticky PR comment with the recap link, but reviewers still own the real diff
-review.
+The workflow should treat recap generation as informational only: it can show a
+non-required `Visual Recap` check while it runs and update a sticky PR comment
+with the recap link, but reviewers still own the real diff review.

@@ -549,7 +549,7 @@ function RecordingErrorCard({
   return (
     <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
       <div className="border-b border-border p-6">
-        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-foreground">
           <IconAlertTriangle className="h-5 w-5" />
         </div>
         <h2 className="text-lg font-semibold text-foreground">
@@ -1903,12 +1903,12 @@ export default function RecordRoute() {
         )}
 
       {recordingMode !== "camera" && showRecordingUi && (
-        <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-[#1a1a2e] via-[#16213e] to-[#0f0f1a] opacity-95">
+        <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-zinc-950 via-zinc-900 to-black opacity-95">
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/70">
             <div className="flex items-center gap-2 text-sm">
               <span className="relative inline-flex">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-30" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
               </span>
               Recording your screen — switch to the window you want to capture
             </div>

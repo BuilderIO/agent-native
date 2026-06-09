@@ -375,7 +375,7 @@ export function PreRecordPanel({
     <div className="mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
       <div className="border-b border-border p-6">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
             <IconPlayerRecord className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -655,7 +655,7 @@ export function PreRecordPanel({
             )}
 
             {enumError && (
-              <p className="text-[11px] text-destructive">{enumError}</p>
+              <p className="text-[11px] text-muted-foreground">{enumError}</p>
             )}
           </div>
         </CollapsibleContent>
@@ -663,7 +663,7 @@ export function PreRecordPanel({
 
       <div className="space-y-3 border-t border-border p-6">
         {setupBlockedMessage && (
-          <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive">
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             {setupBlockedMessage}
           </p>
         )}
@@ -688,10 +688,7 @@ export function PreRecordPanel({
                   needsCamera && cameraId !== "default" ? cameraId : null,
               })
             }
-            className={cn(
-              "h-12 gap-2 bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600",
-              onCancel ? "flex-1" : "w-full",
-            )}
+            className={cn("h-12 gap-2", onCancel ? "flex-1" : "w-full")}
           >
             <IconPlayerRecord className="h-4 w-4" />
             Start recording

@@ -171,9 +171,11 @@ jobs:
     # or browser can't burn a full 6h runner.
     timeout-minutes: 30
     # Escalate only here: write the sticky PR comment (issues+pull-requests),
-    # read the checked-out source (contents). The agent step that runs untrusted
-    # PR diff content gets no more than this.
+    # create/update the informational Visual Recap check (checks), and read the
+    # checked-out source (contents). The agent step that runs untrusted PR diff
+    # content gets no more than this.
     permissions:
+      checks: write
       contents: read
       issues: write
       pull-requests: write
@@ -186,6 +188,34 @@ jobs:
       VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
       VISUAL_RECAP_REASONING: ${{ vars.VISUAL_RECAP_REASONING }}
     steps:
+      - name: Start visual recap check
+        id: recap_check
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const workflowUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            try {
+              const response = await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'Visual Recap',
+                head_sha: process.env.HEAD_SHA,
+                status: 'in_progress',
+                started_at: new Date().toISOString(),
+                details_url: workflowUrl,
+                output: {
+                  title: 'Review in progress',
+                  summary: 'Generating a visual code-review recap for this pull request.',
+                },
+              });
+              core.setOutput('check_run_id', String(response.data.id));
+            } catch (error) {
+              core.warning(`Could not create Visual Recap check run: ${error.message}`);
+              core.setOutput('check_run_id', '');
+            }
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
@@ -441,3 +471,81 @@ jobs:
           # recap behind.
           if [ "${DIFF_TINY:-}" = "true" ]; then ARGS+=(--update-only); fi
           $RECAP_CLI "${ARGS[@]}"
+
+      - name: Complete visual recap check
+        if: always() && steps.recap_check.outputs.check_run_id != ''
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
+          PLAN_OK: ${{ steps.url.outputs.ok }}
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
+          SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
+          DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+          DIFF_TINY: ${{ steps.diff.outputs.tiny }}
+        with:
+          script: |
+            const workflowUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const checkRunId = Number(process.env.CHECK_RUN_ID || 0);
+
+            function canonicalRecapUrl(rawUrl, appUrl) {
+              try {
+                const parsed = new URL(rawUrl);
+                const trusted = new URL(appUrl || 'https://plan.agent-native.com');
+                if (parsed.origin !== trusted.origin) return '';
+
+                const match = parsed.pathname.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)$/);
+                return match ? `${trusted.origin}/recaps/${match[1]}` : '';
+              } catch {
+                return '';
+              }
+            }
+
+            let conclusion = 'neutral';
+            let title = 'Visual recap not generated';
+            let summary = 'The visual recap did not produce a plan URL. This is informational only and does not block the PR.';
+            let text = '';
+            let detailsUrl = workflowUrl;
+
+            if (process.env.PLAN_OK === 'true') {
+              const recapUrl = canonicalRecapUrl(process.env.PLAN_URL || '', process.env.PLAN_RECAP_APP_URL || '');
+              if (recapUrl) {
+                conclusion = 'success';
+                title = 'Visual recap ready';
+                summary = process.env.DIFF_HUGE === 'true'
+                  ? 'A summarized visual recap was generated for this large PR.'
+                  : 'A visual code-review recap was generated for this PR.';
+                detailsUrl = recapUrl;
+                text = `**[Open visual recap](${recapUrl})**`;
+              }
+            } else if (process.env.DIFF_TINY === 'true') {
+              conclusion = 'skipped';
+              title = 'Visual recap skipped';
+              summary = 'The diff is too small to need a visual recap.';
+            } else if (process.env.SUPPRESSED === 'true') {
+              let reason = 'potential secret in diff';
+              try {
+                const parsed = JSON.parse(process.env.SUPPRESSED_JSON || '{}');
+                if (parsed && typeof parsed.reason === 'string') reason = parsed.reason;
+              } catch {
+                // Keep the default reason.
+              }
+              title = 'Visual recap suppressed';
+              summary = `No recap was published because ${reason}.`;
+            }
+
+            try {
+              await github.rest.checks.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                check_run_id: checkRunId,
+                status: 'completed',
+                conclusion,
+                completed_at: new Date().toISOString(),
+                details_url: detailsUrl,
+                output: { title, summary, text },
+              });
+            } catch (error) {
+              core.warning(`Could not update Visual Recap check run: ${error.message}`);
+            }

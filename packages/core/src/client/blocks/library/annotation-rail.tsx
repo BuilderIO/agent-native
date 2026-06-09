@@ -252,7 +252,7 @@ export function AnnotationHiddenStack<A extends RailAnnotation>({
   );
 }
 
-/* ── Hover popover (portal, anchored RIGHT of the code) ────────────────────── */
+/* ── Hover popover (portal, anchored beside the code) ──────────────────────── */
 
 /** The geometry the hover card anchors to (in viewport coordinates). */
 export interface AnnotationAnchor {
@@ -270,17 +270,56 @@ const HOVER_CARD_WIDTH = 280;
 const HOVER_CARD_GAP = 12;
 const VIEWPORT_MARGIN = 8;
 
+export function resolveAnnotationHoverCardPosition(
+  anchor: AnnotationAnchor,
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { top: number; left: number } {
+  const rightLeft = anchor.codeRight + HOVER_CARD_GAP;
+  const fitsRight = rightLeft + card.width + VIEWPORT_MARGIN <= viewport.width;
+  const leftLeft = anchor.codeLeft - HOVER_CARD_GAP - card.width;
+  const fitsLeft = leftLeft >= VIEWPORT_MARGIN;
+
+  let left: number;
+  let top: number;
+  if (fitsRight) {
+    // Default: to the right of the code, centered on the hovered line.
+    left = rightLeft;
+    top = anchor.lineCenter - card.height / 2;
+  } else if (fitsLeft) {
+    // Prefer the left gutter over covering the code below the hovered line.
+    left = leftLeft;
+    top = anchor.lineCenter - card.height / 2;
+  } else {
+    // No clean side gutter → drop below the line, aligned to the code's left.
+    left = anchor.codeLeft;
+    top = anchor.lineBottom + HOVER_CARD_GAP;
+  }
+
+  // Clamp within the viewport so the card is never cut off.
+  left = Math.max(
+    VIEWPORT_MARGIN,
+    Math.min(left, viewport.width - card.width - VIEWPORT_MARGIN),
+  );
+  top = Math.max(
+    VIEWPORT_MARGIN,
+    Math.min(top, viewport.height - card.height - VIEWPORT_MARGIN),
+  );
+
+  return { top, left };
+}
+
 /**
  * The single on-hover note card, portaled to `document.body` and positioned
  * `fixed` so it escapes the code block's `overflow` and never reflows the code.
  *
  * Placement: by default it sits to the RIGHT of the code block's right edge,
  * vertically centered on the hovered line — so it never overlaps the code text.
- * If there isn't room to the right (it would overflow the viewport), it clamps
- * within the viewport, and if the right gutter is too narrow for the card it
- * falls back to BELOW the hovered line (left-aligned to the code block). The card
- * keeps itself open while hovered (`onMouseEnter`/`onMouseLeave` forwarded) so it
- * stays readable; the caller adds the small hover-intent close delay.
+ * If there isn't room to the right, it uses the LEFT of the code block when the
+ * card can fit there without covering code. Only when neither side fits does it
+ * fall back to BELOW the hovered line (left-aligned to the code block). The card
+ * keeps itself open while hovered (`onMouseEnter`/`onMouseLeave` forwarded) so
+ * it stays readable; the caller adds the small hover-intent close delay.
  */
 export function AnnotationHoverCard<A extends RailAnnotation>({
   item,
@@ -301,7 +340,8 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   // Measure the rendered card, then resolve a non-overlapping position: right of
-  // the code if it fits, else clamp into the viewport, else drop below the line.
+  // the code if it fits, then left if that side has a clean gutter, otherwise
+  // below the line.
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     const el = cardRef.current;
@@ -310,31 +350,13 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
     const height = rect && rect.height > 0 ? rect.height : 0;
     const vw = window.innerWidth || 0;
     const vh = window.innerHeight || 0;
-
-    const rightLeft = anchor.codeRight + HOVER_CARD_GAP;
-    const fitsRight = rightLeft + width + VIEWPORT_MARGIN <= vw;
-
-    let left: number;
-    let top: number;
-    if (fitsRight) {
-      // Default: to the right of the code, centered on the hovered line.
-      left = rightLeft;
-      top = anchor.lineCenter - height / 2;
-    } else {
-      // No room to the right → drop below the line, aligned to the code's left.
-      left = anchor.codeLeft;
-      top = anchor.lineBottom + HOVER_CARD_GAP;
-    }
-    // Clamp within the viewport so the card is never cut off.
-    left = Math.max(
-      VIEWPORT_MARGIN,
-      Math.min(left, vw - width - VIEWPORT_MARGIN),
+    setPos(
+      resolveAnnotationHoverCardPosition(
+        anchor,
+        { width, height },
+        { width: vw, height: vh },
+      ),
     );
-    top = Math.max(
-      VIEWPORT_MARGIN,
-      Math.min(top, vh - height - VIEWPORT_MARGIN),
-    );
-    setPos({ top, left });
   }, [
     anchor.codeRight,
     anchor.codeLeft,

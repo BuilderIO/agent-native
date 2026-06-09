@@ -104,7 +104,7 @@ export function RecordingToolbar({
     setDragging(false);
   }
 
-  const bg = isPaused ? "bg-amber-500 text-black" : "bg-black/85 text-white";
+  const bg = isPaused ? "bg-white text-black" : "bg-black/85 text-white";
 
   return (
     <div
@@ -155,7 +155,7 @@ export function RecordingToolbar({
             data-toolbar-btn
             type="button"
             onClick={onStop}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black hover:bg-white/85"
             aria-label="Stop recording"
           >
             <IconPlayerStop className="h-4 w-4" />
@@ -169,7 +169,7 @@ export function RecordingToolbar({
         aria-label="Elapsed time"
       >
         <span
-          className="inline-block h-2 w-2 rounded-full bg-red-500"
+          className="inline-block h-2 w-2 rounded-full bg-white"
           style={{
             animation: isPaused ? "none" : "pulse 1s ease-in-out infinite",
           }}

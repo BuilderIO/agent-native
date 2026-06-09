@@ -90,6 +90,10 @@ vi.mock("./oauth-store.js", () => ({
     if (!row || row.revokedAt) return null;
     return row;
   }),
+  touchOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
+    const row = refreshRows.get(refreshToken);
+    if (row && !row.revokedAt) row.lastUsedAt = Date.now();
+  }),
   rotateOAuthRefreshToken: vi.fn(
     async ({ oldRefreshToken, newRefreshToken }) => {
       const old = refreshRows.get(oldRefreshToken);
@@ -143,6 +147,12 @@ describe("MCP OAuth route", () => {
     vi.clearAllMocks();
     process.env.A2A_SECRET = "test-oauth-secret";
     delete process.env.APP_BASE_PATH;
+    delete process.env.APP_URL;
+    delete process.env.VITE_APP_URL;
+    delete process.env.BETTER_AUTH_URL;
+    delete process.env.VITE_BETTER_AUTH_URL;
+    delete process.env.WORKSPACE_OAUTH_ORIGIN;
+    delete process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
     getSessionMock.mockResolvedValue({
       email: "steve@example.com",
       orgId: "org_123",
@@ -169,6 +179,38 @@ describe("MCP OAuth route", () => {
         "https://mail.agent-native.com/_agent-native/mcp/oauth/register",
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
+    });
+  });
+
+  it("prefers configured public URL over forwarded request headers for OAuth resource", async () => {
+    process.env.APP_URL = "https://plan.agent-native.com";
+    const protectedRes = handleMcpOAuthProtectedResourceMetadata(
+      event({
+        headers: {
+          host: "internal.netlify.local",
+          "x-forwarded-host": "preview-random.netlify.app",
+          "x-forwarded-proto": "http",
+        },
+      }),
+    );
+    await expect(protectedRes.json()).resolves.toMatchObject({
+      resource: "https://plan.agent-native.com/_agent-native/mcp",
+      authorization_servers: ["https://plan.agent-native.com"],
+    });
+
+    const authRes = handleMcpOAuthAuthorizationServerMetadata(
+      event({
+        headers: {
+          host: "internal.netlify.local",
+          "x-forwarded-host": "preview-random.netlify.app",
+          "x-forwarded-proto": "http",
+        },
+      }),
+    );
+    await expect(authRes.json()).resolves.toMatchObject({
+      issuer: "https://plan.agent-native.com",
+      token_endpoint:
+        "https://plan.agent-native.com/_agent-native/mcp/oauth/token",
     });
   });
 
@@ -503,7 +545,7 @@ describe("MCP OAuth route", () => {
     ).toBeTruthy();
   });
 
-  it("rotates refresh tokens", async () => {
+  it("reuses refresh tokens so parallel chats do not invalidate each other", async () => {
     const client = await (
       await handleMcpOAuth(
         event({
@@ -581,7 +623,7 @@ describe("MCP OAuth route", () => {
     );
     expect(second.status).toBe(200);
     const body = await second.json();
-    expect(body.refresh_token).not.toBe(first.refresh_token);
+    expect(body.refresh_token).toBe(first.refresh_token);
     await expect(
       verifyMcpOAuthAccessToken(
         body.access_token,
@@ -593,7 +635,23 @@ describe("MCP OAuth route", () => {
       orgDomain: "builder.io",
       clientId: client.client_id,
     });
-    expect(refreshRows.get(first.refresh_token)?.revokedAt).toBeTruthy();
+    expect(refreshRows.get(first.refresh_token)?.revokedAt).toBeFalsy();
+    expect(refreshRows.get(first.refresh_token)?.lastUsedAt).toBeTruthy();
+
+    const parallel = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: client.client_id,
+          refresh_token: first.refresh_token,
+        },
+      }),
+      "/token",
+    );
+    expect(parallel.status).toBe(200);
+    const parallelBody = await parallel.json();
+    expect(parallelBody.refresh_token).toBe(first.refresh_token);
   });
 
   it("does not consume an authorization code when client_id mismatches", async () => {

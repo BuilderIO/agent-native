@@ -21,6 +21,7 @@ import {
   useAnnotationHover,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
+import { CodeFilenameLabel } from "./code-filename-label.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
@@ -95,6 +96,8 @@ function AnnotatedCodeRead({
 
   const hasAnnotations = hasRailAnnotations(resolved);
   const langChip = data.language?.trim();
+  const hasFilename = Boolean(data.filename?.trim());
+  const showLangChip = Boolean(langChip && !hasFilename);
 
   // The resolved annotation whose card is currently shown on hover.
   const activeItem =
@@ -111,13 +114,16 @@ function AnnotatedCodeRead({
       ref={codeRef}
       className="overflow-hidden rounded-xl border border-plan-line bg-plan-code"
     >
-      {(data.filename || langChip) && (
+      {(hasFilename || showLangChip) && (
         <div className="flex items-center gap-2 border-b border-plan-line bg-plan-block/50 px-3.5 py-2">
           <IconCode className="size-3.5 shrink-0 text-plan-muted" />
-          <span className="min-w-0 flex-1 truncate font-mono text-[13px] font-medium text-plan-code-text">
-            {data.filename || "snippet"}
-          </span>
-          {langChip && (
+          <CodeFilenameLabel
+            filename={data.filename}
+            className="text-[13px] font-medium"
+            directoryClassName="text-plan-muted"
+            basenameClassName="text-plan-code-text"
+          />
+          {showLangChip && (
             <span className="shrink-0 rounded border border-plan-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-plan-muted">
               {langChip}
             </span>

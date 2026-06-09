@@ -22,6 +22,7 @@ import {
   inferLanguageFromFilename,
   normalizeCodeLanguage,
 } from "./code-highlight.js";
+import { CodeFilenameLabel } from "./code-filename-label.js";
 import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 
 /**
@@ -100,7 +101,11 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
           <div className="plan-code-head">
             <span className="plan-code-filename">
               <IconCode className="size-4 shrink-0 opacity-70" />
-              {data.filename}
+              <CodeFilenameLabel
+                filename={data.filename}
+                directoryClassName="text-plan-muted"
+                basenameClassName="text-plan-text"
+              />
             </span>
             <span className="plan-code-chrome">
               <CopyButton value={data.code} />
@@ -112,7 +117,7 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
           language={language}
           maxLines={data.maxLines}
           className={data.filename ? "mt-0" : "mt-0"}
-          showLanguageLabel={hasFilename}
+          showLanguageLabel={false}
         />
         {!hasFilename && (
           <span className="plan-code-chrome plan-code-chrome-float">
@@ -323,7 +328,11 @@ function CodeEditorSurface({
         <div className="plan-code-head">
           <span className="plan-code-filename plan-code-muted">
             <IconCode className="size-4 shrink-0 opacity-70" />
-            {filename}
+            <CodeFilenameLabel
+              filename={filename}
+              directoryClassName="text-plan-muted"
+              basenameClassName="text-plan-text"
+            />
           </span>
           <span className="plan-code-chrome">{chrome}</span>
         </div>

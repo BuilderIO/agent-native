@@ -308,6 +308,16 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     expect(res.identity?.userEmail).toBe("owner@example.com");
   });
 
+  it("accepts bearer auth scheme case-insensitively with flexible spacing", async () => {
+    process.env.ACCESS_TOKEN = "static-tok";
+    const res = await verifyAuth(
+      "  bearer   static-tok  ",
+      "owner@example.com",
+    );
+    expect(res.authed).toBe(true);
+    expect(res.identity?.userEmail).toBe("owner@example.com");
+  });
+
   it("no auth configured + forwarded owner header (mcp install) → authed, fullSurface true", async () => {
     const res = await verifyAuth(undefined, "owner@example.com");
     expect(res.authed).toBe(true);
@@ -347,5 +357,23 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
       userEmail: "oauth@example.com",
       oauthScopes: ["mcp:read"],
     });
+  });
+
+  it("accepts standard MCP OAuth tokens with lowercase bearer headers", async () => {
+    process.env.BETTER_AUTH_SECRET = SECRET;
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource,
+      issuer: "https://mail.agent-native.com",
+    });
+    const res = await verifyAuth(`bearer  ${token}`, undefined, {
+      allowDevOpen: false,
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(true);
+    expect(res.identity?.userEmail).toBe("oauth@example.com");
   });
 });

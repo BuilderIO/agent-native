@@ -165,7 +165,9 @@ describe("recap mcp-config", () => {
     // basic string, never break out of it.
     const toml = buildRecapCodexMcpConfig('https://evil"\n[hacked]');
     // The url line stays a single, properly-escaped basic string.
-    expect(toml).toContain('url = "https://evil\\"\\n[hacked]/_agent-native/mcp"');
+    expect(toml).toContain(
+      'url = "https://evil\\"\\n[hacked]/_agent-native/mcp"',
+    );
     // No injected table header on its own line.
     expect(toml).not.toMatch(/^\[hacked\]/m);
   });
@@ -178,6 +180,7 @@ describe("recap prompt builder", () => {
     const prompt = buildRecapPrompt({
       skillMd,
       pr: "1095",
+      repo: "BuilderIO/ai-services",
       head: "abc1234",
       appUrl: "https://plan.agent-native.com/",
       diffPath: "recap.diff",
@@ -188,6 +191,10 @@ describe("recap prompt builder", () => {
     // The diff is read from disk by the agent, not inlined.
     expect(prompt).toContain("recap.diff");
     expect(prompt).toContain("#1095");
+    expect(prompt).toContain("BuilderIO/ai-services");
+    expect(prompt).toContain(
+      "https://github.com/BuilderIO/ai-services/pull/1095",
+    );
     // The publish path and the single hand-off are spelled out.
     expect(prompt).toContain("mcp__plan__create-visual-recap");
     expect(prompt).toContain("set-resource-visibility");
@@ -374,6 +381,18 @@ describe("recap usage parsing", () => {
   it("returns null when no usage is present", () => {
     expect(parseClaudeUsage("not json")).toBeNull();
     expect(parseCodexUsage('{"type":"turn.started"}')).toBeNull();
+  });
+});
+
+describe("bundled PR visual recap workflow", () => {
+  it("creates an informational check run while the recap is running", () => {
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("checks: write");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("name: 'Visual Recap'");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("github.rest.checks.create");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("github.rest.checks.update");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "title: 'Review in progress'",
+    );
   });
 });
 

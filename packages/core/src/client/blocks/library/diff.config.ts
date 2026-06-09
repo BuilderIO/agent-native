@@ -46,7 +46,7 @@ export interface DiffData {
   before: string;
   /** New ("after") source. */
   after: string;
-  /** Layout: unified (default, one column) or split (side-by-side). */
+  /** Layout: split (default, side-by-side) or unified (one column). */
   mode?: DiffMode;
   /** Line-anchored notes over the before/after sides. */
   annotations?: DiffAnnotation[];
