@@ -599,21 +599,27 @@ export default function AppSettings({
     return () => window.clearInterval(timer);
   }, [refreshRemoteStatus]);
 
-  const handleFrameToggle = useCallback(async (enabled: boolean) => {
-    if (window.electronAPI?.frame) {
-      const updated = await window.electronAPI.frame.update({ enabled });
-      setFrameSettings(updated);
-      onFrameSettingsChanged?.(updated);
-    }
-  }, [onFrameSettingsChanged]);
+  const handleFrameToggle = useCallback(
+    async (enabled: boolean) => {
+      if (window.electronAPI?.frame) {
+        const updated = await window.electronAPI.frame.update({ enabled });
+        setFrameSettings(updated);
+        onFrameSettingsChanged?.(updated);
+      }
+    },
+    [onFrameSettingsChanged],
+  );
 
-  const handleFrameModeToggle = useCallback(async (mode: "dev" | "prod") => {
-    if (window.electronAPI?.frame) {
-      const updated = await window.electronAPI.frame.update({ mode });
-      setFrameSettings(updated);
-      onFrameSettingsChanged?.(updated);
-    }
-  }, [onFrameSettingsChanged]);
+  const handleFrameModeToggle = useCallback(
+    async (mode: "dev" | "prod") => {
+      if (window.electronAPI?.frame) {
+        const updated = await window.electronAPI.frame.update({ mode });
+        setFrameSettings(updated);
+        onFrameSettingsChanged?.(updated);
+      }
+    },
+    [onFrameSettingsChanged],
+  );
 
   const handleCodeTabToggle = useCallback(
     async (showCodeTab: boolean) => {
