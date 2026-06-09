@@ -513,6 +513,7 @@ export default function MeetingDetailRoute() {
   const meetingIdForFinalize = meeting?.id;
   const transcriptStatusForFinalize = meeting?.transcriptStatus;
   useEffect(() => {
+    if (!canEdit) return; // viewers can't finalize — would 403
     if (!meetingIdForFinalize) return;
     if (autoFinalizedRef.current) return;
     if (hasNotes) return;
@@ -520,7 +521,13 @@ export default function MeetingDetailRoute() {
     if (transcriptStatusForFinalize !== "ready") return;
     autoFinalizedRef.current = true;
     finalize.mutate({ meetingId: meetingIdForFinalize });
-  }, [meetingIdForFinalize, transcriptStatusForFinalize, hasNotes, finalize]);
+  }, [
+    canEdit,
+    meetingIdForFinalize,
+    transcriptStatusForFinalize,
+    hasNotes,
+    finalize,
+  ]);
 
   if (isLoading || !meeting) {
     return (

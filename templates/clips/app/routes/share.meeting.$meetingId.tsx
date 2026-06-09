@@ -7,7 +7,7 @@ import {
   IconUsers,
   IconWand,
 } from "@tabler/icons-react";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { PoweredByBadge, appPath } from "@agent-native/core/client";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -66,7 +66,7 @@ export async function loader({
       bulletsJson: schema.meetings.bulletsJson,
     })
     .from(schema.meetings)
-    .where(eq(schema.meetings.id, id))
+    .where(and(eq(schema.meetings.id, id), isNull(schema.meetings.trashedAt)))
     .limit(1);
 
   if (!row) return { meeting: null };

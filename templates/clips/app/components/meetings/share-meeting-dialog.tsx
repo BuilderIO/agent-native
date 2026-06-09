@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { toast } from "sonner";
 import { IconLink, IconMail } from "@tabler/icons-react";
-import { useActionQuery } from "@agent-native/core/client";
+import { appPath, useActionQuery } from "@agent-native/core/client";
 import {
   Popover,
   PopoverContent,
@@ -56,7 +56,7 @@ function ShareMeetingContent({
   meetingTitle?: string;
 }) {
   const shareUrl = useMemo(
-    () => `${window.location.origin}/share/meeting/${meetingId}`,
+    () => `${window.location.origin}${appPath(`/share/meeting/${meetingId}`)}`,
     [meetingId],
   );
 

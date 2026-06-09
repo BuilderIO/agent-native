@@ -142,8 +142,7 @@ function ShareRecordingContent({
   });
 
   const data = sharesQuery.data;
-  const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
+  const canManage = data?.role === "owner" || data?.role === "admin";
   const titleText = recordingTitle
     ? `Share "${recordingTitle}"`
     : "Share recording";
