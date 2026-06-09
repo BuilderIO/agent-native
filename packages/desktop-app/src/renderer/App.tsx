@@ -4,6 +4,7 @@ import {
   DESKTOP_DEFAULT_APPS,
   type AppDefinition,
   type AppConfig,
+  type FrameSettings,
   toAppDefinition,
 } from "@shared/app-registry";
 import Sidebar from "./components/Sidebar.js";
@@ -111,6 +112,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
+  const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(false);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
     runId?: string;
@@ -132,6 +134,14 @@ export default function App() {
       setLoading(false);
     }
     load();
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.frame) return;
+    window.electronAPI.frame
+      .load()
+      .then((settings) => setShowCodeAgentsTab(settings.showCodeTab))
+      .catch(() => setShowCodeAgentsTab(false));
   }, []);
 
   const enabledApps = apps.filter((a) => a.enabled);
@@ -214,6 +224,10 @@ export default function App() {
     setApps(newApps);
   }, []);
 
+  const handleFrameSettingsChanged = useCallback((settings: FrameSettings) => {
+    setShowCodeAgentsTab(settings.showCodeTab);
+  }, []);
+
   const activateApp = useCallback(
     (appId: string, options: { ensureTab?: boolean } = {}) => {
       if (!appId) return;
@@ -259,10 +273,11 @@ export default function App() {
   );
 
   const handleCodeAgentsClick = useCallback(() => {
+    if (!showCodeAgentsTab) return;
     setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
     setShowSettings(false);
     setShowAddApp(false);
-  }, []);
+  }, [showCodeAgentsTab]);
 
   const handleDesktopOpenRequest = useCallback(
     (request: DesktopOpenRequest): boolean => {
