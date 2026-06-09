@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type MutableRefObject } from "react";
+import { useRef, type MutableRefObject } from "react";
 import type { PlanBlock } from "@shared/plan-content";
 
 /* -------------------------------------------------------------------------- */
@@ -57,7 +57,7 @@ export interface PlanUndoStack {
   canRedo: () => boolean;
 }
 
-interface UsePlanUndoStackOptions {
+export interface CreatePlanUndoStackOptions {
   /**
    * Apply a prior blocks[] snapshot back into the editor + persist it, WITHOUT
    * re-recording it (the host guards its `commit` with an is-restoring ref).
@@ -84,8 +84,8 @@ function clone(blocks: PlanBlock[]): PlanBlock[] {
 }
 
 /**
- * Ordered `id:type` signature over the WHOLE tree (containers included). Any
- * add / remove / reorder / type-change / nesting-change makes the signature
+ * Ordered `depth:id:type` signature over the WHOLE tree (containers included).
+ * Any add / remove / reorder / type-change / nesting-change makes the signature
  * differ → the edit is `structural` (always a fresh undo boundary).
  */
 function structuralSignature(blocks: PlanBlock[]): string {
@@ -104,9 +104,11 @@ function structuralSignature(blocks: PlanBlock[]): string {
   return parts.join("|");
 }
 
-/** Map every LEAF block (everything except the columns/tabs containers) → its serialized data. */
-function leafDataById(blocks: PlanBlock[]): Map<string, string> {
-  const out = new Map<string, string>();
+/** Map every LEAF block (everything except columns/tabs containers) → serialized data + type. */
+function leafDataById(
+  blocks: PlanBlock[],
+): Map<string, { type: string; data: string }> {
+  const out = new Map<string, { type: string; data: string }>();
   const walk = (list: PlanBlock[]) => {
     for (const block of list) {
       if (block.type === "columns") {
@@ -114,10 +116,10 @@ function leafDataById(blocks: PlanBlock[]): Map<string, string> {
       } else if (block.type === "tabs") {
         for (const tab of block.data.tabs) walk(tab.blocks);
       } else {
-        out.set(
-          block.id,
-          JSON.stringify((block as { data?: unknown }).data ?? null),
-        );
+        out.set(block.id, {
+          type: block.type,
+          data: JSON.stringify((block as { data?: unknown }).data ?? null),
+        });
       }
     }
   };
@@ -140,129 +142,130 @@ function classify(
   const prevLeaves = leafDataById(prev);
   const nextLeaves = leafDataById(next);
   const changed: string[] = [];
-  for (const [id, data] of nextLeaves) {
-    if (prevLeaves.get(id) !== data) changed.push(id);
+  for (const [id, entry] of nextLeaves) {
+    if (prevLeaves.get(id)?.data !== entry.data) changed.push(id);
   }
   if (changed.length === 1) {
     const id = changed[0];
-    const isRichText = next.length
-      ? findLeafType(next, id) === "rich-text"
-      : false;
-    if (isRichText) return { kind: "text", changedBlockId: id };
+    if (nextLeaves.get(id)?.type === "rich-text") {
+      return { kind: "text", changedBlockId: id };
+    }
   }
   return { kind: "data", changedBlockId: null };
 }
 
-function findLeafType(blocks: PlanBlock[], id: string): string | null {
-  let found: string | null = null;
-  const walk = (list: PlanBlock[]) => {
-    for (const block of list) {
-      if (found) return;
-      if (block.type === "columns") {
-        for (const column of block.data.columns) walk(column.blocks);
-      } else if (block.type === "tabs") {
-        for (const tab of block.data.tabs) walk(tab.blocks);
-      } else if (block.id === id) {
-        found = block.type;
-      }
-    }
-  };
-  walk(blocks);
-  return found;
-}
-
-export function usePlanUndoStack({
+/**
+ * The pure undo/redo engine over blocks[] snapshots. Framework-free so it can be
+ * unit-tested headlessly; {@link usePlanUndoStack} wraps it with refs for stable
+ * React identity. `restore`/`getCurrentBlocks`/`now` are called live each op.
+ */
+export function createPlanUndoStack({
   restore,
   getCurrentBlocks,
   coalesceMs = DEFAULT_COALESCE_MS,
   limit = DEFAULT_LIMIT,
   now = Date.now,
-}: UsePlanUndoStackOptions): PlanUndoStack {
-  const pastRef = useRef<Snapshot[]>([]);
-  const futureRef = useRef<Snapshot[]>([]);
+}: CreatePlanUndoStackOptions): PlanUndoStack {
+  const past: Snapshot[] = [];
+  const future: Snapshot[] = [];
 
-  // Read host callbacks through refs so the stable undo/redo closures never go
-  // stale even though the host re-creates `restore`/`getCurrentBlocks` each render.
-  const restoreRef = useRef(restore);
-  restoreRef.current = restore;
-  const getCurrentRef = useRef(getCurrentBlocks);
-  getCurrentRef.current = getCurrentBlocks;
-  const nowRef = useRef(now);
-  nowRef.current = now;
+  const record = (prev: PlanBlock[], next: PlanBlock[]) => {
+    // No-op edits (e.g. an idempotent reconcile that reached commit) never
+    // create an undo entry.
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
 
-  const record = useCallback(
-    (prev: PlanBlock[], next: PlanBlock[]) => {
-      // No-op edits (e.g. an idempotent reconcile that reached commit) never
-      // create an undo entry.
-      if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    const { kind, changedBlockId } = classify(prev, next);
+    const ts = now();
+    const top = past[past.length - 1];
 
-      const { kind, changedBlockId } = classify(prev, next);
-      const ts = nowRef.current();
-      const past = pastRef.current;
-      const top = past[past.length - 1];
+    const coalesce =
+      kind === "text" &&
+      !!top &&
+      top.kind === "text" &&
+      top.changedBlockId === changedBlockId &&
+      ts - top.t < coalesceMs;
 
-      const coalesce =
-        kind === "text" &&
-        !!top &&
-        top.kind === "text" &&
-        top.changedBlockId === changedBlockId &&
-        ts - top.t < coalesceMs;
+    if (coalesce && top) {
+      // Keep `top.blocks` (the state from BEFORE the typing burst began) so a
+      // single undo reverts the whole burst; just extend the window.
+      top.t = ts;
+    } else {
+      past.push({ blocks: clone(prev), kind, changedBlockId, t: ts });
+      if (past.length > limit) past.shift();
+    }
+    // Any new user edit invalidates the redo branch.
+    future.length = 0;
+  };
 
-      if (coalesce && top) {
-        // Keep `top.blocks` (the state from BEFORE the typing burst began) so a
-        // single undo reverts the whole burst; just extend the window.
-        top.t = ts;
-      } else {
-        past.push({ blocks: clone(prev), kind, changedBlockId, t: ts });
-        if (past.length > limit) past.shift();
-      }
-      // Any new user edit invalidates the redo branch.
-      futureRef.current.length = 0;
-    },
-    [coalesceMs, limit],
-  );
-
-  const undo = useCallback(() => {
-    const past = pastRef.current;
+  const undo = () => {
     if (past.length === 0) return false;
     const entry = past.pop() as Snapshot;
-    futureRef.current.push({
-      blocks: clone(getCurrentRef.current()),
+    future.push({
+      blocks: clone(getCurrentBlocks()),
       kind: entry.kind,
       changedBlockId: entry.changedBlockId,
-      t: nowRef.current(),
+      t: now(),
     });
-    restoreRef.current(entry.blocks);
+    restore(entry.blocks);
     return true;
-  }, []);
+  };
 
-  const redo = useCallback(() => {
-    const future = futureRef.current;
+  const redo = () => {
     if (future.length === 0) return false;
     const entry = future.pop() as Snapshot;
-    pastRef.current.push({
-      blocks: clone(getCurrentRef.current()),
+    past.push({
+      blocks: clone(getCurrentBlocks()),
       kind: entry.kind,
       changedBlockId: entry.changedBlockId,
-      t: nowRef.current(),
+      t: now(),
     });
-    restoreRef.current(entry.blocks);
+    restore(entry.blocks);
     return true;
-  }, []);
+  };
 
-  const reset = useCallback(() => {
-    pastRef.current.length = 0;
-    futureRef.current.length = 0;
-  }, []);
+  const reset = () => {
+    past.length = 0;
+    future.length = 0;
+  };
 
-  const canUndo = useCallback(() => pastRef.current.length > 0, []);
-  const canRedo = useCallback(() => futureRef.current.length > 0, []);
-
-  return useMemo(
-    () => ({ record, undo, redo, reset, canUndo, canRedo }),
-    [record, undo, redo, reset, canUndo, canRedo],
-  );
+  return {
+    record,
+    undo,
+    redo,
+    reset,
+    canUndo: () => past.length > 0,
+    canRedo: () => future.length > 0,
+  };
 }
 
-/** Exposed for tests / host code that need a typed ref to the stack. */
+/**
+ * React binding for {@link createPlanUndoStack}. Creates the engine ONCE and
+ * feeds it the latest `restore`/`getCurrentBlocks`/`now` through refs, so the
+ * returned stack keeps a stable identity while never going stale even though
+ * the host re-creates those callbacks on every render.
+ */
+export function usePlanUndoStack(
+  options: CreatePlanUndoStackOptions,
+): PlanUndoStack {
+  const restoreRef = useRef(options.restore);
+  restoreRef.current = options.restore;
+  const getCurrentRef = useRef(options.getCurrentBlocks);
+  getCurrentRef.current = options.getCurrentBlocks;
+  const nowRef = useRef(options.now ?? Date.now);
+  nowRef.current = options.now ?? Date.now;
+
+  const stackRef = useRef<PlanUndoStack | null>(null);
+  if (!stackRef.current) {
+    stackRef.current = createPlanUndoStack({
+      restore: (blocks) => restoreRef.current(blocks),
+      getCurrentBlocks: () => getCurrentRef.current(),
+      now: () => nowRef.current(),
+      coalesceMs: options.coalesceMs,
+      limit: options.limit,
+    });
+  }
+  return stackRef.current;
+}
+
+/** Exposed for host code / tests that need a typed ref to the stack. */
 export type PlanUndoStackRef = MutableRefObject<PlanUndoStack | null>;

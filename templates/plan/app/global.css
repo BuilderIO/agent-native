@@ -397,16 +397,74 @@
     overflow-y: auto;
     padding: 0.25rem 0 1.5rem;
     pointer-events: auto;
+    /* Sit back as a low-prominence marginal rail; lift to full strength only
+     * when the reader hovers, focuses, or expands a file into the flyout. */
+    opacity: 0.7;
+    transition: opacity 0.18s ease;
   }
 
-  /* The mirrored block carries its own card chrome; drop the document-flow
-   * top divider/spacing it would otherwise inherit, and let its label sit flush
-   * at the top of the rail. */
+  .plan-document-files__nav:hover,
+  .plan-document-files__nav:focus-within,
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-document-files__nav {
+    opacity: 1;
+  }
+
+  /* Drop the document-flow top divider/spacing the mirrored block would
+   * otherwise inherit, and let its label sit flush at the top of the rail. */
   .plan-document-files__nav > .plan-block,
   .plan-document-files__nav .plan-block {
     margin-top: 0;
     padding-top: 0;
     border-top: 0;
+  }
+
+  /* In the rail the file-tree block sheds its card chrome so it reads as a
+   * plain list in the margin: no fill, no radius, and only a slim right divider
+   * (top/left/bottom borders fade to transparent). Border WIDTH stays 1px on
+   * every edge at all times, so expanding animates only the border COLOR
+   * (transparent → line), never the width — which would jank. The inline copy
+   * in the document body keeps its full card. */
+  .plan-document-files__nav .plan-block > .rounded-xl {
+    border-radius: 0;
+    border-color: transparent;
+    border-right-color: var(--plan-line);
+    background-color: transparent;
+    transition:
+      border-color 0.18s ease,
+      border-radius 0.18s ease,
+      background-color 0.18s ease;
+  }
+
+  /* The summary header (file count + change tally) loses its tint + divider
+   * too while collapsed. */
+  .plan-document-files__nav .plan-block > .rounded-xl > :first-child {
+    background-color: transparent;
+    border-bottom-color: transparent;
+    transition:
+      background-color 0.18s ease,
+      border-color 0.18s ease;
+  }
+
+  /* Expanded flyout restores the panel chrome — top/left/right border, radius,
+   * and fill — fading the borders in from transparent. Bottom stays borderless
+   * so the panel reads as anchored to the document edge. */
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-block
+    > .rounded-xl {
+    border-radius: 0.75rem;
+    border-top-color: var(--plan-line);
+    border-left-color: var(--plan-line);
+    border-right-color: var(--plan-line);
+    background-color: var(--plan-block);
+  }
+
+  .plan-document-files:has(.plan-block[data-files-expanded])
+    .plan-block
+    > .rounded-xl
+    > :first-child {
+    background-color: hsl(var(--accent) / 0.2);
+    border-bottom-color: var(--plan-line);
   }
 }
 
