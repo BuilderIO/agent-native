@@ -3132,6 +3132,7 @@ export function PlansPage() {
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
+              viewerEmail={session?.email ?? null}
             />
           ) : !bundle && planQuery.isLoading ? (
             <PlanSkeleton isRecap={location.pathname.startsWith("/recaps")} />
@@ -3141,6 +3142,7 @@ export function PlansPage() {
               onRetry={() => void planQuery.refetch()}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
+              viewerEmail={session?.email ?? null}
             />
           ) : (
             <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
@@ -4253,17 +4255,28 @@ function PlanLoadError({
   onRetry,
   onCreate,
   canCreate,
+  viewerEmail,
 }: {
   planId?: string;
   error?: unknown;
   onRetry: () => void;
   onCreate: () => void;
   canCreate: boolean;
+  /** The signed-in identity for THIS origin, or null when anonymous. */
+  viewerEmail?: string | null;
 }) {
   const message =
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
       : "This plan could not be loaded from the current session.";
+
+  // "Not found" here almost always means an identity or origin mismatch, not a
+  // genuinely missing plan — the access resolver deliberately conflates the two
+  // (it won't leak whether a private plan exists). The single most useful thing
+  // we CAN show, without leaking anything, is who you're currently signed in as
+  // on this server, plus the reminder that plans are scoped per account AND per
+  // origin (hosted vs a localhost dev port are different databases).
+  const signedIn = Boolean(viewerEmail);
 
   return (
     <div className="flex h-full items-center justify-center bg-background p-8">
@@ -4279,6 +4292,30 @@ function PlanLoadError({
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {message}
             </p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {signedIn ? (
+                <>
+                  You&rsquo;re signed in as{" "}
+                  <span className="font-medium text-foreground">
+                    {viewerEmail}
+                  </span>
+                  . Plans are private per account and per server — if this one
+                  was created under a different account, or on another server
+                  (e.g. the hosted app vs this localhost), it won&rsquo;t appear
+                  here.
+                </>
+              ) : (
+                <>
+                  You&rsquo;re{" "}
+                  <span className="font-medium text-foreground">
+                    not signed in
+                  </span>{" "}
+                  on this server, so private plans are hidden. Sign in to view
+                  it — or it may live on a different server (e.g. the hosted
+                  app).
+                </>
+              )}
+            </p>
             {planId && (
               <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
                 {planId}
@@ -4293,7 +4330,7 @@ function PlanLoadError({
           </Button>
           <Button type="button" variant="outline" onClick={onCreate}>
             <IconPlus className="size-4" />
-            {canCreate ? "New Plan" : "Sign in to create"}
+            {canCreate ? "New Plan" : "Sign in"}
           </Button>
         </div>
       </div>

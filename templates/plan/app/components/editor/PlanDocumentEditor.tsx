@@ -190,7 +190,11 @@ function blocksForEditorView(
   return regionInfo ? (regionBlocksForInfo(blocks, regionInfo) ?? []) : blocks;
 }
 
-function replaceEditorViewBlocks(view: EditorView, blocks: PlanBlock[]): void {
+function replaceEditorViewBlocks(
+  view: EditorView,
+  blocks: PlanBlock[],
+  options: { addToHistory?: boolean } = {},
+): void {
   try {
     const doc = view.state.schema.nodeFromJSON(blocksToProseJSON(blocks));
     const tr = view.state.tr.replaceWith(
@@ -198,7 +202,14 @@ function replaceEditorViewBlocks(view: EditorView, blocks: PlanBlock[]): void {
       view.state.doc.content.size,
       doc.content,
     );
-    tr.setMeta("addToHistory", false);
+    // External reconcile repaints (agent patches, source syncs) must NOT enter
+    // the undo stack — they aren't user edits. A user DRAG-reorder must, so cmd+z
+    // reverts the move like any other edit (Notion parity). Either way the
+    // programmatic meta suppresses THIS repaint's own `onUpdate` (handleDrop /
+    // reconcile already committed the blocks); undo/redo replay the steps WITHOUT
+    // that meta, so they round-trip back through `onUpdate` → `handleChange` →
+    // `commit`, persisting the revert.
+    if (!options.addToHistory) tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     view.dispatch(tr.scrollIntoView());
   } catch {
@@ -401,14 +412,26 @@ function repaintDropViews(
   nextBlocks: PlanBlock[],
 ): void {
   const views = new Set([context.sourceView, context.view]);
+  // A drag is "single-editor" when the source and target live in the SAME
+  // ProseMirror view (a pure top-level reorder, or a move within one nested
+  // region). Only then is the whole reorder one editor's transaction, so it can
+  // safely enter THAT editor's undo history — pressing cmd+z reverts it cleanly.
+  // A cross-editor drag (top-level ↔ nested column/tab) repaints two independent
+  // histories; making those historical would let one cmd+z half-revert the move,
+  // so they stay out of history (status quo) and only the data-side save records
+  // them.
+  const singleEditor = views.size === 1;
   for (const view of views) {
     const regionInfo = nestedRegionInfoForView(view);
     if (regionInfo) {
       const regionBlocks = regionBlocksForInfo(nextBlocks, regionInfo);
-      if (regionBlocks) replaceEditorViewBlocks(view, regionBlocks);
+      if (regionBlocks)
+        replaceEditorViewBlocks(view, regionBlocks, {
+          addToHistory: singleEditor,
+        });
       continue;
     }
-    replaceEditorViewBlocks(view, nextBlocks);
+    replaceEditorViewBlocks(view, nextBlocks, { addToHistory: singleEditor });
   }
 }
 
