@@ -295,7 +295,10 @@ export function renderAgentNativeOgImageSvg(
       y: titleY,
       fontSize: titleLayout.fontSize,
       lineHeight: titleLayout.lineHeight,
-      weight: 850,
+      // resvg's fontdb maps font-weight 850 to the Regular face (only 400/700
+      // exist for Liberation Sans); 800 resolves to Bold, the heaviest face we
+      // bundle, which is the intended look for the display title.
+      weight: 800,
       fill: FG,
     })}
     <text x="84" y="${accentY}" font-family="${FONT_FAMILY}" font-size="34" font-weight="800" fill="${BRAND_BLUE}">${escapeSvg(accentText)}</text>
