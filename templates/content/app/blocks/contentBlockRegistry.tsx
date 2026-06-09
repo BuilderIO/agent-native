@@ -85,40 +85,58 @@ export function createContentBlockRenderContext(options?: {
       title,
       trigger,
       children,
+      open,
+      onOpenChange,
+      variant,
       blockId,
       blockType,
       blockTitle,
       blockSummary,
       blockData,
-    }) => (
-      <Popover>
-        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-        <PopoverContent
-          align="end"
-          sideOffset={6}
-          data-plan-interactive
-          className="an-block-edit-popover flex max-h-[70vh] w-96 flex-col gap-3 overflow-auto"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 truncate text-sm font-semibold text-foreground">
-              {title}
-            </div>
-            {blockId && blockType ? (
-              <ContentAiBlockAction
-                label={title}
-                blockId={blockId}
-                blockType={blockType}
-                blockTitle={blockTitle}
-                blockSummary={blockSummary}
-                blockData={blockData}
-                documentId={options?.documentId}
-              />
-            ) : null}
-          </div>
-          {children}
-        </PopoverContent>
-      </Popover>
-    ),
+    }) => {
+      const compactMenu = variant === "menu";
+
+      return (
+        <Popover open={open} onOpenChange={onOpenChange}>
+          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={6}
+            data-plan-interactive
+            className={cn(
+              "flex max-h-[70vh] overflow-auto",
+              compactMenu
+                ? "an-block-menu-popover w-64 flex-col gap-1 rounded-xl p-1"
+                : "an-block-edit-popover w-96 flex-col gap-3",
+            )}
+          >
+            {compactMenu ? (
+              children
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 truncate text-sm font-semibold text-foreground">
+                    {title}
+                  </div>
+                  {blockId && blockType ? (
+                    <ContentAiBlockAction
+                      label={title}
+                      blockId={blockId}
+                      blockType={blockType}
+                      blockTitle={blockTitle}
+                      blockSummary={blockSummary}
+                      blockData={blockData}
+                      documentId={options?.documentId}
+                    />
+                  ) : null}
+                </div>
+                {children}
+              </>
+            )}
+          </PopoverContent>
+        </Popover>
+      );
+    },
   };
   ctx.renderBlock = ({ block, editing = false, onChange }) =>
     renderNestedContentBlock(block, ctx, editing, onChange);

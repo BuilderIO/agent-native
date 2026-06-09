@@ -1,0 +1,340 @@
+---
+# Visual plan: open https://plan.agent-native.com/plans/plan-c79a0403db8d4c3c in a browser for the canvas and review UI.
+visualUrl: "https://plan.agent-native.com/plans/plan-c79a0403db8d4c3c"
+title: "Hosted-First Visual Plan Sync"
+brief: "A docs and product plan for hosted Plans, optional repo writeback, and advanced local/offline mode selection."
+version: 2
+---
+
+<RichText id="overview">
+
+## Recommendation
+
+Make **hosted Plans** the default experience. A normal user should install the skill, ask for `/visual-plan`, review in the hosted Plan app, and never clone or run the Plan app locally.
+
+Separate the product decision into two independent axes:
+
+- **Where the Plan app runs:** hosted, local packaged runtime, or custom/self-hosted MCP URL.
+- **How files sync:** none, manual export/import, hosted repo writeback, or local MDX mirror.
+
+That keeps the docs honest: localhost is not the mainstream product path; it is an advanced mode for offline work, framework development, and teams that explicitly want local files as the primary artifact.
+
+## Decisions from review
+
+- Build toward **hosted + repo sync** first, so people get files without running localhost.
+- Make mode choice **flags only** for now; skip a guided picker in the first pass.
+- Start with **one-way visual -&gt; files** writeback plus explicit import/patch for file edits.
+
+</RichText>
+
+<Diagram
+  id="hosted-first-flow"
+  data={{
+    html: '<div class="diagram-panel hosted-flow">\n  <div class="diagram-card" data-rough><strong>Coding agent</strong><span>/visual-plan calls hosted MCP</span></div>\n  <div class="connector">create / update</div>\n  <div class="diagram-card accent" data-rough><strong>Hosted Plan app</strong><span>Shareable editor, comments, review events</span></div>\n  <div class="connector">persists</div>\n  <div class="diagram-card" data-rough><strong>Hosted SQL</strong><span>Canonical runtime JSON while reviewing</span></div>\n  <div class="diagram-card bridge" data-rough><strong>Repo sync bridge</strong><span>GitHub app, action, or agent job with write permission</span></div>\n  <div class="connector">safe writeback</div>\n  <div class="diagram-card" data-rough><strong>Repo branch / PR</strong><span>plans/&lt;slug&gt;/plan.mdx and optional canvas/prototype MDX</span></div>\n</div>',
+    css: ".hosted-flow{display:grid;grid-template-columns:1fr auto 1.15fr auto 1fr;gap:14px;align-items:stretch;padding:16px}.hosted-flow .diagram-card{display:flex;min-height:112px;flex-direction:column;justify-content:center;gap:8px;padding:14px;background:var(--wf-card)}.hosted-flow .diagram-card span{color:var(--wf-muted);font-size:.92rem;line-height:1.35}.hosted-flow .accent{background:var(--wf-accent-soft)}.hosted-flow .bridge{grid-column:2 / span 2;background:var(--wf-paper);border:1.4px dashed var(--wf-line)}.hosted-flow .bridge + .connector{grid-column:4}.hosted-flow .bridge + .connector + .diagram-card{grid-column:5}.hosted-flow .connector{display:flex;align-items:center;justify-content:center;color:var(--wf-muted);font-size:.85rem;white-space:nowrap}@media (max-width:900px){.hosted-flow{grid-template-columns:1fr}.hosted-flow .bridge,.hosted-flow .bridge + .connector,.hosted-flow .bridge + .connector + .diagram-card{grid-column:auto}.hosted-flow .connector{min-height:24px}}",
+    caption:
+      "Hosted remains the review runtime. Repo files are produced by an explicit sync bridge, not by asking every user to run localhost.",
+  }}
+/>
+
+<RichText id="heading-mode-picker">
+
+## Mode options
+
+These are the user-facing choices. The first row should stay the default; the others are opt-in.
+
+</RichText>
+
+<Table
+  id="mode-picker"
+  title="Mode Picker"
+  columns={[
+    "Choice",
+    "Command shape",
+    "What users get",
+    "Who should choose it",
+  ]}
+  rows={[
+    [
+      "Hosted default",
+      "agent-native skills add visual-plan",
+      "Hosted MCP, hosted editor, shareable URLs, no local app server.",
+      "Most users and teams.",
+    ],
+    [
+      "Hosted + repo sync",
+      "agent-native skills add visual-plan --repo-sync github",
+      "Same hosted review loop, plus MDX writeback to a branch or PR.",
+      "Teams that want plans checked into git without local setup.",
+    ],
+    [
+      "Local packaged runtime",
+      "agent-native plans local --dir ./plans",
+      "A packaged local Plan server mirrors visual edits to local MDX files.",
+      "Offline, local-first, or framework-development sessions.",
+    ],
+    [
+      "Custom/self-hosted",
+      "agent-native skills add visual-plan --mcp-url https://plans.acme.com/\\_agent-native/mcp",
+      "A user-controlled Plan deployment with the same skill surface.",
+      "Enterprise or private-network deployments.",
+    ],
+  ]}
+  density="compact"
+/>
+
+<RichText id="heading-two-axes">
+
+## The model to document
+
+Explain runtime location and file sync separately so hosted usage stays simple.
+
+</RichText>
+
+<Columns id="two-axes" title="Two Separate Choices">
+<Column id="runtime-location" label="Plan Runtime">
+
+This chooses where the editor, comments, review events, and normalized JSON live.
+
+- **Hosted:** simplest, always current, shareable.
+- **Local packaged:** no account/network required, writes local files.
+- **Custom URL:** organization-controlled deployment.
+
+<Callout id="runtime-callout" tone="decision">
+
+Docs should say hosted is the default and local is advanced. Do not present cloning the Plan app as the ordinary install path.
+
+</Callout>
+
+</Column>
+
+<Column id="file-sync" label="File Sync">
+
+This chooses whether MDX artifacts are produced.
+
+- **None:** runtime only; export when needed.
+- **GitHub writeback:** hosted plan saves produce repo files through a trusted integration.
+- **Local mirror:** local saves write to `PLAN_LOCAL_DIR`.
+- **Import/patch:** explicit file-to-runtime updates with conflict checks.
+
+<Callout id="sync-callout" tone="warning">
+
+Avoid invisible two-way sync at first. Browser autosave and editor saves need revision ids and conflict handling before they can safely run both directions live.
+
+</Callout>
+
+</Column>
+</Columns>
+
+<Callout id="localhost-reality" title="How localhost works today" tone="info">
+
+Today, --mcp-url can point a skill at a local Plan app, but that local app must already be running. In this repo it runs from the working tree. In a productized version, the CLI should run a packaged @agent-native/core@latest local Plan server so people do not clone the app. That still is not the default hosted path; it is an explicit local/offline session.
+
+</Callout>
+
+<RichText id="heading-docs-copy">
+
+## Proposed documentation copy
+
+Lead with hosted setup. Put file sync and local/offline mode behind advanced headings.
+
+</RichText>
+
+<Code
+  id="docs-copy-default"
+  title="Docs copy: default install"
+  filename="docs/skills.md"
+  language="md"
+  code={
+    "### Start with hosted Plans\n\nInstall once:\n\n```bash\nnpx @agent-native/core@latest skills add visual-plan\n```\n\nThis registers the hosted Plans MCP connector at `https://plan.agent-native.com/_agent-native/mcp` and authenticates it. Ask your agent for `/visual-plan`; it creates a hosted, shareable plan with comments and structured blocks. You do not need to clone or run the Plan app locally."
+  }
+/>
+
+<Code
+  id="docs-copy-advanced"
+  title="Docs copy: advanced modes"
+  filename="docs/plan-modes.md"
+  language="md"
+  code={
+    "### Optional repo sync\n\nIf your team wants plans as files, keep the hosted review loop and enable repo writeback:\n\n```bash\nnpx @agent-native/core@latest skills add visual-plan --repo-sync github\n```\n\nVisual edits remain hosted and shareable. The sync bridge writes normalized MDX artifacts to a branch or PR with revision checks.\n\n### Local/offline mode\n\nUse local mode only when you need no-account/offline work or a local-first git artifact:\n\n```bash\nnpx @agent-native/core@latest plans local --dir ./plans\n```\n\nThe command starts a packaged local Plan server and points the skill at it for this session. Visual edits mirror to `./plans`. Direct file edits are imported explicitly so conflicts are visible."
+  }
+/>
+
+<RichText id="heading-cli-surface">
+
+## Proposed CLI surface
+
+Keep the ordinary install one command. Expose every advanced mode through explicit, documented flags rather than a guided picker.
+
+</RichText>
+
+<Code
+  id="proposed-cli"
+  title="Proposed CLI surface"
+  filename="agent-native skills add visual-plan"
+  language="bash"
+  caption="Names are proposed. The selected product direction is flags-only mode selection, with hosted as the default."
+  code={
+    "# Default: hosted, authenticated, shareable\nnpx @agent-native/core@latest skills add visual-plan\n\n# Hosted plus git writeback for plan.mdx artifacts\nnpx @agent-native/core@latest skills add visual-plan --repo-sync github\n\n# Advanced: run packaged local Plan server and mirror to files\nnpx @agent-native/core@latest plans local --dir ./plans\n\n# Advanced: connect to a custom/self-hosted Plan deployment\nnpx @agent-native/core@latest skills add visual-plan --mcp-url https://plans.acme.com/_agent-native/mcp"
+  }
+/>
+
+<RichText id="heading-implementation">
+
+## Implementation path
+
+This is the order I would build/document it so the story lands cleanly.
+
+</RichText>
+
+<Checklist
+  id="implementation-checklist"
+  title="Implementation Plan"
+  items={[
+    {
+      id: "cli-help",
+      label:
+        "Update CLI help so hosted default and advanced flags are obvious.",
+      checked: false,
+      note: "Flags-only selection is the chosen first pass; keep the default command simple and document optional flags clearly.",
+    },
+    {
+      id: "docs-page",
+      label: "Add a Plans modes docs section with a chooser table.",
+      checked: false,
+      note: "Use the two-axis model: runtime location and file sync.",
+    },
+    {
+      id: "repo-sync-design",
+      label:
+        "Design hosted repo writeback with revision ids, auth, and conflict handling.",
+      checked: false,
+      note: "This is the path that avoids local clones while still producing files.",
+    },
+    {
+      id: "local-package",
+      label:
+        "Package local runtime behind one npx command instead of docs that require cloning.",
+      checked: false,
+      note: "Local mode should run latest published code when invoked with @latest.",
+    },
+    {
+      id: "skill-setup",
+      label:
+        "Update the visual-plan skill setup text to call local mode advanced.",
+      checked: false,
+      note: "Keep copies in sync with packages/core/src/cli/skills.ts and exported skills.",
+    },
+  ]}
+/>
+
+<RichText id="heading-doc-surfaces">
+
+## Surfaces to update
+
+The docs, CLI help, exported skill text, and local mirror implementation need to stay aligned.
+
+</RichText>
+
+<FileTree
+  id="docs-surfaces"
+  title="Documentation and code surfaces"
+  title="Where this should land"
+  entries={[
+    {
+      path: "packages/docs/app/routes/skills.tsx",
+      change: "modified",
+      note: "The public install page should say hosted is the default and show optional repo sync/local mode below it.",
+    },
+    {
+      path: "packages/docs/app/routes/templates.plan.tsx",
+      change: "modified",
+      note: "The Plan template page should explain runtime vs source files and when local MDX mirroring applies.",
+    },
+    {
+      path: "packages/core/src/cli/skills.ts",
+      change: "modified",
+      note: "Shared skill setup/auth copy should document hosted default and advanced local/custom modes.",
+    },
+    {
+      path: "skills/visual-plans/SKILL.md",
+      change: "modified",
+      note: "Exported skill copy should not imply cloning/localhost is normal for users.",
+    },
+    {
+      path: "templates/plan/server/lib/local-plan-files.ts",
+      change: "modified",
+      note: "Existing local mirror behavior stays as the advanced/offline implementation detail.",
+    },
+    {
+      path: "new: hosted repo sync bridge",
+      change: "added",
+      note: "Needed for always-hosted visual edits that write plan.mdx back to a repo without localhost.",
+    },
+  ]}
+/>
+
+<RichText id="heading-risks">
+
+## Risks and guardrails
+
+The main risk is hidden sync behavior. Make writeback explicit until conflict handling is mature.
+
+</RichText>
+
+<Table
+  id="risk-table"
+  title="Risks and Guardrails"
+  columns={["Risk", "Guardrail"]}
+  rows={[
+    [
+      "Users think local mode is required.",
+      "Docs lead with hosted. Advanced modes live below a “Need files/offline?” section.",
+    ],
+    [
+      "Hosted repo sync overwrites hand-edited files.",
+      "Use revision ids, generated-file headers, conflict PR comments, and explicit re-import.",
+    ],
+    [
+      "Local server goes stale.",
+      "Run local mode from a packaged @latest command and show its version in the editor.",
+    ],
+    [
+      "Too many flags confuse first install.",
+      "Default command stays one line. Advanced flags are explicit, documented, and never required for normal use.",
+    ],
+  ]}
+  density="compact"
+/>
+
+<RichText id="heading-resolved-choices">
+
+## Resolved choices
+
+These replace the open questions from the first draft.
+
+</RichText>
+
+<Table
+  id="resolved-choices"
+  title="Resolved Choices"
+  columns={["Decision", "Selected direction", "Why"]}
+  rows={[
+    [
+      "Sync product to design first",
+      "Hosted + repo sync",
+      "Keeps review hosted/shareable while writing plan.mdx through a trusted repo integration.",
+    ],
+    [
+      "How users choose modes",
+      "Flags only",
+      "Matches the requested direction: simple default install, explicit advanced flags, no guided picker yet.",
+    ],
+    [
+      "First sync ambition",
+      "One-way visual -&gt; files",
+      "Safer first cut: browser edits write files with revision checks; file edits use explicit import or patch.",
+    ],
+  ]}
+  density="compact"
+/>

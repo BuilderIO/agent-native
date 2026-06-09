@@ -49,10 +49,12 @@
   --sidebar-border: 36 10% 86%;
   --sidebar-ring: 218 85% 57%;
   /* ── Plan document font sizes — edit here to resize globally ──────────────
-     --plan-code-size  : all monospace code surfaces (diffs, annotated-code,
-                         code blocks, JSON explorer, file trees, etc.)
+     --plan-code-size  : general monospace code surfaces and editors
+     --plan-doc-code-size: dense read-only code surfaces such as diffs,
+                         annotated-code, API examples, JSON explorer, etc.
      --plan-body-size  : prose body text across all plan document blocks       */
-  --plan-code-size: 1rem;
+  --plan-code-size: 0.7rem;
+  --plan-doc-code-size: 0.7rem;
   --plan-body-size: 1rem;
 }
 
@@ -459,6 +461,19 @@
     border-top: 0;
   }
 
+  /* The sidebar's single, fixed "Files changed" heading. The mirrored file-tree
+   * is rendered heading-free (see `stripFileTreeTitles`); this is the only
+   * heading in the rail, so it is never duplicated. Matches the eyebrow
+   * `plan-block-label` weight/tone and sits flush at the top of the rail. */
+  .plan-document-files__label {
+    margin: 0 0 0.75rem;
+    color: var(--plan-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1.3;
+  }
+
   /* In the rail the file-tree block sheds its card chrome so it reads as a
    * plain list in the margin: no fill, no radius, and only a slim right divider
    * (top/left/bottom borders fade to transparent). Border WIDTH stays 1px on
@@ -486,9 +501,8 @@
       border-color 0.18s ease;
   }
 
-  /* Expanded flyout restores the panel chrome — top/left/right border, radius,
-   * and fill — fading the borders in from transparent. Bottom stays borderless
-   * so the panel reads as anchored to the document edge. */
+  /* Expanded flyout restores the panel chrome — full border, radius, and fill —
+   * fading the borders in from transparent. */
   .plan-document-files:has(.plan-block[data-files-expanded])
     .plan-block
     > .rounded-xl {
@@ -496,6 +510,7 @@
     border-top-color: var(--plan-line);
     border-left-color: var(--plan-line);
     border-right-color: var(--plan-line);
+    border-bottom-color: var(--plan-line);
     /* Match the page (document) surface, not the card fill, so the flyout reads
      * as a continuation of the page rather than a raised card. */
     background-color: var(--plan-document);
@@ -911,7 +926,7 @@
   position: relative;
   overflow: auto;
   font-size: var(--plan-code-size);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 /* Collapsed: clamp to N lines (+ the pre's top padding) and hide the rest. */
@@ -957,7 +972,7 @@
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--plan-code-size);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 .plan-code-surface pre code {
@@ -1032,7 +1047,7 @@
   gap: 0.4rem;
   min-width: 0;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--plan-code-size);
+  font-size: max(0.75rem, calc(var(--plan-code-size) - 0.0625rem));
   font-weight: 600;
   color: var(--plan-text);
 }
@@ -1101,7 +1116,7 @@
 
 /* Editable surface: ONE border, auto-grows to content (no drag-to-resize). */
 .plan-code-editing {
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--plan-line);
   border-radius: 12px;
   /* Sit on the page background like the diff block — no distinct surface fill. */
@@ -1139,13 +1154,23 @@
 
 .plan-code-editor-layer,
 .plan-code-editor-input {
+  box-sizing: border-box;
   margin: 0;
   padding: 0.85rem 1.1rem;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--plan-code-size);
-  line-height: 1.6;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: 0;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
   white-space: pre;
   tab-size: 2;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .plan-code-editor-layer {
@@ -1159,11 +1184,27 @@
      `.an-rich-md-prose pre`. Override so it's flat and matches the textarea +
      annotated-code (the single .plan-code-editing border is the only chrome,
      and the overlay font must line up exactly with .plan-code-editor-input). */
+  margin: 0 !important;
+  padding: 0.85rem 1.1rem !important;
   background: transparent !important;
   border: 0 !important;
   border-radius: 0;
+  font-family:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace !important;
   font-size: var(--plan-code-size) !important;
-  line-height: 1.6 !important;
+  line-height: 1.55 !important;
+}
+
+.plan-code-editor-layer :where(code, span) {
+  font: inherit !important;
+  letter-spacing: 0 !important;
+  font-kerning: none !important;
+  font-variant-ligatures: none !important;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0 !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
 }
 
 .plan-code-editor-input {
@@ -1172,7 +1213,7 @@
   width: 100%;
   min-height: 2.5rem;
   resize: none;
-  overflow: hidden;
+  overflow: auto;
   border: 0;
   background: transparent;
   color: transparent;

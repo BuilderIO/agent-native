@@ -4,6 +4,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DiffRead, diffLines } from "./DiffBlock.js";
+import { NarrowContainerProvider } from "./narrow-container.js";
+
+const DIFF_MODE_STORAGE_KEY = "agent-native:diff-view-mode";
 
 describe("DiffBlock", () => {
   let container: HTMLDivElement;
@@ -11,6 +14,7 @@ describe("DiffBlock", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -25,12 +29,16 @@ describe("DiffBlock", () => {
   });
 
   function renderDiff({
+    before = "",
     after,
+    blockId = "diff-1",
     filename = "src/example.ts",
     language,
-    mode = "unified",
+    mode,
   }: {
+    before?: string;
     after: string;
+    blockId?: string;
     filename?: string;
     language?: string;
     mode?: "unified" | "split";
@@ -38,9 +46,10 @@ describe("DiffBlock", () => {
     act(() => {
       root.render(
         <DiffRead
-          blockId="diff-1"
+          key={blockId}
+          blockId={blockId}
           ctx={{}}
-          data={{ before: "", after, filename, language, mode }}
+          data={{ before, after, filename, language, mode }}
         />,
       );
     });
@@ -86,6 +95,187 @@ describe("DiffBlock", () => {
     expect(container.textContent).toContain("Show all 18 lines");
   });
 
+  it("defaults to unified (single column) when no mode is authored", () => {
+    renderDiff({ after: "const a = 1\nconst b = 2" });
+
+    // Unified renders ONE code column — none of split's `border-r` divider
+    // columns — and exposes the Unified/Split toggle so the user can still
+    // switch to side-by-side.
+    expect(container.querySelector(".border-r.border-border")).toBeNull();
+    const splitToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Split",
+    );
+    expect(splitToggle).toBeTruthy();
+  });
+
+  it("renders split (two columns) when split mode is authored", () => {
+    act(() => {
+      root.render(
+        <DiffRead
+          blockId="diff-split"
+          ctx={{}}
+          data={{
+            before: "const a = 1",
+            after: "const a = 2",
+            filename: "src/example.ts",
+            mode: "split",
+          }}
+        />,
+      );
+    });
+
+    // Split renders the side-by-side columns (the left column carries the
+    // `border-r` divider) — the authored mode wins.
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+  });
+
+  it("does not let stored layout preference override authored split mode", () => {
+    window.localStorage.setItem(DIFF_MODE_STORAGE_KEY, "unified");
+
+    renderDiff({
+      before: "const a = 1",
+      after: "const a = 2",
+      blockId: "diff-authored-split",
+      mode: "split",
+    });
+
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+  });
+
+  it("the Unified/Split toggle switches the rendered layout", () => {
+    act(() => {
+      root.render(
+        <DiffRead
+          blockId="diff-toggle"
+          ctx={{}}
+          data={{
+            before: "const a = 1",
+            after: "const a = 2",
+            filename: "src/example.ts",
+          }}
+        />,
+      );
+    });
+
+    // Starts unified (no split divider).
+    expect(container.querySelector(".border-r.border-border")).toBeNull();
+
+    const splitToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Split",
+    );
+    expect(splitToggle).toBeTruthy();
+    act(() => {
+      splitToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Toggling to Split produces the side-by-side columns.
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+
+    const unifiedToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Unified",
+    );
+    act(() => {
+      unifiedToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // …and back to unified.
+    expect(container.querySelector(".border-r.border-border")).toBeNull();
+  });
+
+  it("persists the selected layout and applies it to future diff blocks", () => {
+    renderDiff({
+      before: "const a = 1",
+      after: "const a = 2",
+      blockId: "diff-persist-first",
+    });
+
+    expect(container.querySelector(".border-r.border-border")).toBeNull();
+
+    const splitToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Split",
+    );
+    act(() => {
+      splitToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(window.localStorage.getItem(DIFF_MODE_STORAGE_KEY)).toBe("split");
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+
+    renderDiff({
+      before: "const b = 1",
+      after: "const b = 2",
+      blockId: "diff-persist-next",
+    });
+
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+
+    const unifiedToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Unified",
+    );
+    act(() => {
+      unifiedToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(window.localStorage.getItem(DIFF_MODE_STORAGE_KEY)).toBe("unified");
+    expect(container.querySelector(".border-r.border-border")).toBeNull();
+  });
+
+  it("defaults an unspecified diff to unified inside a narrow container", () => {
+    act(() => {
+      root.render(
+        <NarrowContainerProvider>
+          <DiffRead
+            blockId="diff-narrow"
+            ctx={{}}
+            data={{
+              before: "const a = 1",
+              after: "const a = 2",
+              filename: "src/example.ts",
+            }}
+          />
+        </NarrowContainerProvider>,
+      );
+    });
+
+    // No authored mode + narrow container ⇒ unified up front, and the toggle is
+    // hidden (split's doubled gutters would crush the code in the tight box).
+    expect(container.querySelector(".border-r.border-border")).toBeNull();
+    const splitToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Split",
+    );
+    expect(splitToggle).toBeFalsy();
+  });
+
+  it("honors an explicit split even inside a narrow container", () => {
+    act(() => {
+      root.render(
+        <NarrowContainerProvider>
+          <DiffRead
+            blockId="diff-narrow-split"
+            ctx={{}}
+            data={{
+              before: "const a = 1",
+              after: "const a = 2",
+              filename: "src/example.ts",
+              mode: "split",
+            }}
+          />
+        </NarrowContainerProvider>,
+      );
+    });
+
+    // An explicitly authored `mode="split"` still wins over the narrow default.
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
+  });
+
   it("shows the basename before a muted path without a language badge", () => {
     renderDiff({
       after: "line",
@@ -121,6 +311,7 @@ describe("DiffBlock annotations", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -170,6 +361,18 @@ describe("DiffBlock annotations", () => {
     // The marker pip "1" shows on the row AND on the rail card.
     const ones = container.textContent?.match(/\b1\b/g) ?? [];
     expect(ones.length).toBeGreaterThan(0);
+  });
+
+  it("uses the stored layout preference for annotated diffs", () => {
+    window.localStorage.setItem(DIFF_MODE_STORAGE_KEY, "split");
+
+    render({
+      before: "const a = 1",
+      after: "const a = 2",
+      annotations: [{ lines: "1", label: "Changed", note: "a changed." }],
+    });
+
+    expect(container.querySelector(".border-r.border-border")).toBeTruthy();
   });
 
   it("shows a multi-line annotation's marker only on the first line of its range", () => {

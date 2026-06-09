@@ -29,8 +29,12 @@ function recapContent(): PlanContent {
       {
         id: "tree-1",
         type: "file-tree",
-        title: "Files touched",
+        // Both heading sources set with a stats-laden authored title — the real
+        // recap shape that produced the duplicated heading: `title` renders as the
+        // greyed eyebrow, `data.title` as the bold summary header, stacked.
+        title: "Files changed (+1529 / -534, 9 files)",
         data: {
+          title: "Files changed (+1529 / -534, 9 files)",
           entries: [
             {
               path: "packages/core/src/a.ts",
@@ -87,7 +91,26 @@ describe("PlanContentRenderer recap files sidebar", () => {
     // The left sidebar exists and shows the relocated block.
     const aside = container.querySelector(".plan-document-files");
     expect(aside).not.toBeNull();
-    expect(aside?.textContent).toContain("Files touched");
+
+    // The sidebar shows exactly ONE file-tree heading, and it reads the fixed
+    // "Files changed" label — NOT the authored title and NOT the stats suffix.
+    // The two heading sources are: the eyebrow `.plan-block-label` (from
+    // `block.title`) and the file-tree's bold summary header (from `data.title`).
+    // Both must be stripped from the mirrored block; only the sidebar's own
+    // `.plan-document-files__label` remains.
+    expect(aside?.querySelectorAll(".plan-block-label").length).toBe(0);
+    const sidebarLabels = aside?.querySelectorAll(
+      ".plan-document-files__label",
+    );
+    expect(sidebarLabels?.length).toBe(1);
+    expect(sidebarLabels?.[0]?.textContent?.trim()).toBe("Files changed");
+    // No stats suffix anywhere in the sidebar heading text.
+    expect(aside?.textContent).not.toContain("+1529");
+    expect(aside?.textContent).not.toContain("9 files)");
+    // The authored title string never appears verbatim in the sidebar.
+    expect(aside?.textContent).not.toContain(
+      "Files changed (+1529 / -534, 9 files)",
+    );
 
     // The mirror uses a distinct id so it never duplicates / collides with the
     // original's `data-block-id`.
@@ -112,7 +135,7 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(toc).not.toBeNull();
     expect(toc?.textContent).toContain("Section A");
     expect(toc?.textContent).toContain("Section B");
-    expect(toc?.textContent).not.toContain("Files touched");
+    expect(toc?.textContent).not.toContain("Files changed");
   });
 
   it("leaves non-recap plans unchanged (no files sidebar, no hide style)", () => {

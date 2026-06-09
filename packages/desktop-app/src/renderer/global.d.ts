@@ -567,15 +567,18 @@ interface ElectronAPI {
   frame: {
     load(): Promise<{
       enabled: boolean;
+      showCodeTab: boolean;
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;
     update(settings: {
       enabled?: boolean;
+      showCodeTab?: boolean;
       mode?: "dev" | "prod";
       prodUrl?: string;
     }): Promise<{
       enabled: boolean;
+      showCodeTab: boolean;
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;

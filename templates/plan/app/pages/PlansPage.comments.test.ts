@@ -2,12 +2,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  addPlanCommentToBundle,
   buildCommentThreads,
   canEditPlanContentRole,
   commentAuthorEmails,
   mentionQueryAtCaret,
   runtimeAnnotationFromThread,
   nativePointForAnchor,
+  removePlanCommentFromBundle,
   resolveNativeAnchorTarget,
 } from "./PlansPage";
 import type { PlanBundle } from "@shared/types";
@@ -37,7 +39,76 @@ function comment(
   };
 }
 
+function bundleWithComments(comments: PlanComment[]): PlanBundle {
+  return {
+    plan: {
+      id: "plan_1",
+      title: "Plan",
+      brief: "Brief",
+      kind: "plan",
+      status: "review",
+      source: "manual",
+      repoPath: null,
+      currentFocus: null,
+      hostedPlanId: null,
+      hostedPlanUrl: null,
+      html: null,
+      markdown: null,
+      content: null,
+      createdAt: "2026-06-05T00:00:00.000Z",
+      updatedAt: "2026-06-05T00:00:00.000Z",
+      approvedAt: null,
+    },
+    sections: [],
+    comments,
+    events: [],
+    summary: {
+      sectionCounts: {},
+      commentCount: comments.length,
+      openCommentCount: comments.filter((item) => item.status === "open")
+        .length,
+    },
+  };
+}
+
 describe("plan comment thread UI model", () => {
+  it("updates the bundle immediately for optimistic comment markers", () => {
+    const existing = comment("existing");
+    const optimistic = comment("optimistic", {
+      anchor: JSON.stringify({ x: 20, y: 40, sectionTitle: "Canvas" }),
+    });
+    const base = bundleWithComments([existing]);
+
+    const withOptimistic = addPlanCommentToBundle(base, optimistic);
+    const replaced = addPlanCommentToBundle(
+      withOptimistic,
+      comment("optimistic", { status: "resolved" }),
+    );
+    const removed = removePlanCommentFromBundle(replaced, "optimistic");
+
+    expect(withOptimistic.comments.map((item) => item.id)).toEqual([
+      "existing",
+      "optimistic",
+    ]);
+    expect(withOptimistic.summary).toMatchObject({
+      commentCount: 2,
+      openCommentCount: 2,
+    });
+    expect(replaced.comments.map((item) => item.id)).toEqual([
+      "existing",
+      "optimistic",
+    ]);
+    expect(replaced.summary).toMatchObject({
+      commentCount: 2,
+      openCommentCount: 1,
+    });
+    expect(removed.comments.map((item) => item.id)).toEqual(["existing"]);
+    expect(removed.summary).toMatchObject({
+      commentCount: 1,
+      openCommentCount: 1,
+    });
+  });
+
   it("groups replies and exposes participant avatars for Figma-style pins", () => {
     const anchor = JSON.stringify({ x: 42, y: 24, sectionTitle: "Summary" });
     const root = comment("root", {

@@ -179,10 +179,17 @@ describe("JsonExplorerBlock", () => {
 
     expect(container.textContent).not.toContain("deep value");
 
+    const toolbar = container.querySelector<HTMLElement>(
+      "[data-json-explorer-actions]",
+    );
+    expect(toolbar?.className).toContain("opacity-0");
+    expect(toolbar?.className).toContain("group-hover:opacity-100");
+
     const expandAll = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Expand all",
     );
     expect(expandAll).toBeTruthy();
+    expect(expandAll?.disabled).toBe(false);
 
     act(() => {
       expandAll?.dispatchEvent(
@@ -191,11 +198,13 @@ describe("JsonExplorerBlock", () => {
     });
 
     expect(container.textContent).toContain("deep value");
+    expect(expandAll?.disabled).toBe(true);
 
     const collapseAll = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Collapse all",
     );
     expect(collapseAll).toBeTruthy();
+    expect(collapseAll?.disabled).toBe(false);
 
     act(() => {
       collapseAll?.dispatchEvent(
@@ -204,5 +213,7 @@ describe("JsonExplorerBlock", () => {
     });
 
     expect(container.textContent).not.toContain("deep value");
+    expect(collapseAll?.disabled).toBe(true);
+    expect(expandAll?.disabled).toBe(false);
   });
 });

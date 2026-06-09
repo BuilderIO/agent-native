@@ -6,6 +6,49 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev:lazy", "--", "--all"],
       "port": 8080
+    },
+    {
+      "name": "plan",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "plan", "exec", "agent-native", "dev"],
+      "port": 8080
+    },
+    {
+      "name": "content-sqlite",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "CONTENT_DATABASE_URL=file:/tmp/content-undo.db pnpm --filter content exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
+      "name": "plan-vtabs",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "APP_NAME=plan AGENT_USER_EMAIL=demo@local.test PLAN_DATABASE_URL=file:/tmp/plan-vtabs.db pnpm --filter plan exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
+      "name": "plan-local",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/templates/plan/data/plan-local.db pnpm --filter plan exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@agent-native/docs", "dev"],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import {
   useId,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -91,10 +92,11 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
     normalizeCodeLanguage(data.language) ??
     inferLanguageFromFilename(data.filename) ??
     undefined;
+  const hasFilename = Boolean(data.filename?.trim());
   return (
     <section className="plan-block" data-block-id={blockId}>
       <div className="plan-code group relative">
-        {data.filename && (
+        {hasFilename && (
           <div className="plan-code-head">
             <span className="plan-code-filename">
               <IconCode className="size-4 shrink-0 opacity-70" />
@@ -110,8 +112,9 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
           language={language}
           maxLines={data.maxLines}
           className={data.filename ? "mt-0" : "mt-0"}
+          showLanguageLabel={hasFilename}
         />
-        {!data.filename && (
+        {!hasFilename && (
           <span className="plan-code-chrome plan-code-chrome-float">
             <CopyButton value={data.code} />
           </span>
@@ -139,6 +142,17 @@ function CodeSettingsPopover({
   onFilenameChange: (filename: string | undefined) => void;
   onMaxLinesChange: (maxLines: number | undefined) => void;
 }) {
+  const [filenameDraft, setFilenameDraft] = useState(filename ?? "");
+
+  useEffect(() => {
+    setFilenameDraft(filename ?? "");
+  }, [filename]);
+
+  const commitFilename = () => {
+    const next = filenameDraft.trim();
+    onFilenameChange(next || undefined);
+  };
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -171,10 +185,19 @@ function CodeSettingsPopover({
               data-plan-interactive
               className={SETTINGS_INPUT}
               placeholder="src/file.ts"
-              value={filename ?? ""}
-              onChange={(event) =>
-                onFilenameChange(event.target.value || undefined)
-              }
+              value={filenameDraft}
+              onBlur={commitFilename}
+              onChange={(event) => setFilenameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  commitFilename();
+                  event.currentTarget.blur();
+                }
+                if (event.key === "Escape") {
+                  setFilenameDraft(filename ?? "");
+                  event.currentTarget.blur();
+                }
+              }}
             />
           </label>
           <label className="grid gap-1.5">
@@ -248,56 +271,63 @@ function CodeEditorSurface({
   const collapsed = collapsible && !expanded;
   const hiddenLines = collapsible ? lineCount - (cap as number) : 0;
   const rows = collapsed ? (cap as number) : lineCount + 1;
+  const hasFilename = Boolean(filename?.trim());
 
   const syncScroll = (event: UIEvent<HTMLTextAreaElement>) => {
     const layer = highlightLayerRef.current;
     if (!layer) return;
     layer.scrollLeft = event.currentTarget.scrollLeft;
+    layer.scrollTop = event.currentTarget.scrollTop;
   };
+
+  const chrome = (
+    <>
+      <label htmlFor={selectId} className="sr-only">
+        Code language
+      </label>
+      <select
+        id={selectId}
+        data-plan-interactive
+        disabled={!editable}
+        className="plan-code-lang-select"
+        value={normalizeCodeLanguage(language) ? (language ?? "") : ""}
+        onChange={(event) => onLanguageChange(event.target.value || undefined)}
+      >
+        {CODE_LANGUAGES.map((option) => (
+          <option key={option.value || "auto"} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {editable && (
+        <CodeSettingsPopover
+          filename={filename}
+          maxLines={maxLines}
+          onFilenameChange={onFilenameChange}
+          onMaxLinesChange={onMaxLinesChange}
+        />
+      )}
+      <CopyButton value={code} />
+    </>
+  );
 
   return (
     <div
       className={cn(
         "plan-code plan-code-editing group relative",
+        !hasFilename && "plan-code-editing--unlabeled",
         !editable && "opacity-60",
       )}
     >
-      <div className="plan-code-head">
-        <span className="plan-code-filename plan-code-muted">
-          <IconCode className="size-4 shrink-0 opacity-70" />
-          {filename || "Snippet"}
-        </span>
-        <span className="plan-code-chrome">
-          <label htmlFor={selectId} className="sr-only">
-            Code language
-          </label>
-          <select
-            id={selectId}
-            data-plan-interactive
-            disabled={!editable}
-            className="plan-code-lang-select"
-            value={normalizeCodeLanguage(language) ? (language ?? "") : ""}
-            onChange={(event) =>
-              onLanguageChange(event.target.value || undefined)
-            }
-          >
-            {CODE_LANGUAGES.map((option) => (
-              <option key={option.value || "auto"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          {editable && (
-            <CodeSettingsPopover
-              filename={filename}
-              maxLines={maxLines}
-              onFilenameChange={onFilenameChange}
-              onMaxLinesChange={onMaxLinesChange}
-            />
-          )}
-          <CopyButton value={code} />
-        </span>
-      </div>
+      {hasFilename && (
+        <div className="plan-code-head">
+          <span className="plan-code-filename plan-code-muted">
+            <IconCode className="size-4 shrink-0 opacity-70" />
+            {filename}
+          </span>
+          <span className="plan-code-chrome">{chrome}</span>
+        </div>
+      )}
       <div className="plan-code-editor-body">
         <pre
           ref={highlightLayerRef}
@@ -326,6 +356,11 @@ function CodeEditorSurface({
           <div className="plan-code-editor-fade" aria-hidden="true" />
         )}
       </div>
+      {!hasFilename && (
+        <span className="plan-code-chrome plan-code-chrome-float">
+          {chrome}
+        </span>
+      )}
       {collapsible && (
         <button
           type="button"
@@ -361,7 +396,7 @@ function CodeEdit({ data, onChange, editable }: BlockEditProps<CodeData>) {
           type="text"
           data-plan-interactive
           className="plan-code-caption-input"
-          placeholder="Caption (optional)"
+          placeholder="Caption"
           value={data.caption ?? ""}
           onChange={(event) =>
             onChange({ ...data, caption: event.target.value || undefined })
