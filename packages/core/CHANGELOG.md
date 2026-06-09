@@ -1,5 +1,139 @@
 # @agent-native/core
 
+## 0.44.0
+
+### Minor Changes
+
+- 4e55e6d: Consolidate the plan block set into the shared core block library so any app that
+  registers the library (plan, content, future templates) gets the same rich blocks
+  — and cut the redundant `decision` block.
+  - Moved into the shared library: `callout`, `question-form`, `visual-questions`,
+    `diagram`, and `wireframe` (plus the wireframe-kit primitives in
+    `library/wireframe-kit.tsx`). Each ships a React-free `*.config.ts` (schema +
+    MDX) and a `*.tsx` (`Read`/`Edit` + spec), is registered in both
+    `libraryBlockSpecs` (client) and `libraryBlockConfigs` (server), and is exported
+    from the blocks entry. They're decoupled from any single app: no shadcn imports
+    in core (popovers go through `ctx.renderEditSurface`), and HTML-bearing blocks
+    self-sanitize via the shared `library/sanitize-html.ts` (DOM-based in the
+    browser, regex fallback on the server).
+  - The shared block CSS "contract" now lives in core `styles/blocks.css` (imported
+    by `agent-native.css`): block label / code-surface / prose / annotation rules,
+    the `text/bg/border-plan-*` color utilities, the app-neutral `an-callout` tone
+    styling, and the wireframe-kit + inline-diagram styling — all resolving against
+    shadcn theme tokens (with plan-var-with-theme-token fallbacks for the migrated
+    wireframe/diagram CSS) so blocks render in any app's palette. Because
+    `blocks.css` loads before a template's `global.css`, the plan template's
+    existing rules still win there, so plan renders unchanged.
+  - `BlockRenderContext` gains optional `onQuestionFormSubmit(summary)` so the
+    shared question-form / visual-questions blocks route answers back to the host
+    without app-specific wiring.
+  - `BlockRegistry.register` now OVERRIDES on a duplicate block `type`/`tag`
+    (last-registration-wins) instead of throwing — lets an app override a library
+    block and makes module-level registration idempotent under dev HMR (which
+    otherwise crashed with "Block type … is already registered").
+  - Removed the `decision` block (it duplicated a `callout` with `tone:"decision"`
+    plus a `columns`/list comparison). It's gone from the registry, agent
+    vocabulary, slash menus, and the plan skills (which now steer to callout +
+    columns). Because `decision` was also a legacy member of plan's stored-content
+    schema, a content migration rewrites any stored decision block into a
+    decision-tone `callout` on load (question + options in the body, recommended
+    flagged) so existing plans keep loading and rendering. `callout`'s `decision`
+    tone is retained.
+
+### Patch Changes
+
+- 4e55e6d: Plan/editor block drag-handle menu now uses real Tabler icons instead of
+  hand-drawn CSS pseudo-element glyphs. The Delete item rendered a malformed,
+  oversized trash shape; Duplicate, Delete, and Insert-block-below now inline the
+  verbatim Tabler `copy`, `trash`, and `plus` outline SVGs (matching the
+  framework-wide `@tabler/icons-react` set), and the left-margin grip uses Tabler
+  `grip-vertical`. The editor is plain DOM (not React), so the markup is inlined
+  rather than imported. Removed the now-unused `--duplicate`/`--delete`/`--insert`
+  pseudo-element drawing rules from the injected menu stylesheet.
+- 4e55e6d: Make the agent sidebar paint faster, especially for a new chat.
+  - **New chat no longer shows a loading skeleton.** The empty state previously
+    rendered a suggestion skeleton that was gated on `suggestionsLoading` — which
+    waits on four `application-state` reads (and re-runs every 2s). Suggestions are
+    non-essential garnish, so the empty state (icon + composer) now renders
+    immediately and suggestion chips appear when ready, instead of holding a
+    skeleton on a brand-new chat that has nothing to load.
+  - **Opening an existing thread clears its skeleton sooner.** Thread restore no
+    longer gates first paint on the `reconnectActiveRunForThread()` probe: the
+    skeleton clears as soon as the persisted messages are imported, and the
+    active-run reconnect (only relevant mid-run, e.g. after a hot reload) runs
+    afterward and streams on top of the already-rendered conversation.
+
+- 4e55e6d: Speed up the agent sidebar and per-session polling.
+  - **Chat thread list** (`chat-threads/store.ts`): the sidebar list query no longer
+    selects the full `thread_data` JSON blob (every thread's entire message
+    history, tool results, and attachments) just to render titles and previews —
+    it now reads only the summary columns and derives "has messages" from the
+    `message_count` column instead of a `LIKE '%"messages"%'` scan over the blob.
+    Legacy rows are backfilled once so none drop out of the list. Added
+    `(owner_email, updated_at)` and `(scope_type, scope_id, updated_at)` indexes on
+    `chat_threads` so the list is an indexed lookup instead of a full table scan +
+    sort. The thread detail/get path still returns the full `thread_data`, and the
+    compare-and-swap write path is unchanged. Indexes are dialect-agnostic.
+  - **Change-detection poll** (`server/poll.ts`): the independent reads in
+    `doCheckExternalDbChanges()` now run concurrently via `Promise.all` instead of
+    sequential awaits, cutting per-poll round-trips on the common path from ~6 to
+    effectively 1. Dependent/conditional follow-up queries stay ordered, and
+    change-emit order, early-exit semantics, and error handling are unchanged.
+
+- 4e55e6d: Add a `performance` agent skill (DB-provider-agnostic) covering the load-speed
+  best practices apps and templates should follow: project columns on list
+  endpoints (never `SELECT *` heavy blobs), index hot-path queries
+  (`owner_email`/`org_id`/sort, `*_shares.resource_id`, child foreign keys, status
+  filters) via the versioned migration array, avoid N+1 and round-trip waterfalls,
+  poll cheaply, don't recompute on every read, and paginate unbounded lists. The
+  skill ships into generated workspaces via `workspace-core` and is cross-linked
+  from `storing-data`.
+- 4e55e6d: `SharedRichEditor` / `createSharedEditorExtensions` gain an optional
+  `disableHistory` flag that turns off StarterKit's built-in undo/redo
+  (prosemirror-history) for a controlled, non-collaborative editor whose host owns
+  its own undo authority. Defaults to `false`, so every existing embedder is
+  unchanged; when a collaborative `ydoc` is present, undo/redo stays disabled
+  regardless (Yjs owns history, as before). The plan editor uses this so a single
+  app-level undo stack — over its authoritative `blocks[]` tree, which holds block
+  data the ProseMirror doc never stores — can be the sole cmd+z authority, fixing
+  undo/redo for block drag-reorder, cross-region moves, and block option/config
+  edits (none of which PM history could see or reliably revert).
+- 4e55e6d: Stop a lagging content poll from briefly reverting a just-applied local edit in
+  the shared rich-markdown reconcile (`useCollabReconcile`).
+
+  When a structural edit (e.g. a Notion-style drag-to-columns) is applied locally
+  and the editor is then blurred — the drag grips the handle, not the prose, so
+  `isFocused` is false at drop time — a `get-visual-plan`/source poll that
+  re-supplies the older pre-edit content (older-or-equal `contentUpdatedAt`) was
+  applied through `setContent`, reverting the new layout. A moment later the save
+  round-tripped and the next poll restored it: the "drop works, then undoes, then
+  comes back" glitch.
+
+  The reconcile already dropped older-or-equal external content while focused (a
+  real peer/agent edit is always newer and retries). In NON-COLLAB editors there
+  is no peer, so older-or-equal content is ALWAYS a stale poll/echo — it is now
+  dropped regardless of focus (gated on having already seeded, so the first apply
+  still lands). Collab editors are unchanged: a peer edit arriving while you are
+  away still applies.
+
+- 4e55e6d: Reduce agent-sidebar chat jank by skipping redundant thread re-imports on poll
+  ticks (`AssistantChat`'s `importThreadData`).
+
+  The real-time sync layer refetches the open thread (`/threads/:id`, or re-runs a
+  host `loadHistoryRepository`) on reconnect, on `historyReloadKey` bumps, and on
+  restore. Each call ran the full `JSON.parse` + `normalizeThreadRepository` +
+  `threadRuntime.export()`/`import` round-trip even when the payload was identical
+  to what was last imported — CPU-bound on long threads and a source of needless
+  re-render churn.
+
+  `importThreadData` now hashes the raw incoming payload and short-circuits when it
+  matches the last successfully-imported signature, returning the already-imported
+  repo. Any real change (new message, arriving tool result, server replacing an
+  optimistic copy, switching threads) produces a different signature and falls
+  through to a full import. Payloads that `shouldImportServerThreadData`
+  deliberately rejects are not cached, so rejection semantics and live token
+  streaming are unchanged.
+
 ## 0.43.0
 
 ### Minor Changes
