@@ -116,6 +116,29 @@
   font-size: inherit !important;
 }
 
+/* Universal guarantee (NOT gated on a plan-document ancestor): the dense code
+   block components — annotated-code, diff, api-endpoint — stamp
+   `data-code-surface` / `.an-code-block` on their code containers. Force the
+   dense size on those WHEREVER they render, so the standard annotated/diff
+   component can never show oversized code on any surface (embedded panels,
+   non-plan-document hosts, etc.), not just inside `.plan-document-flow`. The
+   `var(--plan-doc-code-size, 0.8125rem)` fallback covers hosts that don't define
+   the token. */
+:is(
+  [data-code-surface],
+  [data-code-surface] pre,
+  [data-code-surface] code,
+  [data-code-surface] .plan-shiki,
+  .an-code-block,
+  .an-code-block pre,
+  .an-code-block code
+) {
+  font-size: var(--plan-doc-code-size, 0.8125rem) !important;
+}
+:is([data-code-surface], .an-code-block) :is(pre, code) span {
+  font-size: inherit !important;
+}
+
 /* Small, muted eyebrow label above a block (block title). */
 .an-block-label {
   margin: 0 0 1rem;
