@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loader } from "../app/routes/templates.$slug";
 import { featuredTemplates, templates } from "../app/components/TemplateCard";
 import { getTemplateDocsPath } from "../app/components/template-docs";
-import { NAV_SECTIONS } from "../app/components/docsNavItems";
+import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
 import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,27 +42,34 @@ describe("template routes", () => {
     );
     expect(navTemplateSection).toBeDefined();
 
-    const sidebarTemplatePaths = navTemplateSection!.items.map(
-      (item) => item.to,
-    );
+    // Flatten group children (e.g. the Plans chevron group) so paths nested
+    // under a group header are collected too.
+    const collectPaths = (items: NavItem[]): string[] =>
+      items.flatMap((item) => [
+        ...(item.to ? [item.to] : []),
+        ...(item.children ? collectPaths(item.children) : []),
+      ]);
+    const sidebarDocPaths = collectPaths(navTemplateSection!.items);
     const catalogTemplatePaths = featuredTemplates.map(getTemplateDocsPath);
 
-    // Every featured catalog template must be reachable from the sidebar.
+    // Every featured catalog template must be reachable from the sidebar,
+    // whether linked at the top level or nested under a group (e.g. Plans).
     // Non-featured templates may still keep direct docs pages without being
     // promoted in the main navigation.
     for (const catalogPath of catalogTemplatePaths) {
-      expect(sidebarTemplatePaths).toContain(catalogPath);
+      expect(sidebarDocPaths).toContain(catalogPath);
     }
 
+    // Every sidebar link in the Templates section must resolve to a real docs
+    // page (never a /templates/ marketing route). Group children may be plain
+    // docs pages (e.g. pr-visual-recap), so don't require the template- prefix.
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
-    for (const sidebarPath of sidebarTemplatePaths) {
-      expect(sidebarPath).toMatch(/^\/docs\/template-[a-z0-9-]+$/);
+    for (const sidebarPath of sidebarDocPaths) {
+      expect(sidebarPath).toMatch(/^\/docs\/[a-z0-9-]+$/);
       expect(sidebarPath).not.toMatch(/^\/templates\//);
 
-      const slug = sidebarPath.replace("/docs/template-", "");
-      expect(fs.existsSync(path.join(docsDir, `template-${slug}.md`))).toBe(
-        true,
-      );
+      const slug = sidebarPath.replace("/docs/", "");
+      expect(fs.existsSync(path.join(docsDir, `${slug}.md`))).toBe(true);
     }
   });
 

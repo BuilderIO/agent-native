@@ -570,6 +570,43 @@ h4 {
   font-weight: 500;
 }
 
+/* Chevron-only group header (e.g. "Plans"). Shares .sidebar-link so it matches
+   the leaf rows and the section triggers exactly — borderless, same padding and
+   color; the chevron is the only added affordance. */
+.sidebar-group-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-group-trigger:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: 2px;
+}
+
+/* Nested sub-docs (e.g. the plan docs under the Plans group) */
+.docs-sidebar-subitems {
+  list-style: none;
+  margin: 2px 0 4px 6px;
+  border-left: 1px solid var(--docs-border);
+  padding: 0 0 0 8px;
+}
+
+.docs-sidebar-subitems li {
+  margin: 1px 0;
+}
+
+.sidebar-sublink {
+  font-size: 13px;
+}
+
 /* TOC */
 .toc-link {
   display: block;
@@ -639,23 +676,21 @@ h4 {
   background: var(--code-bg);
 }
 
-.code-block .shiki {
-  background-color: var(--code-bg) !important;
-}
-
+/* Token colors come from shiki's per-theme CSS vars; the block background
+   always uses our neutral --code-bg palette var (not shiki's theme bg, which
+   is blue-tinted in dark and white in light). */
 html.light .shiki,
 html.light .shiki span {
-  color: var(--shiki-light) !important;
-  background-color: var(--shiki-light-bg) !important;
+  color: var(--shiki-light);
 }
 
 html.dark .shiki,
 html.dark .shiki span {
-  color: var(--shiki-dark) !important;
-  background-color: var(--shiki-dark-bg) !important;
+  color: var(--shiki-dark);
 }
 
-.shiki {
+.shiki,
+.code-block .shiki {
   background-color: var(--code-bg) !important;
   border-radius: 8px;
   padding: 16px;
@@ -999,6 +1034,11 @@ html.dark .shiki span {
   color: var(--docs-accent);
   font-weight: 500;
   background: var(--docs-accent-light);
+}
+
+.mobile-docs-nav-sublink {
+  padding-left: 36px;
+  font-size: 13px;
 }
 
 /* Push doc content below the sticky mobile nav */

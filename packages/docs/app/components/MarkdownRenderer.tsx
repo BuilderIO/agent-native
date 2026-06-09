@@ -351,6 +351,9 @@ export default function MarkdownRenderer({ markdown }: Props) {
                 light: "github-light-default",
                 dark: "github-dark-default",
               },
+              // Emit BOTH --shiki-light and --shiki-dark CSS vars (no baked-in
+              // default theme) so per-theme color rules work in both modes.
+              defaultColor: false,
             });
             return { ...m, html: result };
           } catch {

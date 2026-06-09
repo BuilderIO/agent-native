@@ -132,6 +132,58 @@ function planBlockFromPmNode(
   return parsed[0] ?? null;
 }
 
+/**
+ * Resolve a dragged/dropped ProseMirror node back to its owning {@link PlanBlock}
+ * by POSITION — the robust resolver the drag handlers must use.
+ *
+ * A structured block is one `planBlock` atom carrying `blockId`, so it resolves
+ * directly. A `rich-text` block, however, expands to a RUN of prose nodes and
+ * {@link blocksToProseJSON} stamps `runId = block.id` on only the run's FIRST
+ * node. So the 2nd/3rd paragraph of a multi-paragraph rich-text block carries
+ * neither `blockId` nor `runId`. The old node-only resolver re-serialized just
+ * that paragraph into a FRESH id absent from `blocks[]`, so `removeBlockFromTree`
+ * / `wrapTopLevelTargetInColumns` couldn't find it and the side drop silently
+ * failed (and dragging the first paragraph truncated the block to one
+ * paragraph). Resolving by position fixes this: walk the top-level nodes
+ * tracking the current prose run's `runId` (a `planBlock` atom breaks the run),
+ * and the run in effect at `pos` is the whole owning block — so ANY paragraph
+ * of a multi-paragraph block maps to its full block.
+ */
+function planBlockForPmPosition(
+  doc: ProseMirrorNode,
+  pos: number,
+  node: ProseMirrorNode,
+  blocks: PlanBlock[],
+): PlanBlock | null {
+  const blockId = (node.attrs as { blockId?: unknown } | undefined)?.blockId;
+  if (typeof blockId === "string") {
+    const existing = findBlockInTree(blocks, blockId);
+    if (existing) return existing;
+  }
+
+  let runAtPos: string | undefined;
+  let currentRunId: string | undefined;
+  doc.forEach((child, offset) => {
+    const childBlockId = (child.attrs as { blockId?: unknown } | undefined)
+      ?.blockId;
+    if (typeof childBlockId === "string") {
+      // A structured atom breaks the surrounding prose run.
+      currentRunId = undefined;
+    } else {
+      const childRunId = (child.attrs as { runId?: unknown } | undefined)
+        ?.runId;
+      if (typeof childRunId === "string") currentRunId = childRunId;
+    }
+    if (offset === pos) runAtPos = currentRunId;
+  });
+  if (typeof runAtPos === "string") {
+    const existing = findBlockInTree(blocks, runAtPos);
+    if (existing) return existing;
+  }
+
+  return planBlockFromPmNode(node, blocks);
+}
+
 function nestedRegionInfoForView(view: EditorView): NestedRegionInfo | null {
   const region = view.dom.closest<HTMLElement>(
     ".plan-nested-document-editor-region",
@@ -212,7 +264,11 @@ function replaceEditorViewBlocks(
     // `commit`, persisting the revert.
     if (!options.addToHistory) tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
-    view.dispatch(tr.scrollIntoView());
+    // NOT `scrollIntoView()`: this rebuilds the WHOLE document in place (drop
+    // repaint / reconcile), and scrolling to the post-replace selection yanks the
+    // viewport away from where the user just dropped — a jarring jump. The user's
+    // scroll position must stay put for an in-place structural repaint.
+    view.dispatch(tr);
   } catch {
     // A stale editor view can disappear while React remounts nested regions.
   }
@@ -727,8 +783,15 @@ export function PlanDocumentEditor({
 
   const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
     () =>
-      ({ node }) => {
-        return planBlockFromPmNode(node, blocksRef.current) ?? undefined;
+      ({ view, node, pos }) => {
+        return (
+          planBlockForPmPosition(
+            view.state.doc,
+            pos,
+            node,
+            blocksRef.current,
+          ) ?? undefined
+        );
       },
     [],
   );
@@ -763,8 +826,18 @@ export function PlanDocumentEditor({
       const targetBlocks = blocksForEditorView(currentBlocks, context.view);
       const sourceBlock =
         (isTransferredPlanBlock(data) ? data : null) ??
-        planBlockFromPmNode(context.sourceNode, sourceBlocks);
-      const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
+        planBlockForPmPosition(
+          context.sourceView.state.doc,
+          context.sourcePos,
+          context.sourceNode,
+          sourceBlocks,
+        );
+      const targetBlock = planBlockForPmPosition(
+        context.view.state.doc,
+        context.targetPos,
+        context.targetNode,
+        targetBlocks,
+      );
       if (!sourceBlock || !targetBlock) return false;
 
       let nextBlocks: PlanBlock[] | null;
@@ -1136,8 +1209,15 @@ export function NestedPlanBlocksEditor({
 
   const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
     () =>
-      ({ node }) => {
-        return planBlockFromPmNode(node, blocksRef.current) ?? undefined;
+      ({ view, node, pos }) => {
+        return (
+          planBlockForPmPosition(
+            view.state.doc,
+            pos,
+            node,
+            blocksRef.current,
+          ) ?? undefined
+        );
       },
     [],
   );

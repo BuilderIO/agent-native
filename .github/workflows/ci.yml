@@ -11,6 +11,7 @@ jobs:
   lint:
     name: Lint & format
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -29,6 +30,7 @@ jobs:
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -47,6 +49,10 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    # Cap the run so a hung test/eval (e.g. brain-evals' LLM-backed
+    # run-demo-eval / run-retrieval-eval stalling on a slow or unavailable
+    # endpoint) fails fast instead of pinning a runner for GitHub's 6h default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -65,6 +71,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -83,6 +90,7 @@ jobs:
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
     steps:
@@ -188,6 +196,7 @@ jobs:
   ssr-boot-smoke:
     name: SSR cold-start smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -220,6 +229,7 @@ jobs:
   guards:
     name: Security guards
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -240,6 +250,7 @@ jobs:
   guard-no-drizzle-push:
     name: Guard — no drizzle-kit push in build paths
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

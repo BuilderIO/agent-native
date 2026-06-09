@@ -222,6 +222,69 @@ export function AnnotationNoteRail<A extends RailAnnotation>({
   );
 }
 
+/* ── Inline note (GitHub-style) ─────────────────────────────────────────────── */
+
+/**
+ * A single line-anchored note rendered INLINE in the diff flow — full-width,
+ * directly under the line it annotates — instead of in a side rail (the
+ * GitHub-review affordance). The diff block places one of these after the first
+ * row of each annotation's range, so the numbered `①`/`②` row marker and the note
+ * read together in one column. It carries the same marker pip, line range,
+ * optional label, and markdown `note` as a rail card, and the same two-way hover
+ * wiring (`active` / `onActiveChange`) so the row and its note cross-highlight.
+ *
+ * The outer band is `min-w-full` so the amber wash spans the diff's full scroll
+ * width; the content is `sticky left-0` with a readable `max-w` so the note stays
+ * pinned and legible while long code lines scroll horizontally beneath it.
+ */
+export function InlineAnnotationNote<A extends RailAnnotation>({
+  item,
+  active,
+  onActiveChange,
+  ctx,
+}: {
+  item: ResolvedAnnotation<A>;
+  active: boolean;
+  onActiveChange: (index: number | null) => void;
+  ctx: BlockRenderContext;
+}) {
+  return (
+    <div
+      onMouseEnter={() => onActiveChange(item.index)}
+      onMouseLeave={() => onActiveChange(null)}
+      className={cn(
+        "min-w-full border-y transition-colors",
+        active
+          ? "border-amber-400/60 bg-amber-100/70 dark:border-amber-300/40 dark:bg-amber-300/[0.12]"
+          : "border-amber-400/30 bg-amber-50/70 dark:border-amber-300/20 dark:bg-amber-300/[0.06]",
+      )}
+    >
+      <div className="sticky left-0 flex max-w-[44rem] gap-2.5 whitespace-normal px-3 py-2.5 font-sans">
+        <AnnotationGutterMarker marker={item.marker} active={active} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
+              {rangeLabel(item)}
+            </span>
+            {item.annotation.label && (
+              <span className="text-[13px] font-semibold text-plan-text">
+                {item.annotation.label}
+              </span>
+            )}
+          </div>
+          <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-plan-text/85">
+            {ctx.renderMarkdown ? (
+              ctx.renderMarkdown(item.annotation.note)
+            ) : (
+              <p>{item.annotation.note}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Whether a resolved list has at least one note worth rendering a rail for. */
 export function hasRailAnnotations(items: ResolvedAnnotation[]): boolean {
   return items.some((item) => item.range);

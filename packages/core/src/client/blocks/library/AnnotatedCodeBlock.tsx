@@ -97,7 +97,7 @@ function AnnotatedCodeRead({
         </div>
       )}
       <div className="overflow-x-auto py-1.5">
-        <div className="min-w-full font-mono text-[12.5px] leading-[22px]">
+        <div className="min-w-full font-mono [font-size:var(--plan-code-size)] leading-[22px]">
           {lines.map((_text, idx) => {
             const lineNo = idx + 1;
             const markers = lineMarkers.get(lineNo);
@@ -155,14 +155,20 @@ function AnnotatedCodeRead({
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
       {hasAnnotations ? (
-        <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]">
-          {codeSurface}
-          <AnnotationNoteRail
-            items={resolved}
-            activeIndex={activeIndex}
-            onActiveChange={setActiveIndex}
-            ctx={ctx}
-          />
+        // The side rail stays for annotated-code, but responds to the block's
+        // OWN width via a container query: side-by-side when there's room,
+        // stacked below the code (single-column grid) when the container is
+        // narrow — e.g. nested inside a vertical-tabs content column.
+        <div className="@container/code">
+          <div className="grid items-start gap-3 @xl/code:grid-cols-[minmax(0,1fr)_minmax(190px,250px)]">
+            {codeSurface}
+            <AnnotationNoteRail
+              items={resolved}
+              activeIndex={activeIndex}
+              onActiveChange={setActiveIndex}
+              ctx={ctx}
+            />
+          </div>
         </div>
       ) : (
         codeSurface

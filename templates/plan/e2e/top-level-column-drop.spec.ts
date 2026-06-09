@@ -129,6 +129,49 @@ async function sideDrop(
   await page.mouse.up();
 }
 
+/**
+ * Drop the source onto a fractional point of the target (fx/fy in 0..1 of the
+ * target's box) — used to prove that a NATURAL human release point (anywhere in
+ * the outer third, at ANY height), not just the precise 24px-from-edge point,
+ * builds columns. This is the regression guard for "I see the line but dropping
+ * does nothing": the old activation zone was a thin edge sliver in the vertical
+ * middle, so a human glimpsed the indicator then drifted out before releasing.
+ */
+async function dropAtFraction(
+  page: Page,
+  sourceLocator: string,
+  targetLocator: string,
+  fx: number,
+  fy: number,
+) {
+  const source = page.locator(sourceLocator).first();
+  const target = page.locator(targetLocator).first();
+  await expect(source).toBeVisible({ timeout: 15_000 });
+  await expect(target).toBeVisible({ timeout: 15_000 });
+  await source.scrollIntoViewIfNeeded();
+  await source.hover();
+
+  const grip = page.locator(".drag-handle").first();
+  await expect(grip).toBeVisible({ timeout: 8_000 });
+  const g = await grip.boundingBox();
+  const t = await target.boundingBox();
+  expect(g && t, "grip + target boxes").toBeTruthy();
+  if (!g || !t) return;
+
+  const xTarget = t.x + t.width * fx;
+  const yTarget = t.y + t.height * fy;
+
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + g.width / 2 + 8, g.y + g.height / 2 + 8, {
+    steps: 4,
+  });
+  await page.mouse.move(xTarget, yTarget, { steps: 24 });
+  await page.mouse.move(xTarget, yTarget, { steps: 6 });
+  await page.waitForTimeout(120);
+  await page.mouse.up();
+}
+
 function blockNode(blockId: string): string {
   return `.plan-document-editor-surface .plan-block-node[data-block-id="${blockId}"]`;
 }
@@ -405,5 +448,187 @@ test.describe("top-level side-drop creates columns", () => {
     expect(g.x).toBeGreaterThan(surface.x + 60);
     expect(g.x).toBeLessThan(r.x);
     expect(r.x - g.x).toBeLessThan(48);
+  });
+
+  test("NATURAL drop over the right THIRD (not the edge) creates columns", async ({
+    page,
+  }) => {
+    // The core regression for "I see the line but dropping does nothing": a human
+    // releases over the block's body (~70% across), not the precise 24px edge the
+    // other tests use. With the old thin edge zone that resolved to a reorder; the
+    // widened, full-height side zone must now build columns from this natural drop.
+    const planId = await createPlan(page, [
+      { id: "intro", type: "rich-text", data: { markdown: "Intro." } },
+      { id: "alpha", type: "callout", data: { tone: "info", body: "ALPHA" } },
+      { id: "beta", type: "callout", data: { tone: "info", body: "BETA" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("alpha"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Drop BETA at 72% of ALPHA's width, vertical middle — squarely in the body,
+    // far from the edge, the point a natural "drag beside" gesture lands on.
+    await dropAtFraction(
+      page,
+      blockNode("beta"),
+      blockNode("alpha"),
+      0.72,
+      0.5,
+    );
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          return groups.some(
+            (ids) => ids.includes("alpha") && ids.includes("beta"),
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+    await expect(
+      page.locator(".plan-nested-document-editor-region"),
+    ).toHaveCount(2, { timeout: 8_000 });
+  });
+
+  test("NATURAL drop near the TOP edge of the side region still creates columns", async ({
+    page,
+  }) => {
+    // The side zone now spans the FULL block height — dropping high (10% down)
+    // inside the left third must build columns, where the old middle-60%-only band
+    // would have reordered.
+    const planId = await createPlan(page, [
+      { id: "intro", type: "rich-text", data: { markdown: "Intro." } },
+      { id: "alpha", type: "callout", data: { tone: "info", body: "ALPHA" } },
+      { id: "beta", type: "callout", data: { tone: "info", body: "BETA" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("alpha"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Drop BETA at the LEFT third (15% across) but high up (10% down).
+    await dropAtFraction(
+      page,
+      blockNode("beta"),
+      blockNode("alpha"),
+      0.15,
+      0.1,
+    );
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          return groups.some(
+            (ids) => ids.includes("alpha") && ids.includes("beta"),
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
+
+  test("dropping over the CENTER reorders and does NOT create columns", async ({
+    page,
+  }) => {
+    // The middle band must stay a before/after reorder so columns don't hijack a
+    // plain move — proof the widened side zones still leave a reorder lane.
+    const planId = await createPlan(page, [
+      { id: "intro", type: "rich-text", data: { markdown: "Intro." } },
+      { id: "alpha", type: "callout", data: { tone: "info", body: "ALPHA" } },
+      { id: "beta", type: "callout", data: { tone: "info", body: "BETA" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("alpha"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Drop BETA dead-centre of ALPHA — should reorder, never wrap in columns.
+    await dropAtFraction(page, blockNode("beta"), blockNode("alpha"), 0.5, 0.5);
+
+    // Give the editor time to settle, then assert NO columns block was created.
+    await page.waitForTimeout(1500);
+    const blocks = await getBlocks(page, planId);
+    expect(blocks.some((b) => b.type === "columns")).toBe(false);
+  });
+
+  test("dragging a NON-FIRST paragraph of a multi-paragraph text block moves the WHOLE block into a column", async ({
+    page,
+  }) => {
+    // Regression for the silent text-side-drop failure: a rich-text block expands
+    // to a run of prose nodes and only the FIRST carries runId, so the 2nd/3rd
+    // paragraph resolved to a fresh id the columns tree couldn't find and the drop
+    // no-op'd. Resolving by position now maps any paragraph to its whole block.
+    const planId = await createPlan(page, [
+      {
+        id: "para",
+        type: "rich-text",
+        data: { markdown: "PARA one line.\n\nPARA two line." },
+      },
+      { id: "sep", type: "callout", data: { tone: "info", body: "sep" } },
+      { id: "anchor", type: "callout", data: { tone: "info", body: "ANCHOR" } },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("anchor"))).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Source is the SECOND paragraph (no runId) of the multi-paragraph block.
+    const para2 = ".plan-document-editor-surface p:has-text('PARA two line')";
+    await dropAtFraction(page, para2, blockNode("anchor"), 0.72, 0.5);
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          // The whole `para` block (both paragraphs) must land in the column.
+          return groups.some(
+            (ids) => ids.includes("para") && ids.includes("anchor"),
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
+
+  test("dropping a structured block onto a NON-FIRST paragraph of a text block creates columns", async ({
+    page,
+  }) => {
+    // The same position-resolution gap on the TARGET side (not text-specific):
+    // dropping a callout onto a text block's 2nd paragraph used to fail because
+    // the target resolved to a fresh id not in the tree.
+    const planId = await createPlan(page, [
+      { id: "c", type: "callout", data: { tone: "info", body: "DRAGME" } },
+      { id: "sep", type: "callout", data: { tone: "info", body: "sep" } },
+      {
+        id: "txt",
+        type: "rich-text",
+        data: { markdown: "TXT one line.\n\nTXT two line." },
+      },
+    ]);
+    await page.goto(`/plans/${planId}`);
+    await proseReady(page);
+    await expect(page.locator(blockNode("c"))).toBeVisible({ timeout: 15_000 });
+
+    // Target is the SECOND paragraph of the text block.
+    const txt2 = ".plan-document-editor-surface p:has-text('TXT two line')";
+    await dropAtFraction(page, blockNode("c"), txt2, 0.72, 0.5);
+
+    await expect
+      .poll(
+        async () => {
+          const groups = collectColumnChildIds(await getBlocks(page, planId));
+          return groups.some((ids) => ids.includes("c") && ids.includes("txt"));
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
   });
 });

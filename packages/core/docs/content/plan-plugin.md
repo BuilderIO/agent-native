@@ -1,20 +1,20 @@
 ---
 title: "Plan plugin & marketplace"
-description: "Install the Agent-Native Plan skills (/visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, /visual-questions) plus the hosted Plan MCP connector as a Claude Code or Codex plugin, or with the universal CLI. How updates work and whether you need to submit anything."
+description: "Install the Agent-Native Plan skills (/visual-plan, /visual-recap) plus the hosted Plan MCP connector as a Claude Code or Codex plugin, or with the universal CLI. How updates work and whether you need to submit anything."
 ---
 
 # Plan plugin & marketplace
 
-The Agent-Native **Plan** app ships as one installable bundle. A single install adds all six Plan slash-command skills **and** wires up the hosted Plan MCP connector, so the agent can generate plans and the skills can publish them straight into the Plan app.
+The Agent-Native **Plan** app ships as one installable bundle. A single install adds both Plan slash-command skills **and** wires up the hosted Plan MCP connector, so the agent can generate plans and the skills can publish them straight into the Plan app.
 
 ## What you get {#what-you-get}
 
 One install gives you:
 
-- **Six skills** — `/visual-plan` (the canonical entry point), `/visual-recap`, `/ui-plan`, `/prototype-plan`, `/plan-design`, and `/visual-questions`.
+- **Two skills** — `/visual-plan` (the canonical entry point) and `/visual-recap`.
 - **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `agent-native-plans`).
 
-All six skills **always publish to the hosted Plan app** — they create a plan via the MCP connector and hand you a link or inline plan to review. They never dump an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool returns `needs auth`, `Unauthorized`, or `Session terminated`, authenticate the connector (see each route below) instead of falling back to inline output.
+Both skills **always publish to the hosted Plan app** — they create a plan via the MCP connector and hand you a link or inline plan to review. They never dump an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool returns `needs auth`, `Unauthorized`, or `Session terminated`, authenticate the connector (see each route below) instead of falling back to inline output.
 
 > The plugin (`agent-native-visual-plans`) carries app id `visual-plans`, which is why the Claude Code plugin name and Codex plugin name are both `agent-native-visual-plans`. The Plan app's display name is "Agent-Native Plan".
 
@@ -24,7 +24,7 @@ There are three ways in. The **universal CLI route** is the one we recommend by 
 
 ### Universal skill route (any MCP host) {#universal}
 
-Works for any host — Claude Code, Codex, Cursor, Cline, Goose, ChatGPT custom MCP apps, Claude Cowork, and anything else MCP-compatible. The Agent-Native CLI installs the six skills, registers the hosted Plan MCP connector, **and authenticates it in the same step**, so your first tool call does not hit an OAuth wall:
+Works for any host — Claude Code, Codex, Cursor, Cline, Goose, ChatGPT custom MCP apps, Claude Cowork, and anything else MCP-compatible. The Agent-Native CLI installs both skills, registers the hosted Plan MCP connector, **and authenticates it in the same step**, so your first tool call does not hit an OAuth wall:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
@@ -32,7 +32,7 @@ npx @agent-native/core@latest skills add visual-plan
 agent-native skills add visual-plan
 ```
 
-This installs `visual-plan` plus the companion `visual-recap`, `visual-questions`, `ui-plan`, `prototype-plan`, and `plan-design` skills, then registers the `agent-native-plans` connector and runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
+This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `agent-native-plans` connector and runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `codex`).
 - `--no-connect` — register the connector without authenticating; run `agent-native connect https://plan.agent-native.com` later.
@@ -54,7 +54,7 @@ The public `BuilderIO/agent-native` repo is itself a Claude Code plugin marketpl
 /mcp        # authenticate the Plan connector (one OAuth approval)
 ```
 
-`/plugin install` adds the six Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake.
+`/plugin install` adds both Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake.
 
 > The marketplace catalog is named `agent-native-apps` and the Plan plugin is `agent-native-visual-plans`, so the install target is always `agent-native-visual-plans@agent-native-apps`.
 
@@ -101,7 +101,7 @@ Under the hood, all three routes are produced from the same source by the `agent
 
 ## What's next {#whats-next}
 
-- [**Visual Plans**](/docs/visual-plans) — what the skills do and how to use them
+- [**Visual Plans**](/docs/template-plan) — what the skills do and how to use them
 - [**PR Visual Recap**](/docs/pr-visual-recap) — run `/visual-recap` automatically on every pull request
 - [**Skills Guide**](/docs/skills-guide) — app-backed skills and the manifest format
 - [**External Agents**](/docs/external-agents) — connect any MCP host and round-trip artifacts

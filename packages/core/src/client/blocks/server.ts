@@ -98,6 +98,13 @@ export {
   type ColumnsData,
   type ColumnsColumn,
 } from "./library/columns.config.js";
+export {
+  calloutSchema,
+  calloutMdx,
+  CALLOUT_TONES,
+  type CalloutData,
+  type CalloutTone,
+} from "./library/callout.config.js";
 
 // Dev-doc block library — React-free schema + MDX config only. The React
 // `Read`/`Edit` live in the matching `./library/<Name>Block.tsx` (imported from

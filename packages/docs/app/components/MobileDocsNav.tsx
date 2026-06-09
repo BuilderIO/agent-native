@@ -85,17 +85,45 @@ export default function MobileDocsNav() {
                 </p>
                 <ul className="list-none p-0">
                   {section.items.map((item) => {
-                    const isActive = item.to === currentItem.to;
+                    // Chevron-only group header (no `to`): render a plain,
+                    // non-clickable label with its children listed below.
+                    const isGroup = !item.to && Boolean(item.children?.length);
+                    const isActive = !isGroup && item.to === currentItem.to;
                     return (
-                      <li key={item.to}>
-                        <Link
-                          data-an-prefetch="render"
-                          to={item.to}
-                          className={`mobile-docs-nav-link ${isActive ? "is-active" : ""}`}
-                          onClick={() => setOpen(false)}
-                        >
-                          {item.label}
-                        </Link>
+                      <li key={item.to ?? item.label}>
+                        {isGroup ? (
+                          <p className="px-3 py-1.5 text-sm font-medium text-[var(--fg)]">
+                            {item.label}
+                          </p>
+                        ) : (
+                          <Link
+                            data-an-prefetch="render"
+                            to={item.to!}
+                            className={`mobile-docs-nav-link ${isActive ? "is-active" : ""}`}
+                            onClick={() => setOpen(false)}
+                          >
+                            {item.label}
+                          </Link>
+                        )}
+                        {item.children ? (
+                          <ul className="list-none p-0">
+                            {item.children.map((child) => {
+                              const childActive = child.to === currentItem.to;
+                              return (
+                                <li key={child.to ?? child.label}>
+                                  <Link
+                                    data-an-prefetch="render"
+                                    to={child.to!}
+                                    className={`mobile-docs-nav-link mobile-docs-nav-sublink ${childActive ? "is-active" : ""}`}
+                                    onClick={() => setOpen(false)}
+                                  >
+                                    {child.label}
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
                       </li>
                     );
                   })}

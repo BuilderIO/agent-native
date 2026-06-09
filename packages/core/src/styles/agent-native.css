@@ -24,6 +24,7 @@
 
 @import "./agent-conversation.css";
 @import "./rich-markdown-editor.css";
+@import "./blocks.css";
 
 /* Scan @agent-native/core's compiled client output for Tailwind classes.
    Path is resolved relative to THIS file. After build, this CSS lives at

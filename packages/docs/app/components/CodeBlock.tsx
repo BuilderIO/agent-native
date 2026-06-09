@@ -23,6 +23,9 @@ export default function CodeBlock({
         light: "github-light-default",
         dark: "github-dark-default",
       },
+      // Emit BOTH --shiki-light and --shiki-dark CSS vars (no baked-in default
+      // theme) so the per-theme color rules in global.css work in both modes.
+      defaultColor: false,
     })
       .then((result) => {
         if (!cancelled) setHtml(result);

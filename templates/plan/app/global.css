@@ -48,6 +48,12 @@
   --sidebar-accent-foreground: 30 5% 13%;
   --sidebar-border: 36 10% 86%;
   --sidebar-ring: 218 85% 57%;
+  /* ── Plan document font sizes — edit here to resize globally ──────────────
+     --plan-code-size  : all monospace code surfaces (diffs, annotated-code,
+                         code blocks, JSON explorer, file trees, etc.)
+     --plan-body-size  : prose body text across all plan document blocks       */
+  --plan-code-size: 1rem;
+  --plan-body-size: 1rem;
 }
 
 .dark {
@@ -355,14 +361,30 @@
 
 @media (min-width: 1400px) {
   .plan-document-files {
+    --files-rail-width: 14rem;
     position: absolute;
     top: 0;
     bottom: 0;
-    right: calc(100% + 1.25rem);
+    /* Anchor the LEFT edge in the margin (not the right) so the rail widens
+     * rightward — into the document as a flyout — when a file is focused,
+     * instead of growing left off the viewport edge where there is no room.
+     * Collapsed, the right edge still sits 1.25rem left of the document body,
+     * mirroring the contents rail. */
+    left: calc(-1.25rem - var(--files-rail-width));
     z-index: 2;
     display: block;
-    width: 14rem;
+    width: var(--files-rail-width);
     pointer-events: none;
+    transition: width 0.18s ease;
+  }
+
+  /* While a file's note/snippet is the reader's active focus, widen the rail
+   * over the document so annotations are readable; it collapses back the moment
+   * focus leaves (click elsewhere) or the last open file is closed. The opaque
+   * card + raised z-index let it read as a panel above the prose. */
+  .plan-document-files:has(.plan-block[data-files-expanded]) {
+    width: 26rem;
+    z-index: 30;
   }
 
   .plan-document-files__nav {
@@ -439,7 +461,7 @@
  * rich-text and callout prose (`.an-rich-md-prose`, 1.0625rem). Block headings
  * and labels keep their own larger sizes; this is only for body/lede paragraphs. */
 .plan-doc-body {
-  font-size: 1.0625rem;
+  font-size: var(--plan-body-size);
   line-height: 1.75;
 }
 
@@ -451,7 +473,7 @@
 
 .plan-rich-markdown-editor .an-rich-md-prose {
   color: var(--plan-text);
-  font-size: 1.0625rem;
+  font-size: var(--plan-body-size);
   line-height: 1.75;
 }
 
@@ -618,7 +640,7 @@
 .plan-prose {
   max-width: 820px;
   color: var(--plan-text);
-  font-size: 1.0625rem;
+  font-size: var(--plan-body-size);
   line-height: 1.75;
 }
 
@@ -785,7 +807,7 @@
 .plan-code-surface-scroll {
   position: relative;
   overflow: auto;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
 }
 
@@ -831,7 +853,7 @@
   background: var(--shiki-light-bg, var(--plan-code)) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
 }
 
@@ -848,7 +870,6 @@
 
 .plan-code-surface .plan-shiki pre span {
   color: var(--shiki-light);
-  background: var(--shiki-light-bg);
 }
 
 .dark .plan-code-surface .plan-shiki,
@@ -859,7 +880,6 @@
 
 .dark .plan-code-surface .plan-shiki pre span {
   color: var(--shiki-dark);
-  background: var(--shiki-dark-bg);
 }
 
 /* `code` primitive block: read wraps the single-bordered .plan-code-surface with
@@ -883,7 +903,7 @@
   gap: 0.4rem;
   min-width: 0;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   font-weight: 600;
   color: var(--plan-text);
 }
@@ -993,7 +1013,7 @@
   margin: 0;
   padding: 0.85rem 1.1rem;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
   white-space: pre;
   tab-size: 2;
@@ -1013,7 +1033,7 @@
   background: transparent !important;
   border: 0 !important;
   border-radius: 0;
-  font-size: 0.78rem !important;
+  font-size: var(--plan-code-size) !important;
   line-height: 1.6 !important;
 }
 
@@ -1121,7 +1141,7 @@
   background: transparent;
   color: var(--plan-code-text);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
   overflow-x: auto;
 }
@@ -1827,7 +1847,7 @@
  * and inline callouts no longer read larger than the surrounding copy. */
 .plan-document-editor .an-rich-md-prose,
 .plan-nested-document-editor .an-rich-md-prose {
-  font-size: 1.0625rem;
+  font-size: var(--plan-body-size);
   line-height: 1.75;
 }
 .plan-document-editor .an-rich-md-prose h1,
@@ -1902,8 +1922,14 @@
  * wrong for a boxed callout. Block-to-block spacing still comes from the block /
  * NodeView margins; only the internal padding + divider are reset here. (The
  * matching `padding-bottom` lives on the base `.plan-callout` rule and already
- * wins, since neither layout rule sets it.) */
+ * wins, since neither layout rule sets it.)
+ *
+ * `.plan-block .plan-callout` covers callouts nested inside another block (e.g. a
+ * `tabs` panel or `columns`), where the generic `.plan-block .plan-block` rule
+ * zeroes `padding-top` and would otherwise leave the box visibly tighter on top
+ * than the bottom. */
 .plan-document-flow > .plan-callout,
+.plan-block .plan-callout,
 .plan-document-editor .plan-block-node .plan-callout,
 .plan-nested-document-editor .plan-block-node .plan-callout {
   padding-top: 0.9rem;
@@ -1996,6 +2022,22 @@
   box-shadow: 0 0 0 1px var(--plan-document);
   pointer-events: none;
   transform: translateY(-1px);
+}
+
+/*
+ * Column (side) drop: a drag landing in a block's left/right region builds a
+ * Notion-style columns layout instead of reordering. The bar is bolder and
+ * glows so the column-build intent is unmistakable before release — distinct
+ * from the thin horizontal reorder line. The core DragHandle sizes/positions it
+ * inline (a vertical bar on the target's edge) and toggles this class.
+ */
+.notion-drop-indicator--column {
+  transform: none;
+  background: hsl(var(--ring));
+  box-shadow:
+    0 0 0 1px var(--plan-document),
+    0 0 0 2px hsl(var(--ring) / 0.25),
+    0 0 10px hsl(var(--ring) / 0.55);
 }
 
 .plan-document-editor .plan-block-node,

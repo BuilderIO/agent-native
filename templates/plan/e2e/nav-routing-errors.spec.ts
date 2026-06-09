@@ -243,7 +243,7 @@ test.describe("nav / routing / error+loading", () => {
     await expect(async () => {
       const text = await page.locator("body").innerText();
       expect(
-        /Plan did not load/i.test(text),
+        /Plan (did not load|not found)/i.test(text),
         "deep-linked real plan must not show the load-error card",
       ).toBeFalsy();
       expect(
@@ -262,7 +262,7 @@ test.describe("nav / routing / error+loading", () => {
     // It must resolve to a graceful error card within a bounded time — not crash
     // to a blank boundary and not spin on a skeleton forever.
     await expect(
-      page.getByText(/Plan did not load/i),
+      page.getByText(/Plan not found/i),
       "a non-existent plan must resolve to a graceful not-found card (no infinite skeleton, no crash)",
     ).toBeVisible({ timeout: 25_000 });
 
@@ -298,7 +298,7 @@ test.describe("nav / routing / error+loading", () => {
     // Wait for content to first resolve (no error card for a real plan).
     await expect(async () => {
       const t = await page.locator("body").innerText();
-      expect(/Plan did not load/i.test(t)).toBeFalsy();
+      expect(/Plan (did not load|not found)/i.test(t)).toBeFalsy();
       expect(
         /flip brief|fixture brief|What we are planning/i.test(t),
         "real plan content should render",
@@ -314,7 +314,8 @@ test.describe("nav / routing / error+loading", () => {
     for (let i = 0; i < 14; i++) {
       const state = await page.evaluate(() => {
         const errorShown =
-          document.body.innerText.includes("Plan did not load");
+          document.body.innerText.includes("Plan did not load") ||
+          document.body.innerText.includes("Plan not found");
         const skeleton = document.querySelectorAll(
           "[aria-label='Loading plan']",
         ).length;
@@ -439,7 +440,7 @@ test.describe("nav / routing / error+loading", () => {
     // Land on the plan and confirm it resolves (not a stuck error card).
     await expect(page).toHaveURL(/\/plans(\/|$)/);
     await expect(
-      page.getByText(/Plan did not load/i),
+      page.getByText(/Plan (did not load|not found)/i),
       "rapid back/forward must not corrupt routing into a load-error for a real plan",
     ).toHaveCount(0, { timeout: 20_000 });
     // App shell still alive.
@@ -594,7 +595,7 @@ test.describe("nav / routing — plan you don't own", () => {
     }).toPass({ timeout: 20_000 });
 
     await expect(
-      page.getByText(/Plan did not load/i),
+      page.getByText(/Plan not found/i),
       "an inaccessible foreign plan must resolve to the graceful not-found card",
     ).toBeVisible({ timeout: 20_000 });
 

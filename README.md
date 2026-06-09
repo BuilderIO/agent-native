@@ -19,6 +19,21 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
 - **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
 
+## Try it with a skill
+
+Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with one command:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+It installs the skills, registers the hosted MCP connector, and signs you in in one step. You get two slash commands that upgrade how your agent plans and reports its work:
+
+- **`/visual-plan`** — before the agent writes code, it opens a structured, reviewable plan document instead of a wall of text: inline diagrams, UI wireframes and prototypes, file-by-file implementation maps, and annotations you can comment on and approve.
+- **`/visual-recap`** — after changes land, it turns a PR or git diff into a high-altitude visual recap: schema, API, and file changes rendered as grounded before/after blocks with a shareable review link, instead of scrolling a raw diff.
+
+See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-skills)** for more skills and local installs.
+
 ## Templates
 
 Start from a complete, production-grade SaaS app — cloneable, not scaffolded. Each one replaces tools you're paying for, except you own everything and can customize it however you want. Not demos; products.
@@ -156,7 +171,7 @@ Generate forms from a prompt, branch logic with the agent, and own every respons
 
 **Brain**
 
-<a href="https://agent-native.com/templates/brain">Brain template</a>
+<a href="https://agent-native.com/templates/brain"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=800" alt="Brain template" width="100%" /></a>
 
 **Agent-Native company memory**
 
@@ -169,7 +184,7 @@ Ask questions over cited company knowledge from approved Slack, meetings, transc
 
 **Assets**
 
-<a href="https://agent-native.com/templates/assets">Assets template</a>
+<a href="https://agent-native.com/templates/assets"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800" alt="Assets template" width="100%" /></a>
 
 **Agent-Native asset library**
 
@@ -196,60 +211,6 @@ Want a single app, no monorepo? Use `--standalone`:
 
 ```bash
 npx @agent-native/core create my-app --standalone --template mail
-```
-
-### Try it with a skill
-
-Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with one command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
-
-```bash
-npx @agent-native/core@latest skills add visual-plan
-```
-
-It installs the skill, registers the hosted MCP connector, and signs you in in one step — then run `/visual-plan`. See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-skills)** for more skills and local installs.
-
-Need a coding agent workspace? `agent-native` or `agent-native code` opens an open-source Claude Code/Codex-like Code workspace with no prompt required. From there, type a task, run slash goals interactively, or call them directly from your shell:
-
-```bash
-npx @agent-native/core@latest
-npx @agent-native/core@latest "fix the failing auth tests"
-npx @agent-native/core@latest code
-npx @agent-native/core@latest code "fix the failing auth tests"
-npx @agent-native/core@latest code exec "fix the failing auth tests"
-npx @agent-native/core@latest code -p "fix the failing auth tests"
-npx @agent-native/core@latest code --plan "explain the auth test failures"
-npx @agent-native/core@latest code --auto "fix the failing auth tests"
-npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
-npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
-npx @agent-native/core@latest code list
-npx @agent-native/core@latest code status --last
-npx @agent-native/core@latest code attach --last
-npx @agent-native/core@latest code logs --last
-npx @agent-native/core@latest code stop --last
-npx @agent-native/core@latest code ui
-npx @agent-native/core@latest code approve --last
-npx @agent-native/core@latest code resume --last
-npx @agent-native/core@latest code --continue "check the auth edge cases next"
-npx @agent-native/core@latest code resume --last "check the auth edge cases next"
-```
-
-Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. A bare prompt starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Installed `agent-native` with no arguments launches the Code workspace; `agent-native "fix tests"` starts an Agent-Native Code task directly. Use `agent-native create` when you want to create apps or workspaces.
-
-Working inside this repository? Use `pnpm dev` for the lazy framework dev gateway. It exposes the core templates on one local origin and starts each app only when you visit it, which keeps memory usage much lower than booting every server at once. To focus on specific templates, pass `--apps`, for example `pnpm dev -- --apps analytics,brain`. Use `pnpm dev:eager` only when you intentionally want the older eager mode that starts the selected template servers, frame, docs, and core watcher immediately. The old `pnpm dev:all` name still works as an alias for eager mode.
-
-Use `pnpm dev:cli ...` to run the source CLI without building first, for example `pnpm dev:cli --help` or `pnpm dev:cli code goals`.
-
-The Code workspace uses the familiar Codex/Claude-style session loop: pick a previous session, list runs, check status, attach to live output, print logs, stop work, resume with context, open the local UI, and continue the same run from Desktop or CLI. The Desktop Code tab, `agent-native code ui`, background sessions, and sub-agent sessions all converge on the shared run harness/controller model instead of separate ad hoc runners. The primary modes are intentionally simple:
-
-- **Plan mode** (`--plan`) inspects, explains, and proposes without writing files.
-- **Auto mode** (`--auto`, default) edits files, runs checks, and only pauses for genuinely destructive file, git, publish, or data operations.
-
-`agent-native migrate` still works as a direct shortcut; `code /migrate` is the Agent-Native Code entrypoint for the migration goal. By default it creates an Agent-Native Code session and portable migration dossier, not a scaffolded app/template. `resume --last` reopens the latest run handoff; adding a quoted prompt records it as a follow-up transcript event for that run so the next active coding agent can pick it up. If a high-risk command is paused for approval, `code approve --last` runs that one pending command and then points you back to resume the session. Use `--app-surface` only when you want the legacy hidden migration detail app for assessment, approval, tasks, artifacts, and verification.
-Use `--emit` when you want only the portable dossier for Codex, Claude Code, Cursor, or another coding agent.
-Agent-Native Code also includes lightweight goals such as `/audit`:
-
-```bash
-npx @agent-native/core@latest code /audit --url https://example.com
 ```
 
 ## Workspaces (Monorepo)

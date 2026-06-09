@@ -13,11 +13,6 @@ import {
   type BlockAgentDoc,
 } from "@agent-native/core/blocks/server";
 import {
-  calloutSchema,
-  calloutMdx,
-  type CalloutData,
-} from "./blocks/callout.config.js";
-import {
   diagramSchema,
   diagramMdx,
   type DiagramData,
@@ -74,76 +69,10 @@ const PLAN_SERVER_LIBRARY_OVERRIDES: LibraryBlockConfigOverrides = {
 };
 
 export function registerPlanBlocks(registry: BlockRegistry): void {
-  // Plan-specific block configs (callout/diagram/wireframe/question-form). The
-  // standard library is registered once via `registerLibraryBlockConfigs` below.
-  registerBlocks(registry, [
-    defineBlock<CalloutData>({
-      type: "callout",
-      schema: calloutSchema,
-      mdx: calloutMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Callout",
-      description:
-        "An emphasized note with a tone (info/decision/risk/warning/success) and a markdown body.",
-    }),
-    defineBlock<DiagramData>({
-      type: "diagram",
-      schema: diagramSchema,
-      mdx: diagramMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Diagram",
-      description:
-        "A flexible inline document diagram for architecture, dependency, data-flow, or state relationships. Prefer html/css with SVG or semantic HTML for polished two-dimensional diagrams; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges remain for simple previews.",
-    }),
-    defineBlock<WireframeData>({
-      type: "wireframe",
-      schema: wireframeSchema,
-      mdx: wireframeMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Wireframe",
-      description:
-        "A UI/product mockup built from a standard WireframeBlock/Screen HTML fragment or kit tree, rendered in a chosen surface frame (desktop/mobile/popover/panel/browser) with Plan-owned theme and sketchy/clean styling. Use this for rendered UI changes, including small realistic surfaces such as popovers, menus, dialogs, and panels with their actual chrome, padding, fields, and control placement. Use the top canvas for primary UI visuals; do not use wireframes for architecture/code-only plans.",
-    }),
-    defineBlock<QuestionFormData>({
-      type: "question-form",
-      schema: questionFormSchema,
-      mdx: questionFormMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Question form",
-      description:
-        "An interactive form block for open questions, single-choice or multi-choice option rows, freeform answers, recommended options, and optional wireframe/diagram previews. Previews should clarify choices without duplicating the top canvas; for code plans, use diagram previews sparingly.",
-    }),
-    defineBlock<VisualQuestionsData>({
-      type: "visual-questions",
-      schema: visualQuestionsSchema,
-      mdx: visualQuestionsMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Visual questions",
-      description:
-        "A compatibility visual-intake question block with the same editable question/option shape as question-form.",
-    }),
-    defineBlock<DecisionData>({
-      type: "decision",
-      schema: decisionSchema,
-      mdx: decisionMdx,
-      // Server stub — the browser registry supplies the real renderer.
-      Read: () => null,
-      placement: ["block"],
-      label: "Decision",
-      description:
-        "A decision prompt with editable option cards and an authored recommended choice.",
-    }),
-  ]);
+  // Plan-specific block configs (diagram/wireframe/question-form/decision). The
+  // standard library (now including callout) is registered once via
+  // `registerLibraryBlockConfigs` below.
+  registerBlocks(registry, []);
 
   // Standard library config stubs (checklist, table, code-tabs, custom-html, tabs
   // + the eight dev-doc blocks), shared with content's server registry. Plan's

@@ -15,8 +15,26 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {
+    // Project only the columns the list/summary needs. A bare `.select()` pulls
+    // every column — including the large `html`, `markdown`, and `content`
+    // blobs — for every plan the user can access, which is pure waste for a
+    // list view and the main reason the plans-list skeleton lingered.
     const rows = await getDb()
-      .select()
+      .select({
+        id: schema.plans.id,
+        title: schema.plans.title,
+        brief: schema.plans.brief,
+        kind: schema.plans.kind,
+        status: schema.plans.status,
+        source: schema.plans.source,
+        repoPath: schema.plans.repoPath,
+        currentFocus: schema.plans.currentFocus,
+        hostedPlanId: schema.plans.hostedPlanId,
+        hostedPlanUrl: schema.plans.hostedPlanUrl,
+        createdAt: schema.plans.createdAt,
+        updatedAt: schema.plans.updatedAt,
+        approvedAt: schema.plans.approvedAt,
+      })
       .from(schema.plans)
       .where(
         accessFilter(
