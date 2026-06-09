@@ -197,10 +197,6 @@ async function verticalMove(
 
 test.describe("column manipulation (Notion-like)", () => {
   test.beforeEach(async ({ page }) => {
-    page.on("console", (m) => {
-      const t = m.text();
-      if (t.includes("[vmove]")) console.log("PAGE", t.slice(0, 200));
-    });
     page.on("pageerror", (e) =>
       // eslint-disable-next-line no-console
       console.log("PAGEERROR", String(e).slice(0, 300)),
