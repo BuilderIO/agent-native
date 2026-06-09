@@ -271,11 +271,19 @@ function stripJsonComments(source: string): string {
       continue;
     }
 
+    // Drop a trailing comma before a closing bracket so the result is strict
+    // JSON. Done here (not via a post-pass regex) so it stays string-aware: we
+    // only reach this branch outside strings/comments, and the structural comma
+    // is the last non-whitespace char already emitted. A comma inside a string
+    // value like `"hello,}"` is followed by its closing quote, not the bracket,
+    // so it is never stripped.
+    if (char === "}" || char === "]") {
+      out = out.replace(/,\s*$/, "");
+    }
     out += char;
   }
 
-  // Drop trailing commas (`,]` / `,}`) left behind so the result is strict JSON.
-  return out.replace(/,(\s*[}\]])/g, "$1");
+  return out;
 }
 
 /**

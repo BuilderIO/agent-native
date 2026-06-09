@@ -319,15 +319,20 @@ export function runMigrations(
           if (pg && isPermissionError(err)) {
             // The connected role lacks privilege for this migration (e.g. a
             // permission-limited dev/replica role that doesn't own the table).
-            // Don't crash-loop the whole server over it — warn and SKIP. It
-            // stays UNRECORDED, so a properly-privileged role applies it later.
+            // Don't crash-loop the whole server over it — warn and STOP here.
+            // We must NOT continue to later migrations: pending work is computed
+            // as `version > MAX(recorded version)`, so applying a later migration
+            // would advance MAX past this unrecorded one and orphan it forever.
+            // Stopping leaves MAX at the last recorded version, so a properly-
+            // privileged role resumes from this exact migration, in order.
             console.warn(
               `[db] Migration v${m.version} skipped — insufficient privilege: ${(err as Error).message}. ` +
-                `Apply it with a DB role that owns the table.`,
+                `Apply it with a DB role that owns the table. ` +
+                `Halting further migrations so this one isn't orphaned.`,
               "\nStatement:",
               currentStmt,
             );
-            continue;
+            break;
           }
           console.error(
             `[db] Migration v${m.version} FAILED:`,

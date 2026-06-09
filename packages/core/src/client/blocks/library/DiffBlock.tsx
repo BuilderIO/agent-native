@@ -1031,7 +1031,11 @@ function UnifiedRow({
       )}
       onMouseEnter={
         info
-          ? (event) => onRowEnter(info.primaryIndex, event.currentTarget)
+          ? (event) =>
+              onRowEnter(
+                startMarker?.index ?? info.primaryIndex,
+                event.currentTarget,
+              )
           : undefined
       }
       onMouseLeave={info ? () => onRowLeave() : undefined}
@@ -1258,7 +1262,11 @@ function SplitCell({
       )}
       onMouseEnter={
         info
-          ? (event) => onRowEnter(info.primaryIndex, event.currentTarget)
+          ? (event) =>
+              onRowEnter(
+                startMarker?.index ?? info.primaryIndex,
+                event.currentTarget,
+              )
           : undefined
       }
       onMouseLeave={info ? () => onRowLeave() : undefined}
