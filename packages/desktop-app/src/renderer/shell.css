@@ -1246,6 +1246,25 @@ body {
   word-break: break-word;
 }
 
+.settings-code-tab-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-code-tab-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .settings-update-card {
   display: grid;
   gap: 10px;

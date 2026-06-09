@@ -851,6 +851,34 @@ export default function AppSettings({
             </div>
           )}
 
+          {frameSettings && (
+            <div className="settings-code-tab-card">
+              <div className="settings-code-tab-copy">
+                <span className="settings-mode-card-title">Code tab</span>
+                <span className="settings-mode-card-status">
+                  Show Agent-Native Code in the sidebar.
+                </span>
+              </div>
+              <label
+                className="settings-toggle"
+                title={
+                  frameSettings.showCodeTab
+                    ? "Hide the Code tab"
+                    : "Show the Code tab"
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={frameSettings.showCodeTab}
+                  onChange={(event) =>
+                    handleCodeTabToggle(event.target.checked)
+                  }
+                />
+                <span className="settings-toggle-track" />
+              </label>
+            </div>
+          )}
+
           <div
             className={`settings-remote-card settings-remote-card--${remoteCopy.tone}`}
           >
