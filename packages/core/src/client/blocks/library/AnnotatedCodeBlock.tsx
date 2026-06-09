@@ -180,7 +180,8 @@ function AnnotatedCodeRead({
 
 /* ── Edit (panel) ──────────────────────────────────────────────────────────── */
 
-const codeAreaClass = "min-h-[160px] font-mono text-xs leading-5";
+const codeAreaClass =
+  "min-h-[160px] font-mono [font-size:var(--plan-code-size)] leading-5";
 
 function AnnotatedCodeEdit({
   data,

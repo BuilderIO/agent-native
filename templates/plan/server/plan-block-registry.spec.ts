@@ -141,7 +141,6 @@ describe("plan block agent vocabulary export", () => {
       "code-tabs",
       "custom-html",
       "diagram",
-      "decision",
       "mermaid",
       "api-endpoint",
       "openapi-spec",

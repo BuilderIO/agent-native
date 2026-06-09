@@ -633,19 +633,10 @@ async function runShot(args: Record<string, string | boolean>): Promise<void> {
       }
     }
     await page.waitForTimeout(matched ? 1_200 : 500);
-    // Zoom out slightly so more content fits, then scroll past the main title.
+    // Zoom out slightly so more content fits. Keep the plan title (h1) in frame:
+    // the recap reads better led by its own title than cropped to the body.
     await page.evaluate(() => {
       (document.documentElement as HTMLElement).style.zoom = "80%";
-    });
-    await page.evaluate(() => {
-      const firstH2 = document.querySelector("h2");
-      if (firstH2) {
-        firstH2.scrollIntoView({ block: "start" });
-        window.scrollBy(0, -24);
-      } else {
-        const h1 = document.querySelector("h1");
-        if (h1) window.scrollBy(0, h1.getBoundingClientRect().bottom + 32);
-      }
     });
     await page.screenshot({ path: out });
     captured = true;

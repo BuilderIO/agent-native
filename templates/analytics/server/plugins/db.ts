@@ -197,6 +197,16 @@ export default runMigrations(
       version: 34,
       sql: `CREATE INDEX IF NOT EXISTS analyses_hidden_at_idx ON analyses (hidden_at)`,
     },
+    // Composite indexes backing the scoped list queries: accessFilter filters on
+    // owner_email / org_id and both lists sort by updated_at (desc, in JS).
+    {
+      version: 35,
+      sql: `CREATE INDEX IF NOT EXISTS dashboards_owner_org_updated_idx ON dashboards (owner_email, org_id, updated_at)`,
+    },
+    {
+      version: 36,
+      sql: `CREATE INDEX IF NOT EXISTS analyses_owner_org_updated_idx ON analyses (owner_email, org_id, updated_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

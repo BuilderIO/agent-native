@@ -31,8 +31,20 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    // Project only the columns the list path uses. The `data` TEXT column holds
+    // the full design JSON (tweaks, selections, etc.) which can be large and is
+    // never read on the listing — detail/editor views load it via get-design.
     const rows = await db
-      .select()
+      .select({
+        id: schema.designs.id,
+        title: schema.designs.title,
+        description: schema.designs.description,
+        projectType: schema.designs.projectType,
+        designSystemId: schema.designs.designSystemId,
+        visibility: schema.designs.visibility,
+        createdAt: schema.designs.createdAt,
+        updatedAt: schema.designs.updatedAt,
+      })
       .from(schema.designs)
       .where(accessFilter(schema.designs, schema.designShares))
       .orderBy(desc(schema.designs.updatedAt));

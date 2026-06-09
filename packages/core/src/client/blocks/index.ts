@@ -156,17 +156,6 @@ export {
   type CalloutTone,
 } from "./library/callout.config.js";
 export {
-  decisionBlock,
-  DecisionBlock,
-  DecisionBlockEdit,
-} from "./library/decision.js";
-export {
-  decisionSchema,
-  decisionMdx,
-  type DecisionData,
-  type DecisionOption,
-} from "./library/decision.config.js";
-export {
   questionFormBlock,
   visualQuestionsBlock,
   QuestionFormRead,

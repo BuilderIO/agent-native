@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, count, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
@@ -8,11 +8,13 @@ import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
 async function sourceRecordCount(sourceId: string): Promise<number> {
-  const rows = await getDb()
-    .select()
+  // Count only — never load the heavy `content` blob of every capture row
+  // just to take `.length`.
+  const [row] = await getDb()
+    .select({ value: count() })
     .from(schema.brainRawCaptures)
     .where(eq(schema.brainRawCaptures.sourceId, sourceId));
-  return rows.length;
+  return row?.value ?? 0;
 }
 
 async function latestRun(sourceId: string) {

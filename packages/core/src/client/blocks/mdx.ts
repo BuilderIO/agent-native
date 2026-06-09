@@ -64,6 +64,11 @@ type MdxAttrExpression = {
   data?: unknown;
 };
 
+type EstreeTemplateElement = {
+  type: string;
+  value?: { cooked?: string | null; raw?: string };
+};
+
 type EstreeNode = {
   type: string;
   value?: unknown;
@@ -76,6 +81,8 @@ type EstreeNode = {
   computed?: boolean;
   argument?: EstreeNode;
   operator?: string;
+  quasis?: EstreeTemplateElement[];
+  expressions?: EstreeNode[];
 };
 
 export type MdxJsxNode = {
@@ -124,6 +131,19 @@ function literalExpressionValue(expression: MdxAttrExpression): unknown {
 function literalNodeValue(node: EstreeNode | undefined | null): unknown {
   if (!node) return undefined;
   if (node.type === "Literal") return node.value;
+  if (node.type === "TemplateLiteral") {
+    // A template literal WITH `${…}` interpolations can't be evaluated
+    // statically — fail loudly so the import errors instead of falling through
+    // to a confusing JSON parse error or silently dropping the attribute.
+    if ((node.expressions?.length ?? 0) > 0) {
+      throw new Error(
+        "Template literal attribute values may not contain ${…} expressions; use a static string.",
+      );
+    }
+    // A template literal with no expressions is a static string:
+    // `<div>hi</div>` → "<div>hi</div>".
+    return node.quasis?.[0]?.value?.cooked ?? "";
+  }
   if (node.type === "ArrayExpression") {
     return (node.elements ?? []).map((item) => literalNodeValue(item));
   }

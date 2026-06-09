@@ -634,6 +634,39 @@ const migrations = runMigrations(
       version: 40,
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_window_title TEXT`,
     },
+    // -------------------------------------------------------------------------
+    // Indices for the hot recordings list/read paths, per-recording comment
+    // loads, and the `accessFilter` share-lookup EXISTS subqueries that run on
+    // every list/read of recordings, meetings, dictations, and calendar
+    // accounts. Strictly additive; `CREATE INDEX IF NOT EXISTS` works on both
+    // SQLite and Postgres. The composite share index matches the subquery's
+    // `(resource_id, principal_type, principal_id)` predicate exactly.
+    //
+    // `clips_vocabulary_shares` already has a `resource_id` index (v37) and is
+    // intentionally left as-is. The legacy unprefixed `meeting_shares` (v18)
+    // and `dictation_shares` (v25) are NOT on any access path — the schema and
+    // every `accessFilter` callsite use the `clips_*` prefixed tables — so they
+    // are intentionally skipped.
+    // -------------------------------------------------------------------------
+    {
+      version: 41,
+      sql: [
+        // recordings list: library view filters owner_email + workspace_id and
+        // sorts by created_at; the accessFilter owner branch also scopes by
+        // org_id. Space view + org-scoped filters hit workspace_id alone.
+        `CREATE INDEX IF NOT EXISTS recordings_owner_workspace_created_idx ON recordings (owner_email, workspace_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS recordings_owner_org_created_idx ON recordings (owner_email, org_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS recordings_workspace_id_idx ON recordings (workspace_id)`,
+        // recording_comments loaded per recording, sorted by created_at.
+        `CREATE INDEX IF NOT EXISTS recording_comments_recording_created_idx ON recording_comments (recording_id, created_at)`,
+        // Shares tables on real accessFilter paths — composite matches the
+        // EXISTS subquery predicate exactly.
+        `CREATE INDEX IF NOT EXISTS recording_shares_resource_principal_idx ON recording_shares (resource_id, principal_type, principal_id)`,
+        `CREATE INDEX IF NOT EXISTS clips_meeting_shares_resource_principal_idx ON clips_meeting_shares (resource_id, principal_type, principal_id)`,
+        `CREATE INDEX IF NOT EXISTS clips_dictation_shares_resource_principal_idx ON clips_dictation_shares (resource_id, principal_type, principal_id)`,
+        `CREATE INDEX IF NOT EXISTS calendar_account_shares_resource_principal_idx ON calendar_account_shares (resource_id, principal_type, principal_id)`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

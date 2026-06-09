@@ -23,6 +23,14 @@
   --an-callout-risk: 0 84% 60%;
   --an-callout-warning: 25 95% 48%;
   --an-callout-success: 142 71% 38%;
+
+  /* Standardized small code-body size for every monospace code surface in the
+     core block library (diffs, annotated-code, JSON explorer, Mermaid source,
+     etc.). The block components reference this via `[font-size:var(--plan-code-size)]`;
+     without a definition the declaration is invalid and code falls back to the
+     large prose size. The plan template overrides this var in its own
+     `global.css`; this is the cross-app default. */
+  --plan-code-size: 0.75rem;
 }
 
 .dark {
@@ -381,7 +389,7 @@
 .plan-code-surface-scroll {
   position: relative;
   overflow: auto;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
 }
 
@@ -427,7 +435,7 @@
   background: var(--shiki-light-bg, hsl(var(--muted))) !important;
   color: var(--shiki-light, hsl(var(--foreground)));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
 }
 

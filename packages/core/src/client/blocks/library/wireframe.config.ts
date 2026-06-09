@@ -435,6 +435,28 @@ function stringAttr(node: WireframeMdxNode, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * Resolve a required-when-present string attribute on a `<Screen>`. If the
+ * attribute is absent we return undefined, but if it is present yet cannot be
+ * resolved to a string (e.g. a number, an object, or an unevaluable expression)
+ * we THROW so a malformed wireframe fails the import instead of silently
+ * dropping the value and rendering an empty wireframe.
+ */
+function requiredStringAttr(
+  node: WireframeMdxNode,
+  name: string,
+): string | undefined {
+  const attr = findAttribute(node, name);
+  if (!attr) return undefined;
+  const value = attributeValue(attr);
+  if (typeof value !== "string") {
+    throw new Error(
+      `Wireframe <Screen> attribute "${name}" must resolve to a string, got ${typeof value}. Use a quoted string or a static template literal.`,
+    );
+  }
+  return value;
+}
+
 function boolAttr(node: WireframeMdxNode, name: string): boolean | undefined {
   const value = attributeValue(findAttribute(node, name));
   return typeof value === "boolean" ? value : undefined;
@@ -471,8 +493,8 @@ function parseScreen(node: WireframeMdxNode, idContext: string): WireframeData {
       (stringAttr(node, "surface") as WireframeData["surface"]) ?? "desktop",
     renderMode: stringAttr(node, "renderMode") as WireframeData["renderMode"],
     caption: stringAttr(node, "caption"),
-    html: stringAttr(node, "html"),
-    css: stringAttr(node, "css"),
+    html: requiredStringAttr(node, "html"),
+    css: requiredStringAttr(node, "css"),
     skeleton: boolAttr(node, "skeleton"),
     screen: (node.children ?? [])
       .map((child, index) =>

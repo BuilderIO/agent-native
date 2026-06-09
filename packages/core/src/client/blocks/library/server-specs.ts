@@ -29,11 +29,6 @@ import {
   type CalloutData,
 } from "./callout.config.js";
 import {
-  decisionSchema,
-  decisionMdx,
-  type DecisionData,
-} from "./decision.config.js";
-import {
   questionFormSchema,
   questionFormMdx,
   visualQuestionsSchema,
@@ -188,16 +183,6 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     label: "Callout",
     description:
       "An emphasized note with a tone (info/decision/risk/warning/success) and a markdown body.",
-  }),
-  defineBlock<DecisionData>({
-    type: "decision",
-    schema: decisionSchema,
-    mdx: decisionMdx,
-    Read: ServerReadStub,
-    placement: ["block"],
-    label: "Decision",
-    description:
-      "A decision prompt with editable option cards and an authored recommended choice.",
   }),
   defineBlock<QuestionFormData>({
     type: "question-form",

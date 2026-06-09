@@ -90,6 +90,31 @@ const DRAG_HANDLE_MENU_WIDTH = 220;
 const DRAG_HANDLE_MENU_GAP = 6;
 const DRAG_HANDLE_MENU_VIEWPORT_PADDING = 8;
 
+/**
+ * Wraps Tabler outline icon path data in the standard 24×24 stroke SVG so the
+ * DOM-based block menu renders the same icons the React UI uses (Tabler is the
+ * framework-wide icon set). The editor is plain DOM, not React, so we inline the
+ * markup instead of importing `@tabler/icons-react` components.
+ */
+const tablerIconSvg = (paths: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
+
+// Tabler `copy`, `trash`, and `plus` (outline). Path data copied verbatim from
+// @tabler/icons so the glyphs stay pixel-identical to the React icon set.
+const DRAG_HANDLE_MENU_ICON_DUPLICATE = tablerIconSvg(
+  '<path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666" /><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" />',
+);
+const DRAG_HANDLE_MENU_ICON_DELETE = tablerIconSvg(
+  '<path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />',
+);
+const DRAG_HANDLE_MENU_ICON_INSERT = tablerIconSvg(
+  '<path d="M12 5l0 14" /><path d="M5 12l14 0" />',
+);
+// Tabler `grip-vertical` (outline) for the left-margin drag grip.
+const DRAG_HANDLE_GRIP_ICON = tablerIconSvg(
+  '<path d="M8 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />',
+);
+
 type DropTarget = {
   registration: DragHandleRegistration;
   view: EditorView;
@@ -381,8 +406,10 @@ const ensureDragHandleMenuStyles = () => {
 }
 
 .an-rich-md-drag-menu__icon {
-  position: relative;
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
   width: 18px;
   height: 18px;
   color: hsl(var(--muted-foreground, 215.4 16.3% 46.9%));
@@ -392,69 +419,9 @@ const ensureDragHandleMenuStyles = () => {
   color: currentColor;
 }
 
-.an-rich-md-drag-menu__icon::before,
-.an-rich-md-drag-menu__icon::after {
-  content: "";
-  position: absolute;
-  box-sizing: border-box;
-}
-
-.an-rich-md-drag-menu__icon--duplicate::before,
-.an-rich-md-drag-menu__icon--duplicate::after {
-  width: 11px;
-  height: 11px;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-}
-
-.an-rich-md-drag-menu__icon--duplicate::before {
-  left: 6px;
-  top: 2px;
-  opacity: 0.55;
-}
-
-.an-rich-md-drag-menu__icon--duplicate::after {
-  left: 2px;
-  top: 6px;
-  background: hsl(var(--popover, 0 0% 100%));
-}
-
-.an-rich-md-drag-menu__icon--insert::before {
-  left: 3px;
-  top: 8px;
-  width: 12px;
-  height: 1.5px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.an-rich-md-drag-menu__icon--insert::after {
-  left: 8px;
-  top: 3px;
-  width: 1.5px;
-  height: 12px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.an-rich-md-drag-menu__icon--delete::before {
-  left: 4px;
-  top: 7px;
-  width: 10px;
-  height: 11px;
-  border: 1.5px solid currentColor;
-  border-top: 0;
-  border-radius: 0 0 2px 2px;
-}
-
-.an-rich-md-drag-menu__icon--delete::after {
-  left: 3px;
-  top: 4px;
-  width: 12px;
-  height: 1.5px;
-  border-radius: 999px;
-  background: currentColor;
-  box-shadow: 3px -2.5px 0 -0.4px currentColor;
+.an-rich-md-drag-menu__icon svg {
+  width: 17px;
+  height: 17px;
 }
 
 .an-rich-md-drag-menu__label {
@@ -821,7 +788,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
     const createMenuItem = (
       label: string,
-      iconModifier: string,
+      iconSvg: string,
       action: (context: DragHandleMenuContext) => void,
       options: { danger?: boolean } = {},
     ) => {
@@ -833,8 +800,9 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       if (options.danger) button.setAttribute("data-danger", "true");
 
       const icon = document.createElement("span");
-      icon.className = `an-rich-md-drag-menu__icon an-rich-md-drag-menu__icon--${iconModifier}`;
+      icon.className = "an-rich-md-drag-menu__icon";
       icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = iconSvg;
 
       const labelElement = document.createElement("span");
       labelElement.className = "an-rich-md-drag-menu__label";
@@ -871,9 +839,19 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       el.setAttribute("data-plan-interactive", "true");
 
       el.append(
-        createMenuItem("Duplicate", "duplicate", duplicateBlock),
-        createMenuItem("Delete", "delete", deleteBlock, { danger: true }),
-        createMenuItem("Insert block below", "insert", insertParagraphBelow),
+        createMenuItem(
+          "Duplicate",
+          DRAG_HANDLE_MENU_ICON_DUPLICATE,
+          duplicateBlock,
+        ),
+        createMenuItem("Delete", DRAG_HANDLE_MENU_ICON_DELETE, deleteBlock, {
+          danger: true,
+        }),
+        createMenuItem(
+          "Insert block below",
+          DRAG_HANDLE_MENU_ICON_INSERT,
+          insertParagraphBelow,
+        ),
       );
 
       menu = el;
@@ -1093,11 +1071,15 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       // grip DIV — so a press on the icon gets swallowed and the block can't be
       // dragged out of / between columns. `pointer-events:none` makes every
       // press in the grip area resolve to the DIV instead.
-      el.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="pointer-events:none">
-        <circle cx="5.5" cy="3" r="1.5"/><circle cx="10.5" cy="3" r="1.5"/>
-        <circle cx="5.5" cy="8" r="1.5"/><circle cx="10.5" cy="8" r="1.5"/>
-        <circle cx="5.5" cy="13" r="1.5"/><circle cx="10.5" cy="13" r="1.5"/>
-      </svg>`;
+      // Tabler `grip-vertical` (the framework-wide icon set). `pointer-events:none`
+      // keeps every press in the grip area resolving to the DIV, not the SVG.
+      el.innerHTML = DRAG_HANDLE_GRIP_ICON;
+      const gripSvg = el.querySelector("svg");
+      if (gripSvg) {
+        gripSvg.setAttribute("width", "16");
+        gripSvg.setAttribute("height", "16");
+        gripSvg.style.pointerEvents = "none";
+      }
       return el;
     };
 
