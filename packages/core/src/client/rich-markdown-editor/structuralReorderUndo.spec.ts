@@ -94,12 +94,17 @@ function pressModZ(editor: Editor, opts: { shift?: boolean } = {}): boolean {
   const event = new KeyboardEvent("keydown", {
     key: opts.shift ? "Z" : "z",
     code: "KeyZ",
+    // prosemirror-keymap resolves a shifted letter (Shift-Mod-Z → redo) through
+    // the physical key via `event.keyCode`; a real browser sends it, so the
+    // synthetic event must too or the redo binding never matches.
+    keyCode: 90,
+    which: 90,
     metaKey: isMac,
     ctrlKey: !isMac,
     shiftKey: !!opts.shift,
     bubbles: true,
     cancelable: true,
-  });
+  } as KeyboardEventInit);
   return (
     editor.view.someProp("handleKeyDown", (f) => f(editor.view, event)) ?? false
   );

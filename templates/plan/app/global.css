@@ -1006,11 +1006,15 @@
   pointer-events: none;
   color: var(--plan-code-text);
   /* This is a <pre>; a base `pre {}` style leaks in a gray bg + border (the
-     "lighter gray box + inner border"). Override so it's flat — the single
-     .plan-code-editing border is the only chrome. */
+     "lighter gray box + inner border") AND a larger `font-size: 0.86em` via
+     `.an-rich-md-prose pre`. Override so it's flat and matches the textarea +
+     annotated-code (the single .plan-code-editing border is the only chrome,
+     and the overlay font must line up exactly with .plan-code-editor-input). */
   background: transparent !important;
   border: 0 !important;
   border-radius: 0;
+  font-size: 0.78rem !important;
+  line-height: 1.6 !important;
 }
 
 .plan-code-editor-input {
