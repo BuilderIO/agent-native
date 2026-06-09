@@ -108,6 +108,14 @@ export interface RegistryBlockDataValue<
     block: TBlock,
     args: { onChange: (nextData: unknown) => void },
   ) => ReactNode;
+  /**
+   * Return `true` for legacy block types that render their OWN edit affordance
+   * inside `renderLegacyBlock` (e.g. an image block with its own hover toolbar).
+   * For those types the node view renders the legacy block in edit mode and adds
+   * NO separate corner edit surface (no pencil / JSON / form popover), so the
+   * block owns a single, self-contained control overlay.
+   */
+  legacyBlockSelfEdits?: (blockType: string) => boolean;
 }
 
 const RegistryBlockDataContext =
@@ -335,8 +343,13 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
       }
     }
   } else if (sideMap?.renderLegacyBlock) {
-    body = sideMap.renderLegacyBlock(block, { editing: false });
-    if (editable && sideMap.onBlockDataChange) {
+    // Self-editing legacy blocks (e.g. image) render their own edit affordance
+    // inside their overlay, so render them in edit mode and add NO separate
+    // corner edit surface — the block owns a single, self-contained overlay.
+    const selfEdits =
+      editable && Boolean(sideMap.legacyBlockSelfEdits?.(blockType));
+    body = sideMap.renderLegacyBlock(block, { editing: selfEdits });
+    if (editable && sideMap.onBlockDataChange && !selfEdits) {
       // Prefer a host-provided schema/custom editor (a real form) over the raw
       // JSON fallback when the host knows how to edit this legacy block type.
       const customEditor = sideMap.renderLegacyBlockEditor?.(block, {

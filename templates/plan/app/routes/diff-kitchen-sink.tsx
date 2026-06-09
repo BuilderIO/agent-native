@@ -68,7 +68,12 @@ const content: PlanContent = {
             fields: [
               { name: "id", type: "uuid", pk: true },
               { name: "kind", type: "text", change: "added" },
-              { name: "content", type: "jsonb", change: "modified", was: "text" },
+              {
+                name: "content",
+                type: "jsonb",
+                change: "modified",
+                was: "text",
+              },
               { name: "title", type: "text", change: "renamed", was: "name" },
               { name: "legacy_html", type: "text", change: "removed" },
               { name: "owner_id", type: "uuid", fk: "users.id" },
@@ -166,7 +171,7 @@ const content: PlanContent = {
       type: "rich-text",
       data: {
         markdown:
-          "## 4 · Annotated diff — split\n\nSame annotations in side-by-side mode, including a `side: \"before\"` note on a removed line.",
+          '## 4 · Annotated diff — split\n\nSame annotations in side-by-side mode, including a `side: "before"` note on a removed line.',
       },
     },
     {
