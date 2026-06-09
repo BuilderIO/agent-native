@@ -34,7 +34,7 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plan|visual-recap|visual-questions|ui-plan|prototype-plan|plan-design|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
@@ -2017,17 +2017,13 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "visual-plan",
     extraSkills: {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
-      "visual-questions": VISUAL_QUESTIONS_SKILL_MD,
-      "ui-plan": UI_PLAN_SKILL_MD,
-      "prototype-plan": PROTOTYPE_PLAN_SKILL_MD,
-      "plan-design": PLAN_DESIGN_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "visual-plans",
       displayName: "Agent-Native Plan",
       description:
-        "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, optional UI wireframes/prototypes, annotations, feedback, and HTML export.",
+        "Generate and review coding-agent plans as structured documents with inline diagrams, implementation maps, annotations, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
@@ -2036,7 +2032,7 @@ export const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {

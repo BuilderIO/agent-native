@@ -167,4 +167,8 @@ function flattenItems(items: NavItem[]): NavItem[] {
   );
 }
 
-export const NAV_ITEMS = NAV_SECTIONS.flatMap((s) => flattenItems(s.items));
+// flattenItems already drops chevron-only group headers, so every entry here
+// has a real `to`; narrow the type so prev/next consumers see a definite path.
+export const NAV_ITEMS: (NavItem & { to: string })[] = NAV_SECTIONS.flatMap(
+  (s) => flattenItems(s.items),
+).filter((item): item is NavItem & { to: string } => item.to !== undefined);

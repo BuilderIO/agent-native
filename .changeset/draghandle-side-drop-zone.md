@@ -25,3 +25,12 @@ the tiny zone before mouse-up).
 
 Editors that do not opt into `handleDrop` (e.g. the content editor) are
 unaffected — side placements stay gated on `handleDrop` existing.
+
+Also fixes the drag grip disappearing before you can grab blocks that are not
+flush with the page's left gutter (a right column, a tab body). Their grip sits
+in a gap the neighbour's wide forgiving hover zone also claims, so moving the
+cursor from the block body toward its grip re-picked hover to the neighbour and
+the grip vanished mid-approach. A grip keepalive now holds the shown grip while
+the cursor travels left of that block's content toward its glyph (bounded to the
+block's own row), so the grip stays grabbable — without changing the
+innermost-wins or gutter-grab behaviour over content.
