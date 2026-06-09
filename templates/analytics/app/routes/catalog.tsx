@@ -58,6 +58,7 @@ const CATEGORY_TABS = [
   "Product",
   "Acquisition",
   "Observability",
+  "Operations",
 ] as const;
 
 function sourceLabel(source: string): string {
