@@ -146,6 +146,8 @@ Read the relevant skill before making changes in that area:
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `storing-data`, `portability`, `security`, `sharing` for data work.
+- `performance` for keeping lists, reads, and page loads fast — column
+  projection, indexing hot-path queries, and avoiding round-trip waterfalls.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
