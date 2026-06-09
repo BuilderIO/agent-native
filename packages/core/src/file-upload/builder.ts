@@ -60,17 +60,30 @@ export const builderFileUploadProvider: FileUploadProvider = {
     // attempt — usually GCS write hiccups that succeed on retry. We bound
     // it tight so a deterministic 500 surfaces quickly to the caller.
     const RETRY_DELAYS_MS = [600, 1800];
+    const UPLOAD_TIMEOUT_MS = 120_000; // 2 minutes per attempt
     let response: Response | null = null;
     let lastErrorBody = "";
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${privateKey}`,
-          "Content-Type": bareMimeType,
-        },
-        body,
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${privateKey}`,
+            "Content-Type": bareMimeType,
+          },
+          body,
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
+        if (isLastAttempt) throw err;
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      clearTimeout(timer);
       if (response.ok) break;
       const isTransient = response.status >= 500 && response.status !== 501;
       const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
