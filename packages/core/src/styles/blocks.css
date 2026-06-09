@@ -30,7 +30,7 @@
      without a definition the declaration is invalid and code falls back to the
      large prose size. The plan template overrides this var in its own
      `global.css`; this is the cross-app default. */
-  --plan-code-size: 0.75rem;
+  --plan-code-size: 0.7rem;
 
   /* AUTHORITATIVE code-body size for DENSE in-document code surfaces (diff rows,
      annotated-code lines, API JSON examples, code-tabs, the `code` primitive
@@ -46,7 +46,7 @@
      comfortable size here, those surfaces stay compact and scannable in every
      app while a free-standing snippet can still follow `--plan-code-size`.
      Resize ALL dense document code at once by overriding this var. */
-  --plan-doc-code-size: 0.8125rem;
+  --plan-doc-code-size: 0.7rem;
 }
 
 .dark {
@@ -122,7 +122,7 @@
    dense size on those WHEREVER they render, so the standard annotated/diff
    component can never show oversized code on any surface (embedded panels,
    non-plan-document hosts, etc.), not just inside `.plan-document-flow`. The
-   `var(--plan-doc-code-size, 0.8125rem)` fallback covers hosts that don't define
+   `var(--plan-doc-code-size, 0.7rem)` fallback covers hosts that don't define
    the token. */
 :is(
   [data-code-surface],
@@ -133,7 +133,7 @@
   .an-code-block pre,
   .an-code-block code
 ) {
-  font-size: var(--plan-doc-code-size, 0.8125rem) !important;
+  font-size: var(--plan-doc-code-size, 0.7rem) !important;
 }
 :is([data-code-surface], .an-code-block) :is(pre, code) span {
   font-size: inherit !important;
@@ -149,7 +149,7 @@
    prose plugin (no `.font-mono` class), so body copy is unaffected. */
 :where(.plan-document-flow, .plan-block, .plan-block-node) .font-mono,
 :is([data-code-surface], .an-code-block) .font-mono {
-  font-size: var(--plan-doc-code-size, 0.8125rem) !important;
+  font-size: var(--plan-doc-code-size, 0.7rem) !important;
 }
 
 /* Small, muted eyebrow label above a block (block title). */
@@ -664,7 +664,7 @@
 
 /* Editable surface: ONE border, auto-grows to content (no drag-to-resize). */
 .plan-code-editing {
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
   /* Sit on the page background like the diff block — no distinct surface fill. */
@@ -700,13 +700,23 @@
 
 .plan-code-editor-layer,
 .plan-code-editor-input {
+  box-sizing: border-box;
   margin: 0;
   padding: 0.85rem 1.1rem;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
+  font-weight: 400;
+  letter-spacing: 0;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
   white-space: pre;
   tab-size: 2;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .plan-code-editor-layer {
@@ -717,11 +727,27 @@
   color: hsl(var(--foreground));
   /* This is a <pre>; a base `pre {}` style would leak in a bg + border + larger
      font-size. Override so it's flat and lines up exactly with the textarea. */
+  margin: 0 !important;
+  padding: 0.85rem 1.1rem !important;
   background: transparent !important;
   border: 0 !important;
   border-radius: 0;
-  font-size: 0.78rem !important;
+  font-family:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  font-size: var(--plan-code-size) !important;
   line-height: 1.6 !important;
+}
+
+.plan-code-editor-layer :where(code, span) {
+  font: inherit !important;
+  letter-spacing: 0 !important;
+  font-kerning: none !important;
+  font-variant-ligatures: none !important;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0 !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
 }
 
 .plan-code-editor-input {
@@ -730,7 +756,7 @@
   width: 100%;
   min-height: 2.5rem;
   resize: none;
-  overflow: hidden;
+  overflow: auto;
   border: 0;
   background: transparent;
   color: transparent;
@@ -829,7 +855,7 @@
   background: transparent;
   color: hsl(var(--foreground));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: var(--plan-code-size);
   line-height: 1.6;
   overflow-x: auto;
 }

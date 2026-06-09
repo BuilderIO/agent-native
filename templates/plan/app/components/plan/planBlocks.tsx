@@ -212,46 +212,62 @@ export function createPlanBlockRenderContext(options: {
       children,
       open,
       onOpenChange,
+      variant,
       blockId,
       blockType,
       blockTitle,
       blockSummary,
       blockData,
-    }) => (
-      <Popover open={open} onOpenChange={onOpenChange}>
-        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-        <PopoverContent
-          align="end"
-          collisionPadding={16}
-          sideOffset={6}
-          onInteractOutside={(event) => {
-            if (isAiEditPopoverTarget(event.target)) {
-              event.preventDefault();
-            }
-          }}
-          data-plan-interactive
-          className="an-block-edit-popover relative flex max-h-[calc(100vh-32px)] w-[min(42rem,calc(100vw-32px))] flex-col gap-3 overflow-y-auto"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 truncate pt-0.5 text-sm font-semibold text-foreground">
-              {title}
-            </div>
-            {blockId && blockType ? (
-              <PlanAiBlockAction
-                label={title}
-                blockId={blockId}
-                blockType={blockType}
-                blockTitle={blockTitle}
-                blockSummary={blockSummary}
-                blockData={blockData}
-                planId={options.planId}
-              />
-            ) : null}
-          </div>
-          {children}
-        </PopoverContent>
-      </Popover>
-    ),
+    }) => {
+      const compactMenu = variant === "menu";
+
+      return (
+        <Popover open={open} onOpenChange={onOpenChange}>
+          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+          <PopoverContent
+            align="end"
+            collisionPadding={16}
+            sideOffset={6}
+            onInteractOutside={(event) => {
+              if (isAiEditPopoverTarget(event.target)) {
+                event.preventDefault();
+              }
+            }}
+            data-plan-interactive
+            className={cn(
+              "relative flex max-h-[calc(100vh-32px)] overflow-y-auto",
+              compactMenu
+                ? "an-block-menu-popover w-64 flex-col gap-1 rounded-xl p-1"
+                : "an-block-edit-popover w-[min(42rem,calc(100vw-32px))] flex-col gap-3",
+            )}
+          >
+            {compactMenu ? (
+              children
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 truncate pt-0.5 text-sm font-semibold text-foreground">
+                    {title}
+                  </div>
+                  {blockId && blockType ? (
+                    <PlanAiBlockAction
+                      label={title}
+                      blockId={blockId}
+                      blockType={blockType}
+                      blockTitle={blockTitle}
+                      blockSummary={blockSummary}
+                      blockData={blockData}
+                      planId={options.planId}
+                    />
+                  ) : null}
+                </div>
+                {children}
+              </>
+            )}
+          </PopoverContent>
+        </Popover>
+      );
+    },
   };
   return ctx;
 }

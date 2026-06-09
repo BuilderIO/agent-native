@@ -1,0 +1,153 @@
+---
+# Visual plan: open https://plan.agent-native.com/plans/plan-78e203094a9649f6 in a browser for the canvas and review UI.
+visualUrl: "https://plan.agent-native.com/plans/plan-78e203094a9649f6"
+title: "How Visual Plan File Sync Works"
+brief: "A structured explanation of hosted plans, local Plan runtime, MDX mirroring, and the missing file-watcher direction."
+version: 2
+---
+
+<RichText id="overview" title="The Mental Model">
+
+Agent-Native Plans has two important shapes of the same plan:
+
+- **Runtime plan**: normalized JSON stored in SQL. This is what the visual editor reads and writes while you are reviewing.
+- **Source plan**: repo-friendly MDX files such as `plan.mdx`, `canvas.mdx`, `prototype.mdx`, and `.plan-state.json`.
+
+The hosted Plan app keeps the runtime plan in hosted SQL. The local Plan app can also mirror every saved runtime edit back to MDX files in your repo. That is the useful autosync path today: visual/editor edits -&gt; action save -&gt; SQL -&gt; local MDX mirror.
+
+</RichText>
+
+<Diagram
+  id="local-sync-flow"
+  title="Local Mode: Visual Edits Become Files"
+  data={{
+    html: '<div class="diagram-panel sync-diagram">\n  <div class="diagram-card actor" data-rough>\n    <strong>Human reviewer</strong>\n    <span>Edits prose, comments, annotations, design elements</span>\n  </div>\n  <div class="arrow">save</div>\n  <div class="diagram-card action" data-rough>\n    <strong>Plan actions</strong>\n    <span>update-visual-plan / patch-visual-plan-source</span>\n  </div>\n  <div class="arrow">persist</div>\n  <div class="diagram-card runtime" data-rough>\n    <strong>SQL runtime model</strong>\n    <span>Normalized JSON is canonical while app runs</span>\n  </div>\n  <div class="arrow">mirror</div>\n  <div class="diagram-card files" data-rough>\n    <strong>Repo MDX files</strong>\n    <span>plan.mdx, canvas.mdx, prototype.mdx, .plan-state.json</span>\n  </div>\n</div>',
+    css: "\n.sync-diagram{display:grid;grid-template-columns:1.1fr auto 1.2fr auto 1.2fr auto 1.25fr;gap:14px;align-items:stretch;padding:16px;}\n.sync-diagram .diagram-card{display:flex;flex-direction:column;justify-content:center;gap:8px;min-height:118px;padding:14px;}\n.sync-diagram .diagram-card span{color:var(--wf-muted);font-size:.92rem;line-height:1.35;}\n.sync-diagram .actor{background:var(--wf-card);}\n.sync-diagram .action{background:var(--wf-accent-soft);}\n.sync-diagram .runtime{background:var(--wf-card);}\n.sync-diagram .files{background:var(--wf-card);}\n.sync-diagram .arrow{display:flex;align-items:center;justify-content:center;color:var(--wf-muted);font-size:.85rem;white-space:nowrap;}\n@media (max-width: 900px){.sync-diagram{grid-template-columns:1fr;}.sync-diagram .arrow{min-height:24px;}}\n",
+    caption:
+      "In local runtime, the same action that saves the visual plan also writes MDX files to disk.",
+  }}
+/>
+
+<Table
+  id="mode-comparison"
+  title="Hosted vs Local Behavior"
+  columns={["Mode", "Where runtime lives", "File behavior", "Best use"]}
+  rows={[
+    [
+      "Hosted default",
+      "Hosted Plan SQL",
+      "No automatic repo writes. Use export/read-source when you want artifacts.",
+      "Shareable review links and normal installed skill flow.",
+    ],
+    [
+      "Local Plan runtime",
+      "Local app SQL",
+      "Every saved create/update/import/patch can mirror to `PLAN_LOCAL_DIR` or `<cwd>/plans`.",
+      "Offline/local-first planning where plans should live in git.",
+    ],
+    [
+      "Direct disk editing",
+      "Disk first",
+      "Not watched automatically today. Re-import or patch source to push disk changes into runtime.",
+      "Occasional source-oriented edits, not live collaborative review.",
+    ],
+  ]}
+  density="compact"
+/>
+
+<Columns id="two-directions" title="The Two Directions Are Not Equal Yet">
+<Column id="visual-to-file" label="Works Now">
+
+<Callout id="visual-to-file-copy" title={"Visual -> file"} tone="success">
+
+When the local Plan app is running, browser/agent saves go through Plan actions. Those actions persist SQL and then call the local file mirror. This is the autosync path that already exists.
+
+</Callout>
+
+<Code
+  id="visual-to-file-code"
+  title="Local run shape"
+  language="bash"
+  caption="The exact port may differ if the dev server chooses another free port."
+  code={
+    "PLAN_LOCAL_ODE=1 PLAN_LOCAL_DIR=/path/to/repo/plans pnpm dev\nagent-native skills add visual-plan --mcp-url http://localhost:8105"
+  }
+/>
+
+</Column>
+
+<Column id="file-to-visual" label="Manual Today">
+
+<Callout id="file-to-visual-copy" title={"File -> visual"} tone="warning">
+
+Editing `plan.mdx` directly does not automatically update the browser/database. The supported path is `import-visual-plan-source` for a folder, or `patch-visual-plan-source` for surgical MDX patches.
+
+</Callout>
+
+<Code
+  id="file-to-visual-code"
+  title="Source-action shape"
+  language="txt"
+  caption="This keeps runtime JSON normalized after source edits."
+  code={
+    "read-visual-plan-source -> inspect MDX\npatch-visual-plan-source -> apply semantic MDX patch\nimport-visual-plan-source -> create/replace runtime plan from MDX folder"
+  }
+/>
+
+</Column>
+</Columns>
+
+<Diagram
+  id="could-build-next"
+  title="What I Would Build Next"
+  data={{
+    html: '<div class="diagram-panel next-diagram">\n  <div class="diagram-card" data-rough><strong>agent-native plan dev</strong><span>Starts local Plan app with PLAN_LOCAL_DIR set</span></div>\n  <div class="diagram-card" data-rough><strong>Register local MCP</strong><span>Points /visual-plan at localhost instead of hosted</span></div>\n  <div class="diagram-card" data-rough><strong>Create or edit visually</strong><span>Browser edits keep mirroring to repo MDX</span></div>\n  <div class="diagram-card" data-rough><strong>Optional import command</strong><span>Explicitly pulls disk edits back into runtime</span></div>\n</div>',
+    css: "\n.next-diagram{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;padding:16px;}\n.next-diagram .diagram-card{display:flex;flex-direction:column;gap:8px;min-height:126px;padding:14px;background:var(--wf-card);}\n.next-diagram .diagram-card span{color:var(--wf-muted);font-size:.92rem;line-height:1.35;}\n@media (max-width: 900px){.next-diagram{grid-template-columns:1fr 1fr;}}\n",
+    caption:
+      "A CLI wrapper gives the desired workflow without adding risky background sync semantics first.",
+  }}
+/>
+
+<Callout id="decision" title="Recommendation" tone="decision">
+
+Treat local Plan SQL/JSON as canonical while the editor is running, and MDX as a mirrored source artifact. Add a small CLI wrapper for local plan sessions before adding a file watcher. A watcher can come later, but it needs conflict detection so browser autosave and editor saves do not overwrite each other.
+
+</Callout>
+
+<FileTree
+  id="key-files"
+  title="Code Paths Behind This"
+  title="Relevant implementation surfaces"
+  entries={[
+    {
+      path: "templates/plan/server/lib/local-plan-files.ts",
+      change: "modified",
+      note: "Writes local MDX mirror under PLAN_LOCAL_DIR or <cwd>/plans.",
+    },
+    {
+      path: "templates/plan/server/lib/local-identity.ts",
+      change: "modified",
+      note: "Determines whether local runtime behavior is enabled.",
+    },
+    {
+      path: "templates/plan/actions/update-visual-plan.ts",
+      change: "modified",
+      note: "Saves browser/agent edits and then mirrors local files when local mode is active.",
+    },
+    {
+      path: "templates/plan/actions/import-visual-plan-source.ts",
+      change: "modified",
+      note: "Turns MDX files back into normalized runtime JSON.",
+    },
+    {
+      path: "templates/plan/actions/patch-visual-plan-source.ts",
+      change: "modified",
+      note: "Applies targeted semantic patches to MDX and normalizes back to JSON.",
+    },
+    {
+      path: "packages/core/src/cli/skills.ts",
+      change: "modified",
+      note: "Supports --mcp-url so a skill can target a local Plan app.",
+    },
+  ]}
+/>

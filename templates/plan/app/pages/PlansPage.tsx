@@ -140,6 +140,7 @@ import {
   useRestorePlanVersion,
   useUpdatePlan,
   useExportPlan,
+  type PlanCommentInput,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import { cn } from "@/lib/utils";
@@ -321,6 +322,14 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function planBundleQueryKey(planId: string) {
+  return ["action", "get-visual-plan", { id: planId }] as const;
+}
+
+function newCommentId() {
+  return `cmt_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+}
+
 type CommentIdentitySource = {
   createdBy?: string | null;
   authorEmail?: string | null;
@@ -342,6 +351,7 @@ type CurrentCommentAuthor = {
   color: string;
 };
 
+type PlanBundleWithHtml = PlanBundle & { html?: string };
 type PlanCommentItem = PlanBundle["comments"][number];
 
 type CommentThread = {
@@ -351,6 +361,45 @@ type CommentThread = {
   comments: PlanCommentItem[];
   anchor: PlanAnnotationAnchor | null;
 };
+
+function withPlanComments(
+  bundle: PlanBundleWithHtml,
+  comments: PlanCommentItem[],
+): PlanBundleWithHtml {
+  return {
+    ...bundle,
+    comments,
+    summary: {
+      ...bundle.summary,
+      commentCount: comments.length,
+      openCommentCount: comments.filter((comment) => comment.status === "open")
+        .length,
+    },
+  };
+}
+
+export function addPlanCommentToBundle(
+  bundle: PlanBundleWithHtml,
+  comment: PlanCommentItem,
+): PlanBundleWithHtml {
+  const exists = bundle.comments.some((item) => item.id === comment.id);
+  return withPlanComments(
+    bundle,
+    exists
+      ? bundle.comments.map((item) => (item.id === comment.id ? comment : item))
+      : [...bundle.comments, comment],
+  );
+}
+
+export function removePlanCommentFromBundle(
+  bundle: PlanBundleWithHtml,
+  commentId: string,
+): PlanBundleWithHtml {
+  return withPlanComments(
+    bundle,
+    bundle.comments.filter((comment) => comment.id !== commentId),
+  );
+}
 
 function normalizeCommentEmail(email: string | null | undefined) {
   const trimmed = email?.trim().toLowerCase();
@@ -1859,6 +1908,10 @@ export function PlansPage() {
   const planQuery = usePlan(selectedId);
   const bundle = planQuery.data;
   const queryClient = useQueryClient();
+  const selectedPlanQueryKey = useMemo(
+    () => (selectedId ? planBundleQueryKey(selectedId) : null),
+    [selectedId],
+  );
   // Reflect a structural block edit (drag-to-columns, reorder) into the
   // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
   // tracks the new layout instead of lagging the debounced (600ms) save. This
@@ -1869,10 +1922,10 @@ export function PlansPage() {
   // newer agent/external edit still wins.
   const writeBlocksOptimistically = useCallback(
     (blocks: PlanBlock[]) => {
-      if (!selectedId) return;
+      if (!selectedPlanQueryKey) return;
       queryClient.setQueryData(
-        ["action", "get-visual-plan", { id: selectedId }],
-        (prev: (PlanBundle & { html?: string }) | undefined) => {
+        selectedPlanQueryKey,
+        (prev: PlanBundleWithHtml | undefined) => {
           if (!prev?.plan?.content) return prev;
           return {
             ...prev,
@@ -1884,7 +1937,7 @@ export function PlansPage() {
         },
       );
     },
-    [queryClient, selectedId],
+    [queryClient, selectedPlanQueryKey],
   );
   // Recaps are read-only review surfaces: text can't be edited inline (the agent
   // owns the content), but highlighting + commenting stay available because those
@@ -2955,7 +3008,7 @@ export function PlansPage() {
   };
 
   const submitInlineComment = async (draft: CommentDraft) => {
-    if (!bundle || !pendingAnnotation) return;
+    if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
     const anchor: PlanAnnotationAnchor = {
       ...pendingAnnotation,
       resolutionTarget: draft.resolutionTarget,
@@ -2966,33 +3019,74 @@ export function PlansPage() {
       bundle.sections.some((section) => section.id === anchor.sectionId)
         ? anchor.sectionId
         : undefined;
+    const anchorJson = JSON.stringify(anchor);
+    const commentId = newCommentId();
+    const now = new Date().toISOString();
+    const commentInput: PlanCommentInput = {
+      id: commentId,
+      kind: "annotation",
+      status: "open",
+      message: draft.message,
+      sectionId,
+      anchor: anchorJson,
+      createdBy: "human",
+      authorEmail: collabUser?.email,
+      authorName: collabUser?.name,
+      resolutionTarget: draft.resolutionTarget,
+      mentions: draft.mentions,
+    };
+    const optimisticComment: PlanCommentItem = {
+      id: commentId,
+      planId: bundle.plan.id,
+      parentCommentId: null,
+      sectionId: sectionId ?? null,
+      kind: "annotation",
+      status: "open",
+      anchor: anchorJson,
+      message: draft.message,
+      createdBy: "human",
+      authorEmail: collabUser?.email ?? null,
+      authorName: collabUser?.name ?? null,
+      resolutionTarget: draft.resolutionTarget,
+      mentions: draft.mentions,
+      mentionsJson:
+        draft.mentions.length > 0 ? JSON.stringify(draft.mentions) : null,
+      resolvedBy: null,
+      resolvedAt: null,
+      consumedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
-    try {
-      await updatePlan.mutateAsync({
-        planId: bundle.plan.id,
-        comments: [
-          {
-            kind: "annotation",
-            status: "open",
-            message: draft.message,
-            sectionId,
-            anchor: JSON.stringify(anchor),
-            createdBy: "human",
-            authorEmail: collabUser?.email,
-            authorName: collabUser?.name,
-          },
-        ],
-        note: "Human added inline visual plan feedback.",
-      });
-      expirePendingDocumentRestore();
-    } catch (error) {
-      clearPendingDocumentRestore();
-      throw error;
-    }
+    await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
+    queryClient.setQueryData(
+      selectedPlanQueryKey,
+      (current: PlanBundleWithHtml | undefined) =>
+        current ? addPlanCommentToBundle(current, optimisticComment) : current,
+    );
     clearInlineCommentDraft();
     setAnnotateMode(true);
-    toast.success("Comment added");
+    void updatePlan
+      .mutateAsync({
+        planId: bundle.plan.id,
+        comments: [commentInput],
+        note: "Human added inline visual plan feedback.",
+      })
+      .then((updated) => {
+        queryClient.setQueryData(selectedPlanQueryKey, updated);
+        expirePendingDocumentRestore();
+      })
+      .catch(() => {
+        queryClient.setQueryData(
+          selectedPlanQueryKey,
+          (current: PlanBundleWithHtml | undefined) =>
+            current
+              ? removePlanCommentFromBundle(current, optimisticComment.id)
+              : current,
+        );
+        clearPendingDocumentRestore();
+      });
   };
 
   const updateAnnotationComment = (
@@ -3259,6 +3353,22 @@ export function PlansPage() {
                         <DropdownMenuItem
                           onClick={() =>
                             preservePlanReaderScroll(() => {
+                              void copyPlanFeedbackForAgent();
+                            })
+                          }
+                          className="items-start gap-2"
+                        >
+                          <IconClipboardText className="mt-0.5 size-4" />
+                          <span className="grid gap-0.5">
+                            <span>Copy for your agent</span>
+                            <span className="text-xs font-normal leading-4 text-muted-foreground">
+                              Copies a prompt you can paste into chat.
+                            </span>
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            preservePlanReaderScroll(() => {
                               void sendPlanFeedbackToInlineAgent();
                             })
                           }
@@ -3270,22 +3380,6 @@ export function PlansPage() {
                             <span>Send to inline agent</span>
                             <span className="text-xs font-normal leading-4 text-muted-foreground">
                               Posts open comments into the app side agent.
-                            </span>
-                          </span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            preservePlanReaderScroll(() => {
-                              void copyPlanFeedbackForAgent();
-                            })
-                          }
-                          className="items-start gap-2"
-                        >
-                          <IconClipboardText className="mt-0.5 size-4" />
-                          <span className="grid gap-0.5">
-                            <span>Copy for your agent</span>
-                            <span className="text-xs font-normal leading-4 text-muted-foreground">
-                              Copies a prompt you can paste into chat.
                             </span>
                           </span>
                         </DropdownMenuItem>

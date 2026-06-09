@@ -64,6 +64,27 @@ export function getDatabaseAuthToken(): string | undefined {
   return process.env.DATABASE_AUTH_TOKEN;
 }
 
+/**
+ * Database URL to use for migrations — identical to DATABASE_URL but with the
+ * Neon connection-pooler suffix stripped. Neon's PgBouncer runs in transaction
+ * mode, which resets session-level ownership after each statement and causes
+ * `ALTER TABLE … ADD COLUMN` to fail with "must be owner of table <x>" even
+ * when the connecting role owns it. The direct endpoint bypasses PgBouncer so
+ * DDL honours the role's actual ownership.
+ *
+ * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
+ */
+export function getMigrationDatabaseUrl(): string {
+  const url = getDatabaseUrl();
+  // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
+  // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
+  // The region between `-pooler.` and `.neon.tech` can contain multiple
+  // dot-separated labels (e.g. `c-7.us-east-1.aws`), so the matched segment
+  // must allow dots — `[a-z0-9.-]+` — not just a single label. Anchoring on the
+  // stable `.neon.tech` suffix keeps this from touching non-Neon hosts.
+  return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+}
+
 export function isLocalSqliteUrl(url: string): boolean {
   return url === "" || url.startsWith("file:") || !url.includes("://");
 }

@@ -25,6 +25,7 @@ import {
   type TabsOrientation,
   type TabsTab,
 } from "./tabs.config.js";
+import { NarrowContainerProvider } from "./narrow-container.js";
 
 /**
  * Standard `tabs` block: a horizontal pill-tab container whose tabs each hold a
@@ -156,17 +157,19 @@ export function TabsBlockReader({
             orientation={orientation}
           />
           {active && (
-            <div className={cn(vertical && "min-w-0")}>
-              {active.blocks.map((child) => (
-                <div key={child.id}>
-                  {ctx.renderBlock?.({
-                    block: child,
-                    editing: false,
-                    compactVisuals: compact,
-                  })}
-                </div>
-              ))}
-            </div>
+            <NarrowContainerProvider>
+              <div className={cn(vertical && "min-w-0")}>
+                {active.blocks.map((child) => (
+                  <div key={child.id}>
+                    {ctx.renderBlock?.({
+                      block: child,
+                      editing: false,
+                      compactVisuals: compact,
+                    })}
+                  </div>
+                ))}
+              </div>
+            </NarrowContainerProvider>
           )}
         </div>
       </div>

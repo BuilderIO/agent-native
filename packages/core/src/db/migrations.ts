@@ -1,7 +1,9 @@
 import {
   getDbExec,
+  createDbExec,
   isPostgres,
   getDialect,
+  getMigrationDatabaseUrl,
   retrySqliteBusy,
 } from "./client.js";
 
@@ -251,8 +253,15 @@ export function runMigrations(
       }
 
       // Generic path — works for libsql and Postgres
-      const exec = getDbExec();
       const pg = isPostgres();
+      // For Postgres migrations, use a dedicated exec pointed at the DIRECT
+      // (non-pooler) endpoint. Neon's PgBouncer pooler runs in transaction mode and
+      // can deny DDL (`ALTER TABLE … ADD COLUMN`) even for the table-owner role.
+      // createDbExec() creates a fresh, non-singleton connection for this purpose.
+      // For non-Neon and already-direct URLs, getMigrationDatabaseUrl() is a no-op.
+      const exec = pg
+        ? await createDbExec({ url: getMigrationDatabaseUrl() })
+        : getDbExec();
 
       // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
       // restarts when WAL files from the previous process haven't been released yet.

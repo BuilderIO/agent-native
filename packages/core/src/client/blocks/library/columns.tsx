@@ -13,6 +13,7 @@ import {
   type ColumnsData,
   type ColumnsColumn,
 } from "./columns.config.js";
+import { NarrowContainerProvider } from "./narrow-container.js";
 
 /**
  * Standard `columns` block: a multi-column side-by-side container whose columns
@@ -137,15 +138,18 @@ export function ColumnsBlockReader({
   title,
   ctx,
 }: BlockReadProps<ColumnsData>) {
+  // A column cell is width-constrained only when the layout actually renders
+  // more than one column side by side; single-column / stacked layouts (API
+  // reference groups, wide wireframes) keep full document width, so a nested
+  // width-sensitive block (e.g. a diff) should NOT be forced to its narrow
+  // default there.
+  const narrow = columnsLayoutClass(data.columns) !== COLS_CLASS[1];
   return (
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
       <div className={cn("grid gap-6", columnsLayoutClass(data.columns))}>
-        {data.columns.map((column) => (
-          <div key={column.id} className="min-w-0">
-            {column.label && (
-              <h4 className="plan-columns-label">{column.label}</h4>
-            )}
+        {data.columns.map((column) => {
+          const body = (
             <div>
               {column.blocks.map((child) => (
                 <div key={child.id}>
@@ -153,8 +157,20 @@ export function ColumnsBlockReader({
                 </div>
               ))}
             </div>
-          </div>
-        ))}
+          );
+          return (
+            <div key={column.id} className="min-w-0">
+              {column.label && (
+                <h4 className="plan-columns-label">{column.label}</h4>
+              )}
+              {narrow ? (
+                <NarrowContainerProvider>{body}</NarrowContainerProvider>
+              ) : (
+                body
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

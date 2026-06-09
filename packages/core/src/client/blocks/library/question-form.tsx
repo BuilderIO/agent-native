@@ -288,12 +288,10 @@ function QuestionView({
 
 /** The "Send to agent" affordance: a popover (via the app surface) when wired. */
 function SubmitMenu({
-  blockId,
   ctx,
   onSubmit,
   buildSummary,
 }: {
-  blockId: string;
   ctx: BlockRenderContext;
   onSubmit?: (summary: string) => void;
   buildSummary: () => string;
@@ -318,6 +316,23 @@ function SubmitMenu({
       <button
         type="button"
         data-plan-interactive
+        onClick={() => {
+          void navigator.clipboard.writeText(buildSummary());
+          setOpen(false);
+        }}
+        className="grid grid-cols-[auto_1fr] items-start gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+      >
+        <IconClipboardText className="mt-0.5 size-4" />
+        <span className="grid gap-0.5">
+          <span>Copy for your agent</span>
+          <span className="text-xs font-normal leading-4 text-muted-foreground">
+            Copies a prompt you can paste into chat.
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        data-plan-interactive
         disabled={!onSubmit}
         onClick={() => {
           onSubmit?.(buildSummary());
@@ -333,23 +348,6 @@ function SubmitMenu({
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        data-plan-interactive
-        onClick={() => {
-          void navigator.clipboard.writeText(buildSummary());
-          setOpen(false);
-        }}
-        className="grid grid-cols-[auto_1fr] items-start gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
-      >
-        <IconClipboardText className="mt-0.5 size-4" />
-        <span className="grid gap-0.5">
-          <span>Copy for your agent</span>
-          <span className="text-xs font-normal leading-4 text-muted-foreground">
-            Copies a prompt you can paste into chat.
-          </span>
-        </span>
-      </button>
     </div>
   );
 
@@ -360,8 +358,7 @@ function SubmitMenu({
     title: "Send to agent",
     open,
     onOpenChange: setOpen,
-    blockId,
-    blockType: "question-form",
+    variant: "menu",
     trigger,
     children: menu,
   });
@@ -428,13 +425,12 @@ function QuestionFormReadInner({
           />
         ))}
       </div>
-      <div className="sticky bottom-0 mt-10 flex items-center justify-between gap-4 border-t border-border bg-background py-4 backdrop-blur">
+      <div className="sticky bottom-0 mt-10 flex items-center justify-between gap-4 border-t border-border py-4">
         <p className="text-sm font-semibold text-muted-foreground">
           {answered}/{questions.length} answered
         </p>
         <div data-plan-interactive>
           <SubmitMenu
-            blockId={blockId}
             ctx={ctx}
             onSubmit={submitCtx.onQuestionFormSubmit}
             buildSummary={buildSummary}

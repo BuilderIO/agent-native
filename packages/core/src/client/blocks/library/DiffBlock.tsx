@@ -31,6 +31,7 @@ import {
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
+import { useInNarrowContainer } from "./narrow-container.js";
 
 /**
  * GitHub-style before/after diff block. The read renderer computes a line-level
@@ -506,6 +507,8 @@ const DIFF_LINE_CLASS =
 
 const DEFAULT_VISIBLE_DIFF_LINES = 15;
 const MAX_DIFF_LCS_CELLS = 1_000_000;
+const DIFF_MODE_STORAGE_KEY = "agent-native:diff-view-mode";
+const DIFF_MODE_STORAGE_EVENT = "agent-native:diff-view-mode-change";
 
 /**
  * Below this rendered container width (px) a diff drops side-by-side `split`
@@ -539,6 +542,77 @@ function useContainerWidth<T extends HTMLElement>() {
   return [ref, width] as const;
 }
 
+function isDiffMode(value: unknown): value is DiffMode {
+  return value === "unified" || value === "split";
+}
+
+function readStoredDiffMode(): DiffMode | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.localStorage?.getItem(DIFF_MODE_STORAGE_KEY);
+    return isDiffMode(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredDiffMode(mode: DiffMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem(DIFF_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Storage may be unavailable in sandboxed/private contexts.
+  }
+}
+
+function dispatchDiffModeChange(mode: DiffMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent<DiffMode>(DIFF_MODE_STORAGE_EVENT, { detail: mode }),
+    );
+  } catch {
+    // Best-effort sync; local component state and storage already changed.
+  }
+}
+
+function usePreferredDiffMode(authoredMode: DiffMode | undefined) {
+  const [mode, setMode] = useState<DiffMode>(authoredMode ?? "unified");
+
+  useEffect(() => {
+    const storedMode = readStoredDiffMode();
+    if (storedMode) setMode(storedMode);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== DIFF_MODE_STORAGE_KEY) return;
+      if (isDiffMode(event.newValue)) setMode(event.newValue);
+    };
+    const onModeChange = (event: Event) => {
+      const mode = (event as CustomEvent<unknown>).detail;
+      if (isDiffMode(mode)) setMode(mode);
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(DIFF_MODE_STORAGE_EVENT, onModeChange);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(DIFF_MODE_STORAGE_EVENT, onModeChange);
+    };
+  }, []);
+
+  const setPreferredMode = useCallback((nextMode: DiffMode) => {
+    setMode(nextMode);
+    writeStoredDiffMode(nextMode);
+    dispatchDiffModeChange(nextMode);
+  }, []);
+
+  return [mode, setPreferredMode] as const;
+}
+
 function splitDiffFilename(filename?: string): {
   basename: string;
   directory: string | null;
@@ -569,7 +643,13 @@ function DiffRead({
   summary,
   ctx,
 }: BlockReadProps<DiffData>) {
-  const [mode, setMode] = useState<DiffMode>(data.mode ?? "unified");
+  // Default layout when none is authored is UNIFIED — a single column reads
+  // cleanly at any width, while split's doubled line-number gutters cut code off
+  // in a constrained box (a recap's vertical-tabs panel or a comparison column).
+  // An explicitly authored `mode` still wins, and the Unified/Split toggle below
+  // stays fully functional — only the starting default changes.
+  const inNarrowContainer = useInNarrowContainer();
+  const [mode, setMode] = usePreferredDiffMode(data.mode);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [showAllRows, setShowAllRows] = useState(false);
   const [containerRef, containerWidth] = useContainerWidth<HTMLElement>();
@@ -611,10 +691,16 @@ function DiffRead({
   );
   const hasAnnotations = hasRailAnnotations(resolved);
   // Effective render mode. Annotations live in a SEPARATE right-hand rail (not
-  // over the code), so they no longer force a mode; only a container narrower
-  // than SPLIT_MIN_WIDTH falls back to unified so split's doubled gutters never
-  // crush the code. `canSplit` also gates the mode toggle (hidden when narrow).
-  const narrow = containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
+  // over the code), so they no longer force a mode; a container narrower than
+  // SPLIT_MIN_WIDTH falls back to unified so split's doubled gutters never crush
+  // the code. We ALSO treat a width-constrained host container (a tabs panel or
+  // a comparison column, via `inNarrowContainer`) as narrow up front — before
+  // the ResizeObserver has measured — so a diff there never flashes split when
+  // no mode was authored. `canSplit` gates the mode toggle (hidden when narrow);
+  // an explicitly authored split still shows the toggle once there's room.
+  const measuredNarrow =
+    containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
+  const narrow = measuredNarrow || (inNarrowContainer && data.mode == null);
   const canSplit = !narrow;
   const effectiveMode: DiffMode = canSplit ? mode : "unified";
 

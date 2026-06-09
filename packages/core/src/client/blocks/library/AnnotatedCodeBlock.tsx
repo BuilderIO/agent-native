@@ -58,6 +58,12 @@ function AnnotatedCodeRead({
   const hover = useAnnotationHover();
   const { activeIndex } = hover;
   const codeRef = useRef<HTMLDivElement | null>(null);
+  const lineRefs = useRef(new Map<number, HTMLDivElement>());
+
+  const setLineRef = (lineNo: number, node: HTMLDivElement | null) => {
+    if (node) lineRefs.current.set(lineNo, node);
+    else lineRefs.current.delete(lineNo);
+  };
 
   const lines = useMemo(
     () => data.code.replace(/\n$/, "").split("\n"),
@@ -130,6 +136,8 @@ function AnnotatedCodeRead({
             return (
               <div
                 key={lineNo}
+                ref={(node) => setLineRef(lineNo, node)}
+                data-code-line={lineNo}
                 data-annot-row={isAnnotated ? markers?.[0].index : undefined}
                 className={cn(
                   "flex w-full",
@@ -142,11 +150,16 @@ function AnnotatedCodeRead({
                 onMouseEnter={
                   isAnnotated && markers
                     ? (event) => {
+                        const primaryMarker = markers[0];
+                        const anchorLine = primaryMarker.range?.start ?? lineNo;
+                        const anchorRow =
+                          lineRefs.current.get(anchorLine) ??
+                          event.currentTarget;
                         const anchor = anchorFromElements(
                           codeRef.current,
-                          event.currentTarget,
+                          anchorRow,
                         );
-                        if (anchor) hover.open(markers[0].index, anchor);
+                        if (anchor) hover.open(primaryMarker.index, anchor);
                       }
                     : undefined
                 }

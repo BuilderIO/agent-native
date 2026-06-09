@@ -464,14 +464,26 @@ export function PlanContentRenderer({
                   <style>{filesSidebarHideCss(filesSidebarBlock.id)}</style>
                   <aside
                     className="plan-document-files"
-                    aria-label={filesSidebarBlock.title || "Files touched"}
+                    aria-label="Files changed"
                   >
                     <div className="plan-document-files__nav">
+                      {/* The sidebar owns the heading: a single fixed "Files
+                          changed" label. Strip BOTH the block-level `title` (the
+                          eyebrow `plan-block-label`) and the file-tree's own
+                          `data.title` (the bold summary-header heading) from the
+                          mirrored block so the file-tree renders heading-free and
+                          the label is never duplicated — regardless of what title
+                          the block was authored with (e.g. one carrying a
+                          "(+N / −M, K files)" stats suffix). The in-flow source
+                          block keeps both titles untouched. */}
+                      <div className="plan-document-files__label">
+                        Files changed
+                      </div>
                       <PlanBlockView
-                        block={{
+                        block={stripFileTreeTitles({
                           ...filesSidebarBlock,
                           id: `${filesSidebarBlock.id}__aside`,
-                        }}
+                        })}
                         editingDisabled
                         contentUpdatedAt={contentUpdatedAt}
                         planId={planId}
@@ -531,6 +543,25 @@ export function PlanContentRenderer({
  * is nothing to reset there). The aside mirror carries a distinct `…__aside` id,
  * so it is never caught by these rules.
  */
+/**
+ * Return a copy of a `file-tree` block with BOTH heading sources removed so it
+ * renders heading-free in the recap left sidebar: the block-level `title` (which
+ * `FileTreeRead` shows as the greyed `plan-block-label` eyebrow) and the
+ * file-tree's own `data.title` (the bold summary-header heading). The sidebar
+ * supplies its own fixed "Files changed" label, so leaving either title on the
+ * mirrored block stacks a second — often stats-laden ("(+N / −M, K files)") —
+ * heading directly on top of it. Non-file-tree blocks pass through unchanged.
+ * The in-flow source block is never touched.
+ */
+function stripFileTreeTitles(block: PlanBlock): PlanBlock {
+  if (block.type !== "file-tree") return block;
+  return {
+    ...block,
+    title: undefined,
+    data: { ...block.data, title: undefined },
+  };
+}
+
 function filesSidebarHideCss(blockId: string): string {
   const id = blockId.replace(/["\\]/g, "\\$&");
   const leadReset = [

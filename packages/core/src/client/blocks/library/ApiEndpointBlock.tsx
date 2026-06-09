@@ -290,15 +290,17 @@ function stripJsonComments(source: string): string {
  * Decide whether an example should render with the collapsible JsonExplorer.
  * Returns the strict-JSON text to feed the explorer (comment-stripped when the
  * raw example was JSONC), or `null` when the example is not parseable as JSON
- * (e.g. an explicitly non-JSON content type, or free-form/XML/YAML text) and
- * should fall back to the styled code surface.
+ * (free-form / XML / YAML text) and should fall back to the styled code surface.
+ *
+ * Parseability — NOT the declared `contentType` — is the gate, so the REQUEST
+ * body example earns the same interactive explorer as the RESPONSE examples
+ * whenever it is valid JSON. A request often carries a `contentType` that is not
+ * literally `application/json` (e.g. a WebSocket-upgrade body) yet still holds a
+ * JSON payload; keying off the content type would wrongly drop those into the
+ * static code block. `contentType` now only labels the non-JSON code fallback
+ * (via `fenceLangForContentType`), it never suppresses the explorer.
  */
-function jsonExplorerSource(
-  example: string,
-  contentType?: string,
-): string | null {
-  const ct = (contentType ?? "").toLowerCase();
-  if (contentType && !ct.includes("json")) return null;
+function jsonExplorerSource(example: string): string | null {
   try {
     JSON.parse(example);
     return example;
@@ -362,7 +364,7 @@ function ApiExample({
   contentType?: string;
   className?: string;
 }) {
-  const jsonSource = jsonExplorerSource(example, contentType);
+  const jsonSource = jsonExplorerSource(example);
   if (jsonSource !== null) {
     return (
       <JsonExplorerSurface

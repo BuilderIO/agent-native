@@ -194,11 +194,13 @@ export function CodeSurface({
   code,
   language,
   maxLines = DEFAULT_CODE_MAX_LINES,
+  showLanguageLabel = true,
   className,
 }: {
   code: string;
   language?: string;
   maxLines?: number | null;
+  showLanguageLabel?: boolean;
   className?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -218,7 +220,7 @@ export function CodeSurface({
       className={cn("plan-code-surface", className ?? "mt-5")}
       data-collapsed={collapsed ? "true" : undefined}
     >
-      {label && (
+      {showLanguageLabel && label && (
         <div className="plan-code-surface-bar">
           <span className="plan-code-surface-lang">{label}</span>
         </div>

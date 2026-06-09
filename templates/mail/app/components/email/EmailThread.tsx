@@ -1342,6 +1342,8 @@ export function EmailThread({
                         const draft = drafts.find((d: any) => d.id === id);
                         const hasContent = !!(
                           draft?.to?.trim() ||
+                          draft?.cc?.trim() ||
+                          draft?.bcc?.trim() ||
                           draft?.subject?.trim() ||
                           draft?.body?.trim()
                         );
@@ -1401,6 +1403,8 @@ export function EmailThread({
                     const draft = drafts.find((d: any) => d.id === id);
                     const hasContent = !!(
                       draft?.to?.trim() ||
+                      draft?.cc?.trim() ||
+                      draft?.bcc?.trim() ||
                       draft?.subject?.trim() ||
                       draft?.body?.trim()
                     );
