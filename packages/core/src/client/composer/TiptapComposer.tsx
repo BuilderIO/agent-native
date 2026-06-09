@@ -52,8 +52,9 @@ import { sendToAgentChat, type AgentChatContextItem } from "../agent-chat.js";
 import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import {
-  createPastedTextFile,
-  shouldConvertPasteToAttachment,
+  createPastedAttachmentFile,
+  readClipboardPaste,
+  shouldConvertClipboardToAttachment,
 } from "./pasted-text.js";
 import {
   getReasoningEffortOptionsForModel,
@@ -1142,7 +1143,8 @@ export function TiptapComposer({
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
       handlePaste: (_view, event) => {
-        const pastedText = event.clipboardData?.getData("text/plain") ?? "";
+        const paste = readClipboardPaste(event.clipboardData);
+        const pastedText = paste.text;
         const files = Array.from(event.clipboardData?.files ?? []).filter(
           (file) => file.type.startsWith("image/"),
         );
@@ -1162,7 +1164,7 @@ export function TiptapComposer({
           // prevent Tiptap's default paste, preserve any text as its own chip
           // instead of silently dropping the source material.
           if (pastedText.trim()) {
-            attachments.push(createPastedTextFile(pastedText));
+            attachments.push(createPastedAttachmentFile(paste));
           }
 
           void Promise.all(
@@ -1173,13 +1175,17 @@ export function TiptapComposer({
           return true;
         }
 
-        // Page-sized text pastes turn into a `Pasted text` attachment chip so
-        // the prompt stays readable while normal paragraphs and lists stay
-        // inline.
-        if (shouldConvertPasteToAttachment(pastedText)) {
+        // Page-sized pastes turn into a `Pasted text` attachment chip so the
+        // prompt stays readable while normal paragraphs and lists stay inline.
+        // When the paste is HTML (e.g. an Alpine.js extension or a document the
+        // user wants hosted), it's stored as a real .html attachment so it
+        // travels the same rail as uploading that file — the agent reads it
+        // verbatim via contentFromAttachment instead of retyping it inline,
+        // which cuts off mid-stream on large files and triggers a spin.
+        if (shouldConvertClipboardToAttachment(paste)) {
           event.preventDefault();
           void composerRuntime
-            .addAttachment(createPastedTextFile(pastedText))
+            .addAttachment(createPastedAttachmentFile(paste))
             .catch((error) => {
               console.error("Error adding pasted-text attachment:", error);
             });
