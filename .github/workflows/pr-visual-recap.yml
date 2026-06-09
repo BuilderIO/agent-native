@@ -356,11 +356,15 @@ jobs:
         continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          # Use the gate-NORMALIZED agent (lowercased + validated), not the raw
+          # VISUAL_RECAP_AGENT repo var, so a value like "Codex" still selects the
+          # codex result file and labels usage on the right backend.
+          RECAP_AGENT: ${{ needs.gate.outputs.agent }}
         run: |
           set -uo pipefail
           RESULT=claude-result.json
-          if [ "$VISUAL_RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
-          if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$VISUAL_RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
+          if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       # Screenshot the published plan in headless Chrome and upload the PNG to the
       # plan app's signed public image route. Best-effort: never fails the job.
