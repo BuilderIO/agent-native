@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -662,6 +663,13 @@ export function PlanDocumentEditor({
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const pendingTransferredBlocksRef = useRef(new Map<string, PlanBlock>());
+  // The ROOT editor view, captured once it mounts. Needed so a drop that
+  // dissolves a column container can rebuild the whole top-level document (the
+  // affected nested region no longer exists to patch in place).
+  const rootViewRef = useRef<EditorView | null>(null);
+  const handleEditorReady = useCallback((editor: Editor) => {
+    rootViewRef.current = editor.view;
+  }, []);
 
   // Adopt external `content` changes (agent patches, source edits) unless the
   // incoming value is the echo of our own last save.
@@ -800,7 +808,7 @@ export function PlanDocumentEditor({
 
       const normalized = normalizeColumnBlocks(nextBlocks);
       commit(normalized);
-      repaintDropViews(context, normalized);
+      repaintDropViews(context, normalized, rootViewRef.current);
       return true;
     },
     [],
@@ -1076,6 +1084,7 @@ export function PlanDocumentEditor({
           normalizeValue={normalizeValue}
           wrapperClassName={WRAPPER_CLASS}
           className="plan-document-editor-surface"
+          onEditorReady={handleEditorReady}
         />
       </PlanBlockDataProvider>
     </PlanSideDropContext.Provider>
