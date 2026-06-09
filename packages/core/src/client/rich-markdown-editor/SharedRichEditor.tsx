@@ -89,6 +89,13 @@ export interface SharedRichEditorProps {
   initialAppliedUpdatedAt?: string | null;
   /** Extra class on the editor wrapper (e.g. a drag-handle `wrapperSelector` hook). */
   wrapperClassName?: string;
+  /**
+   * Fires once the editor instance exists. Lets a host capture the root
+   * `editor.view` — e.g. to repaint the WHOLE document after a structural block
+   * move (a column emptied and its container dissolved) that a surgical
+   * per-region patch can't express, since the change is in the root doc itself.
+   */
+  onEditorReady?: (editor: import("@tiptap/react").Editor) => void;
 }
 
 /**
@@ -129,6 +136,7 @@ export function SharedRichEditor({
   shouldSeed,
   initialAppliedUpdatedAt,
   wrapperClassName,
+  onEditorReady,
 }: SharedRichEditorProps) {
   const readMarkdown = getMarkdown ?? getEditorMarkdown;
   const onChangeRef = useRef(onChange);
@@ -231,6 +239,10 @@ export function SharedRichEditor({
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
   }, [editable, editor]);
+
+  useEffect(() => {
+    if (editor) onEditorReady?.(editor);
+  }, [editor, onEditorReady]);
 
   useEffect(() => () => editor?.destroy(), [editor]);
 

@@ -547,8 +547,26 @@ function applyVerticalMove(
 function repaintDropViews(
   context: DragHandleDropContext,
   nextBlocks: PlanBlock[],
+  rootView?: EditorView | null,
 ): void {
   const views = new Set([context.sourceView, context.view]);
+
+  // A move can dissolve structure a surgical per-region patch cannot express:
+  // emptying a column removes it, and dropping a `columns` block to a single
+  // column unwraps the container entirely (Notion parity). When the source or
+  // target region no longer exists in the new tree, its column/container changed
+  // in the ROOT document, so rebuild the whole root editor instead of patching
+  // regions that are gone. (Cross-region structural moves already stay out of
+  // per-editor undo history, so a non-historical root rebuild is consistent.)
+  if (rootView) {
+    for (const view of views) {
+      const info = nestedRegionInfoForView(view);
+      if (info && regionBlocksForInfo(nextBlocks, info) === null) {
+        replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
+        return;
+      }
+    }
+  }
   // A drag is "single-editor" when the source and target live in the SAME
   // ProseMirror view (a pure top-level reorder, or a move within one nested
   // region). Only then is the whole reorder one editor's transaction, so it can
