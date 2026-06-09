@@ -1072,6 +1072,7 @@ export default function LibraryPage() {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDrop={(e: DragEvent<HTMLDivElement>) => {
+          if (!e.dataTransfer.files.length) return;
           e.preventDefault();
           dragCounterRef.current = 0;
           setIsDragOver(false);
