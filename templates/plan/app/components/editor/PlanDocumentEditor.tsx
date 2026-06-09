@@ -601,12 +601,52 @@ function applyVerticalMove(
   return result.inserted ? result.blocks : null;
 }
 
+/** Nearest scrollable ancestor of an element (the plan document's scroll area). */
+function findScrollableAncestor(
+  element: HTMLElement | null,
+): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  let node = element?.parentElement ?? null;
+  while (node && node !== document.body) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
 function repaintDropViews(
   context: DragHandleDropContext,
   nextBlocks: PlanBlock[],
   rootView?: EditorView | null,
 ): void {
   const views = new Set([context.sourceView, context.view]);
+
+  // Rebuilding the document in place and re-focusing the editor would scroll the
+  // post-replace selection into view, yanking the viewport away from where the
+  // user dropped. Capture the scroll position and pin it through the rebuild AND
+  // the next frame (the nested column editors mount a frame later and can reflow
+  // the height), so a drop never moves the page.
+  const scroller = findScrollableAncestor(
+    ((rootView ?? context.view).dom as HTMLElement) ?? null,
+  );
+  const savedScrollTop = scroller?.scrollTop ?? null;
+  const restoreScroll = () => {
+    if (!scroller || savedScrollTop == null) return;
+    if (scroller.scrollTop !== savedScrollTop) scroller.scrollTop = savedScrollTop;
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        if (scroller.scrollTop !== savedScrollTop) {
+          scroller.scrollTop = savedScrollTop;
+        }
+      });
+    }
+  };
 
   // A move can dissolve structure a surgical per-region patch cannot express:
   // emptying a column removes it, and dropping a `columns` block to a single
@@ -620,6 +660,7 @@ function repaintDropViews(
       const info = nestedRegionInfoForView(view);
       if (info && regionBlocksForInfo(nextBlocks, info) === null) {
         replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
+        restoreScroll();
         return;
       }
     }
@@ -657,6 +698,7 @@ function repaintDropViews(
       // View may have been torn down mid-remount; focus is best-effort.
     }
   }
+  restoreScroll();
 }
 
 function resolveBlockDataChange(
