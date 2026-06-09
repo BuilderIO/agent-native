@@ -561,11 +561,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       handle.style.display = "flex";
       handle.style.top = `${block.rect.top - wrapperRect.top + 2}px`;
       handle.style.left = "-24px";
-      // eslint-disable-next-line no-console
-      console.log("[vmove-show]", {
-        sel: wrapperSelector,
-        pmPos: block.pmPos,
-      });
     };
 
     const selectBlockAt = (editorView: EditorView, pos: number) => {
@@ -1294,14 +1289,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
           handle.addEventListener("mousedown", (e) => {
             e.stopPropagation();
-            // eslint-disable-next-line no-console
-            console.log("[vmove-md]", {
-              sel: wrapperSelector,
-              button: e.button,
-              editable: editor.isEditable,
-              hasCurrentBlock: !!currentBlock,
-              dragStartPos,
-            });
             if (e.button !== 0) return;
             closeMenu();
             if (!editor.isEditable) {

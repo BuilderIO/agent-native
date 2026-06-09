@@ -559,42 +559,11 @@ function repaintDropViews(
   // in the ROOT document, so rebuild the whole root editor instead of patching
   // regions that are gone. (Cross-region structural moves already stay out of
   // per-editor undo history, so a non-historical root rebuild is consistent.)
-  // eslint-disable-next-line no-console
-  console.log("[vmove-rv] repaint", {
-    hasRoot: !!rootView,
-    regions: Array.from(views).map((v) => {
-      const i = nestedRegionInfoForView(v);
-      return i ? regionBlocksForInfo(nextBlocks, i) === null : "root";
-    }),
-  });
   if (rootView) {
     for (const view of views) {
       const info = nestedRegionInfoForView(view);
       if (info && regionBlocksForInfo(nextBlocks, info) === null) {
-        try {
-          const before = rootView.state.doc.childCount;
-          const doc = rootView.state.schema.nodeFromJSON(
-            blocksToProseJSON(nextBlocks),
-          );
-          const tr = rootView.state.tr.replaceWith(
-            0,
-            rootView.state.doc.content.size,
-            doc.content,
-          );
-          tr.setMeta("addToHistory", false);
-          tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
-          rootView.dispatch(tr.scrollIntoView());
-          // eslint-disable-next-line no-console
-          console.log("[vmove-rv] rebuild-root ok", {
-            before,
-            after: rootView.state.doc.childCount,
-            destroyed: (rootView as unknown as { isDestroyed?: boolean })
-              .isDestroyed,
-          });
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.log("[vmove-rv] rebuild-root THREW", String(err));
-        }
+        replaceEditorViewBlocks(rootView, nextBlocks, { addToHistory: false });
         return;
       }
     }
@@ -700,8 +669,6 @@ export function PlanDocumentEditor({
   const rootViewRef = useRef<EditorView | null>(null);
   const handleEditorReady = useCallback((editor: Editor) => {
     rootViewRef.current = editor.view;
-    // eslint-disable-next-line no-console
-    console.log("[vmove-rv] ready", !!editor.view);
   }, []);
 
   // Adopt external `content` changes (agent patches, source edits) unless the
@@ -781,11 +748,6 @@ export function PlanDocumentEditor({
       const placement = context.placement;
       const isSide = placement === "left" || placement === "right";
       const isVertical = placement === "before" || placement === "after";
-      // eslint-disable-next-line no-console
-      console.log("[vmove] fired", {
-        placement,
-        sameView: context.sourceView === context.view,
-      });
       if (!isSide && !isVertical) return false;
 
       // A vertical drop INSIDE one editor is a plain reorder — let the
@@ -803,11 +765,6 @@ export function PlanDocumentEditor({
         (isTransferredPlanBlock(data) ? data : null) ??
         planBlockFromPmNode(context.sourceNode, sourceBlocks);
       const targetBlock = planBlockFromPmNode(context.targetNode, targetBlocks);
-      // eslint-disable-next-line no-console
-      console.log("[vmove] resolved", {
-        sourceId: sourceBlock?.id,
-        targetId: targetBlock?.id,
-      });
       if (!sourceBlock || !targetBlock) return false;
 
       let nextBlocks: PlanBlock[] | null;
