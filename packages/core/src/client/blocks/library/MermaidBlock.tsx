@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import { IconArrowsMaximize } from "@tabler/icons-react";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type { MermaidData } from "./mermaid.config.js";
 import { DevInput, DevLabel } from "./dev-doc-ui.js";
+import { DiagramLightbox } from "./diagram.js";
 
 /**
  * Read + Edit renderers for a `mermaid` block — a Mermaid diagram definition
@@ -132,6 +134,26 @@ function useIsDark(): boolean {
   return isDark;
 }
 
+/**
+ * Inject a rendered Mermaid/Excalidraw SVG string. Shared by the inline render
+ * and the expand lightbox so the enlarged view shows the exact same SVG; the
+ * lightbox passes `enlarged` so the SVG stretches to fill the wider modal
+ * (`max-w-5xl`) instead of staying at its intrinsic inline size.
+ */
+function MermaidSvg({ svg, enlarged }: { svg: string; enlarged?: boolean }) {
+  return (
+    <div
+      className={
+        enlarged
+          ? "flex justify-center overflow-auto [&_svg]:h-auto [&_svg]:w-full [&_svg]:max-w-full"
+          : "mt-2 flex justify-center overflow-auto [&_svg]:h-auto [&_svg]:max-w-full"
+      }
+      // Excalidraw and Mermaid output are sanitized before injection.
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
 function MermaidDiagram({
   source,
   idSeed,
@@ -144,6 +166,7 @@ function MermaidDiagram({
   // DOM for it to measure against.
   const [mounted, setMounted] = useState(false);
   const [state, setState] = useState<MermaidRenderState>({});
+  const [expanded, setExpanded] = useState(false);
 
   // A DOM-id-safe, stable-per-block render id. Mermaid requires a valid CSS id.
   const renderId = useMemo(
@@ -227,12 +250,30 @@ function MermaidDiagram({
     );
   }
 
+  // Hover-revealed top-right expand button + shared lightbox, matching the
+  // DiagramBlock affordance exactly (same icon, reveal-on-hover/focus, Escape +
+  // backdrop close via the reused `DiagramLightbox`). The enlarged view re-shows
+  // the same rendered SVG scaled to fit the wider modal.
+  const svg = state.svg;
   return (
-    <div
-      className="mt-2 flex justify-center overflow-auto [&_svg]:h-auto [&_svg]:max-w-full"
-      // Excalidraw and Mermaid output are sanitized before injection.
-      dangerouslySetInnerHTML={{ __html: state.svg }}
-    />
+    <div className="group/mermaid relative">
+      <MermaidSvg svg={svg} />
+      <button
+        type="button"
+        data-plan-interactive
+        onClick={() => setExpanded(true)}
+        aria-label="Expand diagram"
+        title="Expand diagram"
+        className="an-diagram-expand-trigger absolute right-2 top-2 z-10 flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/mermaid:opacity-100"
+      >
+        <IconArrowsMaximize className="size-4" />
+      </button>
+      {expanded ? (
+        <DiagramLightbox onClose={() => setExpanded(false)}>
+          <MermaidSvg svg={svg} enlarged />
+        </DiagramLightbox>
+      ) : null}
+    </div>
   );
 }
 

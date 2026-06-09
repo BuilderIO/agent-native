@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { IconArrowsMaximize, IconX } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type {
@@ -362,7 +363,9 @@ function SequenceDiagram({
 /**
  * The diagram body. Routes to the preferred HTML/SVG path (when `data.html` is
  * set) and otherwise to a legacy node-graph path (positioned canvas when nodes
- * carry x/y, else an ordered sequence).
+ * carry x/y, else an ordered sequence). Used both inline and, scaled up, inside
+ * the expand lightbox — so every variant (html/css, positioned, sequence)
+ * enlarges through the same code path.
  */
 function DiagramBody({
   data,
@@ -386,6 +389,106 @@ function DiagramBody({
 }
 
 /* -------------------------------------------------------------------------- */
+/* Expand / lightbox                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Enlarge overlay for a rendered diagram. Mirrors the image lightbox contract
+ * used by the composer's `ImagePreviewLightbox` (PromptComposer.tsx) so the
+ * expand affordance feels identical to viewing an image full-size: a fixed
+ * `bg-black/80` backdrop, Escape to close, click-the-backdrop to close, and a
+ * top-right close button. Unlike the image variant this renders arbitrary
+ * children (the diagram body re-rendered larger) rather than an `<img>`, since a
+ * diagram is live HTML/SVG/node-graph markup, not an image URL.
+ *
+ * Exported so the separate Mermaid block (`MermaidBlock.tsx`, which renders its
+ * diagram to an SVG through a different runtime) can reuse the exact same
+ * lightbox contract — one expand affordance shared across both diagram types.
+ */
+export function DiagramLightbox({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handler);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Diagram preview"
+      onClick={onClose}
+      data-plan-interactive
+      className="fixed inset-0 z-[300] flex items-center justify-center overflow-auto bg-black/80 p-6 cursor-zoom-out"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-full w-full max-w-5xl cursor-default overflow-auto rounded-md bg-background p-6 shadow-2xl"
+      >
+        {children}
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close preview"
+        className="absolute right-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
+      >
+        <IconX className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The diagram body plus a hover-revealed top-right "expand" button (like the
+ * image attachment zoom). Opening the button re-renders the exact same
+ * `DiagramBody` inside `DiagramLightbox` at a larger size, so html/css and
+ * mermaid/legacy node-graph diagrams alike enlarge through one path. The inline
+ * (non-expanded) render is otherwise unchanged.
+ */
+function ExpandableDiagramBody({
+  data,
+  ctx,
+}: {
+  data: DiagramData;
+  ctx: BlockRenderContext;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="group/diagram relative">
+      <DiagramBody data={data} ctx={ctx} />
+      <button
+        type="button"
+        data-plan-interactive
+        onClick={() => setExpanded(true)}
+        aria-label="Expand diagram"
+        title="Expand diagram"
+        className="an-diagram-expand-trigger absolute right-2 top-2 z-10 flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+      >
+        <IconArrowsMaximize className="size-4" />
+      </button>
+      {expanded ? (
+        <DiagramLightbox onClose={() => setExpanded(false)}>
+          <DiagramBody data={data} ctx={ctx} />
+        </DiagramLightbox>
+      ) : null}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Read + Edit                                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -400,7 +503,7 @@ export function DiagramRead({
   return (
     <section className="an-block plan-block" data-block-id={blockId}>
       {title && <div className="an-block-label plan-block-label">{title}</div>}
-      <DiagramBody data={data} ctx={ctx} />
+      <ExpandableDiagramBody data={data} ctx={ctx} />
       {summary && <p className="mt-5 text-muted-foreground">{summary}</p>}
     </section>
   );

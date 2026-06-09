@@ -49,6 +49,26 @@ export function isDuplicateColumnError(err: unknown): boolean {
 }
 
 /**
+ * True when a migration statement failed because the connected DB ROLE lacks
+ * privilege — e.g. a permission-limited dev/replica role that doesn't own the
+ * table. Postgres raises SQLSTATE 42501 ("insufficient_privilege", routine
+ * aclcheck_error, message "must be owner of table …"). We treat these as
+ * NON-FATAL so a perms-limited database can't crash-loop the whole server: the
+ * migration is skipped (left unrecorded) and a properly-privileged role applies
+ * it later. Production, where the role owns its tables, never hits this path.
+ */
+export function isPermissionError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | undefined;
+  if (e?.code === "42501") return true;
+  const msg = e?.message ?? "";
+  return (
+    /must be owner of/i.test(msg) ||
+    /permission denied/i.test(msg) ||
+    /insufficient privilege/i.test(msg)
+  );
+}
+
+/**
  * Split a multi-statement SQL blob into individual statements.
  *
  * libsql's `execute(sql)` only runs the first statement in a multi-statement
@@ -296,6 +316,24 @@ export function runMigrations(
             `[db] Applied migration v${m.version} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
           );
         } catch (err) {
+          if (pg && isPermissionError(err)) {
+            // The connected role lacks privilege for this migration (e.g. a
+            // permission-limited dev/replica role that doesn't own the table).
+            // Don't crash-loop the whole server over it — warn and STOP here.
+            // We must NOT continue to later migrations: pending work is computed
+            // as `version > MAX(recorded version)`, so applying a later migration
+            // would advance MAX past this unrecorded one and orphan it forever.
+            // Stopping leaves MAX at the last recorded version, so a properly-
+            // privileged role resumes from this exact migration, in order.
+            console.warn(
+              `[db] Migration v${m.version} skipped — insufficient privilege: ${(err as Error).message}. ` +
+                `Apply it with a DB role that owns the table. ` +
+                `Halting further migrations so this one isn't orphaned.`,
+              "\nStatement:",
+              currentStmt,
+            );
+            break;
+          }
           console.error(
             `[db] Migration v${m.version} FAILED:`,
             (err as Error).message,
