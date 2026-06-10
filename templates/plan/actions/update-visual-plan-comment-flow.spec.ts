@@ -29,8 +29,10 @@ vi.mock("drizzle-orm", () => ({
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
 }));
 
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core")>()),
   defineAction: (options: unknown) => options,
+  embedApp: vi.fn(() => ({ title: "stub" })),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -226,6 +228,12 @@ function run(args: Record<string, unknown>) {
 
 const baseBundle = {
   plan: { id: "plan_1", title: "Plan", brief: "", content: null },
+  access: {
+    role: "owner",
+    ownerEmail: "owner@example.com",
+    orgId: null,
+    visibility: "private",
+  },
   sections: [],
   comments: [],
   events: [],

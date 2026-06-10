@@ -20,8 +20,10 @@ import type {
 // ---------------------------------------------------------------------------
 // get-plan-feedback action under test (mock the action runtime + plan loader)
 // ---------------------------------------------------------------------------
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core")>()),
   defineAction: (entry: unknown) => entry,
+  embedApp: vi.fn(() => ({ title: "stub" })),
 }));
 
 const loadPlanBundleMock = vi.fn();

@@ -103,6 +103,7 @@ describe("claim middleware — adversarial scoping", () => {
       getDb: () => dbRecorder,
       schema: {
         plans: { ownerEmail: "plans.owner_email", orgId: "plans.org_id" },
+        planVersions: { ownerEmail: "plan_versions.owner_email" },
       },
     }));
     vi.doMock("../lib/public-plans.js", () => ({
