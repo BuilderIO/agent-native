@@ -67,7 +67,15 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
   });
   const selectedPlanId = (location.pathname.match(/^\/plans\/([^/]+)/) ??
     location.pathname.match(/^\/recaps\/([^/]+)/))?.[1];
-  const plans = useMemo(() => plansQuery.data ?? [], [plansQuery.data]);
+  const allPlans = useMemo(() => plansQuery.data ?? [], [plansQuery.data]);
+  const plans = useMemo(
+    () => allPlans.filter((p) => p.status !== "archived").slice(0, 10),
+    [allPlans],
+  );
+  const hasMore = useMemo(
+    () => allPlans.filter((p) => p.status !== "archived").length > 10,
+    [allPlans],
+  );
 
   if (collapsed) return null;
 
@@ -148,6 +156,14 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
                 )}
               >
                 <span className="min-w-0 flex-1 truncate">{plan.title}</span>
+                {plan.kind === "recap" && (
+                  <Badge
+                    variant="outline"
+                    className="h-4 shrink-0 rounded px-1 text-[9px]"
+                  >
+                    Recap
+                  </Badge>
+                )}
                 {plan.openCommentCount > 0 ? (
                   <Badge
                     variant="secondary"
@@ -163,6 +179,14 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
               </Link>
             );
           })}
+          {hasMore && (
+            <Link
+              to="/plans"
+              className="rounded-md px-2 py-1.5 text-left text-xs leading-5 text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground"
+            >
+              View all plans…
+            </Link>
+          )}
         </div>
       )}
     </div>

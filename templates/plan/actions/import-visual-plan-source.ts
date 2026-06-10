@@ -23,6 +23,7 @@ import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
+  emitPlanCreated,
   loadPlanBundle,
   newId,
   nowIso,
@@ -215,6 +216,13 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    emitPlanCreated({
+      planId: id,
+      title: bundle.plan.title,
+      kind: bundle.plan.kind,
+      status: bundle.plan.status,
+      ownerEmail: bundle.access.ownerEmail,
+    });
     const local = isLocalPlanRuntime()
       ? await writePlanLocalFiles({
           planId: bundle.plan.id,

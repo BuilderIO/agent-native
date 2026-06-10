@@ -34,6 +34,8 @@ import {
   commentInputSchema,
   commentMetadataForInput,
   commentResolutionFields,
+  emitPlanCommented,
+  emitPlanStatusChanged,
   loadPlanBundle,
   newId,
   nowIso,
@@ -825,6 +827,37 @@ export default defineAction({
     }).catch((error) => {
       console.warn("[update-visual-plan] comment notification failed:", error);
     });
+    // Emit plan.commented for any newly inserted comments
+    if (insertedCommentIds.length > 0) {
+      const newComments = bundle.comments.filter((c) =>
+        insertedCommentIds.includes(c.id),
+      );
+      emitPlanCommented({
+        planId: bundle.plan.id,
+        title: bundle.plan.title,
+        kind: bundle.plan.kind,
+        comments: newComments.map((c) => ({
+          id: c.id,
+          message: c.message,
+          resolutionTarget: c.resolutionTarget,
+          authorEmail: c.authorEmail,
+          createdBy: c.createdBy,
+        })),
+        ownerEmail: bundle.access.ownerEmail,
+      });
+    }
+    // Emit plan.status.changed when the status was explicitly changed
+    if (args.status) {
+      emitPlanStatusChanged({
+        planId: bundle.plan.id,
+        title: bundle.plan.title,
+        kind: bundle.plan.kind,
+        oldStatus: null, // status before update is not re-fetched here; use null as unknown-prior
+        newStatus: bundle.plan.status,
+        changedBy: requesterEmail,
+        ownerEmail: bundle.access.ownerEmail,
+      });
+    }
     const local = isLocalPlanRuntime()
       ? await writePlanLocalFiles({
           planId: bundle.plan.id,

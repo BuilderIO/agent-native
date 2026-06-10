@@ -72,20 +72,6 @@ const UPDATED_CONTENT_1 = JSON.stringify({
   ],
 });
 
-const UPDATED_CONTENT_2 = JSON.stringify({
-  version: 2,
-  title: "Test plan",
-  brief: "Test brief",
-  blocks: [
-    {
-      id: "blk_abc",
-      type: "rich-text",
-      title: "Intro",
-      data: { markdown: "Hello world, edited twice." },
-    },
-  ],
-});
-
 const CREATED_AT = "2026-06-09T10:00:00.000Z";
 
 async function resetTables() {

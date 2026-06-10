@@ -23,6 +23,7 @@ import {
   buildPlanHtml,
   commentInputSchema,
   deriveSectionsFromText,
+  emitPlanCreated,
   insertInitialPlanComments,
   loadPlanBundle,
   newId,
@@ -260,6 +261,13 @@ export default defineAction({
     });
 
     const bundle = await loadPlanBundle(id);
+    emitPlanCreated({
+      planId: id,
+      title: bundle.plan.title,
+      kind: bundle.plan.kind,
+      status: bundle.plan.status,
+      ownerEmail: bundle.access.ownerEmail,
+    });
     const local = isLocalPlanRuntime()
       ? await writePlanLocalFiles({
           planId: id,

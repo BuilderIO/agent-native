@@ -20,6 +20,9 @@ import {
   IconChevronDown,
   IconClipboardText,
   IconCopy,
+  IconArchive,
+  IconArchiveOff,
+  IconDots,
   IconDownload,
   IconExternalLink,
   IconFileZip,
@@ -64,6 +67,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -2071,6 +2076,42 @@ export function PlansPage() {
   updatePlanMutateRef.current = updatePlan.mutate;
 
   /**
+   * Archive or unarchive a plan from the overview. Optimistically updates the
+   * list-visual-plans cache so the card disappears/reappears immediately.
+   * Rolls back on error with a toast.
+   */
+  const handleArchivePlan = useCallback(
+    (planId: string, archive: boolean) => {
+      const listKey = ["action", "list-visual-plans", {}] as const;
+      const newStatus = archive ? "archived" : "draft";
+      const prev = queryClient.getQueryData<typeof plans>(listKey);
+      // Optimistic update
+      queryClient.setQueryData(
+        listKey,
+        (old: typeof plans | undefined) =>
+          old?.map((p) =>
+            p.id === planId ? { ...p, status: newStatus } : p,
+          ) ?? old,
+      );
+      updatePlan.mutate(
+        { planId, status: newStatus },
+        {
+          onError: () => {
+            // Roll back
+            if (prev !== undefined) {
+              queryClient.setQueryData(listKey, prev);
+            }
+            toast.error(
+              archive ? "Failed to archive plan." : "Failed to unarchive plan.",
+            );
+          },
+        },
+      );
+    },
+    [queryClient, updatePlan],
+  );
+
+  /**
    * Persist question-form answers as an agent-targeted comment so
    * share-link reviewers' answers are visible to get-plan-feedback even when
    * no agent is attached on their machine.  Fire-and-forget: the existing
@@ -3303,6 +3344,7 @@ export function PlansPage() {
               isLoading={sessionLoading || plansQuery.isLoading}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
+              onArchive={handleArchivePlan}
             />
           ) : !bundle && planQuery.isError ? (
             <PlanLoadError
@@ -4551,6 +4593,9 @@ function PlanLoadError({
   );
 }
 
+const PLAN_SKILL_INSTALL_COMMAND =
+  "npx @agent-native/core@latest skills add visual-plan";
+
 function EmptyPlan({
   onCreate,
   canCreate,
@@ -4579,13 +4624,21 @@ function EmptyPlan({
           <IconPlus className="size-4" />
           New Plan
         </Button>
+        <p className="mt-3 text-xs text-muted-foreground/70">
+          Or install the skill and use{" "}
+          <code className="rounded bg-muted/60 px-1 py-0.5 font-mono text-[11px]">
+            /visual-plan
+          </code>{" "}
+          from your coding agent:
+          <br />
+          <code className="mt-1 inline-block rounded bg-muted/60 px-1 py-0.5 font-mono text-[11px]">
+            {PLAN_SKILL_INSTALL_COMMAND}
+          </code>
+        </p>
       </div>
     </div>
   );
 }
-
-const PLAN_SKILL_INSTALL_COMMAND =
-  "npx @agent-native/core@latest skills add visual-plan";
 
 function LoggedOutEmptyPlan() {
   return (
@@ -4606,8 +4659,9 @@ function LoggedOutEmptyPlan() {
             {PLAN_SKILL_INSTALL_COMMAND}
           </code>
           <p className="mt-3 text-xs leading-5 text-muted-foreground">
-            Then ask for <code>/visual-plan</code>, <code>/ui-plan</code>, or{" "}
-            <code>/prototype-plan</code> from Codex, Claude Code, or Cursor.
+            Then ask for <code>/visual-plan</code> to create a plan, or{" "}
+            <code>/visual-recap</code> for a PR recap, from Codex, Claude Code,
+            or Cursor.
           </p>
         </div>
       </div>
@@ -4615,11 +4669,14 @@ function LoggedOutEmptyPlan() {
   );
 }
 
+type OverviewFilter = "all" | "plans" | "recaps" | "archived";
+
 function PlansOverview({
   plans,
   isLoading,
   onCreate,
   canCreate,
+  onArchive,
 }: {
   plans: Array<{
     id: string;
@@ -4633,23 +4690,45 @@ function PlansOverview({
   isLoading: boolean;
   onCreate: () => void;
   canCreate: boolean;
+  onArchive: (planId: string, archived: boolean) => void;
 }) {
+  const [filter, setFilter] = useState<OverviewFilter>("all");
+  const [search, setSearch] = useState("");
+
   if (isLoading) {
     return <PlansOverviewSkeleton />;
   }
   if (plans.length === 0) {
     return <EmptyPlan onCreate={onCreate} canCreate={canCreate} />;
   }
+
+  const visibleBeforeSearch = plans.filter((p) => {
+    if (filter === "archived") return p.status === "archived";
+    if (p.status === "archived") return false;
+    if (filter === "plans") return p.kind === "plan";
+    if (filter === "recaps") return p.kind === "recap";
+    return true;
+  });
+
+  const visiblePlans =
+    search.trim().length > 0
+      ? visibleBeforeSearch.filter((p) =>
+          p.title.toLowerCase().includes(search.trim().toLowerCase()),
+        )
+      : visibleBeforeSearch;
+
+  const totalVisible = plans.filter((p) => p.status !== "archived").length;
+
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4 sm:p-6">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold tracking-tight">
-              Plan
+              Plans
             </h1>
             <p className="text-sm text-muted-foreground">
-              {plans.length} document{plans.length === 1 ? "" : "s"}
+              {totalVisible} document{totalVisible === 1 ? "" : "s"}
             </p>
           </div>
           <Button type="button" onClick={onCreate}>
@@ -4657,38 +4736,130 @@ function PlansOverview({
             {canCreate ? "New Plan" : "Sign in to create"}
           </Button>
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {plans.map((plan) => (
-            <Link
-              key={plan.id}
-              to={
-                plan.kind === "recap"
-                  ? `/recaps/${plan.id}`
-                  : `/plans/${plan.id}`
-              }
-              className="rounded-lg border border-border bg-background p-4 transition-colors hover:bg-accent/35"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-medium">{plan.title}</h2>
-                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                    {plan.brief}
-                  </p>
-                </div>
-                {plan.openCommentCount > 0 && (
-                  <Badge variant="secondary" className="shrink-0">
-                    {plan.openCommentCount}
-                  </Badge>
-                )}
-              </div>
-              <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{statusLabel(plan.status)}</span>
-                <span>·</span>
-                <span>{shortDate(plan.updatedAt)}</span>
-              </div>
-            </Link>
-          ))}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Tabs
+            value={filter}
+            onValueChange={(v) => setFilter(v as OverviewFilter)}
+          >
+            <TabsList>
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="plans">Plans</TabsTrigger>
+              <TabsTrigger value="recaps">Recaps</TabsTrigger>
+              <TabsTrigger value="archived">Archived</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {plans.length > 8 && (
+            <div className="relative min-w-0 flex-1">
+              <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search plans…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9 pl-8 text-sm"
+              />
+            </div>
+          )}
         </div>
+
+        {visiblePlans.length === 0 ? (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            {search.trim()
+              ? `No results for "${search}"`
+              : filter === "archived"
+                ? "No archived plans."
+                : "No plans here yet."}
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {visiblePlans.map((plan) => (
+              <div
+                key={plan.id}
+                className="group relative rounded-lg border border-border bg-background transition-colors hover:bg-accent/35"
+              >
+                <Link
+                  to={
+                    plan.kind === "recap"
+                      ? `/recaps/${plan.id}`
+                      : `/plans/${plan.id}`
+                  }
+                  className="block p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <h2 className="truncate text-sm font-medium">
+                          {plan.title}
+                        </h2>
+                        {plan.kind === "recap" && (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 text-[10px]"
+                          >
+                            Recap
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {plan.brief}
+                      </p>
+                    </div>
+                    {plan.openCommentCount > 0 && (
+                      <Badge variant="secondary" className="shrink-0">
+                        {plan.openCommentCount}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{statusLabel(plan.status)}</span>
+                    <span>·</span>
+                    <span>{shortDate(plan.updatedAt)}</span>
+                  </div>
+                </Link>
+
+                {/* Card-level archive dropdown — visible on hover/focus-within */}
+                <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="Plan actions"
+                      >
+                        <IconDots className="size-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      {plan.status === "archived" ? (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onArchive(plan.id, false);
+                          }}
+                        >
+                          <IconArchiveOff className="size-4" />
+                          Unarchive
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onArchive(plan.id, true);
+                          }}
+                        >
+                          <IconArchive className="size-4" />
+                          Archive
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4891,6 +5062,9 @@ function PlanHistorySheet({
                   )}
                   Restore this version
                 </Button>
+                <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                  Your current version is saved to history first.
+                </p>
               </div>
             ) : null}
           </div>

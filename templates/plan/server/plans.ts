@@ -1,4 +1,5 @@
 import { buildDeepLink } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import {
   assertAccess,
   ForbiddenError,
@@ -554,6 +555,138 @@ export async function writeEvent(input: {
       createdBy: input.createdBy ?? "agent",
       createdAt: nowIso(),
     });
+}
+
+// ---------------------------------------------------------------------------
+// Event-bus helpers — fire-and-forget; failures must never block callers
+// ---------------------------------------------------------------------------
+
+export function emitPlanCreated(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  status: string;
+  ownerEmail?: string | null;
+}) {
+  try {
+    emit(
+      "plan.created",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        status: input.status,
+        path: planPath(input.planId, input.kind),
+        createdBy: "agent",
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block plan creation
+  }
+}
+
+export function emitPlanCommented(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  comments: Array<{
+    id: string;
+    message: string;
+    resolutionTarget?: string | null;
+    authorEmail?: string | null;
+    createdBy?: string;
+  }>;
+  ownerEmail?: string | null;
+}) {
+  if (input.comments.length === 0) return;
+  try {
+    // Derive the dominant resolutionTarget (prefer "agent" if any comment targets agent)
+    const resolutionTarget =
+      input.comments.find((c) => c.resolutionTarget === "agent")
+        ?.resolutionTarget ??
+      input.comments[0]?.resolutionTarget ??
+      null;
+    const firstComment = input.comments[0];
+    const excerpt = firstComment ? firstComment.message.slice(0, 200) : "";
+    const author =
+      input.comments.find((c) => c.authorEmail)?.authorEmail ?? null;
+    emit(
+      "plan.commented",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        commentIds: input.comments.map((c) => c.id),
+        commentCount: input.comments.length,
+        resolutionTarget:
+          resolutionTarget === "agent" || resolutionTarget === "human"
+            ? resolutionTarget
+            : null,
+        excerpt,
+        author,
+        path: planPath(input.planId, input.kind),
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block comment writes
+  }
+}
+
+export function emitPlanPublished(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  hostedPlanId: string;
+  url: string;
+  requestedVisibility: string;
+  ownerEmail?: string | null;
+}) {
+  try {
+    emit(
+      "plan.published",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        hostedPlanId: input.hostedPlanId,
+        url: input.url,
+        requestedVisibility: input.requestedVisibility,
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block publish
+  }
+}
+
+export function emitPlanStatusChanged(input: {
+  planId: string;
+  title: string;
+  kind: PlanKind;
+  oldStatus: string | null;
+  newStatus: string;
+  changedBy?: string | null;
+  ownerEmail?: string | null;
+}) {
+  try {
+    emit(
+      "plan.status.changed",
+      {
+        planId: input.planId,
+        title: input.title,
+        kind: input.kind,
+        oldStatus: input.oldStatus,
+        newStatus: input.newStatus,
+        changedBy: input.changedBy ?? null,
+        path: planPath(input.planId, input.kind),
+      },
+      { owner: input.ownerEmail ?? undefined },
+    );
+  } catch {
+    // best-effort — never block status changes
+  }
 }
 
 export async function assertPlanEditor(planId: string) {
