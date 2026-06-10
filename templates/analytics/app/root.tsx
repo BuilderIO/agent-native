@@ -15,6 +15,7 @@ import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { TAB_ID } from "@/lib/tab-id";
 import { configureTracking } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -67,9 +68,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function DbSyncBridge() {
   // Invalidate react-query caches on DB changes (agent edits, other tabs,
   // cron jobs). The hook invalidates every active query on any non-own
-  // change event. Screen-refresh is handled automatically inside AgentSidebar.
+  // change event, so we no longer need to enumerate dashboard / analysis
+  // / explorer keys here. Screen-refresh is handled automatically inside
+  // AgentSidebar.
   const queryClient = useQueryClient();
-  useDbSync({ queryClient });
+  useDbSync({ queryClient, ignoreSource: TAB_ID });
   return null;
 }
 

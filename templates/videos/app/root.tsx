@@ -15,6 +15,7 @@ import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { TAB_ID } from "@/lib/tab-id";
 import {
   configureTracking,
   getThemeInitScript,
@@ -70,7 +71,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useNavigationState();
   const qc = useQueryClient();
-  useDbSync({ queryClient: qc, queryKeys: ["action", "env-status"] });
+  useDbSync({
+    queryClient: qc,
+    queryKeys: ["action", "env-status"],
+    ignoreSource: TAB_ID,
+  });
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);

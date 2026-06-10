@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.45.0",
+  "version": "0.47.0",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -104,6 +104,7 @@
     "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
+    "./workspace-files": "./dist/workspace-files/index.js",
     "./code-agents": "./dist/code-agents/index.js",
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",

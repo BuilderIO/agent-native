@@ -7,11 +7,148 @@ import {
   planCommentAnchorDetails,
   type PlanCommentAnchor,
 } from "../shared/comment-context.js";
+import type { PlanBlock, PlanContent } from "../shared/plan-content.js";
 import type { PlanComment } from "../shared/types.js";
 
 function commentAnchorContext(anchor: PlanCommentAnchor | null) {
   const context = formatPlanCommentAnchorForAgent(anchor);
+  // Treat the generic fallback ("Pinned to plan" or enriched coordinate variants)
+  // as having no usable anchor context. Only a bare "Pinned to plan" exact match
+  // is filtered here; enriched strings like "Pinned at X%..." pass through as
+  // they carry real location info.
   return context && context !== "Pinned to plan" ? context : null;
+}
+
+/**
+ * Normalize text for quote matching. Quotes are captured from rendered DOM
+ * text while block fragments are raw markdown, so inline markdown syntax
+ * (emphasis markers, code ticks, link wrappers) must be stripped before
+ * comparing. The same normalization is applied to both sides, so aggressive
+ * stripping stays symmetric and safe.
+ */
+function normalizeForQuoteMatch(text: string): string {
+  return text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_~`]/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Collect all searchable text strings from a single content block.
+ * Returns an array of normalized text fragments.
+ */
+function blockTextFragments(block: PlanBlock): string[] {
+  const frags: string[] = [];
+  switch (block.type) {
+    case "rich-text":
+      if (block.data.markdown) frags.push(block.data.markdown);
+      break;
+    case "callout":
+      if (block.data.body) frags.push(block.data.body);
+      break;
+    case "checklist":
+      for (const item of block.data.items) {
+        if (item.label) frags.push(item.label);
+        if (item.note) frags.push(item.note);
+      }
+      break;
+    case "table":
+      for (const row of block.data.rows) {
+        for (const cell of row) frags.push(cell);
+      }
+      for (const col of block.data.columns) frags.push(col);
+      break;
+    case "code":
+      if (block.data.code) frags.push(block.data.code);
+      if (block.data.caption) frags.push(block.data.caption);
+      break;
+    case "code-tabs":
+      for (const tab of block.data.tabs) {
+        frags.push(tab.label);
+        frags.push(tab.code);
+        if (tab.caption) frags.push(tab.caption);
+      }
+      break;
+    case "implementation-map":
+      for (const file of block.data.files) {
+        frags.push(file.path);
+        frags.push(file.note);
+        if (file.title) frags.push(file.title);
+        if (file.snippet) frags.push(file.snippet);
+      }
+      break;
+    case "tabs":
+      for (const tab of block.data.tabs) {
+        frags.push(tab.label);
+        for (const child of tab.blocks) {
+          frags.push(...blockTextFragments(child));
+        }
+      }
+      break;
+    case "columns":
+      for (const col of block.data.columns) {
+        if (col.label) frags.push(col.label);
+        for (const child of col.blocks) {
+          frags.push(...blockTextFragments(child));
+        }
+      }
+      break;
+    case "mermaid":
+      if (block.data.source) frags.push(block.data.source);
+      break;
+    case "diff":
+      frags.push(block.data.before, block.data.after);
+      break;
+    case "annotated-code":
+      frags.push(block.data.code);
+      for (const ann of block.data.annotations ?? []) frags.push(ann.note);
+      break;
+    default:
+      // Other block types (wireframe, diagram, image, etc.) have no prose to match.
+      break;
+  }
+  // Also include block-level title/summary
+  if (block.title) frags.push(block.title);
+  if (block.summary) frags.push(block.summary);
+  return frags.filter(Boolean);
+}
+
+/**
+ * Check whether a quoted snippet still exists in the plan content.
+ * Returns true when found, false when definitely gone.
+ * Scopes to a sectionId block when provided; searches all blocks when not.
+ * Returns true (not detached) for ambiguous cases to avoid false positives.
+ */
+function quoteExistsInContent(
+  quote: string,
+  content: PlanContent | null | undefined,
+  sectionId: string | null | undefined,
+): boolean {
+  if (!content?.blocks?.length) return true; // can't determine — be conservative
+  const needle = normalizeForQuoteMatch(quote);
+  if (!needle) return true;
+
+  let blocks = content.blocks;
+  if (sectionId) {
+    const scoped = blocks.filter((b) => b.id === sectionId);
+    // If the sectionId didn't resolve to any block, fall back to all blocks to
+    // avoid marking the quote as detached when the section just changed id.
+    if (scoped.length > 0) {
+      blocks = scoped;
+    }
+  }
+
+  for (const block of blocks) {
+    const frags = blockTextFragments(block);
+    for (const frag of frags) {
+      if (normalizeForQuoteMatch(frag).includes(needle)) return true;
+    }
+  }
+  return false;
 }
 
 function commentAnchorForAgent(comment: PlanComment) {
@@ -27,12 +164,27 @@ function commentAnchorForAgent(comment: PlanComment) {
   };
 }
 
-function withAgentAnchorContext<T extends PlanComment>(comment: T) {
+function withAgentAnchorContext<T extends PlanComment>(
+  comment: T,
+  content?: PlanContent | null,
+) {
   const anchor = commentAnchorForAgent(comment);
+  // Detach detection only applies to text anchors: visual/point anchors carry
+  // a snippet (button labels, section titles) that legitimately may not appear
+  // in prose blocks, so checking them would produce false positives.
+  const quote =
+    anchor?.anchorKind !== "visual" && anchor?.anchorKind !== "point"
+      ? anchor?.textQuote
+      : undefined;
+  const detached =
+    typeof quote === "string" && quote.length > 0 && content !== undefined
+      ? !quoteExistsInContent(quote, content, anchor?.sectionId)
+      : false;
   return {
     ...comment,
     anchorContext: commentAnchorContext(anchor),
     anchorDetails: planCommentAnchorDetails(anchor),
+    detached,
   };
 }
 
@@ -63,10 +215,13 @@ function threadRootFor(comment: PlanComment, byId: Map<string, PlanComment>) {
 
 function buildFeedbackThreads(
   allComments: PlanComment[],
-  feedbackComments: PlanComment[],
+  feedbackComments: Array<PlanComment & { detached?: boolean }>,
 ) {
   const byId = new Map(allComments.map((comment) => [comment.id, comment]));
   const feedbackIds = new Set(feedbackComments.map((comment) => comment.id));
+  const detachedById = new Map(
+    feedbackComments.filter((c) => c.detached).map((c) => [c.id, true]),
+  );
   const threads = new Map<
     string,
     { root: PlanComment; comments: PlanComment[] }
@@ -94,6 +249,10 @@ function buildFeedbackThreads(
         comments.find((comment) => comment.id === thread.root.id) ??
         thread.root;
       const rootAnchor = commentAnchorForAgent(root);
+      // A thread is detached if the root comment's quoted text no longer exists
+      // in the current plan content. We use the pre-computed map from
+      // feedbackComments; roots not in the feedback set default to false.
+      const detached = detachedById.get(root.id) ?? false;
       return {
         id: root.id,
         root: withAgentAnchorContext(root),
@@ -107,6 +266,7 @@ function buildFeedbackThreads(
         commentCount: comments.length,
         anchorContext: commentAnchorContext(rootAnchor),
         anchorDetails: planCommentAnchorDetails(rootAnchor),
+        detached,
       };
     });
 }
@@ -227,6 +387,7 @@ function feedbackThreadManifest(
     ...thread,
     resolutionTarget: threadResolutionTarget(thread),
     isVisual: isVisualFeedbackThread(thread),
+    detached: thread.detached,
   };
 }
 
@@ -259,9 +420,10 @@ export default defineAction({
   },
   run: async (args) => {
     const bundle = await loadPlanBundle(args.planId);
+    const planContent = bundle.plan.content ?? null;
     const comments = bundle.comments
       .filter((comment) => comment.createdBy === "human" && !comment.consumedAt)
-      .map((comment) => withAgentAnchorContext(comment));
+      .map((comment) => withAgentAnchorContext(comment, planContent));
     const threads = buildFeedbackThreads(bundle.comments, comments).map(
       feedbackThreadManifest,
     );
@@ -274,6 +436,7 @@ export default defineAction({
         thread.status === "open" && thread.resolutionTarget === "human",
     );
     const visualThreads = threads.filter((thread) => thread.isVisual);
+    const detachedThreads = threads.filter((thread) => thread.detached);
     const feedbackImageBudget = 8;
     const overflowVisual = visualThreads
       .slice(feedbackImageBudget)
@@ -311,9 +474,15 @@ export default defineAction({
         actionableThreadCount: actionableThreads.length,
         humanReviewThreadCount: humanReviewThreads.length,
         visualThreadCount: visualThreads.length,
+        detachedCount: detachedThreads.length,
         feedbackImageBudget,
         overflowVisualCount: overflowVisual.length,
       },
+      detachedThreads: detachedThreads.map((thread) => ({
+        id: thread.id,
+        anchorContext: thread.anchorContext,
+        messageExcerpt: thread.root.message.slice(0, 120),
+      })),
       overflowVisual,
       recentReviewEvents,
       instructions: [
@@ -322,6 +491,11 @@ export default defineAction({
         "Focused screenshot attachments (embedded-app chats only; not available over bare MCP), when present in the chat, are ordered to match visual actionable feedback first. Each screenshot includes a red ring around the comment point.",
         "If overflowVisual is non-empty, some visual comments were not screenshotted because of the image budget; use their anchorDetails and ask for more visual context before making pixel-sensitive changes.",
         "Use recentReviewEvents to understand human edits made alongside comments; event payloads include targeted content patch metadata when available.",
+        ...(detachedThreads.length > 0
+          ? [
+              "Comments marked detached no longer match their quoted text (the prose was rewritten); reconcile them against the current content — do not silently drop them.",
+            ]
+          : []),
       ],
       summary: bundle.summary,
     };

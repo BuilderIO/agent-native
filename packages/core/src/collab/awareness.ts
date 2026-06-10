@@ -4,8 +4,13 @@
  * Stores per-client awareness state (cursor positions, user info) in memory.
  * Clients POST their state and receive other clients' states via polling.
  * States expire after 30 seconds of no updates.
+ *
+ * Fast-path: when a client POSTs new awareness state, the server emits an
+ * event on the awareness emitter so SSE-connected peers receive cursor moves
+ * push-style instead of waiting for the next poll cycle.
  */
 
+import { EventEmitter } from "node:events";
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 import { readBody } from "../server/h3-helpers.js";
@@ -14,8 +19,51 @@ const AWARENESS_TIMEOUT = 30_000; // 30 seconds
 
 export interface AwarenessEntry {
   clientId: number;
-  state: string; // base64-encoded awareness update
+  state: string; // JSON-encoded awareness state object
   lastSeen: number;
+}
+
+// ---------------------------------------------------------------------------
+// Awareness event emitter — fast-path for push delivery to SSE-connected peers.
+// The SSE handler (poll-events) subscribes and forwards events to its stream.
+// ---------------------------------------------------------------------------
+
+export const AWARENESS_CHANGE_EVENT = "awareness-change" as const;
+
+export interface AwarenessChangeEvent {
+  source: "awareness";
+  type: "awareness-change";
+  docId: string;
+  /** Array of updated states for this document (all non-expired clients). */
+  states: Array<{ clientId: number; state: string }>;
+  /** Owner email for access-scoped delivery (taken from session if available). */
+  owner?: string;
+  /** Org ID for org-scoped delivery. */
+  orgId?: string;
+}
+
+const _awarenessEmitter = new EventEmitter();
+_awarenessEmitter.setMaxListeners(0);
+
+export function getAwarenessEmitter(): EventEmitter {
+  return _awarenessEmitter;
+}
+
+export function emitAwarenessChange(
+  docId: string,
+  states: Array<{ clientId: number; state: string }>,
+  owner?: string,
+  orgId?: string,
+): void {
+  const event: AwarenessChangeEvent = {
+    source: "awareness",
+    type: "awareness-change",
+    docId,
+    states,
+    ...(owner && { owner }),
+    ...(orgId && { orgId }),
+  };
+  _awarenessEmitter.emit(AWARENESS_CHANGE_EVENT, event);
 }
 
 // docId → Map<clientId, AwarenessEntry>
@@ -80,18 +128,30 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   // Store this client's state
   map.set(clientId, { clientId, state, lastSeen: Date.now() });
 
-  // Clean expired entries
+  // Clean expired entries, then prune the outer-map entry if it becomes empty.
+  // Without pruning, a deployment with many transient docIds (e.g. one per
+  // session) would grow _awarenessMap without bound.
   cleanExpired(map);
+  // map has at least the sender's entry so size >= 1 here; pruneIfEmpty is a
+  // no-op in the normal path but guards against edge cases (e.g. clientId 0
+  // that was immediately evicted by a concurrent cleanExpired run).
+  pruneIfEmpty(docId, map);
 
-  // Return other clients' states (exclude the sender)
-  const states: Array<{ clientId: number; state: string }> = [];
+  // Build the full list of current states (all clients including sender).
+  const allStates: Array<{ clientId: number; state: string }> = [];
+  const otherStates: Array<{ clientId: number; state: string }> = [];
   for (const [id, entry] of map) {
+    allStates.push({ clientId: id, state: entry.state });
     if (id !== clientId) {
-      states.push({ clientId: id, state: entry.state });
+      otherStates.push({ clientId: id, state: entry.state });
     }
   }
 
-  return { states };
+  // Fast-path: push the updated state set to SSE-connected peers so they
+  // don't have to wait for the next poll cycle for cursor/selection updates.
+  emitAwarenessChange(docId, allStates);
+
+  return { states: otherStates };
 });
 
 /**

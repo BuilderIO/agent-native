@@ -509,9 +509,13 @@ auto-re-run is the remaining fast-follow.
 
 ## Related Skills
 
-- **visual-plan** — the canonical command and the source of the shared wireframe
-  reference (`references/wireframe.md`); a recap follows the same block
-  discipline in reverse.
+- **visual-plan** — the canonical command and the source of the shared Wireframe
+  & Canvas and Document Quality cores; a recap follows the same block discipline
+  in reverse.
+- **comment anchors** — recap comments use the same anchor rules as forward
+  plans; see "Interpreting comment anchors" in the visual-plan skill for
+  coordinate frames, wireframe node ids, text-quote resolution, detached
+  threads, routing via `resolutionTarget`, and two-axis consumed/resolved state.
 - **security** — data scoping, secret handling, and the hardcoded-secret rule the
   recap's redaction and visibility gating mirror.
 - **sharing** — org/login-gated visibility for the plan that holds the recap.

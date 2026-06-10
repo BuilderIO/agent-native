@@ -39,6 +39,7 @@ import {
   IconMessageCircle,
   IconEye,
   IconEyeOff,
+  IconFiles,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -1852,6 +1853,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           >
             <IconBook2 className="h-4 w-4" />
             Data Dictionary
+          </Link>
+
+          {/* Analysis Workspace link */}
+          <Link
+            to="/workspace"
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+              location.pathname.startsWith("/workspace")
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
+            )}
+          >
+            <IconFiles className="h-4 w-4" />
+            Analysis Workspace
           </Link>
 
           {/* Catalog link */}

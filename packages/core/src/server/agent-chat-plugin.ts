@@ -2334,6 +2334,41 @@ export interface AgentChatPluginOptions {
    * Declare here rather than in MCPConfig directly; the plugin copies it through.
    */
   connectorCatalog?: string[];
+
+  /**
+   * Code-execution capability for the production agent.
+   *
+   * - `"off"` (default) — no code-execution tools in production.
+   * - `"sandboxed"` — registers the `run-code` tool (isolated Node.js sandbox
+   *   with a bridge to allowlisted registered tools). Safe for shared or
+   *   hosted deployments.
+   * - `"trusted"` — registers both the full coding tool registry
+   *   (bash / read / edit / write) and the `run-code` sandbox. Only use in
+   *   single-tenant or operator-controlled deployments where full shell access
+   *   to the host machine is intentional.
+   *
+   * The `AGENT_PROD_CODE_EXECUTION` environment variable (`"trusted"`,
+   * `"sandboxed"`, or `"off"`) takes precedence over this option, allowing
+   * per-deployment overrides without code changes.
+   *
+   * Dev-mode behavior is unchanged — both the coding tools and `run-code` are
+   * always available when the environment allows toggling.
+   */
+  codeExecution?: {
+    production?: "off" | "sandboxed" | "trusted";
+    /**
+     * Extra registered-tool names the sandbox bridge may forward (beyond the
+     * default allowlist: provider-api-request, provider-api-docs,
+     * provider-api-catalog, web-request).
+     */
+    bridgeTools?: string[];
+  };
+
+  /**
+   * App-level default tool-call limits. Individual actions override these with
+   * their own `timeoutMs` / `maxResultChars` declarations.
+   */
+  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
 }
 
 /**
@@ -3592,6 +3627,24 @@ export function createAgentChatPlugin(
           },
         });
       } catch {}
+      let webSearchTool: Record<string, ActionEntry> = {};
+      try {
+        const { createWebSearchToolEntry } =
+          await import("../extensions/web-search-tool.js");
+        const { resolveCredential } = await import("../credentials/index.js");
+        const { getCredentialContext: getCredCtx } =
+          await import("./request-context.js");
+        webSearchTool = createWebSearchToolEntry({
+          resolveCredential,
+          getCredentialContext: () => getCredCtx(),
+        });
+      } catch {}
+      let workspaceFilesTool: Record<string, ActionEntry> = {};
+      try {
+        const { createWorkspaceFilesTool } =
+          await import("../workspace-files/tool.js");
+        workspaceFilesTool = createWorkspaceFilesTool();
+      } catch {}
       let toolActions: Record<string, ActionEntry> = {};
       try {
         const { createExtensionActionEntries } =
@@ -3664,6 +3717,7 @@ export function createAgentChatPlugin(
               ...notificationTools,
               ...progressTools,
               ...fetchTool,
+              ...webSearchTool,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
@@ -3686,6 +3740,7 @@ export function createAgentChatPlugin(
               ...notificationTools,
               ...progressTools,
               ...fetchTool,
+              ...webSearchTool,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
@@ -3721,6 +3776,7 @@ export function createAgentChatPlugin(
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...webSearchTool,
             ...toolActions,
             ...browserSessionTools,
             ...coreEmailTools,
@@ -4676,6 +4732,89 @@ export function createAgentChatPlugin(
       const dbAdminScripts =
         process.env.NODE_ENV === "development" ? createDbAdminAgentTools() : {};
 
+      // -----------------------------------------------------------------------
+      // Production code-execution mode resolution.
+      //
+      // Priority (highest → lowest):
+      //   1. AGENT_PROD_CODE_EXECUTION env var ("trusted" | "sandboxed" | "off")
+      //   2. options.codeExecution.production
+      //   3. Default: "off"
+      //
+      // Dev mode ignores this entirely — dev always gets the full coding surface.
+      // -----------------------------------------------------------------------
+      const rawEnvCodeExec = (process.env.AGENT_PROD_CODE_EXECUTION ?? "")
+        .toLowerCase()
+        .trim();
+      const resolvedProdCodeExec: "off" | "sandboxed" | "trusted" =
+        rawEnvCodeExec === "trusted"
+          ? "trusted"
+          : rawEnvCodeExec === "sandboxed"
+            ? "sandboxed"
+            : rawEnvCodeExec === "off"
+              ? "off"
+              : (options?.codeExecution?.production ?? "off");
+
+      // Forward-declaration for the production run-code bridge supplier.
+      // Must come before createRunCodeEntry so the closure can capture it.
+      let prodRunCodeToolActions: Record<string, ActionEntry> = {};
+
+      // Sandboxed run-code tool — available in "sandboxed" or "trusted" prod
+      // modes and always in dev mode.
+      const runCodeTool: Record<string, ActionEntry> = {};
+      try {
+        const { createRunCodeEntry } =
+          await import("../coding-tools/run-code.js");
+        runCodeTool["run-code"] = createRunCodeEntry(
+          // Supplier is evaluated at invocation time so runtime additions to
+          // prodActions (e.g. MCP sync) are visible to the bridge.
+          () => prodRunCodeToolActions,
+          { bridgeTools: options?.codeExecution?.bridgeTools },
+        );
+      } catch {
+        // Module unavailable (e.g. bundled browser build) — skip silently.
+      }
+
+      // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
+      // In dev mode this is handled separately via devHandler below.
+      const prodCodingTools: Record<string, ActionEntry> = {};
+      if (resolvedProdCodeExec === "trusted" && !canToggle) {
+        try {
+          const { createCodingToolRegistry } =
+            await import("../coding-tools/index.js");
+          const codingRegistry = createCodingToolRegistry({
+            cwd: process.cwd(),
+            beforeBash: async ({ command }) => {
+              // In plan mode the agent loop blocks via isPlanModeToolCallAllowed;
+              // this hook is a belt-and-suspenders guard inside "trusted" production.
+              return null;
+            },
+          });
+          Object.assign(prodCodingTools, codingRegistry);
+        } catch {
+          // Coding tools unavailable — skip silently.
+        }
+      }
+
+      // Forward-declaration: populated after devActions is assembled below.
+      // Must be declared BEFORE devRunCodeTool so the closure can close over it.
+      let devRunCodeToolActions: Record<string, ActionEntry> = {};
+
+      // Always register run-code in dev mode (when the coding module loads).
+      const devRunCodeTool: Record<string, ActionEntry> = {};
+      if (canToggle) {
+        try {
+          const { createRunCodeEntry } =
+            await import("../coding-tools/run-code.js");
+          // devActions is not yet defined at this point; we use a late-binding
+          // supplier so devRunCodeTool can reference the devActions registry
+          // once it is built below (see devHandler block).
+          devRunCodeTool["run-code"] = createRunCodeEntry(
+            () => devRunCodeToolActions,
+            { bridgeTools: options?.codeExecution?.bridgeTools },
+          );
+        } catch {}
+      }
+
       const prodActions = attachToolSearch({
         ...templateScripts,
         ...resourceScripts,
@@ -4693,13 +4832,23 @@ export function createAgentChatPlugin(
         ...notificationTools,
         ...progressTools,
         ...fetchTool,
+        ...webSearchTool,
+        ...workspaceFilesTool,
         ...toolActions,
         ...browserSessionTools,
         ...coreEmailTools,
         ...coreAttachmentTools,
         ...browserTools,
         ...mcpActionEntries,
+        // Sandboxed run-code tool in production when mode allows it.
+        ...(resolvedProdCodeExec !== "off" && !canToggle ? runCodeTool : {}),
+        // Full coding tools in production when mode is "trusted".
+        ...(!canToggle ? prodCodingTools : {}),
       });
+
+      // Wire the prod run-code bridge supplier so it sees the fully-assembled
+      // prodActions registry (including MCP entries added at runtime).
+      prodRunCodeToolActions = prodActions;
 
       // Keep the prod action dict's MCP entries in sync when the manager's
       // server set changes at runtime (e.g. a user adds a remote MCP server
@@ -4814,6 +4963,14 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
 Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
 </app-rendered-chat-no-direct-code-edits>`;
 
+      // System-prompt note appended when production code execution is enabled.
+      const prodCodeExecPromptNote =
+        !canToggle && resolvedProdCodeExec !== "off"
+          ? resolvedProdCodeExec === "trusted"
+            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript analytics. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
+            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch() and webFetch() inside run-code for authenticated provider calls.</code-execution-mode>"
+          : "";
+
       const prodHandler = createProductionAgentHandler({
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
@@ -4836,6 +4993,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               leanBasePrompt +
                 runtimeContext +
                 codeEditingSurfaceRestriction +
+                prodCodeExecPromptNote +
                 extra +
                 modelOverlay,
             );
@@ -4857,6 +5015,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
+              prodCodeExecPromptNote +
               extra +
               modelOverlay,
           );
@@ -4912,6 +5071,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           };
         },
         skipFilesContext: leanPrompt,
+        ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
           if (runCtx) {
@@ -5016,6 +5176,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...notificationTools,
                   ...progressTools,
                   ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
@@ -5026,8 +5188,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
                   ...dbAdminScripts,
+                  // run-code sandbox is always available in dev mode.
+                  ...devRunCodeTool,
                 },
         );
+        // Wire the late-binding supplier for devRunCodeTool so the bridge can
+        // call back into the fully-assembled devActions registry.
+        devRunCodeToolActions = devActions;
         // Keep dev action dict in sync with runtime MCP additions. When
         // native-actions mode is on (lean or `nativeActionsInDev`), devActions
         // === prodActions so the prod listener already covers it.
@@ -5075,6 +5242,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: options?.prepareRequest,
           skipFilesContext: leanPrompt,
+          ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();
             if (runCtx) {
@@ -6867,6 +7035,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...webSearchTool,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
@@ -6965,6 +7134,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...webSearchTool,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {

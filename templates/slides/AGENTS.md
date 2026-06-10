@@ -25,6 +25,21 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.
 
+## Persistence Model
+
+Decks are stored as a single JSON blob in the `decks.data` column. All writes
+go through server-side read-modify-write actions that hold a per-deck lock,
+so concurrent writers (human + agent, two humans) touching different slides
+never overwrite each other's work.
+
+**Agent actions** (`update-slide`, `add-slide`): continue to use their dedicated
+granular actions — they share the same in-process deck lock.
+
+**Browser editor** now calls `patch-deck` instead of a full PUT. If you are
+extending the editor's save path, enqueue a granular op (`patch-slide`,
+`delete-slide`, `reorder-slides`, `add-slide`, or `patch-deck-fields`) via
+`enqueueDeckOp` in `DeckContext.tsx` — do NOT add a new full-deck PUT.
+
 ## Application State
 
 - `navigation` exposes the current deck, slide, selection, and editor view.

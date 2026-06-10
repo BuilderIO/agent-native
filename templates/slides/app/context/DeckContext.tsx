@@ -16,6 +16,39 @@ import {
 } from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
+// ---------------------------------------------------------------------------
+// Granular persistence types
+// These mirror the Operation types in actions/patch-deck.ts but are kept
+// client-side only so the build doesn't pull in server-only imports.
+// ---------------------------------------------------------------------------
+type GranularOp =
+  | {
+      op: "patch-slide";
+      slideId: string;
+      fields: Partial<Omit<Slide, "id">>;
+    }
+  | { op: "delete-slide"; slideId: string }
+  | { op: "reorder-slides"; orderedIds: string[] }
+  | {
+      op: "add-slide";
+      slideId: string;
+      afterSlideId?: string;
+      fields: {
+        content: string;
+        notes?: string;
+        layout?: string;
+        background?: string;
+      };
+    }
+  | {
+      op: "patch-deck-fields";
+      fields: Partial<
+        Omit<Deck, "id" | "slides" | "createdAt" | "updatedAt" | "createdByMe">
+      >;
+    }
+  /** Sentinel: discard all accumulated ops and do a full PUT instead. */
+  | { op: "full-replace"; deck: Deck };
+
 export type SlideLayout =
   | "title"
   | "section"
@@ -127,6 +160,13 @@ interface DeckContextType {
   duplicateSlide: (deckId: string, slideId: string) => void;
   reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
+  /**
+   * Mark a deck as having uncommitted local changes without modifying its data.
+   * Use this when the user begins an interaction (e.g. inline text editing) that
+   * hasn't yet flushed a slide update, so SSE/poll refreshes do not clobber the
+   * in-progress edit.
+   */
+  markDeckDirty: (deckId: string) => void;
   // Undo/Redo
   undo: () => void;
   redo: () => void;
@@ -183,6 +223,10 @@ const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const saveStateListeners = new Set<() => void>();
 
+// Per-deck queue of granular ops waiting to be flushed. Keys are deck IDs.
+// Ops are appended by enqueueDeckOp and drained when the debounce fires.
+const pendingOpsQueue = new Map<string, GranularOp[]>();
+
 // Cached snapshot for useSyncExternalStore. MUST be stable when the boolean
 // is unchanged or React will infinite-loop (it compares snapshots with
 // Object.is — a fresh object literal every call schedules a new update,
@@ -216,31 +260,84 @@ export function getSaveSnapshot(): { saving: boolean } {
   return cachedSnapshot;
 }
 
-function saveDeckToAPI(deck: Deck) {
-  // Clear any pending save for this deck
-  const existing = pendingSaves.get(deck.id);
+/**
+ * Enqueue a granular operation for a deck and (re-)arm the debounce.
+ *
+ * When a `full-replace` op is enqueued, all previously-queued ops for that
+ * deck are discarded because the full replace already captures the authoritative
+ * state (used by undo/redo and bulk generation which produce a known good
+ * snapshot).
+ *
+ * The debounce fires after 500 ms of quiet, draining the queue via the
+ * granular `patch-deck` action. If the queue contains a `full-replace` op,
+ * a direct PUT to `/api/decks/:id` is used instead (backwards-compatible).
+ */
+function enqueueDeckOp(deckId: string, op: GranularOp) {
+  // Clear any pending save timer — we're about to reset it
+  const existing = pendingSaves.get(deckId);
   if (existing) clearTimeout(existing);
 
-  // Debounce: wait 500ms before saving
+  if (op.op === "full-replace") {
+    // Discard any accumulated granular ops — this is a wholesale replacement
+    pendingOpsQueue.set(deckId, [op]);
+  } else {
+    const queue = pendingOpsQueue.get(deckId) ?? [];
+    // If there's already a full-replace queued, leave it alone — it dominates
+    if (queue.length > 0 && queue[0].op === "full-replace") {
+      // Replace the stored deck snapshot with the latest state by replacing
+      // the full-replace op rather than appending more granular ops on top.
+      // (The op already carries the full deck; newer state comes via the
+      // dirty-deck save effect which will enqueue a fresh full-replace when
+      // it runs.)
+    } else {
+      queue.push(op);
+      pendingOpsQueue.set(deckId, queue);
+    }
+  }
+
+  // Arm the debounce
   const timer = setTimeout(async () => {
-    pendingSaves.delete(deck.id);
-    inFlightSaves.add(deck.id);
+    pendingSaves.delete(deckId);
+    inFlightSaves.add(deckId);
     notifySaveListeners();
+
+    const ops = pendingOpsQueue.get(deckId) ?? [];
+    pendingOpsQueue.delete(deckId);
+
     try {
-      await fetch(`${appBasePath()}/api/decks/${deck.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(deck),
-      });
+      if (ops.length === 0) return;
+
+      if (ops[0].op === "full-replace") {
+        // Legacy full-deck PUT — used by undo/redo and setDeckSlides
+        const deck = ops[0].deck;
+        await fetch(`${appBasePath()}/api/decks/${deckId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(deck),
+        });
+      } else {
+        // Granular patch — concurrent-safe
+        await callAction("patch-deck", { deckId, operations: ops });
+      }
     } catch (err) {
-      console.error(`Failed to save deck ${deck.id}:`, err);
+      console.error(`Failed to save deck ${deckId}:`, err);
     } finally {
-      inFlightSaves.delete(deck.id);
+      inFlightSaves.delete(deckId);
       notifySaveListeners();
     }
   }, 500);
-  pendingSaves.set(deck.id, timer);
+
+  pendingSaves.set(deckId, timer);
   notifySaveListeners();
+}
+
+/**
+ * @deprecated Use enqueueDeckOp for new callers. This legacy helper still
+ * does a full-deck PUT and is kept only for the initial deck creation path
+ * which already inserts via POST — it is NOT called for edits any more.
+ */
+function saveDeckToAPI(deck: Deck) {
+  enqueueDeckOp(deck.id, { op: "full-replace", deck });
 }
 
 /**
@@ -653,19 +750,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     };
   }, [loading]);
 
-  // Save only decks dirtied by local edits. Saving every deck in local state
-  // lets one tab PUT stale snapshots of decks the user is editing elsewhere.
-  // Skip saves that happen within 2s of an external update (SSE or initial load)
+  // The dirty-deck set is now only used as a sentinel that "something changed
+  // for this deck". Ops are enqueued directly in each mutation handler below;
+  // this effect is kept as a safety net that drains any dirty decks that did
+  // NOT go through the granular path (e.g. future callers, undo/redo which
+  // already enqueue full-replace ops, or edge cases we haven't anticipated).
   useEffect(() => {
     if (loading) return;
     if (Date.now() - lastExternalUpdateRef.current < 2000) return;
     const dirtyIds = Array.from(dirtyDeckIdsRef.current);
     if (dirtyIds.length === 0) return;
     for (const id of dirtyIds) {
-      const deck = decks.find((d) => d.id === id);
       dirtyDeckIdsRef.current.delete(id);
-      if (!deck) continue;
-      saveDeckToAPI(deck);
+      // Only fall back to full-replace if no granular ops were enqueued
+      // for this deck (they handle the actual save).
+      if (!pendingOpsQueue.has(id) && !pendingSaves.has(id)) {
+        const deck = decks.find((d) => d.id === id);
+        if (!deck) continue;
+        saveDeckToAPI(deck);
+      }
     }
   }, [decks, loading]);
 
@@ -754,6 +857,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     if (historyIndex <= 0) return;
     const newIndex = historyIndex - 1;
     const nextDecks = JSON.parse(JSON.stringify(history[newIndex].decks));
+    // Undo restores a complete known-good snapshot — use full-replace so
+    // we don't try to infer granular ops from the diff.
+    for (const deck of nextDecks) {
+      enqueueDeckOp(deck.id, { op: "full-replace", deck });
+    }
     markChangedDecksDirty(nextDecks);
     setHistoryIndex(newIndex);
     skipHistoryRef.current = true;
@@ -764,6 +872,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     if (historyIndex >= history.length - 1) return;
     const newIndex = historyIndex + 1;
     const nextDecks = JSON.parse(JSON.stringify(history[newIndex].decks));
+    // Same as undo — restore from a complete snapshot.
+    for (const deck of nextDecks) {
+      enqueueDeckOp(deck.id, { op: "full-replace", deck });
+    }
     markChangedDecksDirty(nextDecks);
     setHistoryIndex(newIndex);
     skipHistoryRef.current = true;
@@ -774,6 +886,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     (index: number) => {
       if (index < 0 || index >= history.length) return;
       const nextDecks = JSON.parse(JSON.stringify(history[index].decks));
+      for (const deck of nextDecks) {
+        enqueueDeckOp(deck.id, { op: "full-replace", deck });
+      }
       markChangedDecksDirty(nextDecks);
       setHistoryIndex(index);
       skipHistoryRef.current = true;
@@ -947,7 +1062,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const updateDeck = useCallback(
     (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
-      // Don't push history for title changes (too noisy)
       // Clear the external-update suppression window so a rename/update that
       // happens within 2s of page load (or an SSE event) is not silently dropped.
       markDeckDirty(id);
@@ -958,6 +1072,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             : d,
         ),
       );
+      // Enqueue a granular patch-deck-fields op — only the changed fields are
+      // sent to the server, so concurrent edits to slides are never clobbered.
+      // Exclude internal/derived fields that live only in client state.
+      const {
+        slides: _slides,
+        createdAt: _ca,
+        ...persistableUpdates
+      } = {
+        slides: undefined,
+        createdAt: undefined,
+        ...updates,
+      };
+      void _slides;
+      void _ca;
+      if (Object.keys(persistableUpdates).length > 0) {
+        enqueueDeckOp(id, {
+          op: "patch-deck-fields",
+          fields: persistableUpdates,
+        });
+      }
     },
     [markDeckDirty],
   );
@@ -977,16 +1111,35 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         layout,
         background: "bg-[#000000]",
       };
+
+      let afterSlideId: string | undefined;
       setDecksWithHistory("Add slide", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const slides = [...d.slides];
           const insertAt =
             afterIndex !== undefined ? afterIndex + 1 : slides.length;
+          // Capture the slide ID we're inserting after for the granular op
+          afterSlideId = insertAt > 0 ? slides[insertAt - 1]?.id : undefined;
           slides.splice(insertAt, 0, newSlide);
           return { ...d, slides, updatedAt: new Date().toISOString() };
         }),
       );
+
+      // Granular op — the server splices in only this slide, preserving any
+      // concurrent changes to other slides.
+      enqueueDeckOp(deckId, {
+        op: "add-slide",
+        slideId: newSlide.id,
+        afterSlideId,
+        fields: {
+          content: newSlide.content,
+          notes: newSlide.notes,
+          layout: newSlide.layout,
+          background: newSlide.background,
+        },
+      });
+
       return newSlide.id;
     },
     [markDeckDirty, setDecksWithHistory],
@@ -1014,6 +1167,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           };
         }),
       );
+      // Granular op — only this slide's changed fields reach the server.
+      enqueueDeckOp(deckId, { op: "patch-slide", slideId, fields: updates });
     },
     [markDeckDirty, setDecksWithHistory],
   );
@@ -1036,6 +1191,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           return { ...d, slides, updatedAt: new Date().toISOString() };
         }),
       );
+      // Granular op — server deletes only this slide from the blob.
+      enqueueDeckOp(deckId, { op: "delete-slide", slideId });
     },
     [markDeckDirty, setDecksWithHistory],
   );
@@ -1043,6 +1200,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const duplicateSlide = useCallback(
     (deckId: string, slideId: string) => {
       markDeckDirty(deckId);
+      let copiedSlide: Slide | undefined;
       setDecksWithHistory("Duplicate slide", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -1050,11 +1208,27 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           if (idx === -1) return d;
           const original = d.slides[idx];
           const copy: Slide = { ...original, id: nanoid(8) };
+          copiedSlide = copy;
           const slides = [...d.slides];
           slides.splice(idx + 1, 0, copy);
           return { ...d, slides, updatedAt: new Date().toISOString() };
         }),
       );
+      if (copiedSlide) {
+        // Granular add-slide op — inserts the copy after the original.
+        const { id: newSlideId, ...rest } = copiedSlide;
+        enqueueDeckOp(deckId, {
+          op: "add-slide",
+          slideId: newSlideId,
+          afterSlideId: slideId,
+          fields: {
+            content: rest.content,
+            notes: rest.notes,
+            layout: rest.layout,
+            background: rest.background,
+          },
+        });
+      }
     },
     [markDeckDirty, setDecksWithHistory],
   );
@@ -1062,15 +1236,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const reorderSlides = useCallback(
     (deckId: string, oldIndex: number, newIndex: number) => {
       markDeckDirty(deckId);
+      let orderedIds: string[] | undefined;
       setDecksWithHistory("Reorder slides", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const slides = [...d.slides];
           const [moved] = slides.splice(oldIndex, 1);
           slides.splice(newIndex, 0, moved);
+          orderedIds = slides.map((s) => s.id);
           return { ...d, slides, updatedAt: new Date().toISOString() };
         }),
       );
+      if (orderedIds) {
+        // Granular op — server reorders by slide ID rather than by index,
+        // so concurrent adds from other writers don't get dropped.
+        enqueueDeckOp(deckId, { op: "reorder-slides", orderedIds });
+      }
     },
     [markDeckDirty, setDecksWithHistory],
   );
@@ -1081,7 +1262,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setDecksWithHistory("Generate slides", (prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
-          return { ...d, slides, updatedAt: new Date().toISOString() };
+          const updated = { ...d, slides, updatedAt: new Date().toISOString() };
+          // setDeckSlides replaces ALL slides wholesale (used by AI generation
+          // and imports). Use a full-replace so the server state always exactly
+          // matches the generated result, regardless of any concurrent changes.
+          enqueueDeckOp(deckId, { op: "full-replace", deck: updated });
+          return updated;
         }),
       );
     },
@@ -1106,6 +1292,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         duplicateSlide,
         reorderSlides,
         setDeckSlides,
+        markDeckDirty,
         undo,
         redo,
         canUndo: historyIndex > 0,

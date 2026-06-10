@@ -2472,6 +2472,9 @@ importers:
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
+      yjs:
+        specifier: ^13.6.31
+        version: 13.6.31
       zod:
         specifier: ^4.3.6
         version: 4.4.3

@@ -114,6 +114,16 @@ export function createFetchToolEntry(
               type: "number",
               description: `Timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}. Max: 30000.`,
             },
+            maxChars: {
+              type: "number",
+              description:
+                "Maximum response body characters to return. Default: 32000. Max: 200000. Increase when you need to read a large document, API response, or dataset.",
+            },
+            saveToFile: {
+              type: "string",
+              description:
+                "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/page.html'). When set, returns only a compact summary {savedTo, status, bytes, preview}. Useful for large web pages or API responses that would overflow context.",
+            },
           },
           required: ["url"],
         },
@@ -131,6 +141,11 @@ export function createFetchToolEntry(
           Number(args.timeout_ms) || DEFAULT_TIMEOUT_MS,
           30_000,
         );
+        const requestedMaxChars = Number(args.maxChars);
+        const maxChars =
+          Number.isFinite(requestedMaxChars) && requestedMaxChars > 0
+            ? Math.min(requestedMaxChars, 200_000)
+            : 32_000;
 
         // Resolve key references
         let resolvedUrl = rawUrl;
@@ -239,29 +254,80 @@ export function createFetchToolEntry(
             }`;
           }
 
+          // Check if caller wants to save to workspace file (before truncation).
+          const saveToFilePath =
+            typeof (args as Record<string, unknown>).saveToFile === "string"
+              ? ((args as Record<string, unknown>).saveToFile as string).trim()
+              : "";
+
           let body: string;
           try {
-            const result = await readResponseTextWithLimit(
-              response,
-              MAX_EXTENSION_PROXY_RESPONSE_SIZE,
-            );
+            // When saving to file allow larger reads (20MB), otherwise cap at proxy limit.
+            const readLimit = saveToFilePath
+              ? 20 * 1024 * 1024
+              : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
+            const result = await readResponseTextWithLimit(response, readLimit);
             body = result.text;
           } catch {
             body = "(could not read response body)";
           }
           body = redactString(body, secretValues);
 
-          // Truncate very long responses for the agent. 32k chars (~8k tokens)
-          // is enough to read a full article or scrape a stats table without
-          // blowing out the model's context window.
-          if (body.length > 32_000) {
-            body = body.slice(0, 32_000) + "\n... (truncated)";
-          }
-
           // Audit log
           console.log(
             `[fetch-tool] ${method} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
           );
+
+          // saveToFile: write full body to workspace and return compact summary.
+          if (saveToFilePath) {
+            try {
+              const { writeWorkspaceFile, SAVE_TO_FILE_MAX_BYTES } =
+                await import("../workspace-files/store.js");
+              const { getRequestOrgId, getRequestUserEmail } =
+                await import("../server/request-context.js");
+              const orgId = getRequestOrgId();
+              const email = getRequestUserEmail();
+              const scope = orgId
+                ? { scope: "org" as const, scopeId: orgId }
+                : email
+                  ? { scope: "user" as const, scopeId: email }
+                  : null;
+              if (!scope)
+                throw new Error("No authenticated context for saveToFile");
+              const contentType =
+                response.headers.get("content-type")?.split(";")[0].trim() ??
+                "text/plain";
+              await writeWorkspaceFile(
+                scope,
+                saveToFilePath,
+                body,
+                contentType,
+                {
+                  maxFileBytes: SAVE_TO_FILE_MAX_BYTES,
+                },
+              );
+              const bytes = Buffer.byteLength(body, "utf8");
+              const preview = body.slice(0, 2000);
+              return JSON.stringify({
+                savedToFile: true,
+                savedTo: saveToFilePath,
+                status: response.status,
+                bytes,
+                contentType,
+                preview: preview.length < body.length ? `${preview}…` : preview,
+              });
+            } catch (saveErr: any) {
+              return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;
+            }
+          }
+
+          // Truncate very long responses for the agent. Default cap is 32 k
+          // chars (~8 k tokens), enough to read a full article or scrape a
+          // stats table without blowing out the model's context window. The
+          // caller may request up to 200 000 chars via the maxChars input.
+          if (body.length > maxChars) {
+            body = body.slice(0, maxChars) + "\n... (truncated)";
+          }
 
           return `HTTP ${response.status} ${response.statusText}\n\n${body}`;
         } catch (err: any) {

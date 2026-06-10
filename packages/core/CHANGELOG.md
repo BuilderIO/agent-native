@@ -1,5 +1,208 @@
 # @agent-native/core
 
+## 0.47.0
+
+### Minor Changes
+
+- 600f83d: **Production code execution modes** (`codeExecution` plugin option + `AGENT_PROD_CODE_EXECUTION` env var)
+
+  The agent chat plugin now accepts a `codeExecution` option to enable code-execution tools in production:
+  - `"off"` (default) — no change to existing behaviour.
+  - `"sandboxed"` — registers the new `run-code` tool in the production agent's tool registry.
+  - `"trusted"` — registers both `run-code` and the full coding tool registry (`bash`, `read`, `edit`, `write`) in production.
+
+  The `AGENT_PROD_CODE_EXECUTION` environment variable (`"trusted"`, `"sandboxed"`, or `"off"`) takes precedence over the plugin option, allowing per-deployment overrides without code changes.
+
+  Dev-mode behaviour is unchanged.
+
+  ***
+
+  **Sandboxed `run-code` tool** (new `packages/core/src/coding-tools/run-code.ts`)
+
+  A new `run-code` action lets the agent execute JavaScript (Node.js, ESM, top-level await) in an isolated child process:
+  - Scrubbed environment: only `PATH`, `HOME`, `TMPDIR`, and similar safe POSIX vars are passed to the child. No app env vars or secrets.
+  - Fresh temporary working directory per invocation.
+  - Configurable timeout (default 120 s, max 600 s) and output cap (default 50 000 chars, max 200 000).
+  - Ephemeral bridge HTTP server on `127.0.0.1` with a per-invocation random bearer token so the child can call allowlisted registered tools (`provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`) with the parent's request context — without leaking secrets.
+  - Child globals: `providerFetch(provider, path, init?)` and `webFetch(url, init?)`.
+  - `run-code` is registered in dev mode unconditionally and in production when the mode is `"sandboxed"` or `"trusted"`.
+
+  ***
+
+  **Per-action tool limits** (`ActionEntry.timeoutMs`, `ActionEntry.maxResultChars`)
+
+  `ActionEntry` now accepts optional `timeoutMs` and `maxResultChars` fields. When present, `runAgentLoop` uses these values instead of the global 60 s / 50 000-char defaults for that action.
+
+  App-level defaults can be set via `toolLimits: { timeoutMs?, maxResultChars? }` on `createProductionAgentHandler` or `createAgentChatPlugin`. Per-action values take precedence.
+
+  ***
+
+  **`web-request` optional `maxChars` input**
+
+  The `web-request` (fetch) tool now accepts an optional `maxChars` parameter (default 32 000, max 200 000) so the agent can request larger response bodies when needed without hitting the hard-coded 32 k truncation.
+
+- 600f83d: **Custom provider registry** — register any API provider at runtime
+
+  A new `custom_api_providers` SQL table (created on first use, additive) stores
+  user/org-scoped provider registrations so the agent can call APIs that are not
+  in the 24 built-in PROVIDER_CONFIGS:
+  - `upsertCustomProvider`, `deleteCustomProvider`, `listCustomProviders`,
+    `getCustomProvider` — CRUD helpers exported from `@agent-native/core/provider-api`.
+  - `validateCustomBaseUrl` — SSRF-safe URL validation for registration time.
+  - `createProviderApiRuntime` now accepts `getCustomProviders?: () => Promise<CustomProviderConfig[]>`.
+    Custom providers are merged into the catalog after built-ins; they cannot
+    shadow built-in ids.
+  - Auth kinds supported for custom providers: `none`, `bearer`, `basic`,
+    `api-key-header`. `google-service-account` and `oauth-bearer` are not
+    supported (require out-of-band setup).
+  - Credentials live in the existing secrets/credentials store — the provider
+    row stores only credential key NAMES, never values.
+  - SSRF guard (`isBlockedExtensionUrlWithDns`) is enforced at registration time
+    and again at every request.
+
+  **New Dispatch action: `provider-api-register`**
+
+  Register, update, delete, or list custom providers:
+
+  ```
+  { operation: "upsert"|"delete"|"list"|"get",
+    id, label, baseUrl, auth, docsUrls?,
+    allowedHostSuffixes?, defaultHeaders?, notes?, scope? }
+  ```
+
+  **Updated Dispatch actions**
+
+  `provider-api-catalog`, `provider-api-docs`, and `provider-api-request` now
+  accept any provider id (built-in or custom) — the `provider` field is relaxed
+  from `z.enum(BUILT_IN_IDS)` to `z.string()` with runtime validation against the
+  merged registry. Unknown provider errors include the list of known provider ids.
+
+  ***
+
+  **Open docs fetching** in `provider-api-docs`
+
+  `fetchProviderApiDocs` now allows ANY public `https`/`http` URL — not just
+  URLs same-origin with registered `docsUrls`/`specUrls`. The SSRF guard and
+  byte caps still apply. Registered docs/spec URLs remain available as curated
+  starting points in the catalog output. The Dispatch `provider-api-docs` action
+  description is updated to reflect this.
+
+  ***
+
+  **New `web-search` agent tool** (`packages/core/src/extensions/web-search-tool.ts`)
+
+  Registers a `web-search` tool in dev and prod agent tool registries:
+  - Input: `{ query: string, count?: number (default 5, max 10) }`.
+  - **Pluggable backends** — at call time the first configured key wins:
+    1. `BRAVE_SEARCH_API_KEY` → Brave Search API
+    2. `TAVILY_API_KEY` → Tavily
+    3. `EXA_API_KEY` → Exa
+       Keys are resolved from the per-user/org credentials store first, then env vars.
+  - Returns a title / URL / snippet list with guidance to follow up via
+    `web-request` or `provider-api-docs`.
+  - If no backend is configured, returns a helpful message listing the three keys.
+  - Description: "Search the public web — use to find API docs, endpoints, or
+    current information, then fetch promising URLs with web-request or
+    provider-api-docs."
+
+  **Framework secret registrations** (`register-framework-secrets.ts`)
+
+  `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` are registered as
+  optional workspace-scoped secrets so they surface in the settings UI.
+
+- 600f83d: Add `saveToFile` and `fetchAllPages` to `provider-api-request` and `saveToFile` to `web-request`.
+  - `saveToFile?: string` on `provider-api-request` and `web-request`: writes full response
+    body to a workspace file path instead of returning it in context. Allows up to 20 MB
+    (vs normal 4 MB). Returns compact summary `{ savedToFile, savedTo, status, bytes, contentType, preview }`.
+  - `fetchAllPages?: { cursorPath, cursorParam, itemsPath?, maxPages? }` on `provider-api-request`:
+    generic cursor pagination — re-issues requests until cursor is empty or maxPages (default 10,
+    max 50) is reached; accumulates items from `itemsPath`. Combines naturally with `saveToFile`.
+  - `workspace-files` tool added to sandbox bridge default allowlist.
+
+- 600f83d: Add `workspace-files` module: SQL-backed durable scratch storage for the agent.
+  - New `workspace_files` table (scope/scope_id/path/content, unique per scope+path).
+  - Per-file 2 MB cap, per-scope 200 MB cap with clear errors.
+  - `workspace-files` agent tool (write/append/read/list/delete/grep actions).
+  - Tool auto-registered in both dev and prod agent loops.
+  - `workspaceRead`, `workspaceWrite`, `workspaceAppend`, `workspaceList` helpers
+    available inside `run-code` sandbox via bridge.
+
+## 0.46.0
+
+### Minor Changes
+
+- 66f8e32: Real-time collaboration improvements: security scoping, server performance, and client transport.
+
+  **Security**
+  - Tag collab poll events with `owner`/`orgId` when `resourceType` is configured so `getChangesSinceForUser` scopes delivery — users without access no longer receive Yjs bytes.
+  - Awareness routes (`POST /awareness`, `GET /users`) already required a session; they now additionally enforce the configured resource access check.
+  - Add a one-time server warning when `resourceType` is not set (collab events broadcast to all authenticated users).
+  - Enforce a 2 MB payload limit on all collab write endpoints (`/update`, `/text`, `/search-replace`, `/json`, `/patch`); configurable via `maxPayloadBytes` plugin option.
+  - Fix awareness outer-map memory leak: prune empty per-doc maps after all clients expire.
+
+  **Server performance**
+  - Remove redundant double DB read per mutation. The old code called `applyStoredState()` unconditionally before every write even on hot-cache hits; mutations now do a single SELECT inside `persistMergedState` (for CAS versioning only).
+  - Add Yjs tombstone compaction: when the persisted blob is >4× the freshly encoded state, the GC'd form is stored, preventing unbounded blob growth without background jobs.
+  - Cache-miss coalescing: concurrent `getDoc()` callers share a single DB load.
+
+  **Client transport**
+  - Debounce and coalesce local Yjs update POSTs (~80 ms) using `Y.mergeUpdates`; flush immediately on `visibilitychange`/`pagehide` and before each poll cycle.
+  - State-vector fetches are gated: fetch only on reconnect, ring-buffer gap, or every 15th cycle (not on every cycle).
+  - Exponential backoff with jitter (cap ~15 s) on consecutive network errors.
+  - SSE fast-path: wire collab events via the existing `/_agent-native/poll-events` EventSource stream; relax poll to ~12 s while SSE is healthy, fall back to 2 s when SSE drops.
+
+- 66f8e32: Add Presence Kit: Liveblocks/Figma-grade live-cursor and selection primitives.
+  - **Fast awareness**: `useCollaborativeDoc` now POSTs awareness state changes within ~150ms (throttled trailing edge) instead of waiting for the 2s poll cycle. The `postAwareness` server handler emits an `AWARENESS_CHANGE_EVENT` that is forwarded through the `/_agent-native/poll-events` SSE stream to connected peers push-style. Polling-only deployments degrade gracefully to poll cadence.
+  - **`usePresence(awareness, localClientId)`**: reactive hook that derives `OtherPresence[]` from awareness state. The agent (AGENT_CLIENT_ID) appears as a first-class participant with `isAgent: true`. Returns `setPresence(partial)` to publish arbitrary presence fields (cursor, selection, viewport).
+  - **`LiveCursorOverlay`**: absolutely-positioned overlay that renders remote users' cursors from normalized 0–1 coordinates. The agent cursor uses a sparkle icon. Cursors fade out after 10s of inactivity with 120ms CSS transitions.
+  - **`RemoteSelectionRings`**: renders colored outline rings + name tags over remotely-selected DOM elements using a `resolveRect` callback.
+  - **`useFollowUser`**: invokes a callback when the followed participant's viewport changes, enabling follow-the-cursor navigation.
+  - **`PresenceBar`** extended with `onAvatarClick` and `followingEmail` props for follow-mode UI with a blue ring indicator.
+  - **`toNormalized` / `fromNormalized`**: coordinate helpers for converting pointer events to/from normalized presence coordinates.
+  - **`getAwarenessEmitter` / `emitAwarenessChange` / `AWARENESS_CHANGE_EVENT`**: low-level emitter API for server-side awareness events.
+  - Design template (`templates/design`) wired as the flagship consumer: live cursors over the canvas, avatar follow mode, and agent cursor plumbing in `edit-design` / `generate-design` actions.
+
+## 0.45.1
+
+### Patch Changes
+
+- a2a3e52: Add CLI guardrails for unsupported Node versions and typo-like bare commands.
+- a2a3e52: Encrypt OAuth tokens at rest. The `oauth_tokens` table previously stored the
+  full bundle — including long-lived Google refresh tokens — as plaintext JSON,
+  so a leaked DB backup / pg_dump / read replica exposed usable credentials.
+  `saveOAuthTokens` now AES-256-GCM-encrypts the bundle with the same key story
+  as the secrets vault and per-user credentials; reads decrypt transparently and
+  fall back to plaintext for rows written before this change (and for Better
+  Auth's mirrored `account` rows). Adds an optional, idempotent
+  `db-migrate-encrypt-oauth-tokens` script to re-encrypt existing rows in place.
+
+  Also exposes the AES-256-GCM helpers (`encryptSecretValue`,
+  `decryptSecretValue`, `isEncryptedSecretValue`) from `@agent-native/core/secrets`
+  and a focused `@agent-native/core/secrets/crypto` subpath, so templates can
+  encrypt per-row secret values (e.g. a per-recording share password) that don't
+  fit the keyed app_secrets / credentials stores.
+
+- a2a3e52: Harden extension SQL filtering and expose shared secret encryption helpers.
+- a2a3e52: fix(mcp): throw on corrupt JSON config instead of silently overwriting with empty object
+
+  `readJsonFile` in `mcp-config-writers.ts` previously swallowed all read/parse errors and returned `{}`, meaning a corrupt or partially-written `~/.claude.json` (or `.mcp.json` / `~/.cowork/mcp.json`) would be silently replaced with only the new `mcpServers` entry — destroying the user's entire Claude Code state. Now only a missing or empty file yields `{}`; a non-empty file that fails to parse throws a descriptive error pointing to the file path and asking the user to fix or move it before re-running.
+
+- a2a3e52: Allow `mcpApp: { compactCatalog: true }` without a `resource` so non-UI actions (read, update, list, share) can be flagged into the compact MCP Apps catalog independently of an iframe embed. Makes `resource` optional on `ActionMcpAppConfig` and updates `defineAction` to preserve the flag when no resource is provided.
+- a2a3e52: Clean up ghost slash-command references in plan skills, fix Bidirectional Loop self-contradiction in visual-recap, add get-plan-blocks and Visibility & Sharing guidance to visual-plan, reword legacy "implementation maps" and "proof gates" framing, fix skill index and entry-point descriptions in AGENTS.md, align templates-meta.ts with shared-app-config, add publish-visual-plan and chat-host connector docs, and add context-xray to skills status/update usage.
+- a2a3e52: Fix plan install flow: OAuth clients now get a publish token after `agent-native connect`, DEVELOPING.md is kept in standalone scaffolds, the Netlify `ignore` script line is stripped in scaffolds, and migration permission errors point to the app-prefixed DATABASE_URL workaround.
+- a2a3e52: Fix nested interactive elements in question-form option previews, theme-aware iframe ink in the html block, click/focus/scroll fixes for annotated-code and diff annotation popovers.
+- a2a3e52: Fix CLI safety issues: scope isFirstPartyPlanHost to plan.agent-native.com only, exclude diff headers from countDiffLines, raise waitForPublicRecapImage retry budget to ~20s, detect git failures in collect-diff, guard codex mcp-config against clobbering existing config, require PLAN_RECAP_TOKEN for claude mcp-config, and fix plan-local unknown-area exit code.
+- a2a3e52: Fix several PR Visual Recap pipeline reliability issues:
+  - **playwright optionalDependency**: add `playwright@^1` as an `optionalDependency` of `@agent-native/core` so consumer repos running `npx @agent-native/core@latest` can take screenshots without manual install steps; the existing dynamic-import fallback chain is preserved.
+  - **plan-id continuity**: `buildCommentBody` now threads the last-known plan id (`PREV_PLAN_ID`) into every comment branch (failure, suppressed, tiny) so a transient error never orphans the plan; the failure branch also keeps a labeled stale link to the previous recap.
+  - **freshness line**: all comment branches that have a `HEAD_SHA` now emit `_As of \`<short-sha>\`\_` so reviewers can tell whether the recap matches the latest push.
+  - **deterministic visibility**: `create-visual-recap` action accepts a `visibility` input (enum `private|org|public`, default `org`) and applies it server-side after import, so the recap is never accidentally private; the agent prompt now passes `visibility: "org"` in the `create-visual-recap` call and demotes `set-resource-visibility` to a fallback note.
+  - **playwright browser cache**: adds an `actions/cache` step for `~/.cache/ms-playwright` (keyed on runner OS + playwright major) to avoid re-downloading Chromium on every workflow run.
+  - **guard scoping**: the `packages/core/**` self-modifying guard in the gate now only triggers for the `BuilderIO/agent-native` monorepo; consumer repos with an unrelated `packages/core/` directory no longer have their recaps silently gated.
+
+- a2a3e52: Remove legacy Plan skill variants from packaged skill installs, move wireframe guidance into references, add copied-skill status/update metadata, and harden visual recap comments and image embeds.
+- a2a3e52: Improve PR Visual Recap setup UX with an optional Plans install prompt, `agent-native recap setup`, and `agent-native recap doctor`.
+
 ## 0.45.0
 
 ### Minor Changes

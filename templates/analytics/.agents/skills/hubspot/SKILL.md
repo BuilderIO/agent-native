@@ -33,9 +33,60 @@ actions do not expose, inspect the provider catalog/docs and call
 - `hubspot-pipelines` / `hubspot-metrics` — pipeline definitions and aggregate
   sales metrics.
 - `provider-api-request` with `provider: "hubspot"` — arbitrary HubSpot HTTP
-  API calls when first-class actions are too narrow. Use this for unsupported
-  CRM object types, association endpoints, custom search filters, batch APIs,
-  pagination modes, or any HubSpot endpoint not represented by a typed action.
+  API calls when first-class actions are too narrow.
+
+## Pipeline Stage Timing — Use Stage-Entry Date Fields
+
+**Always use `hs_v2_date_entered_{stageId}` for deterministic pipeline-stage
+timing**, not keyword or amount heuristics:
+
+- Each pipeline stage has a unique numeric ID (visible in pipeline definitions).
+- The property `hs_v2_date_entered_{stageId}` records the exact timestamp when
+  the deal first entered that stage. Use this to filter deals that reached a
+  specific stage within a date window.
+- **Why this matters**: heuristic filters (e.g., `amount > $30K`, keyword
+  searches) have been found to diverge from stage-date filters by ~48% — nearly
+  half the deals are different. Stage-entry date fields provide verifiable,
+  auditable results.
+
+To discover stage IDs, call `hubspot-pipelines` first and read the `stageId`
+fields in the returned pipeline structure.
+
+Example use: to count deals that reached "Qualified Opportunity" stage in Q1:
+```
+provider-api-request(
+  provider: "hubspot",
+  path: "/crm/v3/objects/deals/search",
+  method: "POST",
+  body: {
+    "filterGroups": [{
+      "filters": [{
+        "propertyName": "hs_v2_date_entered_<stageId>",
+        "operator": "BETWEEN",
+        "value": "2026-01-01",
+        "highValue": "2026-03-31"
+      }]
+    }],
+    "properties": ["dealname", "amount", "hs_v2_date_entered_<stageId>"]
+  }
+)
+```
+
+## Multi-Dimensional Closed-Lost Analysis
+
+**Deals are rarely lost for a single reason.** When analyzing closed-lost deals:
+
+- Use a multi-factor matrix with notation: primary factor (★★), contributing
+  factor (★), possible factor (~).
+- Track 8-10 common loss factors per deal: Budget, Product Fit, Implementation
+  Friction, Competitive Loss, Security/Compliance, Wrong Persona/Champion,
+  Timeline Mismatch, Support/Success Gaps, etc.
+- Identify combination patterns — e.g., "Product Fit + Implementation Friction"
+  may affect multiple deals simultaneously.
+- Do not force a single root cause categorization. Real losses are
+  multi-dimensional, and flattening to one reason distorts win/loss patterns.
+- Report both the count of deals per single factor AND the top multi-factor
+  combinations.
 
 ## Patterns
 
@@ -54,7 +105,7 @@ Example:
 ```txt
 account-deep-dive(query: "The Knot", days: 180, gongLimit: 10, transcriptLimit: 5)
 hubspot-deals(query: "The Knot", limit: 10)
-hubspot-records(objectType: "companies", query: "The Knot", limit: 5)
+hubspot-records(objectType: "companies", query: "theknot.com", limit: 5)
 hubspot-records(objectType: "contacts", query: "theknot.com", limit: 25)
 ```
 
@@ -69,14 +120,13 @@ For deal cohorts:
    the last 12 months" means `product: "Publish"`, `pipeline: "New Business"`,
    `closedStatus: "won"`, and explicit close-date bounds.
 2. Do not use `query` for property-specific filters. `query: "Publish"` is a
-   broad HubSpot search across deal text and can include deals where
-   `products = Develop` just because "Publish" appeared somewhere else.
+   broad HubSpot search across deal text and can include unrelated deals.
 3. Report the cohort count, filters, and date window before synthesizing. If the
-   count looks too low, inspect `hubspot-deal-properties` or adjust the
-   structured filters; do not silently broaden to keyword search.
-4. When pairing a cohort with Gong, use the returned deal/company/contact
-   evidence to run bounded Gong follow-ups and state Gong coverage separately
-   from the HubSpot cohort size.
+   count looks too low, inspect `hubspot-deal-properties` or use stage-entry
+   date fields via `provider-api-request`.
+4. When pairing a cohort with Gong, use returned deal/company/contact evidence
+   to run bounded Gong follow-ups and state Gong coverage separately from the
+   HubSpot cohort size.
 
 If `hubspot-deals` still cannot express the needed HubSpot query, do not stop
 or approximate. Call `provider-api-catalog(provider: "hubspot")`, fetch the

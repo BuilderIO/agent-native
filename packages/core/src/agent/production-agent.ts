@@ -317,6 +317,17 @@ export interface ActionEntry {
    *  app iframes. CLI/non-UI hosts still receive the normal tool result and
    *  any deep link from `link`. */
   mcpApp?: import("../action.js").ActionMcpAppConfig;
+  /**
+   * Per-tool timeout override in milliseconds. When set, the agent loop uses
+   * this value instead of the global TOOL_TIMEOUT_MS (60 s) for this action.
+   * Useful for long-running tools such as sandboxed code execution.
+   */
+  timeoutMs?: number;
+  /**
+   * Per-tool max-result-chars override. When set, the agent loop truncates
+   * the result to this many characters instead of the global 50 000 cap.
+   */
+  maxResultChars?: number;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -636,6 +647,12 @@ export interface ProductionAgentOptions {
    * Default: false (inventory is injected).
    */
   skipFilesContext?: boolean;
+  /**
+   * App-level default tool limits. Each action's own `timeoutMs` /
+   * `maxResultChars` takes precedence; this sets the fallback for actions
+   * that don't declare their own limits.
+   */
+  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
 }
 
 export async function resolveAgentOwnerEmail(
@@ -1729,6 +1746,11 @@ export async function runAgentLoop(opts: {
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   threadId?: string;
   turnId?: string;
+  /**
+   * App-level default limits applied to every tool call unless the individual
+   * ActionEntry overrides them with its own timeoutMs / maxResultChars.
+   */
+  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -2260,15 +2282,23 @@ export async function runAgentLoop(opts: {
         };
       }
 
-      const MAX_TOOL_RESULT_CHARS = 50_000;
-      const TOOL_TIMEOUT_MS = 60_000;
+      const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+      const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+      const toolTimeoutMs =
+        actionEntry.timeoutMs ??
+        opts.toolLimits?.timeoutMs ??
+        DEFAULT_TOOL_TIMEOUT_MS;
+      const toolMaxResultChars =
+        actionEntry.maxResultChars ??
+        opts.toolLimits?.maxResultChars ??
+        DEFAULT_TOOL_RESULT_CHARS;
       let result: string;
       let isError = false;
       let mcpApp:
         | import("../mcp-client/app-result.js").AgentMcpAppPayload
         | undefined;
       try {
-        const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
+        const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
         // Keep a reference to the action promise so we can attach a zombie-
         // detection continuation AFTER Promise.race abandons it on run abort.
         // The promise itself is not awaited here — Promise.race owns the await.
@@ -2293,28 +2323,31 @@ export async function runAgentLoop(opts: {
         // side effect.
         if (opts.threadId && !actionEntry.readOnly) {
           const ledgerThreadId = opts.threadId;
-          const ledgerToolKey = toolCallCacheKey(
-            toolCall.name,
-            toolCall.input,
-          );
-          actionPromise.then((zombieRaw) => {
-            const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
-            const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
-            const zombieStr =
-              typeof zombieText === "string"
-                ? zombieText
-                : JSON.stringify(zombieText, null, 2);
-            void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
-          }).catch(() => {
-            // Action errored in the zombie — no result to ledger.
-          });
+          const ledgerToolKey = toolCallCacheKey(toolCall.name, toolCall.input);
+          actionPromise
+            .then((zombieRaw) => {
+              const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
+              const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
+              const zombieStr =
+                typeof zombieText === "string"
+                  ? zombieText
+                  : JSON.stringify(zombieText, null, 2);
+              void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
+            })
+            .catch(() => {
+              // Action errored in the zombie — no result to ledger.
+            });
         }
 
         const raw = await Promise.race([
           actionPromise,
           new Promise<never>((_, reject) => {
             timeoutSignal.addEventListener("abort", () =>
-              reject(new Error("Tool call timed out after 60 seconds")),
+              reject(
+                new Error(
+                  `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
+                ),
+              ),
             );
           }),
           // Stop waiting on the tool when the run itself is aborted (e.g. the
@@ -2371,9 +2404,9 @@ export async function runAgentLoop(opts: {
           typeof redacted === "string"
             ? redacted
             : JSON.stringify(redacted, null, 2);
-        if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
-          const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
-          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
+        if (resultStr.length > toolMaxResultChars) {
+          const truncated = resultStr.slice(0, toolMaxResultChars);
+          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
         }
         result = resultStr;
       } catch (err: any) {
@@ -3571,6 +3604,7 @@ export function createProductionAgentHandler(
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,
           finalResponseGuard: options.finalResponseGuard,
+          ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
             : {}),

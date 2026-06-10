@@ -34,13 +34,10 @@ interface CanvasEditorProps {
   bullets?: string[];
   /** Save AI summary when the user edits the summary section. */
   onSummaryChange?: (next: string) => void;
-  /**
-   * Optional: when the user starts editing AI content, "promote" it into
-   * userNotesMd so re-generation doesn't blow it away. Granola convention.
-   */
-  onTransferAiToUser?: (transferredMd: string) => void;
   /** Render bullets with magnifier (BulletLink) wrappers. */
   renderBullet?: (bullet: string, index: number) => React.ReactNode;
+  /** When true, notes render as read-only (viewer-role access). */
+  readOnly?: boolean;
 }
 
 export function CanvasEditor({
@@ -50,8 +47,8 @@ export function CanvasEditor({
   summaryMd = "",
   bullets = [],
   onSummaryChange,
-  onTransferAiToUser,
   renderBullet,
+  readOnly = false,
 }: CanvasEditorProps) {
   const showUser = view === "user";
   const showAi = view === "ai";
@@ -64,6 +61,7 @@ export function CanvasEditor({
         <UserNotesBlock
           value={userNotesMd}
           onChange={onUserNotesChange ?? (() => {})}
+          readOnly={readOnly}
         />
       )}
 
@@ -72,7 +70,7 @@ export function CanvasEditor({
         <AiSummaryBlock
           value={summaryMd}
           onChange={onSummaryChange ?? (() => {})}
-          onTransferToUser={onTransferAiToUser}
+          readOnly={readOnly}
         />
       )}
 
@@ -96,9 +94,11 @@ export function CanvasEditor({
 function UserNotesBlock({
   value,
   onChange,
+  readOnly = false,
 }: {
   value: string;
   onChange: (next: string) => void;
+  readOnly?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(value);
@@ -111,6 +111,18 @@ function UserNotesBlock({
   }, [value]);
 
   useAutoGrow(ref, draft);
+
+  if (readOnly) {
+    return value ? (
+      <p className="text-base leading-relaxed text-foreground font-medium whitespace-pre-wrap">
+        {value}
+      </p>
+    ) : (
+      <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
+        No notes.
+      </p>
+    );
+  }
 
   return (
     <Textarea
@@ -135,11 +147,11 @@ function UserNotesBlock({
 function AiSummaryBlock({
   value,
   onChange,
-  onTransferToUser,
+  readOnly = false,
 }: {
   value: string;
   onChange: (next: string) => void;
-  onTransferToUser?: (transferred: string) => void;
+  readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -161,17 +173,22 @@ function AiSummaryBlock({
 
   useAutoGrow(ref, editing ? draft : null);
 
+  if (readOnly) {
+    return (
+      <div className="space-y-1.5">
+        <AiTabIndicator />
+        <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+          {value}
+        </p>
+      </div>
+    );
+  }
+
   const commit = () => {
     setEditing(false);
     const next = draft;
     if (next === value) return;
-    if (onTransferToUser) {
-      // Promote edited AI content into user notes; clear original AI summary.
-      onTransferToUser(next);
-      onChange("");
-    } else {
-      onChange(next);
-    }
+    onChange(next);
   };
 
   if (editing) {
@@ -220,9 +237,7 @@ function AiSummaryBlock({
               </p>
             </button>
           </TooltipTrigger>
-          <TooltipContent>
-            Click to edit (your edits are saved as your own notes)
-          </TooltipContent>
+          <TooltipContent>Click to edit</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

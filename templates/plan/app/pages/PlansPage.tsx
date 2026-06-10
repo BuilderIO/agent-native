@@ -1356,6 +1356,45 @@ function buildNativeAnchorFromElement(input: {
             ? `Inside canvas frame ${frame.dataset.canvasFrame}`
             : undefined;
 
+  // Capture wireframe/design node identity from data attributes.
+  const wireNodeEl = target.closest<HTMLElement>("[data-wire-node-id]");
+  const targetNodeId =
+    wireNodeEl?.dataset.wireNodeId ||
+    target.closest<HTMLElement>("[data-design-id]")?.dataset.designId ||
+    target.closest<HTMLElement>("[data-plan-design-id]")?.dataset
+      .planDesignId ||
+    undefined;
+
+  // Build a short human-readable node path from the frame root down to the
+  // target node, e.g. `card > list > listItem "Acme Inc"`.
+  let targetNodePath: string | undefined;
+  if (wireNodeEl) {
+    const frameRoot =
+      anchorElement.closest<HTMLElement>("[data-canvas-frame]") ??
+      anchorElement.closest<HTMLElement>(".plan-artboard-frame");
+    if (frameRoot) {
+      const pathEls: HTMLElement[] = [];
+      let current: HTMLElement | null = wireNodeEl;
+      while (current && current !== frameRoot && frameRoot.contains(current)) {
+        if (current.dataset.wireNodeId) pathEls.unshift(current);
+        current = current.parentElement;
+      }
+      if (pathEls.length === 0) pathEls.push(wireNodeEl);
+      const segments = pathEls.map((el) => {
+        const elName = el.dataset.wireNodeEl ?? el.tagName.toLowerCase();
+        const directText = Array.from(el.childNodes)
+          .filter((n) => n.nodeType === Node.TEXT_NODE)
+          .map((n) => n.textContent ?? "")
+          .join("")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 40);
+        return directText ? `${elName} "${directText}"` : elName;
+      });
+      if (segments.length > 0) targetNodePath = segments.join(" > ");
+    }
+  }
+
   return {
     ...base,
     sectionId:
@@ -1386,6 +1425,8 @@ function buildNativeAnchorFromElement(input: {
     targetAlt: image?.alt?.trim() || undefined,
     targetSrc: image?.currentSrc || image?.src || undefined,
     visualContext,
+    ...(targetNodeId !== undefined ? { targetNodeId } : {}),
+    ...(targetNodePath !== undefined ? { targetNodePath } : {}),
   };
 }
 
@@ -1539,7 +1580,6 @@ function buildPlanAgentContext(input: {
       .slice(0, input.limit ?? 20)
       .map((thread, index) => {
         const commentNumber = (input.offset ?? 0) + index + 1;
-        const anchorContext = formatAnchorForAgent(thread.anchor);
         const anchorDetails = planCommentAnchorDetails(thread.anchor);
         const messages = thread.comments
           .map((comment, messageIndex) => {
@@ -1552,7 +1592,6 @@ function buildPlanAgentContext(input: {
         return [
           `${commentNumber}. Thread ${thread.id}`,
           messages,
-          anchorContext ? `   Context: ${anchorContext}` : "",
           ...anchorDetails.map((detail) => `   ${detail}`),
         ]
           .filter(Boolean)
@@ -1580,7 +1619,6 @@ function buildPlanAgentContext(input: {
     .filter((thread) => !actionableThreads.includes(thread))
     .slice(0, 4)
     .map((thread, index) => {
-      const anchorContext = formatAnchorForAgent(thread.anchor);
       const anchorDetails = planCommentAnchorDetails(thread.anchor);
       const messages = thread.comments
         .map((comment, messageIndex) => {
@@ -1593,7 +1631,6 @@ function buildPlanAgentContext(input: {
       return [
         `${index + 1}. Thread ${thread.id}`,
         messages,
-        anchorContext ? `   Context: ${anchorContext}` : "",
         ...anchorDetails.map((detail) => `   ${detail}`),
       ]
         .filter(Boolean)

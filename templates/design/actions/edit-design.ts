@@ -8,6 +8,9 @@ import {
   getText,
   applyText,
   seedFromText,
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { applyEdits } from "../shared/apply-edits.js";
 
@@ -104,23 +107,40 @@ export default defineAction({
     const changed = nextContent !== base;
 
     if (changed) {
-      await db
-        .update(schema.designFiles)
-        .set({ content: nextContent, updatedAt: now })
-        .where(eq(schema.designFiles.id, file.id));
-
-      // Push the full new content through the collab layer; it diffs internally
-      // so live editors get a minimal update.
-      if (await hasCollabState(file.id)) {
-        await applyText(file.id, nextContent, "content", "agent");
-      } else {
-        await seedFromText(file.id, nextContent);
+      // Mark agent presence + selection so live viewers can see where the
+      // agent is working before the update arrives via collab.
+      agentEnterDocument(file.id);
+      if (applied > 0) {
+        agentUpdateSelection(file.id, {
+          selection: edits[0]?.search
+            ? `[data-edit-target="${edits[0].search.slice(0, 40)}"]`
+            : null,
+          editingFile: filename,
+          designId,
+        });
       }
 
-      await db
-        .update(schema.designs)
-        .set({ updatedAt: now })
-        .where(eq(schema.designs.id, designId));
+      try {
+        await db
+          .update(schema.designFiles)
+          .set({ content: nextContent, updatedAt: now })
+          .where(eq(schema.designFiles.id, file.id));
+
+        // Push the full new content through the collab layer; it diffs internally
+        // so live editors get a minimal update.
+        if (await hasCollabState(file.id)) {
+          await applyText(file.id, nextContent, "content", "agent");
+        } else {
+          await seedFromText(file.id, nextContent);
+        }
+
+        await db
+          .update(schema.designs)
+          .set({ updatedAt: now })
+          .where(eq(schema.designs.id, designId));
+      } finally {
+        agentLeaveDocument(file.id);
+      }
     }
 
     return {

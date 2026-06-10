@@ -14,6 +14,24 @@ import {
 import { getCredentialContext } from "../server/request-context.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
 import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
+import type {
+  CustomProviderConfig,
+  CustomProviderAuthKind,
+} from "./custom-registry.js";
+
+export type {
+  CustomProviderConfig,
+  CustomProviderScope,
+  CustomProviderAuthKind,
+  UpsertCustomProviderArgs,
+} from "./custom-registry.js";
+export {
+  upsertCustomProvider,
+  deleteCustomProvider,
+  listCustomProviders,
+  getCustomProvider,
+  validateCustomBaseUrl,
+} from "./custom-registry.js";
 
 export const PROVIDER_API_IDS = [
   "amplitude",
@@ -53,6 +71,29 @@ export type ProviderApiMethod =
   | "DELETE"
   | "HEAD";
 
+/** Cursor-pagination config for fetchAllPages. */
+export interface FetchAllPagesConfig {
+  /**
+   * Dot-path into the JSON response body where the next-page cursor lives,
+   * e.g. "meta.next_cursor" or "pagination.next_page_token".
+   */
+  cursorPath: string;
+  /**
+   * Query parameter name to pass the cursor on the next request,
+   * e.g. "cursor" or "page_token".
+   */
+  cursorParam: string;
+  /**
+   * Dot-path to the items array in each response body.
+   * When omitted, the whole response body is appended to the items array.
+   */
+  itemsPath?: string;
+  /**
+   * Maximum number of pages to fetch. Default 10, max 50.
+   */
+  maxPages?: number;
+}
+
 export interface ProviderApiRequestArgs {
   provider: ProviderApiId | string;
   method?: ProviderApiMethod;
@@ -65,6 +106,18 @@ export interface ProviderApiRequestArgs {
   maxBytes?: number;
   connectionId?: string | null;
   accountId?: string | null;
+  /**
+   * When set, write the full response body to this workspace file path instead
+   * of returning it in context. Returns a compact summary with status, bytes,
+   * path, and a preview. Allows up to 20 MB (vs the normal 4 MB context limit).
+   */
+  saveToFile?: string;
+  /**
+   * When set, automatically paginate by cursor until the cursor field is empty
+   * or maxPages is reached. Accumulates items from itemsPath (or whole bodies)
+   * across all pages. Combine with saveToFile to write the full dataset.
+   */
+  fetchAllPages?: FetchAllPagesConfig;
 }
 
 export type ProviderApiAuthKind =
@@ -166,13 +219,19 @@ export interface ProviderApiRuntimeOptions {
   localCredentialSource?: string;
   getCredentialContext?: () => CredentialContext | null;
   resolveCredential?: ProviderApiCredentialResolver;
+  /**
+   * Optional loader for custom providers registered at runtime. When provided,
+   * custom providers are merged with the static built-in registry for catalog,
+   * docs, and request operations. Custom providers cannot shadow built-in ids.
+   */
+  getCustomProviders?: () => Promise<CustomProviderConfig[]>;
 }
 
 interface ProviderApiRuntime {
   providerIds: readonly ProviderApiId[];
   listCatalog(
     provider?: ProviderApiId | string,
-  ): ReturnType<typeof listProviderApiCatalog>;
+  ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
   fetchDocs(options: {
     provider: ProviderApiId | string;
     url?: string;
@@ -203,6 +262,10 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const MAX_MAX_BYTES = 4 * 1024 * 1024;
+/** When saveToFile is used, allow a much larger per-page response since the
+ *  content won't enter the model's context window. */
+const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const BLOCKED_OUTBOUND_HEADERS = new Set([
   "connection",
@@ -904,7 +967,11 @@ export function createProviderApiRuntime(
   return {
     providerIds,
     listCatalog: (provider) =>
-      listProviderApiCatalog(provider, { providerIds }),
+      listProviderApiCatalogWithCustom(
+        provider,
+        { providerIds },
+        runtimeOptions,
+      ),
     fetchDocs: (docsOptions) =>
       fetchProviderApiDocs(docsOptions, runtimeOptions),
     executeRequest: (args) => executeProviderApiRequest(args, runtimeOptions),
@@ -919,21 +986,46 @@ export async function fetchProviderApiDocs(
   },
   runtime: ProviderApiRuntimeOptions = { appId: "app" },
 ) {
-  assertProviderAllowed(options.provider, runtime.providerIds);
-  const config = getProviderApiConfig(options.provider);
-  const catalog = listProviderApiCatalog(options.provider)[0];
-  if (!options.url) return { provider: config.id, catalog };
+  await assertProviderAllowedAsync(options.provider, runtime);
 
-  const url = new URL(options.url);
-  const allowed = [
-    ...config.docsUrls,
-    ...(config.specUrls ?? []),
-    config.defaultBaseUrl,
-  ].some((allowedUrl) => sameOriginOrChild(url, new URL(allowedUrl)));
-  if (!allowed) {
+  // Resolve config — may be a built-in or a custom provider.
+  const builtIn = isProviderApiId(options.provider)
+    ? getProviderApiConfig(options.provider)
+    : null;
+  const customConfig = builtIn
+    ? null
+    : await resolveCustomProvider(options.provider, runtime);
+
+  if (!builtIn && !customConfig) {
+    const known = await listAllProviderIds(runtime);
     throw new Error(
-      `Docs URL must be one of the registered ${config.label} docs/spec origins.`,
+      `Unknown provider "${options.provider}". Known providers: ${known.join(", ")}`,
     );
+  }
+
+  const catalog = builtIn
+    ? listProviderApiCatalog(options.provider)[0]
+    : customProviderToCatalogEntry(customConfig!);
+
+  if (!options.url) {
+    return {
+      provider: options.provider,
+      catalog,
+      guidance:
+        "provider-api-docs can fetch ANY public http(s) URL — pass url to retrieve API documentation, OpenAPI specs, changelogs, or any public web page. Registered docsUrls above are curated starting points.",
+    };
+  }
+
+  // Open docs fetching: allow ANY public https/http URL.
+  // The SSRF guard still applies — private/internal addresses are blocked.
+  let url: URL;
+  try {
+    url = new URL(options.url);
+  } catch {
+    throw new Error(`Invalid docs URL: ${options.url}`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`Docs URL must use https: or http: (got ${url.protocol})`);
   }
   if (await isBlockedExtensionUrlWithDns(url.href)) {
     throw new Error(`Blocked private/internal docs URL: ${url.href}`);
@@ -944,7 +1036,7 @@ export async function fetchProviderApiDocs(
     maxBytes: clampMaxBytes(options.maxBytes),
   });
   return {
-    provider: config.id,
+    provider: options.provider,
     catalog,
     request: { url: url.href },
     response,
@@ -955,8 +1047,29 @@ export async function executeProviderApiRequest(
   args: ProviderApiRequestArgs,
   runtime: ProviderApiRuntimeOptions,
 ) {
-  assertProviderAllowed(args.provider, runtime.providerIds);
-  const config = getProviderApiConfig(args.provider);
+  await assertProviderAllowedAsync(args.provider, runtime);
+
+  // Check whether this is a built-in or custom provider.
+  const builtIn = isProviderApiId(args.provider)
+    ? getProviderApiConfig(args.provider)
+    : null;
+  const customConfig = builtIn
+    ? null
+    : await resolveCustomProvider(args.provider, runtime);
+
+  if (!builtIn && !customConfig) {
+    const known = await listAllProviderIds(runtime);
+    throw new Error(
+      `Unknown provider "${args.provider}". Known providers: ${known.join(", ")}`,
+    );
+  }
+
+  if (customConfig) {
+    return executeCustomProviderApiRequest(args, customConfig, runtime);
+  }
+
+  // --- built-in provider path (original code) ---
+  const config = builtIn!;
   const ctx = requireRuntimeCredentialContext(
     runtime,
     config.credentialKeys[0] ?? config.id,
@@ -984,15 +1097,104 @@ export async function executeProviderApiRequest(
     ...(isPlainRecord(extraHeaders) ? extraHeaders : {}),
     ...auth.headers,
   });
+
+  // Allow a much larger maxBytes ceiling when writing to a workspace file.
+  const effectiveMaxBytes = args.saveToFile
+    ? SAVE_TO_FILE_MAX_BYTES
+    : clampMaxBytes(args.maxBytes);
+
+  // --- fetchAllPages mode ---
+  if (args.fetchAllPages) {
+    const pageCfg = args.fetchAllPages;
+    const { items, pageCount, lastStatus, lastContentType } =
+      await fetchAllPages(pageCfg, async (extraQuery) => {
+        const queryWithCursor = extraQuery
+          ? mergeQueryObjects(
+              substituteUnknown(args.query, placeholders),
+              extraQuery,
+            )
+          : substituteUnknown(args.query, placeholders);
+        const pageUrl = buildProviderUrl({
+          config,
+          baseUrl,
+          rawPath: substituteString(args.path, placeholders),
+          query: queryWithCursor,
+        });
+        const pageBody = prepareBody(
+          substituteUnknown(args.body, placeholders),
+          { ...headers },
+        );
+        const resp = await fetchWithTimeout(pageUrl.href, {
+          method,
+          headers,
+          body: pageBody,
+          maxBytes: effectiveMaxBytes,
+          timeoutMs: clampTimeout(args.timeoutMs),
+          secretValues: auth.secretValues,
+        });
+        return {
+          text:
+            resp.text ??
+            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+          contentType: resp.contentType,
+          status: resp.status,
+          ok: resp.ok,
+        };
+      });
+
+    const allItemsJson = JSON.stringify(items, null, 2);
+    const metadata = {
+      provider: { id: config.id, label: config.label },
+      pagesRead: pageCount,
+      totalItems: Array.isArray(items) ? items.length : 0,
+      lastStatus,
+    };
+
+    if (args.saveToFile) {
+      const saved = (await handleSaveToFile(
+        args.saveToFile,
+        allItemsJson,
+        lastContentType ?? "application/json",
+        lastStatus,
+      )) as Record<string, unknown>;
+      return { ...metadata, ...saved };
+    }
+
+    return { ...metadata, items };
+  }
+
+  // --- Single request ---
   const body = prepareBody(substituteUnknown(args.body, placeholders), headers);
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,
     body,
-    maxBytes: clampMaxBytes(args.maxBytes),
+    maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
   });
+
+  // saveToFile: write full body to workspace file and return compact summary.
+  if (args.saveToFile) {
+    const rawText =
+      response.text ??
+      (response.json !== undefined ? JSON.stringify(response.json) : "");
+    const saved = (await handleSaveToFile(
+      args.saveToFile,
+      rawText,
+      response.contentType,
+      response.status,
+    )) as Record<string, unknown>;
+    return {
+      provider: { id: config.id, label: config.label },
+      request: {
+        method,
+        url: redactString(url.href, auth.secretValues),
+        path: redactString(`${url.pathname}${url.search}`, auth.secretValues),
+      },
+      ...saved,
+    };
+  }
 
   return {
     provider: {
@@ -1020,6 +1222,426 @@ export async function executeProviderApiRequest(
     guidance:
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Custom provider execution
+// ---------------------------------------------------------------------------
+
+async function executeCustomProviderApiRequest(
+  args: ProviderApiRequestArgs,
+  customConfig: CustomProviderConfig,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<unknown> {
+  const ctx = requireRuntimeCredentialContext(runtime, customConfig.id);
+  const method = normalizeMethod(args.method);
+  const baseUrl = customConfig.baseUrl;
+
+  // Build a lightweight ProviderApiConfig-like object so we can reuse
+  // buildProviderUrl (which validates allowed hosts).
+  const syntheticConfig: ProviderApiConfig = {
+    id: customConfig.id as ProviderApiId,
+    label: customConfig.label,
+    defaultBaseUrl: baseUrl,
+    auth: { type: "none" },
+    credentialKeys: [],
+    docsUrls: customConfig.docsUrls,
+    allowedHostSuffixes: customConfig.allowedHostSuffixes,
+    defaultHeaders: customConfig.defaultHeaders,
+  };
+
+  const url = buildProviderUrl({
+    config: syntheticConfig,
+    baseUrl,
+    rawPath: args.path,
+    query: args.query,
+  });
+
+  if (await isBlockedExtensionUrlWithDns(url.href)) {
+    throw new Error(`Blocked private/internal provider URL: ${url.href}`);
+  }
+
+  const auth =
+    args.auth === "none"
+      ? emptyAuth()
+      : await resolveCustomAuth(customConfig, runtime, ctx, args);
+
+  const extraHeaders = args.headers ?? {};
+  const headers = sanitizeOutboundHeaders({
+    ...(customConfig.defaultHeaders ?? {}),
+    ...(isPlainRecord(extraHeaders) ? extraHeaders : {}),
+    ...auth.headers,
+  });
+  const body = prepareBody(args.body, headers);
+
+  const effectiveMaxBytes = args.saveToFile
+    ? SAVE_TO_FILE_MAX_BYTES
+    : clampMaxBytes(args.maxBytes);
+
+  // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
+  if (args.fetchAllPages) {
+    const pageCfg = args.fetchAllPages;
+    const { items, pageCount, lastStatus, lastContentType } =
+      await fetchAllPages(pageCfg, async (extraQuery) => {
+        const queryWithCursor = extraQuery
+          ? mergeQueryObjects(args.query, extraQuery)
+          : args.query;
+        const pageUrl = buildProviderUrl({
+          config: syntheticConfig,
+          baseUrl,
+          rawPath: args.path,
+          query: queryWithCursor,
+        });
+        const pageBody = prepareBody(args.body, { ...headers });
+        const resp = await fetchWithTimeout(pageUrl.href, {
+          method,
+          headers,
+          body: pageBody,
+          maxBytes: effectiveMaxBytes,
+          timeoutMs: clampTimeout(args.timeoutMs),
+          secretValues: auth.secretValues,
+        });
+        return {
+          text:
+            resp.text ??
+            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+          contentType: resp.contentType,
+          status: resp.status,
+          ok: resp.ok,
+        };
+      });
+
+    const allItemsJson = JSON.stringify(items, null, 2);
+    const metadata = {
+      provider: {
+        id: customConfig.id,
+        label: customConfig.label,
+        custom: true,
+      },
+      pagesRead: pageCount,
+      totalItems: Array.isArray(items) ? items.length : 0,
+      lastStatus,
+    };
+
+    if (args.saveToFile) {
+      const saved = (await handleSaveToFile(
+        args.saveToFile,
+        allItemsJson,
+        lastContentType ?? "application/json",
+        lastStatus,
+      )) as Record<string, unknown>;
+      return { ...metadata, ...saved };
+    }
+
+    return { ...metadata, items };
+  }
+
+  const response = await fetchWithTimeout(url.href, {
+    method,
+    headers,
+    body,
+    maxBytes: effectiveMaxBytes,
+    timeoutMs: clampTimeout(args.timeoutMs),
+    secretValues: auth.secretValues,
+  });
+
+  if (args.saveToFile) {
+    const rawText =
+      response.text ??
+      (response.json !== undefined ? JSON.stringify(response.json) : "");
+    const saved = (await handleSaveToFile(
+      args.saveToFile,
+      rawText,
+      response.contentType,
+      response.status,
+    )) as Record<string, unknown>;
+    return {
+      provider: {
+        id: customConfig.id,
+        label: customConfig.label,
+        custom: true,
+      },
+      request: {
+        method,
+        url: redactString(url.href, auth.secretValues),
+        path: redactString(`${url.pathname}${url.search}`, auth.secretValues),
+      },
+      ...saved,
+    };
+  }
+
+  return {
+    provider: {
+      id: customConfig.id,
+      label: customConfig.label,
+      docsUrls: customConfig.docsUrls,
+      specUrls: [],
+      custom: true,
+    },
+    request: {
+      method,
+      url: redactString(url.href, auth.secretValues),
+      path: redactString(`${url.pathname}${url.search}`, auth.secretValues),
+      auth:
+        args.auth === "none" ? "none" : describeCustomAuth(customConfig.auth),
+      credentialSources: auth.credentialSources.map((source) => ({
+        ...source,
+        fingerprint: fingerprint(source.key),
+      })),
+      headerNames: Object.keys(headers).filter(
+        (name) => name.toLowerCase() !== "authorization",
+      ),
+    },
+    response,
+    guidance:
+      "This was a raw provider API request to a custom provider. Use provider docs URLs to choose endpoints.",
+  };
+}
+
+async function resolveCustomAuth(
+  customConfig: CustomProviderConfig,
+  runtime: ProviderApiRuntimeOptions,
+  ctx: CredentialContext,
+  args: ProviderApiRequestArgs,
+): Promise<ResolvedAuth> {
+  const auth = customConfig.auth;
+  if (auth.type === "none") return emptyAuth();
+
+  if (auth.type === "bearer") {
+    const credential = await resolveRequiredCredentialByKey({
+      provider: customConfig.id,
+      key: auth.credentialKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    return {
+      headers: { Authorization: `Bearer ${credential.value}` },
+      credentialSources: [omitCredentialValue(credential)],
+      secretValues: [credential.value],
+    };
+  }
+
+  if (auth.type === "basic") {
+    const username = await resolveRequiredCredentialByKey({
+      provider: customConfig.id,
+      key: auth.usernameKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const password =
+      auth.passwordKey === auth.usernameKey
+        ? username
+        : await resolveRequiredCredentialByKey({
+            provider: customConfig.id,
+            key: auth.passwordKey,
+            ctx,
+            runtime,
+            connectionId: args.connectionId,
+          });
+    const encoded = Buffer.from(`${username.value}:${password.value}`).toString(
+      "base64",
+    );
+    return {
+      headers: { Authorization: `Basic ${encoded}` },
+      credentialSources: [
+        omitCredentialValue(username),
+        ...(password.key === username.key
+          ? []
+          : [omitCredentialValue(password)]),
+      ],
+      secretValues: [username.value, password.value, encoded],
+    };
+  }
+
+  if (auth.type === "api-key-header") {
+    const credential = await resolveRequiredCredentialByKey({
+      provider: customConfig.id,
+      key: auth.credentialKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    return {
+      headers: { [auth.headerName]: credential.value },
+      credentialSources: [omitCredentialValue(credential)],
+      secretValues: [credential.value],
+    };
+  }
+
+  return emptyAuth();
+}
+
+/** Resolve a credential by key name (no workspace-provider lookup for custom). */
+async function resolveRequiredCredentialByKey(options: {
+  provider: string;
+  key: string;
+  ctx: CredentialContext;
+  runtime: ProviderApiRuntimeOptions;
+  connectionId?: string | null;
+}): Promise<ProviderApiResolvedCredential> {
+  const localCredentialSource =
+    options.runtime.localCredentialSource ?? "app_local";
+  const lookup: ProviderApiCredentialLookupOptions = {
+    appId: options.runtime.appId,
+    provider: options.provider,
+    key: options.key,
+    ctx: options.ctx,
+    workspaceProvider: undefined,
+    connectionId: options.connectionId,
+    localCredentialSource,
+  };
+  const resolver =
+    options.runtime.resolveCredential ?? defaultProviderApiCredentialResolver;
+  const credential = await resolver(lookup);
+  if (!credential?.value) {
+    throw new Error(
+      `Credential "${options.key}" not configured for custom provider "${options.provider}".`,
+    );
+  }
+  return credential;
+}
+
+function describeCustomAuth(auth: CustomProviderAuthKind): string {
+  if (auth.type === "none") return "none";
+  if (auth.type === "bearer") return "bearer";
+  if (auth.type === "basic") return "basic";
+  if (auth.type === "api-key-header")
+    return `api-key-header:${auth.headerName}`;
+  return "unknown";
+}
+
+// ---------------------------------------------------------------------------
+// Catalog helpers with custom provider support
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a custom provider to the same catalog shape as built-in providers.
+ */
+function customProviderToCatalogEntry(config: CustomProviderConfig) {
+  return {
+    id: config.id,
+    label: config.label,
+    defaultBaseUrl: config.baseUrl,
+    baseUrlCredentialKey: null,
+    auth: describeCustomAuth(config.auth),
+    credentialKeys: extractCredentialKeysFromCustomAuth(config.auth),
+    docsUrls: config.docsUrls,
+    specUrls: [] as string[],
+    allowedHostSuffixes: config.allowedHostSuffixes,
+    placeholders: [] as unknown[],
+    defaultHeaders: config.defaultHeaders,
+    examples: [] as unknown[],
+    notes: config.notes ? [config.notes] : ([] as string[]),
+    templateUses: [] as string[],
+    custom: true,
+  };
+}
+
+function extractCredentialKeysFromCustomAuth(
+  auth: CustomProviderAuthKind,
+): string[] {
+  if (auth.type === "bearer") return [auth.credentialKey];
+  if (auth.type === "basic") {
+    return auth.usernameKey === auth.passwordKey
+      ? [auth.usernameKey]
+      : [auth.usernameKey, auth.passwordKey];
+  }
+  if (auth.type === "api-key-header") return [auth.credentialKey];
+  return [];
+}
+
+/**
+ * List catalog entries including custom providers (merged after built-ins).
+ */
+async function listProviderApiCatalogWithCustom(
+  provider: ProviderApiId | string | undefined,
+  options: { providerIds?: readonly (ProviderApiId | string)[] },
+  runtime: ProviderApiRuntimeOptions,
+): Promise<unknown[]> {
+  const customConfigs = runtime.getCustomProviders
+    ? await runtime.getCustomProviders()
+    : [];
+
+  if (provider) {
+    // Check built-ins first
+    if (isProviderApiId(provider)) {
+      return listProviderApiCatalog(provider, options) as unknown[];
+    }
+    // Check custom
+    const custom = customConfigs.find((c) => c.id === provider);
+    if (custom) return [customProviderToCatalogEntry(custom)];
+    const known = [
+      ...normalizeProviderIds(options.providerIds),
+      ...customConfigs.map((c) => c.id),
+    ];
+    throw new Error(
+      `Unknown provider "${provider}". Known providers: ${known.join(", ")}`,
+    );
+  }
+
+  const builtInEntries = listProviderApiCatalog(
+    undefined,
+    options,
+  ) as unknown[];
+  const builtInIds = new Set(
+    (options.providerIds ?? PROVIDER_API_IDS).map(String),
+  );
+  const customEntries = customConfigs
+    .filter((c) => !builtInIds.has(c.id))
+    .map(customProviderToCatalogEntry);
+  return [...builtInEntries, ...customEntries];
+}
+
+/**
+ * Look up a custom provider by id from the runtime loader.
+ */
+async function resolveCustomProvider(
+  id: string,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<CustomProviderConfig | null> {
+  if (!runtime.getCustomProviders) return null;
+  const configs = await runtime.getCustomProviders();
+  return configs.find((c) => c.id === id) ?? null;
+}
+
+/**
+ * List all provider ids (built-in + custom) visible to this runtime.
+ */
+async function listAllProviderIds(
+  runtime: ProviderApiRuntimeOptions,
+): Promise<string[]> {
+  const builtIn = normalizeProviderIds(runtime.providerIds).map(String);
+  if (!runtime.getCustomProviders) return builtIn;
+  const custom = await runtime.getCustomProviders();
+  return [...builtIn, ...custom.map((c) => c.id)];
+}
+
+/**
+ * Assert that a provider is either a known built-in or a registered custom
+ * provider. Throws with a descriptive message listing known providers.
+ */
+async function assertProviderAllowedAsync(
+  provider: string,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<void> {
+  // Built-in check (fast path)
+  if (isProviderApiId(provider)) {
+    // Still check the providerIds whitelist if set
+    const allowed = normalizeProviderIds(runtime.providerIds);
+    if (!allowed.includes(provider as ProviderApiId)) {
+      throw new Error(`Provider API ${provider} is not enabled for this app.`);
+    }
+    return;
+  }
+  // Custom provider check
+  const custom = await resolveCustomProvider(provider, runtime);
+  if (custom) return;
+  const known = await listAllProviderIds(runtime);
+  throw new Error(
+    `Unknown provider "${provider}". Known providers: ${known.join(", ")}`,
+  );
 }
 
 export async function defaultProviderApiCredentialResolver(
@@ -1882,6 +2504,24 @@ function redactString(text: string, secretValues: string[]): string {
   return output;
 }
 
+function mergeQueryObjects(
+  base: unknown,
+  extra: Record<string, string>,
+): unknown {
+  if (!base) return extra;
+  if (typeof base === "string") {
+    const params = new URLSearchParams(base.replace(/^\?/, ""));
+    for (const [key, value] of Object.entries(extra)) {
+      params.set(key, value);
+    }
+    return params.toString();
+  }
+  if (typeof base === "object" && !Array.isArray(base)) {
+    return { ...(base as Record<string, unknown>), ...extra };
+  }
+  return extra;
+}
+
 function clampTimeout(timeoutMs: number | undefined): number {
   if (!Number.isFinite(timeoutMs)) return DEFAULT_TIMEOUT_MS;
   return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMs!)));
@@ -1890,6 +2530,137 @@ function clampTimeout(timeoutMs: number | undefined): number {
 function clampMaxBytes(maxBytes: number | undefined): number {
   if (!Number.isFinite(maxBytes)) return DEFAULT_MAX_BYTES;
   return Math.max(1_000, Math.min(MAX_MAX_BYTES, Math.floor(maxBytes!)));
+}
+
+/** Resolve a dot-path from a parsed JSON object, e.g. "meta.next_cursor". */
+function dotGet(obj: unknown, path: string): unknown {
+  if (!path) return obj;
+  let current: unknown = obj;
+  for (const key of path.split(".")) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/**
+ * Handle saveToFile: write the full provider-api response body to a workspace
+ * file and return a compact summary.
+ */
+async function handleSaveToFile(
+  filePath: string,
+  responseText: string,
+  contentType: string | null,
+  status: number,
+): Promise<unknown> {
+  const { writeWorkspaceFile, SAVE_TO_FILE_MAX_BYTES: maxSaveBytes } =
+    await import("../workspace-files/store.js");
+  const { getRequestOrgId, getRequestUserEmail } =
+    await import("../server/request-context.js");
+
+  const orgId = getRequestOrgId();
+  const email = getRequestUserEmail();
+  const scope = orgId
+    ? { scope: "org" as const, scopeId: orgId }
+    : email
+      ? { scope: "user" as const, scopeId: email }
+      : null;
+
+  if (!scope) {
+    throw new Error(
+      "saveToFile requires an authenticated request context (no user email or orgId found).",
+    );
+  }
+
+  const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
+  await writeWorkspaceFile(scope, filePath, responseText, mimeType, {
+    maxFileBytes: maxSaveBytes,
+  });
+  const bytes = Buffer.byteLength(responseText, "utf8");
+  const preview = responseText.slice(0, 2000);
+  return {
+    savedToFile: true,
+    savedTo: filePath,
+    status,
+    bytes,
+    contentType: mimeType,
+    preview: preview.length < responseText.length ? `${preview}…` : preview,
+  };
+}
+
+/**
+ * Execute paginated requests, accumulating items across pages.
+ * Returns the accumulated items array and the last response for metadata.
+ */
+async function fetchAllPages(
+  config: FetchAllPagesConfig,
+  executeOnePage: (extraQuery?: Record<string, string>) => Promise<{
+    text: string;
+    contentType: string | null;
+    status: number;
+    ok: boolean;
+  }>,
+): Promise<{
+  items: unknown[];
+  pageCount: number;
+  lastStatus: number;
+  lastContentType: string | null;
+}> {
+  const maxPages = Math.min(
+    Number.isFinite(config.maxPages) && config.maxPages! > 0
+      ? config.maxPages!
+      : 10,
+    FETCH_ALL_PAGES_MAX,
+  );
+
+  const items: unknown[] = [];
+  let cursor: string | undefined;
+  let pageCount = 0;
+  let lastStatus = 0;
+  let lastContentType: string | null = null;
+
+  while (pageCount < maxPages) {
+    const extraQuery: Record<string, string> = {};
+    if (cursor) extraQuery[config.cursorParam] = cursor;
+
+    const page = await executeOnePage(pageCount > 0 ? extraQuery : undefined);
+    lastStatus = page.status;
+    lastContentType = page.contentType;
+    pageCount++;
+
+    let body: unknown;
+    try {
+      body = JSON.parse(page.text);
+    } catch {
+      body = page.text;
+    }
+
+    // Extract items
+    if (config.itemsPath) {
+      const extracted = dotGet(body, config.itemsPath);
+      if (Array.isArray(extracted)) {
+        items.push(...extracted);
+      } else if (extracted !== undefined) {
+        items.push(extracted);
+      }
+    } else {
+      items.push(body);
+    }
+
+    // Extract next cursor
+    const nextCursor = dotGet(body, config.cursorPath);
+    if (
+      !nextCursor ||
+      nextCursor === "" ||
+      nextCursor === null ||
+      nextCursor === cursor
+    ) {
+      break;
+    }
+    cursor = String(nextCursor);
+  }
+
+  return { items, pageCount, lastStatus, lastContentType };
 }
 
 function fingerprint(value: string): string {

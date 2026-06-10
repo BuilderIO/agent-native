@@ -247,12 +247,171 @@ describe("get-plan-feedback action", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "visual-8",
-          anchorDetails: expect.arrayContaining(["Canvas point: 80, 40"]),
+          anchorDetails: expect.arrayContaining([
+            "Canvas point: canvas 80, 40 (board px)",
+          ]),
         }),
       ]),
     );
     expect(result.instructions.join("\n")).toContain(
       "Focused screenshot attachments",
     );
+  });
+
+  it("marks a text-anchor comment detached when the quoted text no longer exists in content", async () => {
+    const attached = comment("attached", "human");
+    attached.anchor = JSON.stringify({
+      anchorKind: "text",
+      textQuote: "Initialize npm project",
+      sectionTitle: "Steps",
+    });
+    const detachedComment = comment("detached", "human");
+    detachedComment.anchor = JSON.stringify({
+      anchorKind: "text",
+      textQuote: "This phrase was deleted",
+      sectionTitle: "Steps",
+    });
+
+    const planWithContent = {
+      ...plan,
+      content: {
+        version: 2,
+        blocks: [
+          {
+            id: "block_1",
+            type: "rich-text" as const,
+            data: {
+              markdown: "## Steps\n\nInitialize npm project\n\nRun the tests",
+            },
+          },
+        ],
+      },
+    };
+
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan: planWithContent,
+      sections: [section],
+      comments: [attached, detachedComment],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 2,
+        openCommentCount: 2,
+      },
+    });
+
+    const result = (await action.run({ planId: "plan_1" })) as {
+      comments: Array<{ id: string; detached: boolean }>;
+      threads: Array<{ id: string; detached: boolean }>;
+      feedbackSummary: { detachedCount: number };
+      detachedThreads: Array<{ id: string; messageExcerpt: string }>;
+      instructions: string[];
+    };
+
+    const attachedComment = result.comments.find((c) => c.id === "attached");
+    const detachedResult = result.comments.find((c) => c.id === "detached");
+    expect(attachedComment?.detached).toBe(false);
+    expect(detachedResult?.detached).toBe(true);
+    expect(result.feedbackSummary.detachedCount).toBe(1);
+    expect(result.detachedThreads).toEqual([
+      expect.objectContaining({ id: "detached" }),
+    ]);
+    expect(result.instructions.join("\n")).toContain(
+      "Comments marked detached no longer match their quoted text",
+    );
+  });
+
+  it("matches quotes against markdown-formatted prose without false detachment", async () => {
+    const formatted = comment("formatted-quote", "human");
+    formatted.anchor = JSON.stringify({
+      anchorKind: "text",
+      textQuote: "Initialize npm project",
+      sectionTitle: "Steps",
+    });
+
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan: {
+        ...plan,
+        content: {
+          version: 2,
+          blocks: [
+            {
+              id: "block_1",
+              type: "rich-text" as const,
+              data: {
+                markdown:
+                  "## Steps\n\n**Initialize** [npm](https://npmjs.com) `project`\n\nRun the tests",
+              },
+            },
+          ],
+        },
+      },
+      sections: [section],
+      comments: [formatted],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 1,
+        openCommentCount: 1,
+      },
+    });
+
+    const result = (await action.run({ planId: "plan_1" })) as {
+      comments: Array<{ id: string; detached: boolean }>;
+      feedbackSummary: { detachedCount: number };
+    };
+
+    expect(result.comments[0]?.detached).toBe(false);
+    expect(result.feedbackSummary.detachedCount).toBe(0);
+  });
+
+  it("never marks visual or point anchors detached even when their snippet is not in prose", async () => {
+    const visual = comment("visual-pin", "human");
+    visual.anchor = JSON.stringify({
+      anchorKind: "visual",
+      targetKind: "wireframe",
+      snippet: "Submit button label not present in prose",
+      visualX: 40,
+      visualY: 60,
+    });
+    const point = comment("point-pin", "human");
+    point.anchor = JSON.stringify({
+      anchorKind: "point",
+      snippet: "Some stray snippet",
+      x: 10,
+      y: 20,
+    });
+
+    loadPlanBundleMock.mockResolvedValueOnce({
+      plan: {
+        ...plan,
+        content: {
+          version: 2,
+          blocks: [
+            {
+              id: "block_1",
+              type: "rich-text" as const,
+              data: { markdown: "## Steps\n\nCompletely unrelated prose" },
+            },
+          ],
+        },
+      },
+      sections: [section],
+      comments: [visual, point],
+      events: [],
+      summary: {
+        sectionCounts: { summary: 1 },
+        commentCount: 2,
+        openCommentCount: 2,
+      },
+    });
+
+    const result = (await action.run({ planId: "plan_1" })) as {
+      comments: Array<{ id: string; detached: boolean }>;
+      feedbackSummary: { detachedCount: number };
+    };
+
+    expect(result.comments.every((c) => c.detached === false)).toBe(true);
+    expect(result.feedbackSummary.detachedCount).toBe(0);
   });
 });

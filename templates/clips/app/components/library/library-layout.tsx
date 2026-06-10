@@ -499,7 +499,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             {/* Main content area */}
             <div className="flex min-w-0 flex-1 flex-col">
               {!pageOwnsToolbar && (
-                <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
+                <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
                   <button
                     onClick={() => setSidebarOpen(true)}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
