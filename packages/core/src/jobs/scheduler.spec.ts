@@ -129,4 +129,83 @@ Summarize the inbox.`,
     expect(process.env.AGENT_USER_EMAIL).toBe("stale@example.com");
     expect(process.env.AGENT_ORG_ID).toBe("stale-org");
   });
+
+  it("resets a job stuck in lastStatus:running after 10+ minutes without executing it", async () => {
+    // P2 stale-running recovery: a serverless kill mid-job leaves
+    // lastStatus:"running" forever. The scheduler must detect runs that have
+    // been "running" for > 10 minutes (stuck-guard) and reset them to "error"
+    // without re-executing, then let the NEXT tick pick them up normally.
+    const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString(); // 11 minutes ago
+
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-stuck",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/stuck-job.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+lastStatus: running
+lastRun: ${stuckLastRun}
+---
+
+Do some work.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: {} as any,
+      model: "test-model",
+    });
+
+    // The job must NOT have been executed — it should be skipped this tick.
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+
+    // The resource must have been updated to reset the stuck run to "error".
+    expect(resourcePutMock).toHaveBeenCalledOnce();
+    const putCall = resourcePutMock.mock.calls[0][1]; // path argument
+    expect(putCall).toBe("jobs/stuck-job.md");
+    const putContent: string = resourcePutMock.mock.calls[0][2]; // content argument
+    expect(putContent).toContain("lastStatus: error");
+    expect(putContent).toContain("timed out or server crashed");
+  });
+
+  it("does not reset a job that has been running for less than 10 minutes", async () => {
+    // A job that started < 10 min ago is still running legitimately — leave it.
+    const recentLastRun = new Date(Date.now() - 2 * 60 * 1000).toISOString(); // 2 minutes ago
+
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-running",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/running-job.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+lastStatus: running
+lastRun: ${recentLastRun}
+---
+
+Do some work.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: {} as any,
+      model: "test-model",
+    });
+
+    // Still within 10-minute window — must be skipped without resetting.
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
 });
