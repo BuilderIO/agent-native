@@ -4,7 +4,9 @@
     "declaration": false,
     "declarationMap": false,
     "noCheck": true,
-    "strict": false
+    "strict": false,
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/core-cli.tsbuildinfo"
   },
   "include": ["src/cli/**/*.ts"],
   "exclude": [

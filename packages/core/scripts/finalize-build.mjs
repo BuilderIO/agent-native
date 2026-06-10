@@ -14,6 +14,25 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+// Prune any *.spec.js / *.spec.d.ts files that tsc emitted before spec paths
+// were added to tsconfig exclude. They must never ship in the published package.
+function pruneSpecArtifacts(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      pruneSpecArtifacts(full);
+    } else if (
+      entry.name.endsWith(".spec.js") ||
+      entry.name.endsWith(".spec.d.ts") ||
+      entry.name.endsWith(".spec.d.ts.map") ||
+      entry.name.endsWith(".spec.js.map")
+    ) {
+      rmSync(full, { force: true });
+    }
+  }
+}
+if (existsSync("dist")) pruneSpecArtifacts("dist");
+
 rmSync("dist/templates", { recursive: true, force: true });
 cpSync("src/templates", "dist/templates", { recursive: true });
 mkdirSync("dist/styles", { recursive: true });

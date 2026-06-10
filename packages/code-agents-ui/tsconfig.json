@@ -15,7 +15,9 @@
     "rootDir": "src",
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/code-agents-ui.tsbuildinfo"
   },
   "include": ["src/**/*"]
 }

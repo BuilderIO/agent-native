@@ -15,7 +15,9 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/scheduling.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/*.spec.ts", "src/**/*.test.ts"]

@@ -18,7 +18,9 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node", "vite/client", "react-dom"]
+    "types": ["node", "vite/client", "react-dom"],
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/core.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "exclude": [
@@ -31,8 +33,6 @@
     // TODO: fenced concurrent-agent work — flip strict after in-flight PRs land
     // recap.ts, skills.ts, workspace-dev.ts have strict errors but are fenced.
     // Excluding all of src/cli prevents dynamic imports from re-pulling them in.
-    "src/cli/**",
-    // Fenced concurrent-agent work — provider-api has in-flight unused-var fixes.
-    "src/provider-api/**"
+    "src/cli/**"
   ]
 }

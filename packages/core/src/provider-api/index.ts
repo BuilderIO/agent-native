@@ -1862,14 +1862,6 @@ function isAllowedProviderUrl(
   });
 }
 
-function sameOriginOrChild(candidate: URL, allowed: URL): boolean {
-  return (
-    candidate.origin === allowed.origin &&
-    (candidate.pathname === allowed.pathname ||
-      candidate.pathname.startsWith(allowed.pathname.replace(/\/?$/, "/")))
-  );
-}
-
 function queryEntries(value: unknown): Array<[string, string]> {
   if (!value) return [];
   if (typeof value === "string") {
