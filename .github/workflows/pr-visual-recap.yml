@@ -91,7 +91,7 @@ jobs:
             echo "RECAP_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
             echo "local=true" >> "$GITHUB_OUTPUT"
           else
-            echo "RECAP_CLI=npx -y @agent-native/core@0.45.0" >> "$GITHUB_ENV"
+            echo "RECAP_CLI=npx -y @agent-native/core@latest" >> "$GITHUB_ENV"
             echo "local=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -205,7 +205,7 @@ jobs:
             echo "RECAP_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
             echo "local=true" >> "$GITHUB_OUTPUT"
           else
-            echo "RECAP_CLI=npx -y @agent-native/core@0.45.0" >> "$GITHUB_ENV"
+            echo "RECAP_CLI=npx -y @agent-native/core@latest" >> "$GITHUB_ENV"
             echo "local=false" >> "$GITHUB_OUTPUT"
           fi
 
