@@ -49,7 +49,10 @@ const manifest: AppSkillManifest = BUILT_IN_APP_SKILLS["visual-plans"].manifest;
 const APP_ID = manifest.id; // "visual-plans"
 const PLUGIN_NAME = `agent-native-${APP_ID}`; // "agent-native-visual-plans"
 const CLAUDE_MARKETPLACE_NAME = "agent-native-apps";
-const MCP_SERVER_NAME = manifest.mcp.serverName; // "agent-native-plans"
+const MCP_SERVER_NAMES = [
+  manifest.mcp.serverName,
+  ...(manifest.mcp.aliases ?? []),
+]; // "plan", plus legacy "agent-native-plans"
 const MCP_URL = manifest.hosted.mcpUrl;
 const HOMEPAGE = manifest.hosted.url;
 
@@ -191,9 +194,12 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
   }
 
   const mcpServers = {
-    mcpServers: {
-      [MCP_SERVER_NAME]: { type: "http" as const, url: MCP_URL },
-    },
+    mcpServers: Object.fromEntries(
+      MCP_SERVER_NAMES.map((name) => [
+        name,
+        { type: "http" as const, url: MCP_URL },
+      ]),
+    ),
   };
 
   // Shared .mcp.json for both hosts.

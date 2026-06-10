@@ -56,7 +56,20 @@ This installs `visual-plan` plus the companion `visual-recap` skill, then regist
 - `--mcp-url <url>` — point the connector at a custom origin (an ngrok tunnel, a local dev server, or a self-hosted deployment) instead of the hosted default.
 - `--with-github-action` — also write the PR Visual Recap GitHub Action (see [PR Visual Recap](/docs/pr-visual-recap)).
 
-After it finishes, restart or reload the agent client so the new skills and tools load, then run `/visual-plan`.
+Interactive installs also offer the PR Visual Recap Action when no workflow is
+present. Say yes to add it during skill setup, or run the command above later
+with `--with-github-action`. After the workflow is written, run:
+
+```bash
+agent-native recap setup
+agent-native recap doctor
+```
+
+`recap setup` configures the GitHub Action secrets and variables where possible,
+and `recap doctor` verifies the workflow, local publish token, GitHub repo
+access, and required Actions configuration. After install finishes, restart or
+reload the agent client so the new skills and tools load, then run
+`/visual-plan`.
 
 > Note: the bare `npx skills add BuilderIO/agent-native --skill visual-plan` (Vercel/open Skills CLI) installs **instructions only** — it does not register the MCP connector. Use the Agent-Native CLI above when you want the connector wired up too.
 
