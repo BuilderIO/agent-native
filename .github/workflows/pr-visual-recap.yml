@@ -252,7 +252,7 @@ jobs:
           set -uo pipefail
           MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
           $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
           npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json || true
           rm -f "$MCP_CONFIG" || true
@@ -289,8 +289,15 @@ jobs:
           set -uo pipefail
           PLAN_URL=""
           if [ -f recap-url.txt ]; then PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"; fi
-          echo "plan_url=$PLAN_URL" >> "$GITHUB_OUTPUT"
-          if [ -n "$PLAN_URL" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+          # recap-url.txt is agent-written → untrusted. Only proceed if its origin
+          # matches the trusted plan app, so a prompt-injected URL can't drive the
+          # screenshot/comment steps. Mismatch or empty → ok=false.
+          OK=$(PLAN_URL="$PLAN_URL" node -e 'try{const u=new URL(process.env.PLAN_URL||"");const t=new URL(process.env.PLAN_RECAP_APP_URL||"https://plan.agent-native.com");process.stdout.write(u.origin===t.origin?"true":"false")}catch{process.stdout.write("false")}')
+          if [ "$OK" = "true" ]; then
+            echo "plan_url=$PLAN_URL" >> "$GITHUB_OUTPUT"; echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "plan_url=" >> "$GITHUB_OUTPUT"; echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Attach usage
         if: steps.url.outputs.ok == 'true'
