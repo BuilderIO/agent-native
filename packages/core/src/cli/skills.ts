@@ -1369,7 +1369,7 @@ and \`/visual-recap\`. Do not author wireframes from memory.
 Use the standard \`WireframeBlock\` / \`<Screen>\` format so the Plan viewer owns the
 surface frame, theme, and sketchy/clean toggle. HTML wireframes are appropriate
 when placement precision matters, especially popovers, menus, dialogs, and dense
-forms; kit-tree wireframes are appropriate for simpler layouts. For HTML
+forms. For HTML
 wireframes, keep \`renderMode\` unset or \`wireframe\` unless a design-only editable
 mockup is explicitly required, because \`renderMode="design"\` disables the
 sketchy rough overlay.
