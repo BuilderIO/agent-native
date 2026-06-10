@@ -57,6 +57,7 @@ import previewDreamProposal from "./preview-dream-proposal.js";
 import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
 import providerApiCatalog from "./provider-api-catalog.js";
 import providerApiDocs from "./provider-api-docs.js";
+import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
@@ -149,6 +150,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "preview-workspace-resource-change": previewWorkspaceResourceChange,
   "provider-api-catalog": providerApiCatalog,
   "provider-api-docs": providerApiDocs,
+  "provider-api-register": providerApiRegister,
   "provider-api-request": providerApiRequest,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,

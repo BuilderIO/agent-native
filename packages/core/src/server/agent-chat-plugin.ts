@@ -3703,6 +3703,18 @@ export function createAgentChatPlugin(
           },
         });
       } catch {}
+      let webSearchTool: Record<string, ActionEntry> = {};
+      try {
+        const { createWebSearchToolEntry } =
+          await import("../extensions/web-search-tool.js");
+        const { resolveCredential } = await import("../credentials/index.js");
+        const { getCredentialContext: getCredCtx } =
+          await import("./request-context.js");
+        webSearchTool = createWebSearchToolEntry({
+          resolveCredential,
+          getCredentialContext: () => getCredCtx(),
+        });
+      } catch {}
       let toolActions: Record<string, ActionEntry> = {};
       try {
         const { createExtensionActionEntries } =
@@ -3754,6 +3766,7 @@ export function createAgentChatPlugin(
               ...notificationTools,
               ...progressTools,
               ...fetchTool,
+              ...webSearchTool,
               ...toolActions,
               ...browserSessionTools,
               ...browserTools,
@@ -3774,6 +3787,7 @@ export function createAgentChatPlugin(
               ...notificationTools,
               ...progressTools,
               ...fetchTool,
+              ...webSearchTool,
               ...toolActions,
               ...browserSessionTools,
               ...browserTools,
@@ -3807,6 +3821,7 @@ export function createAgentChatPlugin(
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...webSearchTool,
             ...toolActions,
             ...browserSessionTools,
             ...browserTools,
@@ -4853,6 +4868,7 @@ export function createAgentChatPlugin(
         ...notificationTools,
         ...progressTools,
         ...fetchTool,
+        ...webSearchTool,
         ...toolActions,
         ...browserSessionTools,
         ...browserTools,
@@ -5113,6 +5129,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...notificationTools,
                   ...progressTools,
                   ...fetchTool,
+                  ...webSearchTool,
                   ...toolActions,
                   ...browserSessionTools,
                   ...browserTools,
@@ -6915,6 +6932,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...webSearchTool,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
@@ -6963,6 +6981,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...webSearchTool,
             ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {

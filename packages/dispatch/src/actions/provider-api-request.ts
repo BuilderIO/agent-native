@@ -1,20 +1,19 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import {
-  DISPATCH_PROVIDER_API_IDS,
-  executeProviderApiRequest,
-} from "../server/lib/provider-api.js";
+import { executeProviderApiRequest } from "../server/lib/provider-api.js";
 
-const ProviderSchema = z.enum(DISPATCH_PROVIDER_API_IDS);
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
 export default defineAction({
   description:
-    "Make an arbitrary authenticated HTTP request to a shared workspace integration or configured provider API. Use this as the flexible escape hatch when Dispatch needs a provider endpoint, filter, pagination mode, payload, or API version that no canned action models. The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses.",
+    "Make an arbitrary authenticated HTTP request to a shared workspace integration, configured provider API, or custom provider registered via provider-api-register. Use this as the flexible escape hatch when Dispatch needs a provider endpoint, filter, pagination mode, payload, or API version that no canned action models. The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses.",
   schema: z.object({
-    provider: ProviderSchema.describe(
-      "Configured provider API to call, e.g. slack, github, notion, hubspot, gmail, google_drive, google_calendar, granola, stripe, jira.",
-    ),
+    provider: z
+      .string()
+      .min(1)
+      .describe(
+        "Provider id to call — built-in (e.g. slack, github, notion, hubspot, gmail, google_drive, google_calendar, granola, stripe, jira) or a custom provider id registered via provider-api-register. Use provider-api-catalog to list available providers.",
+      ),
     method: MethodSchema.default("GET").describe("HTTP method to use."),
     path: z
       .string()
