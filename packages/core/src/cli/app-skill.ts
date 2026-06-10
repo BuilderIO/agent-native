@@ -646,8 +646,15 @@ export function exportedSkillContentHash(
 ): string {
   const parts = skills
     .map((skill) => {
-      const file = path.join(manifestDir, skill.path, "SKILL.md");
-      const body = fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : "";
+      const skillDir = path.join(manifestDir, skill.path);
+      // Hash SKILL.md plus every sibling file under the skill dir (e.g.
+      // references/*), so a progressive-disclosure reference edit still changes
+      // the content hash and bumps the Codex plugin version for auto-upgrade.
+      const body = collectSkillFiles(skillDir)
+        .map(
+          (rel) => `${rel}\n${fs.readFileSync(path.join(skillDir, rel), "utf-8")}`,
+        )
+        .join("\n \n");
       return `${skillExportName(skill)}\n${body}`;
     })
     .sort();
