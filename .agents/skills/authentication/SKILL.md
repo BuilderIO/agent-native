@@ -119,7 +119,42 @@ window.location.href =
 
 After successful sign-in (token / email-password / Google OAuth), the framework 302s to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
 
-Bookmarked private paths already work without any plumbing — the framework's login page is served at the requested URL, and post-login reload returns the user there.
+Bookmarked private paths already work _when the request reaches the server_ — the auth guard serves the login page at the requested URL and post-login reload returns the user there.
+
+## Gating the App Shell (avoid the logged-out infinite spinner)
+
+The server auth guard only protects requests that actually reach the Nitro
+function. A statically-served / CDN-cached SPA shell, or a client-side (React
+Router) navigation made after the session expired, never re-hits the guard — so
+the app boots with **no session**, every data query 401s, and the UI sticks on
+its loading state forever. Server-side protection alone is not enough; gate on
+the client too.
+
+For a fully private app (every page requires auth, like mail), wrap the routed
+shell with the framework's `RequireSession`. It resolves the session on the
+client and redirects signed-out visitors to `/_agent-native/sign-in?return=…`
+instead of spinning:
+
+```tsx
+import { AppProviders, RequireSession } from "@agent-native/core/client";
+
+<AppProviders queryClient={queryClient}>
+  <RequireSession bypass={isMcpEmbedSurface()}>
+    <AppLayout>
+      <Outlet />
+    </AppLayout>
+  </RequireSession>
+</AppProviders>;
+```
+
+- Place it **inside** `AppProviders` (so the loading fallback is themed) and
+  **around** the layout/outlet — also around any always-mounted effects (poll,
+  automation trigger) so they don't fire 401s for logged-out visitors.
+- Pass `bypass` for surfaces that authenticate by another mechanism (embed /
+  popout iframes carrying their own token) so they are never bounced to sign-in.
+- Apps with public/anonymous routes (share pages) must **not** wrap the whole
+  app — gate only the private subtree, or use the `redirect={false}` +
+  `signedOut` props to render an inline call-to-action instead of redirecting.
 
 ## Related Skills
 

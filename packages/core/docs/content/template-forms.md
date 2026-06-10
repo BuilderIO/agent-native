@@ -64,13 +64,13 @@ See [What is agent-native?](/docs/what-is-agent-native) for the broader framewor
 ### Scaffolding
 
 ```bash
-npx @agent-native/core create my-forms --standalone --template forms
+npx @agent-native/core@latest create my-forms --standalone --template forms
 ```
 
 For a workspace with Forms alongside other apps:
 
 ```bash
-npx @agent-native/core create my-platform
+npx @agent-native/core@latest create my-platform
 ```
 
 Pick Forms and any other templates you want during the workspace setup.

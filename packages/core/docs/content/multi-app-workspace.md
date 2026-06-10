@@ -38,7 +38,7 @@ That same boundary applies when your app wants to use another first-party app. A
 Workspace is the default shape of an agent-native project. Scaffold one with:
 
 ```bash
-pnpm dlx @agent-native/core create my-company-platform
+npx @agent-native/core@latest create my-company-platform
 ```
 
 The CLI shows a multi-select picker of every first-party template. Pick as many as you want — Mail + Calendar + Forms, for example — and they all get scaffolded into the same workspace sharing auth and database defaults.
@@ -88,13 +88,13 @@ Every app already knows how to log in, share the same database, and load the wor
 From anywhere inside the workspace:
 
 ```bash
-npx @agent-native/core add-app
+npx @agent-native/core@latest add-app
 ```
 
 The CLI shows the template picker again with apps you've already installed filtered out. Pick one or more and they get scaffolded under `apps/`. Non-interactive variant:
 
 ```bash
-npx @agent-native/core add-app crm --template content
+npx @agent-native/core@latest add-app crm --template content
 ```
 
 Any first-party template works as a workspace app — the CLI runs a small **workspacify** transform on the template that adds the shared package as a dep and resolves `workspace:*` references. No parallel "workspace-app" scaffold to maintain.
@@ -211,13 +211,13 @@ You have two options: **unified deploy** (the default for workspaces) or per-app
 One command builds every app in the workspace and ships them behind a single origin, one path per app:
 
 ```bash
-agent-native deploy
+npx @agent-native/core@latest deploy
 # https://your-agents.com/mail/*       → apps/mail
 # https://your-agents.com/calendar/*   → apps/calendar
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>` and emitted through the selected Nitro preset. Cloudflare Pages is the default preset and uses a dispatcher worker at `dist/_worker.js` plus `_routes.json`. Netlify is supported with `agent-native deploy --preset netlify`; it emits app functions under `.netlify/functions-internal/<app>-server` and generated redirects that leave static assets unforced so the CDN serves files first. Vercel is supported with `agent-native deploy --preset vercel`; it writes a root `.vercel/output` bundle using Vercel's Build Output API.
+Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>` and emitted through the selected Nitro preset. Cloudflare Pages is the default preset and uses a dispatcher worker at `dist/_worker.js` plus `_routes.json`. Netlify is supported with `npx @agent-native/core@latest deploy --preset netlify`; it emits app functions under `.netlify/functions-internal/<app>-server` and generated redirects that leave static assets unforced so the CDN serves files first. Vercel is supported with `npx @agent-native/core@latest deploy --preset vercel`; it writes a root `.vercel/output` bundle using Vercel's Build Output API.
 
 Being on the **same origin** is where the real payoff lives:
 
@@ -234,13 +234,13 @@ wrangler pages deploy dist
 For Netlify:
 
 ```bash
-agent-native deploy --preset netlify --build-only
+npx @agent-native/core@latest deploy --preset netlify --build-only
 ```
 
 For Vercel Git deployments, set the build command to:
 
 ```bash
-pnpm exec agent-native deploy --preset vercel --build-only
+npx @agent-native/core@latest deploy --preset vercel --build-only
 ```
 
 ### Public app routes
@@ -274,7 +274,7 @@ These settings only affect read-only page navigation. Framework tools, agent cha
 
 ### Per-app independent deploy
 
-Prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && agent-native build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`. Cross-domain SSO between separately-deployed apps is handled by identity federation with Dispatch as the hub — see [Cross-App SSO](/docs/cross-app-sso); the unified single-origin deploy avoids needing it.
+Prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && npx @agent-native/core@latest build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`. Cross-domain SSO between separately-deployed apps is handled by identity federation with Dispatch as the hub — see [Cross-App SSO](/docs/cross-app-sso); the unified single-origin deploy avoids needing it.
 
 ### Shared database, shared credentials
 

@@ -60,7 +60,7 @@ The rest of this doc is for anyone forking the Content template or extending it.
 Scaffold a new workspace with the Content template:
 
 ```bash
-npx @agent-native/core create my-workspace --standalone --template content
+npx @agent-native/core@latest create my-workspace --standalone --template content
 cd my-workspace
 pnpm install
 pnpm dev

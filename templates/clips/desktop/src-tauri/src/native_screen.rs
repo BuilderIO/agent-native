@@ -421,6 +421,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         multi_segment,
     } = take_and_finalize_active_session(&state)?;
 
+    // The camera bubble is the ONE overlay we deliberately leave
+    // capture-included (see `show_bubble`), so it has to stay on-screen
+    // until the SCStream stops. Now that capture is finalized, tear it
+    // down immediately — otherwise the user's face keeps floating in the
+    // corner through the (multi-second) finalize + upload phase, reading
+    // as "still recording" while the bottom-left card says "processing".
+    let _ = crate::clips::close_bubble(app.clone()).await;
+
     let mut saved = saved_recording_from_session(
         &session,
         &server_url,
@@ -506,6 +514,9 @@ pub async fn native_fullscreen_recording_stop_and_save(
         consolidate_outcome,
         multi_segment,
     } = take_and_finalize_active_session(&state)?;
+    // Capture is finalized — drop the camera bubble now so the face
+    // doesn't linger while the clip saves (mirrors the upload path).
+    let _ = crate::clips::close_bubble(app.clone()).await;
     if let Err(err) = &stop_outcome {
         eprintln!(
             "[clips-tray] native local recording stop reported an error; attempting to save file anyway: {err}"

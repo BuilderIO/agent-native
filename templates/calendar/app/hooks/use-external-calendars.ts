@@ -1,6 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { callAction, useActionQuery } from "@agent-native/core/client";
-import type { ExternalCalendar } from "@shared/api";
+import type { CalendarEvent, ExternalCalendar } from "@shared/api";
+
+const EXTERNAL_CALENDARS_KEY = [
+  "action",
+  "list-external-calendars",
+  undefined,
+] as const;
 
 export function useExternalCalendars() {
   return useActionQuery<ExternalCalendar[]>("list-external-calendars");
@@ -16,7 +22,17 @@ export function useAddExternalCalendar() {
         throw new Error("Failed to add calendar");
       }
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
+      // Surface the new calendar in the sidebar immediately, then let the
+      // events query refetch in the background. The calendar view keeps the
+      // user's existing events visible and shows a small spinner while the new
+      // feed's events stream in — no skeleton over everything.
+      if (created) {
+        queryClient.setQueryData<ExternalCalendar[]>(
+          EXTERNAL_CALENDARS_KEY,
+          (old) => (old ? [...old, created] : [created]),
+        );
+      }
       queryClient.invalidateQueries({
         queryKey: ["action", "list-external-calendars"],
       });
@@ -67,11 +83,55 @@ export function useRemoveExternalCalendar() {
         throw new Error("Failed to remove calendar");
       }
     },
-    onSuccess: () => {
+    // Removal is instant: drop the calendar from the sidebar and strip just its
+    // events out of every cached range. The user's own events stay exactly
+    // where they are — no skeleton, and we deliberately do NOT invalidate
+    // `list-events` (a full multi-source refetch is what made everything blink
+    // out for several seconds). The cache is already correct; later navigation
+    // refetches naturally.
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
+      const previousCalendars = queryClient.getQueryData<ExternalCalendar[]>(
+        EXTERNAL_CALENDARS_KEY,
+      );
+      const previousEvents = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: ["action", "list-events"],
+      });
+
+      queryClient.setQueryData<ExternalCalendar[]>(
+        EXTERNAL_CALENDARS_KEY,
+        (old) => old?.filter((c) => c.id !== id),
+      );
+      const prefix = `ical-${id}-`;
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["action", "list-events"] },
+        (old) => old?.filter((e) => !e.id.startsWith(prefix)),
+      );
+
+      return { previousCalendars, previousEvents };
+    },
+    onError: (_err, _id, context) => {
+      const ctx = context as
+        | {
+            previousCalendars?: ExternalCalendar[];
+            previousEvents?: Array<
+              [readonly unknown[], CalendarEvent[] | undefined]
+            >;
+          }
+        | undefined;
+      if (ctx?.previousCalendars) {
+        queryClient.setQueryData(EXTERNAL_CALENDARS_KEY, ctx.previousCalendars);
+      }
+      if (ctx?.previousEvents) {
+        for (const [key, data] of ctx.previousEvents) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: ["action", "list-external-calendars"],
       });
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
     },
   });
 }

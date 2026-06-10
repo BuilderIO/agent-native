@@ -20,7 +20,7 @@ Use `DATABASE_AUTH_TOKEN` only when your database provider requires a separate t
 If your project is a [workspace](/docs/multi-app-workspace), you can ship every app in it to a single origin with one command:
 
 ```bash
-agent-native deploy
+npx @agent-native/core@latest deploy
 # https://your-agents.com/mail/*       → apps/mail
 # https://your-agents.com/calendar/*   → apps/calendar
 # https://your-agents.com/forms/*      → apps/forms
@@ -42,26 +42,26 @@ wrangler pages deploy dist
 For Netlify unified deploys, use the Netlify preset:
 
 ```bash
-agent-native deploy --preset netlify
+npx @agent-native/core@latest deploy --preset netlify
 ```
 
 For Vercel unified deploys, use the Vercel preset:
 
 ```bash
-agent-native deploy --preset vercel
+npx @agent-native/core@latest deploy --preset vercel
 ```
 
-When configuring a provider build command, use the same command with `--build-only`. Vercel should run `pnpm exec agent-native deploy --preset vercel --build-only`; the command writes `.vercel/output` directly, so no `vercel.json` is required for workspace routing.
+When configuring a provider build command, use the same command with `--build-only`. Vercel should run `npx @agent-native/core@latest deploy --preset vercel --build-only`; the command writes `.vercel/output` directly, so no `vercel.json` is required for workspace routing.
 
 Hosted workspace builds require `A2A_SECRET` in the deploy provider environment.
 This makes Slack, inbound webhooks, and cross-app A2A resume work through signed
 background processors. Local `--build-only` artifact checks still run without it.
 
-Per-app independent deploy is still supported — just `cd apps/<name> && agent-native build` like a standalone scaffold.
+Per-app independent deploy is still supported — just `cd apps/<name> && npx @agent-native/core@latest build` like a standalone scaffold.
 
 ## How It Works {#how-it-works}
 
-When you run `agent-native build`, Nitro builds both the client SPA and the server API into `.output/`:
+When you run `npx @agent-native/core@latest build`, Nitro builds both the client SPA and the server API into `.output/`:
 
 ```text
 .output/
@@ -90,7 +90,7 @@ export default defineConfig({
 Or use the `NITRO_PRESET` environment variable at build time:
 
 ```bash
-NITRO_PRESET=netlify agent-native build
+NITRO_PRESET=netlify npx @agent-native/core@latest build
 ```
 
 ## Node.js (Default) {#nodejs}
@@ -98,7 +98,7 @@ NITRO_PRESET=netlify agent-native build
 The default preset. Build and run:
 
 ```bash
-agent-native build
+npx @agent-native/core@latest build
 node .output/server/index.mjs
 ```
 
@@ -147,13 +147,13 @@ vercel deploy
 For a workspace, build every app into one Vercel Build Output API bundle:
 
 ```bash
-agent-native deploy --preset vercel
+npx @agent-native/core@latest deploy --preset vercel
 ```
 
 For Vercel Git deployments, set the build command to:
 
 ```bash
-pnpm exec agent-native deploy --preset vercel --build-only
+npx @agent-native/core@latest deploy --preset vercel --build-only
 ```
 
 The workspace build copies each app's Nitro `vercel` output into the root `.vercel/output`, gives each function its own mount-path environment, and writes the route config that serves apps at `/<app-id>`.
@@ -174,7 +174,7 @@ export default defineConfig({
 For a workspace, deploy every app from one Netlify site by running:
 
 ```bash
-agent-native deploy --preset netlify
+npx @agent-native/core@latest deploy --preset netlify
 ```
 
 The workspace build writes static assets under `dist/_workspace_static/` and routes each app to its own Netlify function without forced asset redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
@@ -210,13 +210,13 @@ export default defineConfig({
 
 ### Build / Runtime {#env-runtime}
 
-| Variable              | Description                                                                                                                          |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `PORT`                | Server port (Node.js only)                                                                                                           |
-| `NITRO_PRESET`        | Override build preset at build time                                                                                                  |
-| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone.                 |
-| `DATABASE_URL`        | Persistent SQL connection string. Required in production. See [Database](/docs/database#production) for adapter and dialect details. |
-| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL.                                                        |
+| Variable              | Description                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                | Server port (Node.js only)                                                                                                            |
+| `NITRO_PRESET`        | Override build preset at build time                                                                                                   |
+| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone. |
+| `DATABASE_URL`        | Persistent SQL connection string. Required in production. See [Database](/docs/database#production) for adapter and dialect details.  |
+| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL.                                                         |
 
 ### Required in Production {#env-required-prod}
 

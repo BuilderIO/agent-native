@@ -122,7 +122,7 @@ The embedded agent panel is part of every app — scaffold a template and it's
 already there:
 
 ```bash
-pnpm dlx @agent-native/core create my-app --template mail --standalone
+npx @agent-native/core@latest create my-app --template mail --standalone
 cd my-app
 pnpm dev
 ```

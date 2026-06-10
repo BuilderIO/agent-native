@@ -6,6 +6,7 @@ import {
   mergeCalendarEventIntoList,
   removeOptimisticCalendarEventFromList,
 } from "./event-list-cache";
+import { shouldShowEventsSkeleton } from "./use-events";
 
 function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -214,5 +215,59 @@ describe("calendar event list cache helpers", () => {
       ["future", "tentative"],
       ["other-series", "accepted"],
     ]);
+  });
+});
+
+describe("shouldShowEventsSkeleton", () => {
+  const week = "2026-05-18T00:00:00.000Z|2026-05-24T23:59:59.999Z";
+  const nextWeek = "2026-05-25T00:00:00.000Z|2026-05-31T23:59:59.999Z";
+
+  it("shows the skeleton on the very first load (pending, no data)", () => {
+    expect(
+      shouldShowEventsSkeleton({
+        isLoading: true,
+        isPlaceholderData: false,
+        settledRangeKey: null,
+        rangeKey: week,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows the skeleton when navigating to a new, unfetched date range", () => {
+    // keepPreviousData serves last week's events as placeholder while next week
+    // loads — showing them in next week's grid would be wrong, so we skeleton.
+    expect(
+      shouldShowEventsSkeleton({
+        isLoading: false,
+        isPlaceholderData: true,
+        settledRangeKey: week,
+        rangeKey: nextWeek,
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT show the skeleton when only the calendar set changes (the bug)", () => {
+    // Removing/adding a feed or person overlay changes the query key but not the
+    // date range. keepPreviousData keeps the user's events on screen, so we must
+    // keep showing them rather than wiping the calendar behind a skeleton.
+    expect(
+      shouldShowEventsSkeleton({
+        isLoading: false,
+        isPlaceholderData: true,
+        settledRangeKey: week,
+        rangeKey: week,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT show the skeleton during a same-range background refetch", () => {
+    expect(
+      shouldShowEventsSkeleton({
+        isLoading: false,
+        isPlaceholderData: false,
+        settledRangeKey: week,
+        rangeKey: week,
+      }),
+    ).toBe(false);
   });
 });

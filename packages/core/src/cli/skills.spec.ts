@@ -876,7 +876,9 @@ describe("agent-native skills", () => {
     expect(fs.existsSync(workflow)).toBe(true);
     expect(fs.readFileSync(workflow, "utf-8")).toContain("PR Visual Recap");
     expect(stdout.join("")).toContain("PR Visual Recap workflow: wrote");
-    expect(stdout.join("")).toContain("agent-native recap setup");
+    expect(stdout.join("")).toContain(
+      "npx @agent-native/core@latest recap setup",
+    );
   });
 
   it("prints a later command when the optional recap workflow prompt is declined", async () => {
@@ -909,7 +911,7 @@ describe("agent-native skills", () => {
     expect(promptGithubAction).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(path.join(root, ".github"))).toBe(false);
     expect(stdout.join("")).toContain(
-      "agent-native skills add visual-plan --with-github-action",
+      "npx @agent-native/core@latest skills add visual-plan --with-github-action",
     );
   });
 

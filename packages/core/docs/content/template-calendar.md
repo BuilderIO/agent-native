@@ -78,7 +78,7 @@ The rest of this doc is for anyone forking the Calendar template or extending it
 Create a new workspace with the Calendar template:
 
 ```bash
-npx @agent-native/core create my-app --standalone --template calendar
+npx @agent-native/core@latest create my-app --standalone --template calendar
 cd my-app
 pnpm install
 pnpm dev

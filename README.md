@@ -200,7 +200,7 @@ Every template is a complete cloneable SaaS — fork it, customize it with the a
 ## Quick Start
 
 ```bash
-npx @agent-native/core create my-platform
+npx @agent-native/core@latest create my-platform
 cd my-platform
 pnpm install
 pnpm dev
@@ -211,7 +211,7 @@ The CLI shows a multi-select picker so you can include as many templates as you 
 Want a single app, no monorepo? Use `--standalone`:
 
 ```bash
-npx @agent-native/core create my-app --standalone --template mail
+npx @agent-native/core@latest create my-app --standalone --template mail
 ```
 
 ## Workspaces (Monorepo)
@@ -234,13 +234,13 @@ my-platform/
 Add another app later:
 
 ```bash
-npx @agent-native/core add-app notes --template content
+npx @agent-native/core@latest add-app notes --template content
 ```
 
 Deploy every app behind one origin:
 
 ```bash
-agent-native deploy
+npx @agent-native/core@latest deploy
 # https://your-agents.com/mail/*       → mail
 # https://your-agents.com/calendar/*   → calendar
 # https://your-agents.com/forms/*      → forms

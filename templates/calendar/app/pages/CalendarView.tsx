@@ -40,6 +40,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Spinner } from "@/components/ui/spinner";
 import { MonthView } from "@/components/calendar/MonthView";
 import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
@@ -60,6 +61,7 @@ import {
   useUpdateEvent,
   useDeleteEvent,
   prefetchEvents,
+  shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -361,6 +363,7 @@ export default function CalendarView() {
     data: rawEventsData,
     error: eventsError,
     isLoading,
+    isFetching,
     isPlaceholderData,
   } = useEvents(from, to, overlayEmails);
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
@@ -418,9 +421,32 @@ export default function CalendarView() {
     }
   }, [isLoading, viewMode, selectedDate, overlayEmails, queryClient]);
 
-  // Show skeleton only when loading with no cached data (new date range).
-  // Tab refocus keeps cached data visible and refetches in background.
-  const eventsLoading = isLoading || isPlaceholderData;
+  // Show the skeleton only when there is genuinely nothing to show for the
+  // current date range — the first load, or navigating to a range we have not
+  // fetched yet. Crucially, do NOT show it when only the *set* of calendars
+  // changes (adding/removing a feed or person overlay). Those swaps change the
+  // query key, so `keepPreviousData` keeps the user's existing events on screen
+  // as placeholder data; flashing a skeleton over them is the bug. Instead we
+  // keep the events visible and let the refreshed set merge in. We track the
+  // last date range we settled real (non-placeholder) data for, so a skeleton
+  // only appears when the range itself differs.
+  const rangeKey = `${from}|${to}`;
+  const settledRangeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isLoading && !isPlaceholderData) {
+      settledRangeRef.current = rangeKey;
+    }
+  }, [isLoading, isPlaceholderData, rangeKey]);
+  const eventsLoading = shouldShowEventsSkeleton({
+    isLoading,
+    isPlaceholderData,
+    settledRangeKey: settledRangeRef.current,
+    rangeKey,
+  });
+  // A quiet background refresh is in flight (e.g. a newly added calendar's
+  // events are still loading) while the existing events stay visible. Drives a
+  // small non-blocking spinner instead of hiding everything behind a skeleton.
+  const eventsRefreshing = isFetching && !eventsLoading;
 
   // Apply overlay colors and filter hidden calendars
   const events = useMemo(() => {
@@ -1320,6 +1346,13 @@ export default function CalendarView() {
               <span className="ml-0.5 min-w-0 flex-1 truncate whitespace-nowrap text-center text-xs font-semibold sm:ml-1 sm:text-sm">
                 {headerLabel}
               </span>
+
+              {eventsRefreshing && (
+                <Spinner
+                  className="ml-1 size-3.5 shrink-0 text-muted-foreground"
+                  aria-label="Loading calendars"
+                />
+              )}
             </div>
 
             {/* Right: search, new event */}

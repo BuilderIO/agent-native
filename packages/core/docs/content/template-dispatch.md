@@ -119,7 +119,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 ## Scaffolding {#scaffolding}
 
 ```bash
-npx @agent-native/core create my-platform
+npx @agent-native/core@latest create my-platform
 # pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
 ```
 

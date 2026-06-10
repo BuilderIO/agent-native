@@ -233,6 +233,11 @@ export type { JSONContent } from "@tiptap/core";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
 export {
+  RequireSession,
+  buildSignInReturnHref,
+  type RequireSessionProps,
+} from "./require-session.js";
+export {
   sendToFrame,
   onFrameMessage,
   requestUserInfo,

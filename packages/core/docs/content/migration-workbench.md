@@ -16,7 +16,7 @@ npx @agent-native/core@latest code attach --last
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 ```
 
-**Agent-Native Code** is the open-source Claude Code/Codex-like workspace for coding work in Agent-Native. `agent-native` or `agent-native code` launches it with no prompt required, and a bare prompt starts a generic coding task directly. `/migrate` is one built-in capability for moving an existing app, URL, or described product into agent-native. It uses the same session store, transcript, and desktop hub as the CLI `code` command, so migration behaves like a goal you can resume, attach to, inspect, and stop rather than a separate one-off product.
+**Agent-Native Code** is the open-source Claude Code/Codex-like workspace for coding work in Agent-Native. `npx @agent-native/core@latest` or `npx @agent-native/core@latest code` launches it with no prompt required, and a bare prompt starts a generic coding task directly. `/migrate` is one built-in capability for moving an existing app, URL, or described product into agent-native. It uses the same session store, transcript, and desktop hub as the CLI `code` command, so migration behaves like a goal you can resume, attach to, inspect, and stop rather than a separate one-off product.
 
 See [Agent-Native Code UI](/docs/code-agents-ui) for the shared CLI run controls (`list`/`attach`/`logs`/`resume`/`status`/`stop`/`ui`) and the file-backed, long-running background-run model that `/migrate` sessions use.
 
@@ -35,7 +35,7 @@ full run-control command set).
 
 ## Code Workspace
 
-`agent-native code` opens the interactive Agent-Native Code shell. Inside the shell, `/migrate` is a slash goal alongside `/audit` and other built-in commands. Projects can also define custom migration variants in `.agents/commands/*.md`. The CLI and Desktop hub share the same run store — start in one and continue in the other using the standard `list`/`attach`/`logs`/`resume`/`approve`/`stop` controls.
+`npx @agent-native/core@latest code` opens the interactive Agent-Native Code shell. Inside the shell, `/migrate` is a slash goal alongside `/audit` and other built-in commands. Projects can also define custom migration variants in `.agents/commands/*.md`. The CLI and Desktop hub share the same run store — start in one and continue in the other using the standard `list`/`attach`/`logs`/`resume`/`approve`/`stop` controls.
 
 See [Agent-Native Code UI](/docs/code-agents-ui) for the full shell, run controls, Plan/Auto modes, slash-goal discovery, and Desktop hub integration.
 

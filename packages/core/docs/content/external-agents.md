@@ -85,16 +85,10 @@ In hosts that support MCP Apps, Analytics can render real dashboard and analysis
 
 Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, and Claude Cowork. (Cursor uses the paste-URL flow above; it does not need this CLI path.)
 
-If you have the Agent-Native CLI installed, run:
+Run the connect command through npm:
 
 ```bash
-agent-native connect https://dispatch.agent-native.com
-```
-
-Or run the same command through npm without installing anything globally:
-
-```bash
-npx @agent-native/core connect https://dispatch.agent-native.com
+npx @agent-native/core@latest connect https://dispatch.agent-native.com
 ```
 
 The command asks which local agent clients should receive MCP config. All clients are preselected the first time; after you choose, the selection is saved to `~/.agent-native/connect.json` so the next run can reuse it with Enter, or you can edit the checked items.
@@ -105,7 +99,7 @@ Keep the `connect` command running until the browser approval completes. If the
 waiting process is stopped early, the approval can succeed in the browser but
 the local client config will not receive the token.
 
-If you previously connected Claude Code through the old bearer-token flow, just run the same `agent-native connect ... --client claude-code` command again. The CLI replaces the legacy `Authorization` headers with the URL-only OAuth entry and tells you to re-authenticate from `/mcp`.
+If you previously connected Claude Code through the old bearer-token flow, just run the same `npx @agent-native/core@latest connect ... --client claude-code` command again. The CLI replaces the legacy `Authorization` headers with the URL-only OAuth entry and tells you to re-authenticate from `/mcp`.
 
 | Local client                  | Config written by `connect`                             | Auth flow                                       |
 | ----------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
@@ -136,8 +130,7 @@ npx skills add BuilderIO/agent-native --skill assets
 ```
 
 The raw `skills` CLI installs `SKILL.md` files only; local MCP clients still
-need a connector such as `npx @agent-native/core@latest connect
-https://assets.agent-native.com`.
+need a connector such as `npx @agent-native/core@latest connect https://assets.agent-native.com`.
 
 | Skill    | Alias              | For                    |
 | -------- | ------------------ | ---------------------- |
@@ -149,7 +142,7 @@ When you truly need an isolated app instead of Dispatch's workspace gateway,
 run the same command with that app's host:
 
 ```bash
-npx @agent-native/core connect https://mail.agent-native.com
+npx @agent-native/core@latest connect https://mail.agent-native.com
 ```
 
 `connect --all` still exists for legacy per-app client setups, but new
@@ -187,7 +180,7 @@ claude mcp add --transport http agent-native \
   https://dispatch.agent-native.com/_agent-native/mcp
 ```
 
-This is the same URL-only entry that `agent-native connect https://dispatch.agent-native.com --client claude-code` writes for you. Then run `/mcp` in Claude Code and choose **Authenticate**. The client discovers auth from the MCP server's `401 WWW-Authenticate` challenge, fetches `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers a public OAuth client, opens the app's authorization page, and stores the resulting token securely. ChatGPT developer-mode connectors use the same server URL:
+This is the same URL-only entry that `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code` writes for you. Then run `/mcp` in Claude Code and choose **Authenticate**. The client discovers auth from the MCP server's `401 WWW-Authenticate` challenge, fetches `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers a public OAuth client, opens the app's authorization page, and stores the resulting token securely. ChatGPT developer-mode connectors use the same server URL:
 
 ```text
 https://dispatch.agent-native.com/_agent-native/mcp
@@ -203,7 +196,7 @@ Current scopes are:
 | `mcp:write` | mutating actions and the `ask-agent` meta-tool                            |
 | `mcp:apps`  | MCP Apps resource listing/reading and inline UI rendering where supported |
 
-When the client requests no explicit scope, the app grants all three so the connector behaves like the browser-authorized Connect flow. Keep the bearer-token Connect page and `agent-native connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
+When the client requests no explicit scope, the app grants all three so the connector behaves like the browser-authorized Connect flow. Keep the bearer-token Connect page and `npx @agent-native/core@latest connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
 
 ## Catalog tiers {#catalog-tiers}
 
@@ -233,7 +226,7 @@ always serve the full action surface. When the env flag is set, individual
 callers can still opt up by minting their token with `--full-catalog`:
 
 ```bash
-agent-native connect https://plan.agent-native.com --full-catalog
+npx @agent-native/core@latest connect https://plan.agent-native.com --full-catalog
 ```
 
 This embeds a `catalog_scope: "full"` claim in the minted JWT. On subsequent
@@ -453,10 +446,10 @@ The hosted `connect` flow above is the recommended path. The options below are f
 
 ### Local development {#local-dev}
 
-Run your app locally (`pnpm dev` / `agent-native dev`), then point a local agent at it with one command:
+Run your app locally (`pnpm dev` / `npx @agent-native/core@latest dev`), then point a local agent at it with one command:
 
 ```bash
-agent-native mcp install --client claude-code|claude-code-cli|codex|cowork \
+npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|codex|cowork \
   [--app <id>] [--scope user|project]
 ```
 
@@ -466,17 +459,17 @@ It provisions a token (a random `ACCESS_TOKEN` into the workspace `.env` for loc
 - **cowork** — the same Claude Code JSON shape in `~/.cowork/mcp.json`.
 - **codex** — an `[mcp_servers.<name>]` block in `~/.codex/config.toml`.
 
-The entry runs `agent-native mcp serve --app <id>`, which by default is a **thin stdio proxy** to the running local app's `/_agent-native/mcp` — so the live action registry, HMR, and correct deep links stay the single source of truth. Pass `--standalone` to build the registry in-process instead. When `agent-native mcp install` detects a hosted origin (a non-localhost `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL` in the workspace `.env`), it writes an `http` client entry pointing at `<origin>/_agent-native/mcp` with a `Bearer` JWT instead of a stdio entry.
+The entry runs `npx @agent-native/core@latest mcp serve --app <id>`, which by default is a **thin stdio proxy** to the running local app's `/_agent-native/mcp` — so the live action registry, HMR, and correct deep links stay the single source of truth. Pass `--standalone` to build the registry in-process instead. When `npx @agent-native/core@latest mcp install` detects a hosted origin (a non-localhost `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL` in the workspace `.env`), it writes an `http` client entry pointing at `<origin>/_agent-native/mcp` with a `Bearer` JWT instead of a stdio entry.
 
 Companion subcommands:
 
-| Command                                   | What it does                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------- |
-| `agent-native mcp serve [--app <id>]`     | Run the MCP stdio transport (what client configs spawn).            |
-| `agent-native mcp install --client <c>`   | Provision a token + write the client's MCP config (idempotent).     |
-| `agent-native mcp uninstall --client <c>` | Remove the named MCP entry from a client's config (idempotent).     |
-| `agent-native mcp status`                 | Show resolved MCP URL/port, token state, and per-client entries.    |
-| `agent-native mcp token [--rotate]`       | Print (or rotate) the local `ACCESS_TOKEN` in the workspace `.env`. |
+| Command                                                    | What it does                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| `npx @agent-native/core@latest mcp serve [--app <id>]`     | Run the MCP stdio transport (what client configs spawn).            |
+| `npx @agent-native/core@latest mcp install --client <c>`   | Provision a token + write the client's MCP config (idempotent).     |
+| `npx @agent-native/core@latest mcp uninstall --client <c>` | Remove the named MCP entry from a client's config (idempotent).     |
+| `npx @agent-native/core@latest mcp status`                 | Show resolved MCP URL/port, token state, and per-client entries.    |
+| `npx @agent-native/core@latest mcp token [--rotate]`       | Print (or rotate) the local `ACCESS_TOKEN` in the workspace `.env`. |
 
 Restart the client after `install` so it picks up the new MCP server.
 
@@ -510,7 +503,7 @@ When you already have first-party hosted apps connected and want to test local f
 ```bash
 pnpm dev:lazy -- --apps mail,calendar,analytics
 
-agent-native connect dev --apps mail,calendar,analytics --client codex
+npx @agent-native/core@latest connect dev --apps mail,calendar,analytics --client codex
 ```
 
 `connect dev` rewrites the same stable MCP server names (`agent-native-mail`, `agent-native-calendar`, etc.) to the local dev-lazy gateway, so tool names do not change. It backs up the current production entries in `~/.agent-native/connect-profiles.json` before writing dev entries. The default gateway is `http://127.0.0.1:8080`; use `--gateway <url>` or `--port <n>` if your gateway moved.
@@ -518,7 +511,7 @@ agent-native connect dev --apps mail,calendar,analytics --client codex
 Switch back with:
 
 ```bash
-agent-native connect prod --apps mail,calendar,analytics --client codex
+npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --client codex
 ```
 
 If `connect dev` cannot infer your local owner identity from an existing connected JWT, pass `--owner-email you@example.com`; this keeps local dev tools on the full authenticated MCP surface instead of the sparse unauthenticated dev surface.
@@ -540,7 +533,7 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 
 **Do**
 
-- Connect your own agent to Dispatch with `npx @agent-native/core connect https://dispatch.agent-native.com`; use a direct app URL only when you want one isolated app.
+- Connect your own agent to Dispatch with `npx @agent-native/core@latest connect https://dispatch.agent-native.com`; use a direct app URL only when you want one isolated app.
 - Add a `link` builder to any action that produces or lists a navigable resource (draft, event, dashboard, document).
 - Build the URL with `buildDeepLink(...)` — the single source of truth for the open-route format.
 - Keep `link` pure and synchronous; return `null` when there's nothing to open.
