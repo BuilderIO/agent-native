@@ -37,12 +37,6 @@ hit an OAuth wall:
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-If you already have the CLI installed, the shorter command is equivalent:
-
-```bash
-agent-native skills add visual-plan
-```
-
 The command installs both commands: `/visual-plan` and `/visual-recap`.
 
 If you are using a chat-based host that accepts MCP connector URLs directly
@@ -68,7 +62,7 @@ npx @agent-native/core@latest skills add visual-plan --client all
 ```
 
 Pass `--no-connect` to register the connector without authenticating, then run
-`agent-native connect https://plan.agent-native.com` whenever you are ready:
+`npx @agent-native/core@latest connect https://plan.agent-native.com` whenever you are ready:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan --no-connect
@@ -83,8 +77,8 @@ see [PR Visual Recap](/docs/pr-visual-recap).
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-After the workflow is written, run `agent-native recap setup` to configure
-GitHub Actions secrets/variables where possible and `agent-native recap doctor`
+After the workflow is written, run `npx @agent-native/core@latest recap setup` to configure
+GitHub Actions secrets/variables where possible and `npx @agent-native/core@latest recap doctor`
 to verify the repo is ready.
 
 If you only want the portable instruction file through the open Skills CLI, use:
@@ -195,7 +189,7 @@ not call the hosted Plan MCP tools. The durable files are:
 After writing the folder, the agent validates and previews it locally:
 
 ```bash
-agent-native plan local preview --dir plans/<slug> --kind plan
+npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan
 ```
 
 If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can open the
@@ -227,7 +221,7 @@ model if that privacy boundary matters too.
 
 If a Plans tool ever returns `needs auth`, `Unauthorized`, or `Session
 terminated`, do not keep retrying it. Authenticate the connector with
-`agent-native connect https://plan.agent-native.com` (or re-run `/mcp` →
+`npx @agent-native/core@latest connect https://plan.agent-native.com` (or re-run `/mcp` →
 **Authenticate** in an OAuth-capable host), then continue once the connector is
 available.
 
@@ -239,7 +233,7 @@ Most users should install the skill with the CLI instead of scaffolding the app.
 ### Quick start
 
 ```bash
-npx @agent-native/core create my-plans --standalone --template plan
+npx @agent-native/core@latest create my-plans --standalone --template plan
 cd my-plans
 pnpm install
 pnpm dev

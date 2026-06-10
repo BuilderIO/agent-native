@@ -219,14 +219,14 @@ npx @agent-native/core@latest skills add assets
 npx skills add BuilderIO/agent-native --skill assets
 
 # Register a hosted MCP connector for local agent clients.
-agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
 # Materialize and run editable local source.
-agent-native app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
 # Build marketplace adapters: Codex plugin, Claude marketplace, Vercel skills,
 # plain/Claude skills, and MCP configs.
-agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
 # Install a local exported bundle with the Vercel/open Skills CLI.
 npx skills add ./dist/assets-skill --skill assets -a codex -y

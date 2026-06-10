@@ -66,7 +66,7 @@ That's the whole point. Fork a template and customize it by asking the agent. "A
 
 ### Can I build something the templates don't cover? {#build-from-scratch}
 
-Yes. Run `npx @agent-native/core create my-app` and accept the default **Starter** selection in the picker (or pass `--template starter`) — you get the framework scaffolding (frontend, backend, agent panel, database) but no domain-specific code. See [Getting Started](/docs/getting-started). For agent-first products with no traditional UI, see [Pure-Agent Apps](/docs/pure-agent-apps).
+Yes. Run `npx @agent-native/core@latest create my-app` and accept the default **Starter** selection in the picker (or pass `--template starter`) — you get the framework scaffolding (frontend, backend, agent panel, database) but no domain-specific code. See [Getting Started](/docs/getting-started). For agent-first products with no traditional UI, see [Pure-Agent Apps](/docs/pure-agent-apps).
 
 ### Can I try it without forking a template? {#try-with-a-skill}
 

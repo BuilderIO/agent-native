@@ -22,7 +22,7 @@ Not sure which path? If you've never written code, the hosted version is for you
 Three commands and you're up:
 
 ```bash
-npx @agent-native/core create my-platform
+npx @agent-native/core@latest create my-platform
 cd my-platform
 pnpm install && pnpm dev
 ```
@@ -73,14 +73,14 @@ Run `create` from the folder where you want a brand-new workspace:
 
 ```bash
 cd ~/projects
-npx @agent-native/core create my-platform
+npx @agent-native/core@latest create my-platform
 ```
 
 After a workspace exists, run app commands from the workspace root:
 
 ```bash
 cd my-platform
-npx @agent-native/core add-app
+npx @agent-native/core@latest add-app
 pnpm install
 pnpm dev
 ```
@@ -90,7 +90,7 @@ If your terminal is inside `apps/content` or another app folder, the CLI still d
 To make a second app from the same template, give it a new app name:
 
 ```bash
-npx @agent-native/core add-app design-lab --template design
+npx @agent-native/core@latest add-app design-lab --template design
 ```
 
 ## Try it with a skill {#try-with-a-skill}
@@ -136,10 +136,10 @@ Good first moves:
 - **Open Agent-Native Code** — run `npx @agent-native/core@latest` or `npx @agent-native/core@latest code` from the project. A bare command opens the local Claude Code/Codex-like workspace; a bare prompt such as `npx @agent-native/core@latest "rename the app"` starts a Code task directly.
 - **Ask the built-in agent what it sees** — open the agent panel and type "what app am I looking at, and what can you do here?" This verifies the app, UI state, and agent loop are all talking to each other.
 - **Make a tiny customization** — ask your coding tool to rename the app, change the first screen copy, or add one field to a form. It will read `AGENTS.md` for the framework conventions.
-- **Add another app to the same workspace** — use `npx @agent-native/core add-app` from inside the workspace folder. The command starts at `npx`.
-- **Single app instead of a monorepo?** Pass `--standalone` when creating: `npx @agent-native/core create my-app --standalone --template mail`.
+- **Add another app to the same workspace** — use `npx @agent-native/core@latest add-app` from inside the workspace folder. The command starts at `npx`.
+- **Single app instead of a monorepo?** Pass `--standalone` when creating: `npx @agent-native/core@latest create my-app --standalone --template mail`.
 
-Agent-Native Code understands built-in slash goals such as `/migrate` and `/audit`, plus project commands in `.agents/commands/*.md`. Use `agent-native code list`, `status`, `resume`, `stop`, or `ui` to inspect and control the same run from the CLI, the local UI, or the Desktop Code tab.
+Agent-Native Code understands built-in slash goals such as `/migrate` and `/audit`, plus project commands in `.agents/commands/*.md`. Use `npx @agent-native/core@latest code list`, `status`, `resume`, `stop`, or `ui` to inspect and control the same run from the CLI, the local UI, or the Desktop Code tab.
 
 ## Architecture principles {#architecture-principles}
 

@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { callAction, useActionQuery } from "@agent-native/core/client";
-import type { OverlayPerson } from "@shared/api";
+import type { CalendarEvent, OverlayPerson } from "@shared/api";
 import { getNextOverlayColor } from "@/lib/overlay-colors";
+
+const OVERLAY_PEOPLE_KEY = ["action", "get-overlay-people", undefined] as const;
 
 export function useOverlayPeople() {
   return useActionQuery<OverlayPerson[]>("get-overlay-people");
@@ -74,8 +76,7 @@ export function useRemoveOverlayPerson() {
   return useMutation({
     mutationFn: async (email: string) => {
       const current: OverlayPerson[] =
-        queryClient.getQueryData(["action", "get-overlay-people", undefined]) ??
-        [];
+        queryClient.getQueryData(OVERLAY_PEOPLE_KEY) ?? [];
       const updated = current.filter((p) => p.email !== email);
       try {
         await callAction<OverlayPerson[]>(
@@ -88,12 +89,49 @@ export function useRemoveOverlayPerson() {
       }
       return updated;
     },
-    onSuccess: (data) => {
-      queryClient.setQueryData(
-        ["action", "get-overlay-people", undefined],
-        data,
+    // Removal is instant. Dropping a person changes the events query key
+    // (overlayEmails), so the calendar shows the previous range's data as a
+    // placeholder while it refetches — we strip this person's events out of
+    // every cached range up front so they vanish immediately instead of
+    // lingering until the refetch lands. The user's own events stay put.
+    onMutate: async (email: string) => {
+      await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
+      const previousPeople =
+        queryClient.getQueryData<OverlayPerson[]>(OVERLAY_PEOPLE_KEY);
+      const previousEvents = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: ["action", "list-events"],
+      });
+
+      queryClient.setQueryData<OverlayPerson[]>(OVERLAY_PEOPLE_KEY, (old) =>
+        old?.filter((p) => p.email !== email),
       );
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["action", "list-events"] },
+        (old) => old?.filter((e) => e.overlayEmail !== email),
+      );
+
+      return { previousPeople, previousEvents };
+    },
+    onError: (_err, _email, context) => {
+      const ctx = context as
+        | {
+            previousPeople?: OverlayPerson[];
+            previousEvents?: Array<
+              [readonly unknown[], CalendarEvent[] | undefined]
+            >;
+          }
+        | undefined;
+      if (ctx?.previousPeople) {
+        queryClient.setQueryData(OVERLAY_PEOPLE_KEY, ctx.previousPeople);
+      }
+      if (ctx?.previousEvents) {
+        for (const [key, data] of ctx.previousEvents) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(OVERLAY_PEOPLE_KEY, data);
     },
   });
 }

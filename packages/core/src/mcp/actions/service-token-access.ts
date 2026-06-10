@@ -43,6 +43,22 @@ export async function getOrgRoleForEmail(
   }
 }
 
+/**
+ * Return all org IDs the email belongs to, or [] when the org tables are
+ * absent (template without orgs).
+ */
+async function getOrgIdsForEmail(email: string): Promise<string[]> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
+      args: [email.toLowerCase()],
+    });
+    return rows.map((r) => String(r.org_id)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export interface ServiceTokenCallerContext {
   email: string;
   orgId: string;
@@ -64,13 +80,30 @@ export async function requireServiceTokenCaller(params: {
   if (!email) {
     throw new ServiceTokenError("Sign in to manage org service tokens.", 401);
   }
-  const orgId = params.orgId?.trim();
+
+  // Prefer the org ID from the token's claims; fall back to looking up the
+  // user's org membership when the token was minted without org context (e.g.
+  // a personal connect token created before the user joined an org, or one
+  // created from a session that had no active org at the time).
+  let orgId = params.orgId?.trim() || "";
   if (!orgId) {
-    throw new ServiceTokenError(
-      "No active organization. Service tokens are org-scoped — join or create an organization first.",
-      400,
-    );
+    const memberOrgs = await getOrgIdsForEmail(email);
+    if (memberOrgs.length === 0) {
+      throw new ServiceTokenError(
+        "No active organization. Service tokens are org-scoped — join or create an organization first.",
+        400,
+      );
+    }
+    if (memberOrgs.length > 1) {
+      throw new ServiceTokenError(
+        "Your session is not scoped to a specific organization and you belong to multiple orgs. " +
+          "Re-authenticate with an org-scoped session to disambiguate.",
+        400,
+      );
+    }
+    orgId = memberOrgs[0];
   }
+
   const role = await getOrgRoleForEmail(orgId, email);
   if (!role) {
     throw new ServiceTokenError(

@@ -5,11 +5,11 @@ description: "Build and customize Agent-Native Code surfaces with the shared UI 
 
 # Agent-Native Code UI
 
-Agent-Native Code is the Agent-Native coding surface: a local Claude Code/Codex-style workspace for coding sessions, slash commands, migrations, audits, transcripts, run controls, and follow-ups. A bare `npx @agent-native/core@latest` or installed `agent-native` command opens this workspace; `agent-native code` is the explicit subcommand for the same experience.
+Agent-Native Code is the Agent-Native coding surface: a local Claude Code/Codex-style workspace for coding sessions, slash commands, migrations, audits, transcripts, run controls, and follow-ups. A bare `npx @agent-native/core@latest` command opens this workspace; `npx @agent-native/core@latest code` is the explicit subcommand for the same experience.
 
 There are three layers:
 
-- **CLI**: `npx @agent-native/core@latest`, `agent-native`, and `agent-native code` start, resume, inspect, and stop runs.
+- **CLI**: `npx @agent-native/core@latest` and `npx @agent-native/core@latest code` start, resume, inspect, and stop runs.
 - **Desktop**: the left-sidebar Code tab adds native terminal launch, app webviews, and desktop deep links while using the same run model.
 - **Shared UI**: `@agent-native/code-agents-ui` renders the reusable React surface.
 
@@ -95,19 +95,18 @@ The top-level CLI behaves like Claude Code or Codex:
 
 ```bash
 npx @agent-native/core@latest
-agent-native
-agent-native "fix the failing auth tests"
-agent-native code
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
 ```
 
-Use `agent-native code` when you want the explicit namespace. Built-in slash
+Use `npx @agent-native/core@latest code` when you want the explicit namespace. Built-in slash
 goals and project commands can run inside the interactive workspace or directly
 from the shell:
 
 ```bash
-agent-native code /migrate ./legacy-app --emit ./migration-dossier
-agent-native code /audit --url https://example.com
-agent-native code /release-check
+npx @agent-native/core@latest code /migrate ./legacy-app --emit ./migration-dossier
+npx @agent-native/core@latest code /audit --url https://example.com
+npx @agent-native/core@latest code /release-check
 ```
 
 Here `/migrate` and `/audit` are built-in goals (the built-in goals are
@@ -118,13 +117,13 @@ commands come from `.agents/commands/*.md`; project skills come from
 records that the Desktop Code tab and shared UI display:
 
 ```bash
-agent-native code list
-agent-native code status --last
-agent-native code attach --last
-agent-native code logs --last
-agent-native code resume --last
-agent-native code stop --last
-agent-native code ui
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
 ```
 
 `resume` appends context and continues a run, `status` reports the latest run
@@ -267,7 +266,7 @@ Project skills live in:
 .agents/skills/*/SKILL.md
 ```
 
-When the host implements `listCodePacks`, the shared UI shows project commands and skills in the rail. Command rows insert `/<command>`, and skill rows insert a focused “Use the <skill> skill…” prompt so the rail stays actionable. The built-in slash goals `/migrate` and `/audit` stay reserved for the global Agent-Native Code controls, as do run-control names such as `status` and `resume` — those are subcommands invoked without a slash (`agent-native code status`, `agent-native code resume`), not slash goals.
+When the host implements `listCodePacks`, the shared UI shows project commands and skills in the rail. Command rows insert `/<command>`, and skill rows insert a focused “Use the <skill> skill…” prompt so the rail stays actionable. The built-in slash goals `/migrate` and `/audit` stay reserved for the global Agent-Native Code controls, as do run-control names such as `status` and `resume` — those are subcommands invoked without a slash (`npx @agent-native/core@latest code status`, `npx @agent-native/core@latest code resume`), not slash goals.
 
 Do not create a separate slash-command registry for a new Code host. Project
 commands and skills are discovered from `.agents/commands/*.md` and

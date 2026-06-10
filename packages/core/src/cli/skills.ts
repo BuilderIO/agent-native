@@ -144,7 +144,7 @@ of using a generic image generator.
   browser approved but the local MCP config unwritten. Restart or reload the
   agent client after installing or connecting if Assets tools do not appear in
   the live session.
-- Local customization: use \`agent-native app-skill launch --local\` from an
+- Local customization: use \`npx @agent-native/core@latest app-skill launch --local\` from an
   Assets app-skill manifest, or pass \`--into <path>\` for editable source.
 - Do not call image/video providers directly from another app. Assets owns
   generation, picker UI, search/list/export, and asset context.
@@ -249,7 +249,7 @@ authenticates it in the same step (a one-time browser sign-in at setup — this 
 intended), so the first tool call does not hit an OAuth wall:
 
 \`\`\`bash
-agent-native skills add visual-plan
+npx @agent-native/core@latest skills add visual-plan
 \`\`\`
 
 After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
@@ -257,7 +257,7 @@ commands. The other planning modes (\`create-ui-plan\`, \`create-prototype-plan\
 \`create-plan-design\`, \`create-visual-questions\`) are MCP tools reachable from
 \`/visual-plan\`, not separate slash commands. Pass \`--no-connect\` to register
 the connector without authenticating, then run
-\`agent-native connect https://plan.agent-native.com\` whenever you are ready.
+\`npx @agent-native/core@latest connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
 with no sign-up — you work as a guest. Sign in only when you want to save or
@@ -272,7 +272,7 @@ hosted flow.
 
 If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
 do not keep retrying the tool. Authenticate the connector with
-\`agent-native connect https://plan.agent-native.com\` (OAuth-capable hosts can
+\`npx @agent-native/core@latest connect https://plan.agent-native.com\` (OAuth-capable hosts can
 instead re-run /mcp and choose Authenticate), then continue once the connector
 is available.
 
@@ -952,7 +952,7 @@ inline output: the usual cause is a connector that did not finish connecting
 this session (it registers zero tools), not auth. Stop and give the user the
 exact restore step — reconnect via \`/mcp\` (or restart the session); only if
 genuinely unauthenticated, run
-\`agent-native connect https://plan.agent-native.com\`. Publish once the tool is
+\`npx @agent-native/core@latest connect https://plan.agent-native.com\`. Publish once the tool is
 reachable. Local-files privacy mode (after Tool Guidance) is the only
 exception.
 
@@ -1126,7 +1126,7 @@ The local-files contract is:
 - Write the plan as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
   optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
   \`.plan-state.json\`.
-- Run \`agent-native plan local preview --dir plans/<slug> --kind plan\` after
+- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan\` after
   writing or updating the folder. Report the returned local URL or the
   \`/local-plans/<slug>\` route if the local Plan app is running with the same
   \`PLAN_LOCAL_DIR\`.
@@ -1215,14 +1215,14 @@ exception to the hosted publish rule below.
 In local-files mode:
 
 - Read the diff/stat/source context from local files and shell commands only.
-  The existing \`agent-native recap collect-diff\`, \`scan\`, and
+  The existing \`npx @agent-native/core@latest recap collect-diff\`, \`scan\`, and
   \`build-prompt --local-files\` helpers are safe to use because they operate on
   local files and do not write to the Plan database.
 - Write the recap as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
   optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
   \`.plan-state.json\`. Set \`kind: "recap"\` and \`localOnly: true\` in
   frontmatter/state when authoring the source.
-- Run \`agent-native plan local preview --dir plans/<slug> --kind recap\` after
+- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap\` after
   writing or updating the folder. Report the returned local URL or the
   \`/local-plans/<slug>\` route if the local Plan app is running with the same
   \`PLAN_LOCAL_DIR\`.
@@ -1260,7 +1260,7 @@ connector that did not finish connecting this session (it registers zero tools),
 NOT necessarily an auth problem — so do not assume the user must authenticate.
 Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
 Claude Code, run \`/mcp\` and reconnect, or restart the session); only if it is
-genuinely unauthenticated, run \`agent-native connect <plan-app-url>\` or
+genuinely unauthenticated, run \`npx @agent-native/core@latest connect <plan-app-url>\` or
 re-authenticate via \`/mcp\`. Then publish once the tool is reachable. Falling
 back to inline content is a defect, not a degraded mode.
 
@@ -1437,7 +1437,7 @@ a headless CI agent), state that in the recap handoff instead.
 ## Open And Report The Recap
 
 In local-files privacy mode, report the local preview URL/path from
-\`agent-native plan local preview\` or the \`/local-plans/<slug>\` route for a local
+\`npx @agent-native/core@latest plan local preview\` or the \`/local-plans/<slug>\` route for a local
 Plan app using the same \`PLAN_LOCAL_DIR\`. Do not invent a hosted URL and do not
 publish just to get an absolute Plan link.
 
@@ -2059,7 +2059,7 @@ export interface SkillsAddResult {
    */
   connected?: boolean;
   /**
-   * The exact `agent-native connect <url>` command to run when interactive auth
+   * The exact `npx @agent-native/core@latest connect <url>` command to run when interactive auth
    * was skipped (non-interactive shell / CI). Empty when connect ran inline or
    * was not needed.
    */
@@ -2542,11 +2542,11 @@ function prVisualRecapWorkflowDisplayPath(): string {
 }
 
 function prVisualRecapInstallCommand(): string {
-  return "agent-native skills add visual-plan --with-github-action";
+  return "npx @agent-native/core@latest skills add visual-plan --with-github-action";
 }
 
 function prVisualRecapSetupCommand(): string {
-  return "agent-native recap setup";
+  return "npx @agent-native/core@latest recap setup";
 }
 
 async function promptForGithubAction(
@@ -3075,7 +3075,7 @@ function canRunInteractiveConnect(options: RunSkillsOptions): boolean {
   return !!process.stdin.isTTY && !!process.stdout.isTTY;
 }
 
-/** Build the `agent-native connect <url> --client … --scope …` command. */
+/** Build the `npx @agent-native/core@latest connect <url> --client … --scope …` command. */
 function connectCommandFor(
   hostedUrl: string,
   clients: ClientId[],
@@ -3285,7 +3285,7 @@ export async function addAgentNativeSkill(
 
     if (parsed.mcp) {
       commands.push(
-        `agent-native app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
+        `npx @agent-native/core@latest app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
       );
       if (!parsed.dryRun) {
         await ensureAppSkill(installTarget.loaded, {

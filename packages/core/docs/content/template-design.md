@@ -54,7 +54,7 @@ The rest of this doc is for anyone forking the Design template or extending it.
 ### Scaffolding
 
 ```bash
-npx @agent-native/core create my-design --standalone --template design
+npx @agent-native/core@latest create my-design --standalone --template design
 ```
 
 ### Data model

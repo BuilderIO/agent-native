@@ -99,7 +99,7 @@ The rest of this doc is for anyone forking the Mail template or extending it.
 Create a new workspace with the Mail template:
 
 ```bash
-npx @agent-native/core create my-mail --standalone --template mail
+npx @agent-native/core@latest create my-mail --standalone --template mail
 cd my-mail
 pnpm install
 pnpm dev
@@ -108,7 +108,7 @@ pnpm dev
 Or add Mail to an existing agent-native workspace:
 
 ```bash
-npx @agent-native/core add-app
+npx @agent-native/core@latest add-app
 ```
 
 To connect Gmail in dev, you need a Google OAuth client:

@@ -1,19 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const LOGIN_HTML_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
-const LOGIN_HTML_CDN_CACHE_CONTROL = LOGIN_HTML_CACHE_CONTROL;
-const LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+// The login HTML is never CDN-cached: its content reflects live server config
+// (e.g. whether GOOGLE_CLIENT_ID is set), so a stale cached copy would show the
+// wrong UI even after env vars are corrected. It must be `private, no-store`
+// with no CDN cache-control headers at all.
+const LOGIN_HTML_CACHE_CONTROL = "private, no-store";
 
 function expectLoginHtmlCacheHeaders(response: Response) {
   expect(response.headers.get("Cache-Control")).toBe(LOGIN_HTML_CACHE_CONTROL);
-  expect(response.headers.get("CDN-Cache-Control")).toBe(
-    LOGIN_HTML_CDN_CACHE_CONTROL,
-  );
-  expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(
-    LOGIN_HTML_NETLIFY_CDN_CACHE_CONTROL,
-  );
+  expect(response.headers.get("CDN-Cache-Control")).toBe(null);
+  expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(null);
 }
 
 describe("server/auth", () => {

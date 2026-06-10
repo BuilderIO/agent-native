@@ -22,13 +22,13 @@ A good template:
 Use the CLI-only Starter scaffold when you want a blank app with the framework wiring already in place:
 
 ```bash
-pnpm dlx @agent-native/core create my-template --template starter --standalone
+npx @agent-native/core@latest create my-template --template starter --standalone
 ```
 
 For a workspace with multiple apps, run the picker and include Starter with any domain templates you want:
 
 ```bash
-pnpm dlx @agent-native/core create my-platform
+npx @agent-native/core@latest create my-platform
 ```
 
 Starter gives you auth, the agent sidebar, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
@@ -388,7 +388,7 @@ Before sharing:
 Community templates can be created from a GitHub repo:
 
 ```bash
-pnpm dlx @agent-native/core create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template github:user/repo
 ```
 
 ## Contributing to the framework monorepo {#contributing}

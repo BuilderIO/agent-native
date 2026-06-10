@@ -112,7 +112,6 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
-import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
 import {
   normalizeWorkspaceAppAudience,
   workspaceAppAudienceFromEnv,
@@ -1460,10 +1459,11 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      // The sign-in document is part of the public server shell. Keep it on the
-      // same short-fresh/long-SWR CDN policy as React Router SSR so hosted
-      // template roots do not invoke origin just to render anonymous login UI.
-      ...DEFAULT_SSR_CACHE_HEADERS,
+      // Never CDN-cache the login page — its content reflects live server
+      // config (e.g. whether GOOGLE_CLIENT_ID is set). A stale cached response
+      // would show the wrong UI (missing Google button, error message) even
+      // after env vars are correctly configured.
+      "cache-control": "private, no-store",
       "X-Robots-Tag": "noindex, nofollow",
     },
   });

@@ -127,6 +127,37 @@ function updateListEventQueries(
   }
 }
 
+/**
+ * Decide whether to show the full-page events skeleton.
+ *
+ * The skeleton should appear only when there is nothing meaningful to show for
+ * the *current date range* — the very first load, or navigating to a range we
+ * have not fetched yet. When only the *set* of calendars or person overlays
+ * changes (adding/removing a feed or person), the events query key changes and
+ * `keepPreviousData` keeps the user's existing events on screen as placeholder
+ * data; flashing a skeleton over them — wiping the calendar for several seconds
+ * — is the bug we are avoiding. In that case we keep the events visible and let
+ * the refreshed set merge in.
+ *
+ * `settledRangeKey` is the date range we last had real (non-placeholder) data
+ * for; comparing it to the current `rangeKey` tells a genuine range change
+ * apart from a same-range refetch triggered by a calendar toggle.
+ */
+export function shouldShowEventsSkeleton({
+  isLoading,
+  isPlaceholderData,
+  settledRangeKey,
+  rangeKey,
+}: {
+  isLoading: boolean;
+  isPlaceholderData: boolean;
+  settledRangeKey: string | null;
+  rangeKey: string;
+}): boolean {
+  if (isLoading) return true;
+  return isPlaceholderData && settledRangeKey !== rangeKey;
+}
+
 export function useEvents(
   from?: string,
   to?: string,

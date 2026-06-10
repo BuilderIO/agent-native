@@ -14,12 +14,14 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useDbSync } from "@agent-native/core";
 import {
   AppProviders,
+  RequireSession,
   appPath,
   appApiPath,
   createAgentNativeQueryClient,
   getThemeInitScript,
 } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { markExternalEmailRefresh } from "@/hooks/use-emails";
 import { Button } from "@/components/ui/button";
 import type { LinksFunction } from "react-router";
@@ -261,13 +263,15 @@ export default function Root() {
       tooltipDelayDuration={300}
       toaster={MAIL_TOASTER}
     >
-      <AutoFocus />
-      <AutomationTrigger />
-      <VisibilityRefresh />
-      <DbSyncSetup />
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
+      <RequireSession bypass={isMcpEmbedSurface()}>
+        <AutoFocus />
+        <AutomationTrigger />
+        <VisibilityRefresh />
+        <DbSyncSetup />
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
+      </RequireSession>
     </AppProviders>
   );
 }

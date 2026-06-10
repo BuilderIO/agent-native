@@ -87,13 +87,13 @@ Not ready to scaffold? You can add agent-native superpowers to a coding agent yo
 If you're scaffolding now, the CLI command is:
 
 ```bash
-npx @agent-native/core create my-platform
+npx @agent-native/core@latest create my-platform
 ```
 
 You'll get a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked template is scaffolded into `apps/<name>/` with every file you need.
 
 Fill in `.env` (mostly `ANTHROPIC_API_KEY` and `DATABASE_URL`), `pnpm install`, `pnpm dev`, and it works. No "TODO: implement login," no placeholder routes.
 
-Deploy targets: any Nitro-compatible host (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) and any Drizzle-compatible SQL database (SQLite, Postgres, Turso, D1, Supabase, Neon). For workspaces, `agent-native deploy` builds every app at once and ships them behind a single origin. See [Deployment](/docs/deployment).
+Deploy targets: any Nitro-compatible host (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) and any Drizzle-compatible SQL database (SQLite, Postgres, Turso, D1, Supabase, Neon). For workspaces, `npx @agent-native/core@latest deploy` builds every app at once and ships them behind a single origin. See [Deployment](/docs/deployment).
 
 To author and publish your own template, see [Creating Templates](/docs/creating-templates).

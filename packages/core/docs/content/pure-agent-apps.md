@@ -65,7 +65,7 @@ If you're not a developer, you can usually start with the [Dispatch template](/d
 For developers who want the absolute minimum, start from the **Starter** template:
 
 ```bash
-npx @agent-native/core create my-agent --template starter
+npx @agent-native/core@latest create my-agent --template starter
 ```
 
 Starter gives you the architecture, the agent panel, the workspace, auth, polling, and one example action — and nothing else. Add your own actions in `actions/`, connect any MCP servers you need, write the relevant skills into the workspace, and you're done.

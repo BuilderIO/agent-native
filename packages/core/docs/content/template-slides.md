@@ -71,7 +71,7 @@ The rest of this doc is for anyone forking the Slides template or extending it.
 Create a new Slides app from the CLI:
 
 ```bash
-npx @agent-native/core create my-slides --standalone --template slides
+npx @agent-native/core@latest create my-slides --standalone --template slides
 cd my-slides
 pnpm install
 pnpm dev
