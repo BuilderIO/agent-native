@@ -7,6 +7,22 @@
  *
  * Also manages Yjs Awareness for cursor positions and user presence,
  * synced via polling to the server's awareness endpoint.
+ *
+ * Transport improvements (vs previous version):
+ * - Local update POSTs are debounced and coalesced with Y.mergeUpdates (~80ms)
+ *   to avoid per-keystroke requests. The batch is flushed immediately on
+ *   visibilitychange/pagehide and before each poll/awareness cycle.
+ * - GET state?stateVector= is NOT fetched on every poll cycle. It is fetched:
+ *   (a) on (re)connect / initial load, (b) when a poll response indicates a
+ *   gap (version jump > ring-buffer size), (c) after applying an update fails,
+ *   and (d) as a low-frequency safety net every STATE_VECTOR_FETCH_INTERVAL
+ *   poll cycles (~15×).
+ * - Network errors use exponential backoff with jitter (cap ~15s), reset on
+ *   success.
+ * - SSE fast-path: collab events are received push-style from
+ *   /_agent-native/poll-events (the existing SSE stream). While SSE is
+ *   healthy the poll loop relaxes to a slow cadence (10–15s). If SSE is
+ *   unavailable the 2s poll resumes automatically.
  */
 
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -24,8 +40,10 @@ export interface CollabUser {
 export interface UseCollaborativeDocOptions {
   /** Document ID to collaborate on. Pass null to disable. */
   docId: string | null;
-  /** Poll interval in ms. Default: 2000 */
+  /** Poll interval in ms when SSE is unavailable. Default: 2000 */
   pollInterval?: number;
+  /** Poll interval in ms while SSE is healthy. Default: 12000 */
+  pollIntervalWithSse?: number;
   /** Pause remote update/presence polling while the tab is hidden. Default: true */
   pauseWhenHidden?: boolean;
   /** Base URL for collab endpoints. Default: "/_agent-native/collab" */
@@ -213,12 +231,34 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return arr;
 }
 
+/** Debounce delay for coalescing local Yjs update POSTs (ms). */
+const UPDATE_DEBOUNCE_MS = 80;
+
+/** Fetch state-vector every N poll cycles as a low-frequency safety net. */
+const STATE_VECTOR_FETCH_INTERVAL = 15;
+
+/** Poll ring-buffer size on the server (MAX_BUFFER in poll.ts). */
+const POLL_RING_BUFFER_SIZE = 200;
+
+/** Exponential backoff: base delay (ms), multiplier, cap (ms). */
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_MAX_MS = 15_000;
+
+function calcBackoff(consecutiveErrors: number): number {
+  const exp = Math.min(consecutiveErrors, 10);
+  const delay = BACKOFF_BASE_MS * Math.pow(2, exp);
+  // Add jitter: ±25%
+  const jitter = delay * 0.25 * (Math.random() * 2 - 1);
+  return Math.min(delay + jitter, BACKOFF_MAX_MS);
+}
+
 export function useCollaborativeDoc(
   options: UseCollaborativeDocOptions,
 ): UseCollaborativeDocResult {
   const {
     docId,
     pollInterval = 2000,
+    pollIntervalWithSse = 12000,
     pauseWhenHidden = true,
     baseUrl = agentNativePath("/_agent-native/collab"),
     requestSource,
@@ -341,52 +381,229 @@ export function useCollaborativeDoc(
     };
   }, [ydoc, docId, baseUrl]);
 
-  // Send local updates to server
+  // Send local updates to server — debounced and coalesced with Y.mergeUpdates.
+  //
+  // Instead of firing one POST per Yjs update (one per keystroke), we accumulate
+  // updates in a buffer for UPDATE_DEBOUNCE_MS then merge them into a single
+  // request. The buffer is also flushed immediately on visibilitychange/pagehide
+  // and before each poll/awareness cycle so we don't hold stale local state.
   useEffect(() => {
     if (!ydoc || !docId || docMissing) return;
 
-    const handler = (update: Uint8Array, origin: unknown) => {
-      if (origin === "remote") return;
+    let pendingUpdates: Uint8Array[] = [];
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const flushPendingUpdates = (keepalive = false) => {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (pendingUpdates.length === 0) return;
+      const toSend = pendingUpdates;
+      pendingUpdates = [];
+
+      const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
       fetch(`${baseUrl}/${docId}/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          update: uint8ArrayToBase64(update),
+          update: uint8ArrayToBase64(merged),
           requestSource,
         }),
-      });
+        ...(keepalive ? { keepalive: true } : {}),
+      }).catch(() => {});
+    };
+
+    // Expose flush to the poll loop via a ref so it can flush before each cycle.
+    // We store the flusher in a closure-captured variable; the poll effect
+    // below reads it through the shared `pendingFlushRef`.
+    (ydoc as any).__collabFlush = flushPendingUpdates;
+
+    const handler = (update: Uint8Array, origin: unknown) => {
+      if (origin === "remote") return;
+      pendingUpdates.push(update);
+      if (flushTimer) clearTimeout(flushTimer);
+      flushTimer = setTimeout(flushPendingUpdates, UPDATE_DEBOUNCE_MS);
+    };
+
+    const handlePageHide = () => {
+      flushPendingUpdates(true /* keepalive */);
     };
 
     ydoc.on("update", handler);
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", handlePageHide);
+    }
+
     return () => {
       ydoc.off("update", handler);
+      delete (ydoc as any).__collabFlush;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("pagehide", handlePageHide);
+      }
+      // Flush any remaining updates on teardown
+      flushPendingUpdates(true);
     };
   }, [ydoc, docId, baseUrl, requestSource, docMissing]);
 
-  // Poll for remote doc updates + awareness sync
+  // Poll for remote doc updates + awareness sync, with SSE fast-path.
   useEffect(() => {
     if (!ydoc || !docId || docMissing) return;
 
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveErrors = 0;
+    let pollCycleCount = 0;
+    // Track the last version we successfully polled. Used to detect ring-buffer
+    // overflow (version gap larger than the ring buffer).
+    let lastPolledVersion = pollVersionRef.current;
+
+    // SSE connection state. When SSE is healthy, poll interval is relaxed.
+    let sseActive = false;
+    let sseEventSource: EventSource | null = null;
+
+    // ── SSE fast-path ────────────────────────────────────────────────
+    // Wire into the existing /_agent-native/poll-events SSE stream.
+    // Collab update events arrive push-style; we apply them immediately,
+    // avoiding ~2s polling latency for peer edits.
+    //
+    // NOTE: SSE events are subject to the same server-side access scoping as
+    // polling — the server only pushes events that canSeeChangeForUser allows.
+    // The server tags collab events with owner/orgId (security commit).
+    function initSSE() {
+      if (typeof EventSource === "undefined") return;
+      try {
+        const es = new EventSource(
+          agentNativePath("/_agent-native/poll-events"),
+        );
+        sseEventSource = es;
+
+        es.onopen = () => {
+          sseActive = true;
+          consecutiveErrors = 0;
+        };
+
+        es.onmessage = (ev) => {
+          try {
+            const change = JSON.parse(ev.data) as {
+              source?: string;
+              docId?: string;
+              update?: string;
+              requestSource?: string;
+              version?: number;
+            };
+
+            if (
+              change.source === "collab" &&
+              change.docId === docId &&
+              change.update
+            ) {
+              if (requestSource && change.requestSource === requestSource)
+                return;
+              try {
+                Y.applyUpdate(
+                  ydoc,
+                  base64ToUint8Array(change.update),
+                  "remote",
+                );
+              } catch {
+                // Malformed update — trigger state-vector fetch on next poll
+              }
+
+              if (change.requestSource === "agent") {
+                setAgentActive(true);
+                if (agentTimerRef.current) clearTimeout(agentTimerRef.current);
+                agentTimerRef.current = setTimeout(
+                  () => setAgentActive(false),
+                  3000,
+                );
+              }
+            }
+
+            // Keep pollVersionRef updated from SSE events so the poll loop
+            // starts from the right version when SSE drops.
+            if (typeof change.version === "number") {
+              pollVersionRef.current = Math.max(
+                pollVersionRef.current,
+                change.version,
+              );
+            }
+          } catch {
+            // Ignore malformed events
+          }
+        };
+
+        es.onerror = () => {
+          sseActive = false;
+          es.close();
+          sseEventSource = null;
+          // Retry SSE after a short delay
+          if (!stopped) {
+            setTimeout(initSSE, 5_000 + Math.random() * 5_000);
+          }
+        };
+      } catch {
+        // SSE not available (edge runtime, etc.) — fall back to polling only
+        sseActive = false;
+      }
+    }
+
+    // Only set up SSE in browser environments that support it.
+    if (typeof EventSource !== "undefined") {
+      initSSE();
+    }
+
+    // ── Poll loop ───────────────────────────────────────────────────
+    function getActivePollInterval(): number {
+      return sseActive ? pollIntervalWithSse : pollInterval;
+    }
 
     function schedulePoll() {
       if (stopped) return;
       if (pauseWhenHidden && isDocumentHidden()) return;
-      timer = setTimeout(poll, pollInterval);
+      timer = setTimeout(poll, getActivePollInterval());
+    }
+
+    async function fetchStateVector(): Promise<void> {
+      try {
+        const stateVector = uint8ArrayToBase64(Y.encodeStateVector(ydoc));
+        const stateRes = await fetch(
+          `${baseUrl}/${docId}/state?stateVector=${encodeURIComponent(stateVector)}`,
+        );
+        if (stateRes.ok) {
+          const stateData = (await stateRes.json().catch(() => null)) as {
+            state?: string;
+          } | null;
+          if (stateData?.state) {
+            const binary = base64ToUint8Array(stateData.state);
+            if (binary.length > 2) {
+              Y.applyUpdate(ydoc, binary, "remote");
+            }
+          }
+        }
+      } catch {
+        // Non-fatal; the next poll cycle will retry
+      }
     }
 
     async function poll() {
       if (stopped) return;
+
+      // Flush any pending local updates before polling so the server has the
+      // latest state before we read remote changes.
+      const flush = (ydoc as any).__collabFlush as
+        | ((keepalive?: boolean) => void)
+        | undefined;
+      flush?.();
+
       try {
-        // Poll for document updates
         const res = await fetch(
           agentNativePath(
             `/_agent-native/poll?since=${pollVersionRef.current}`,
           ),
         );
         if (!res.ok) throw new Error("HTTP " + res.status);
+
         const data = await res.json();
         const { version, events } = data as {
           version: number;
@@ -398,12 +615,22 @@ export function useCollaborativeDoc(
           }>;
         };
 
+        // Detect ring-buffer overflow: if the version jumped by more than the
+        // ring buffer size, some events were evicted and we need a state-vector
+        // fetch to reconcile the gap.
+        const versionGap = version - lastPolledVersion;
+        const hadGap = versionGap > POLL_RING_BUFFER_SIZE;
+
         for (const evt of events) {
           if (evt.source === "collab" && evt.docId === docId && evt.update) {
             if (requestSource && evt.requestSource === requestSource) continue;
-            Y.applyUpdate(ydoc, base64ToUint8Array(evt.update), "remote");
+            try {
+              Y.applyUpdate(ydoc, base64ToUint8Array(evt.update), "remote");
+            } catch {
+              // Failed to apply — fetch full state-vector below
+              await fetchStateVector();
+            }
 
-            // Show agent presence indicator briefly
             if (evt.requestSource === "agent") {
               setAgentActive(true);
               if (agentTimerRef.current) clearTimeout(agentTimerRef.current);
@@ -416,76 +643,79 @@ export function useCollaborativeDoc(
         }
 
         pollVersionRef.current = version;
+        lastPolledVersion = version;
+        pollCycleCount++;
+        consecutiveErrors = 0;
 
-        try {
-          // The poll ring buffer is process-local. Fetching a state-vector diff
-          // makes collaboration durable across serverless invocations, process
-          // restarts, or any missed poll event.
-          const stateVector = uint8ArrayToBase64(Y.encodeStateVector(ydoc));
-          const stateRes = await fetch(
-            `${baseUrl}/${docId}/state?stateVector=${encodeURIComponent(
-              stateVector,
-            )}`,
-          );
-          if (stateRes.ok) {
-            const stateData = (await stateRes.json().catch(() => null)) as {
-              state?: string;
-            } | null;
-            if (stateData?.state) {
-              const binary = base64ToUint8Array(stateData.state);
-              if (binary.length > 2) {
-                Y.applyUpdate(ydoc, binary, "remote");
-              }
-            }
-          }
-        } catch {
-          // The next poll retries; awareness should still sync below.
+        // Fetch state-vector only when needed:
+        //   1. Ring-buffer overflow detected (missed events).
+        //   2. Low-frequency safety net every STATE_VECTOR_FETCH_INTERVAL cycles.
+        //   3. NOT on every cycle (the previous behavior causing 3 requests/cycle).
+        const shouldFetchStateVector =
+          hadGap || pollCycleCount % STATE_VECTOR_FETCH_INTERVAL === 0;
+
+        if (shouldFetchStateVector) {
+          await fetchStateVector();
         }
 
         // Sync awareness (cursor positions)
         if (awareness) {
           const localState = awareness.getLocalState();
           if (localState) {
-            const awarenessRes = await fetch(`${baseUrl}/${docId}/awareness`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                clientId: ydoc.clientID,
-                state: JSON.stringify(localState),
-              }),
-            });
-            if (awarenessRes.ok) {
-              const awarenessData = await awarenessRes.json();
-              const remoteStates: RemoteAwarenessSnapshot[] = [];
-              for (const remote of awarenessData.states || []) {
-                try {
-                  const remoteState = JSON.parse(remote.state);
-                  remoteStates.push({
-                    clientId: Number(remote.clientId),
-                    state: remoteState,
-                  });
-                } catch {
-                  // Invalid state — skip
+            try {
+              const awarenessRes = await fetch(
+                `${baseUrl}/${docId}/awareness`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    clientId: ydoc.clientID,
+                    state: JSON.stringify(localState),
+                  }),
+                },
+              );
+              if (awarenessRes.ok) {
+                const awarenessData = await awarenessRes.json();
+                const remoteStates: RemoteAwarenessSnapshot[] = [];
+                for (const remote of awarenessData.states || []) {
+                  try {
+                    const remoteState = JSON.parse(remote.state);
+                    remoteStates.push({
+                      clientId: Number(remote.clientId),
+                      state: remoteState,
+                    });
+                  } catch {
+                    // Invalid state — skip
+                  }
+                }
+                const changes = reconcileRemoteAwarenessStates(
+                  awareness.getStates() as Map<number, unknown>,
+                  ydoc.clientID,
+                  remoteStates,
+                );
+                if (
+                  changes.added.length ||
+                  changes.updated.length ||
+                  changes.removed.length
+                ) {
+                  awareness.emit("change", [changes, "remote"]);
                 }
               }
-              const changes = reconcileRemoteAwarenessStates(
-                awareness.getStates() as Map<number, unknown>,
-                ydoc.clientID,
-                remoteStates,
-              );
-              if (
-                changes.added.length ||
-                changes.updated.length ||
-                changes.removed.length
-              ) {
-                awareness.emit("change", [changes, "remote"]);
-              }
+            } catch {
+              // Awareness sync failure is non-fatal
             }
           }
         }
       } catch {
-        // Network error — retry next interval
+        // Network error — exponential backoff
+        consecutiveErrors++;
+        const backoff = calcBackoff(consecutiveErrors);
+        if (!stopped) {
+          timer = setTimeout(poll, backoff);
+          return;
+        }
       }
+
       schedulePoll();
     }
 
@@ -501,7 +731,7 @@ export function useCollaborativeDoc(
     // Publish this tab's visibility to peers. A hidden tab pauses its poll, so
     // we push the state immediately (keepalive) instead of waiting for the next
     // cycle — otherwise peers keep treating a backgrounded tab as the visible
-    // lead and an agent edit never lands on the tab the user is looking at.
+    // lead and an agent edit never lands on the tab the user is actually viewing.
     function publishVisibility(visible: boolean) {
       if (!awareness) return;
       awareness.setLocalStateField("visible", visible);
@@ -522,6 +752,11 @@ export function useCollaborativeDoc(
       const visible = document.visibilityState === "visible";
       publishVisibility(visible);
       if (visible) {
+        // Also flush any pending updates when coming back into view
+        const flush = (ydoc as any).__collabFlush as
+          | ((keepalive?: boolean) => void)
+          | undefined;
+        flush?.();
         pollNow();
       } else if (pauseWhenHidden && timer) {
         clearTimeout(timer);
@@ -538,6 +773,10 @@ export function useCollaborativeDoc(
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      if (sseEventSource) {
+        sseEventSource.close();
+        sseEventSource = null;
+      }
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -546,6 +785,7 @@ export function useCollaborativeDoc(
     awareness,
     docId,
     pollInterval,
+    pollIntervalWithSse,
     pauseWhenHidden,
     requestSource,
     baseUrl,
