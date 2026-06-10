@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   RECAP_DIFF_BYTE_CAP,
@@ -19,6 +19,7 @@ import {
   parseCodexUsage,
   recapCheckOutcome,
   truncateDiffAtLineBoundary,
+  waitForPublicRecapImage,
 } from "./recap.js";
 import type { RecapGateInput } from "./recap.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
@@ -247,15 +248,15 @@ describe("recap prompt builder", () => {
 
 describe("recap comment body", () => {
   it("embeds an inline screenshot + link and a plan-id marker on success", () => {
+    const token = "a".repeat(64);
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
-      RECAP_IMAGE_URL:
-        "https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png",
+      RECAP_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      "[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png)](https://plan.agent-native.com/recaps/plan-abc123)",
+      `[![Visual recap](https://plan.agent-native.com/_agent-native/recap-image/${token}.png)](https://plan.agent-native.com/recaps/plan-abc123)`,
     );
     expect(body).toContain("### Visual recap\n");
     expect(body).not.toContain("review at a higher altitude");
@@ -289,6 +290,18 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("![Visual recap]");
     expect(body).not.toContain("javascript:");
+    expect(body).toContain("Open the interactive recap");
+  });
+
+  it("drops a recap-image URL whose token is too short for the image route", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_IMAGE_URL:
+        "https://plan.agent-native.com/_agent-native/recap-image/a1b2c3d4e5f6.png",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+    expect(body).not.toContain("![Visual recap]");
     expect(body).toContain("Open the interactive recap");
   });
 
@@ -349,6 +362,65 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).not.toContain("Updated for");
+  });
+});
+
+describe("recap image public readiness", () => {
+  it("retries until the uploaded image is anonymously readable as image/png", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response("not yet", {
+          status: 404,
+          headers: { "content-type": "text/plain" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(Buffer.from([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      );
+
+    await expect(
+      waitForPublicRecapImage({
+        imageUrl:
+          "https://plan.agent-native.com/_agent-native/recap-image/" +
+          `${"a".repeat(64)}.png`,
+        attempts: 2,
+        delayMs: 0,
+        fetchFn,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects empty or non-image responses", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response("", {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("html", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+    await expect(
+      waitForPublicRecapImage({
+        imageUrl:
+          "https://plan.agent-native.com/_agent-native/recap-image/" +
+          `${"a".repeat(64)}.png`,
+        attempts: 2,
+        delayMs: 0,
+        fetchFn,
+      }),
+    ).resolves.toBe(false);
   });
 });
 

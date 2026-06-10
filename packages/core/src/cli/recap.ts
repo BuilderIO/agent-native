@@ -507,6 +507,8 @@ export function buildRecapPrompt(input: {
 /* -------------------------------------------------------------------------- */
 
 const MARKER = "<!-- pr-visual-recap -->";
+const RECAP_IMAGE_URL_PATH_PATTERN =
+  /\/_agent-native\/recap-image\/[0-9a-f]{32,128}\.png$/;
 
 type GitHubComment = {
   id: number;
@@ -707,7 +709,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const imageUrl =
     imageUrlRaw &&
     sameOrigin(imageUrlRaw, base) &&
-    /\/_agent-native\/recap-image\/[0-9a-f]+\.png$/.test(imageUrlRaw)
+    RECAP_IMAGE_URL_PATH_PATTERN.test(imageUrlRaw)
       ? imageUrlRaw
       : "";
   lines.push("### Visual recap");
@@ -766,6 +768,44 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
   );
 }
 
+function delay(ms: number): Promise<void> {
+  return ms > 0
+    ? new Promise((resolve) => setTimeout(resolve, ms))
+    : Promise.resolve();
+}
+
+/** Confirm GitHub can fetch the uploaded image anonymously before we embed it. */
+export async function waitForPublicRecapImage(input: {
+  imageUrl: string;
+  attempts?: number;
+  delayMs?: number;
+  fetchFn?: typeof fetch;
+}): Promise<boolean> {
+  const attempts = Math.max(1, input.attempts ?? 4);
+  const delayMs = Math.max(0, input.delayMs ?? 350);
+  const fetchFn = input.fetchFn ?? fetch;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const res = await fetchFn(input.imageUrl, {
+        method: "GET",
+        headers: { accept: "image/png" },
+        redirect: "follow",
+      });
+      const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+      if (res.ok && contentType.split(";")[0]?.trim() === "image/png") {
+        const bytes = await res.arrayBuffer().catch(() => new ArrayBuffer(0));
+        if (bytes.byteLength > 0) return true;
+      }
+    } catch {
+      /* retry below */
+    }
+    if (attempt < attempts) await delay(delayMs * attempt);
+  }
+
+  return false;
+}
+
 /** Upload a PNG to the plan app's signed public image route; returns its URL. */
 async function uploadRecapImage(input: {
   appUrl: string;
@@ -799,6 +839,15 @@ async function uploadRecapImage(input: {
     if (!json?.imageUrl) {
       process.stderr.write(
         `[recap shot] image upload returned no imageUrl (status ${res.status})\n`,
+      );
+      return null;
+    }
+    const publiclyReadable = await waitForPublicRecapImage({
+      imageUrl: json.imageUrl,
+    });
+    if (!publiclyReadable) {
+      process.stderr.write(
+        `[recap shot] uploaded image was not publicly readable as image/png: ${json.imageUrl}\n`,
       );
       return null;
     }

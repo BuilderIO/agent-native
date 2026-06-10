@@ -226,6 +226,28 @@ describe("recap-image serve (GET /_agent-native/recap-image/<token>.png)", () =>
     expect(body.equals(PNG)).toBe(true);
   });
 
+  it("serves HEAD anonymously with the same image headers", async () => {
+    getRecapImage.mockResolvedValue({
+      bytes: PNG,
+      contentType: "image/png",
+    });
+    const handler = createRecapImageHandler();
+    const event = fakeEvent({ method: "HEAD", pathname: `/${TOKEN}.png` });
+    const res = await handler(event);
+
+    expect(getSession).not.toHaveBeenCalled();
+    expect(event.statusCode).toBe(200);
+    expect(event.responseHeaders["Content-Type"]).toBe("image/png");
+    expect(event.responseHeaders["Content-Length"]).toBe(
+      String(PNG.byteLength),
+    );
+    expect(event.responseHeaders["Cache-Control"]).toMatch(/immutable/);
+    expect(event.responseHeaders["Cross-Origin-Resource-Policy"]).toBe(
+      "cross-origin",
+    );
+    expect(res).toBe("");
+  });
+
   it("404s an unknown token", async () => {
     getRecapImage.mockResolvedValue(null);
     const handler = createRecapImageHandler();
