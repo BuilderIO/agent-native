@@ -114,6 +114,11 @@ export function createFetchToolEntry(
               type: "number",
               description: `Timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}. Max: 30000.`,
             },
+            maxChars: {
+              type: "number",
+              description:
+                "Maximum response body characters to return. Default: 32000. Max: 200000. Increase when you need to read a large document, API response, or dataset.",
+            },
           },
           required: ["url"],
         },
@@ -131,6 +136,11 @@ export function createFetchToolEntry(
           Number(args.timeout_ms) || DEFAULT_TIMEOUT_MS,
           30_000,
         );
+        const requestedMaxChars = Number(args.maxChars);
+        const maxChars =
+          Number.isFinite(requestedMaxChars) && requestedMaxChars > 0
+            ? Math.min(requestedMaxChars, 200_000)
+            : 32_000;
 
         // Resolve key references
         let resolvedUrl = rawUrl;
@@ -251,11 +261,12 @@ export function createFetchToolEntry(
           }
           body = redactString(body, secretValues);
 
-          // Truncate very long responses for the agent. 32k chars (~8k tokens)
-          // is enough to read a full article or scrape a stats table without
-          // blowing out the model's context window.
-          if (body.length > 32_000) {
-            body = body.slice(0, 32_000) + "\n... (truncated)";
+          // Truncate very long responses for the agent. Default cap is 32 k
+          // chars (~8 k tokens), enough to read a full article or scrape a
+          // stats table without blowing out the model's context window. The
+          // caller may request up to 200 000 chars via the maxChars input.
+          if (body.length > maxChars) {
+            body = body.slice(0, maxChars) + "\n... (truncated)";
           }
 
           // Audit log
