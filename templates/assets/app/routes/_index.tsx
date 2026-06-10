@@ -855,12 +855,7 @@ function HomeGeneratePanel({
                     : "Default styles"}
                 </h2>
               </div>
-              <Button
-                asChild
-                variant="outline"
-                size="sm"
-                className="border-[hsl(220_4%_22%)]"
-              >
+              <Button asChild variant="outline" size="sm">
                 <Link to="/brand-kits">
                   View all
                   <IconArrowUpRight size={15} className="ml-1.5" />
