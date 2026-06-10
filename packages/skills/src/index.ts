@@ -48,6 +48,7 @@ interface ParsedArgs {
   skillNames: string[];
   clients: SkillClient[];
   scope: SkillScope;
+  scopeExplicit: boolean;
   yes: boolean;
   dryRun: boolean;
   printJson: boolean;
@@ -127,14 +128,19 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
       out.clients.push(...normalizeClients(value));
     else if ((value = eat("-a")) !== undefined)
       out.clients.push(...normalizeClients(value));
-    else if ((value = eat("--scope")) !== undefined)
+    else if ((value = eat("--scope")) !== undefined) {
       out.scope = parseScope(value);
-    else if ((value = eat("--instructions-file")) !== undefined)
+      out.scopeExplicit = true;
+    } else if ((value = eat("--instructions-file")) !== undefined)
       out.instructionFiles.push(value);
     else if ((value = eat("--cwd")) !== undefined) out.baseDir = value;
-    else if (arg === "-g" || arg === "--global") out.scope = "user";
-    else if (arg === "--project") out.scope = "project";
-    else if (arg === "--copy") {
+    else if (arg === "-g" || arg === "--global") {
+      out.scope = "user";
+      out.scopeExplicit = true;
+    } else if (arg === "--project") {
+      out.scope = "project";
+      out.scopeExplicit = true;
+    } else if (arg === "--copy") {
       // Compatibility with the open `skills` CLI. This installer always copies.
       out.copySource = true;
     } else if (arg === "-y" || arg === "--yes") out.yes = true;
@@ -199,7 +205,9 @@ export async function runSkillsCli(
     source: skillSource,
     skillNames: parsed.skillNames,
     clients: parsed.clients,
-    scope: parsed.scope,
+    // Leave scope undefined unless the user passed --scope/-g/--project so the
+    // installer can prompt for it interactively.
+    scope: parsed.scopeExplicit ? parsed.scope : undefined,
     baseDir: parsed.baseDir ?? options.baseDir,
     yes: parsed.yes,
     dryRun: parsed.dryRun,
@@ -253,7 +261,7 @@ export async function installSkills(
 
     const selected = await resolveSelectedSkills(entries, options);
     const clients = await resolveSelectedClients(options);
-    const scope = options.scope ?? "user";
+    const scope = await resolveSelectedScope(options);
     const written: string[] = [];
 
     for (const client of clients) {
@@ -307,6 +315,7 @@ function defaultArgs(command: ParsedArgs["command"]): ParsedArgs {
     skillNames: [],
     clients: [],
     scope: "user",
+    scopeExplicit: false,
     yes: false,
     dryRun: false,
     printJson: false,
@@ -403,6 +412,25 @@ async function resolveSelectedSkills(
     ...options,
     skillNames: selectedNames,
   });
+}
+
+async function resolveSelectedScope(
+  options: InstallSkillsOptions,
+): Promise<SkillScope> {
+  if (options.scope) return options.scope;
+  if (!isInteractive(options) || options.yes) return "user";
+
+  const answer = await promptLine(
+    [
+      "Where do you want to install these skills?",
+      "  1. project - this repo only (.agents / .claude in the current directory)",
+      "  2. user    - your home directory, available across all projects",
+      "Enter project or user [project]: ",
+    ].join("\n"),
+  );
+  const trimmed = answer.trim().toLowerCase();
+  if (trimmed === "2" || trimmed === "user" || trimmed === "u") return "user";
+  return "project";
 }
 
 async function resolveSelectedClients(

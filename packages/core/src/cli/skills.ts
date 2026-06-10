@@ -44,7 +44,8 @@ Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
   agent-native skills add visual-plan
-  agent-native skills add visual-plan --with-github-action
+  agent-native skills add visual-recap
+  agent-native skills add visual-recap --with-github-action
   agent-native skills status visual-plan
   agent-native skills update visual-plan
   agent-native skills add visual-plan --no-connect
@@ -72,7 +73,7 @@ deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
 bundles and custom adapter output.
 
-When installing visual-plan interactively, the CLI offers to add the optional PR
+When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
 run "agent-native recap setup" / "agent-native recap doctor" to configure and
 verify GitHub Actions.
@@ -2773,7 +2774,10 @@ async function resolveSkillTargets(
   // once instead of twice.
   const planSubskills = ["visual-plan", "visual-recap"];
   if (planSubskills.every((skill) => selected.includes(skill))) {
-    return ["visual-plans", ...selected.filter((s) => !planSubskills.includes(s))];
+    return [
+      "visual-plans",
+      ...selected.filter((s) => !planSubskills.includes(s)),
+    ];
   }
   return selected;
 }
@@ -2864,11 +2868,16 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
   return out;
 }
 
-function loadSkillTarget(target: string): SkillInstallTarget {
+function loadSkillTarget(
+  target: string,
+  onlySkillNames?: string[],
+): SkillInstallTarget {
   const knownTarget = normalizeKnownSkillTarget(target);
   if (knownTarget) {
     const builtIn = BUILT_IN_APP_SKILLS[knownTarget];
-    const skillNames = builtInSkillNames(builtIn);
+    const skillNames = builtInSkillNames(builtIn).filter(
+      (name) => !onlySkillNames || onlySkillNames.includes(name),
+    );
     return {
       id: builtIn.manifest.id,
       displayName: builtIn.manifest.displayName,
@@ -2881,6 +2890,9 @@ function loadSkillTarget(target: string): SkillInstallTarget {
       materializeInstructions(outDir) {
         const bundles = skillFilesForBuiltIn(knownTarget);
         for (const bundle of Object.values(bundles)) {
+          if (onlySkillNames && !onlySkillNames.includes(bundle.skillName)) {
+            continue;
+          }
           writeSkillFolder(
             path.join(outDir, "skills", bundle.skillName),
             bundle,
@@ -3274,6 +3286,15 @@ export async function addAgentNativeSkill(
 ): Promise<SkillsAddResult> {
   const target = parsed.target ?? "assets";
   const knownTarget = normalizeKnownSkillTarget(target);
+  // For multi-skill bundles (the plan bundle), a single-skill target installs
+  // only that skill. `installsRecap` controls the PR Visual Recap github-action
+  // offer, which is only relevant when the recap skill is part of the install.
+  const onlySkillNames = knownTarget
+    ? builtInOnlySkillNames(target)
+    : undefined;
+  const installsRecap =
+    knownTarget === "visual-plans" &&
+    (!onlySkillNames || onlySkillNames.includes("visual-recap"));
   if (!knownTarget && isPlainSkillRepoTarget(target)) {
     return addPlainSkillRepo({ ...parsed, target }, options);
   }
@@ -3334,7 +3355,7 @@ export async function addAgentNativeSkill(
       commands: localInstall.commands,
     };
   }
-  let installTarget = loadSkillTarget(target);
+  let installTarget = loadSkillTarget(target, onlySkillNames);
   if (parsed.mcpUrl) {
     installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
   }
@@ -3344,11 +3365,11 @@ export async function addAgentNativeSkill(
   if (parsed.dryRun) {
     try {
       const githubActionPath =
-        parsed.withGithubAction && knownTarget === "visual-plans"
+        parsed.withGithubAction && installsRecap
           ? prVisualRecapWorkflowDisplayPath()
           : undefined;
       const githubActionSuggestedCommand =
-        knownTarget === "visual-plans" && !parsed.withGithubAction
+        installsRecap && !parsed.withGithubAction
           ? prVisualRecapInstallCommand()
           : undefined;
       return {
@@ -3370,6 +3391,7 @@ export async function addAgentNativeSkill(
   const commands: string[] = [];
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-add-"));
   let instructionSource: string | undefined;
+  let instructionsWritten: string[] | undefined;
   let connected = false;
   let connectCommand: string | undefined;
 
@@ -3381,7 +3403,25 @@ export async function addAgentNativeSkill(
             "Skill instructions can only be installed for Codex or Claude Code clients. Use an MCP-capable client or omit --instructions-only.",
           );
         }
+      } else if (knownTarget) {
+        // Built-in skills ship their instructions inside this package, so copy
+        // the skill folders straight into each client's skills directory. This
+        // avoids shelling out to the separate @agent-native/skills installer
+        // (which would need to be published to npm to run via npx).
+        instructionsWritten = installBuiltInInstructions({
+          appSkillId: knownTarget,
+          onlySkillNames,
+          skillsAgents,
+          scope: parsed.scope as "project" | "user",
+          baseDir: options.baseDir ?? process.cwd(),
+          dryRun: parsed.dryRun,
+        });
+        instructionSource = instructionsWritten[0];
+        commands.push(...instructionsWritten.map((dir) => `write ${dir}`));
       } else {
+        // External app-skill manifests / plain skill repos still go through the
+        // standalone installer, which knows how to pack adapters and fetch
+        // remote skill collections.
         instructionSource = installTarget.materializeInstructions(tmpRoot);
         const args = [
           "--yes",
@@ -3447,7 +3487,7 @@ export async function addAgentNativeSkill(
     let githubActionExisted: boolean | undefined;
     let githubActionSuggestedCommand: string | undefined;
     if (
-      knownTarget === "visual-plans" &&
+      installsRecap &&
       !withGithubAction &&
       !fs.existsSync(prVisualRecapWorkflowPath(baseDir))
     ) {
@@ -3465,9 +3505,9 @@ export async function addAgentNativeSkill(
     }
 
     if (withGithubAction) {
-      if (knownTarget !== "visual-plans") {
+      if (!installsRecap) {
         options.log?.(
-          "--with-github-action only applies to the visual-plan skill; skipping the workflow.",
+          "--with-github-action only applies to the visual-recap skill; skipping the workflow.",
         );
       } else {
         const writeResult = writePrVisualRecapWorkflow(baseDir, {
@@ -3493,6 +3533,7 @@ export async function addAgentNativeSkill(
       mcpClients: clients,
       dryRun: parsed.dryRun,
       commands,
+      written: instructionsWritten,
       connected,
       connectCommand,
       githubActionPath,
