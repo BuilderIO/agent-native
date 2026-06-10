@@ -11,6 +11,8 @@ Multi-user collaborative editing where the AI agent and human users are equal pa
 
 The framework provides a Yjs-based collaborative editing system in `@agent-native/core/collab`. Multiple users can edit the same document simultaneously with live cursor positions, and the AI agent can make surgical edits that appear in real-time without disrupting the user's cursor, selection, or undo history.
 
+If you just need the UI to refresh when the agent or another user writes to SQL, you don't need any of this — use [`useDbSync`](/docs/client). This page is for character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
+
 This is built on three battle-tested technologies: **Yjs** (CRDT for conflict-free merging), **TipTap** (rich text editor), and **polling-based sync** (works in all deployment environments including serverless and edge).
 
 ## How it works {#how-it-works}
@@ -136,10 +138,10 @@ User identity is derived from the session email. The framework provides `emailTo
 
 ## Comments {#comments}
 
-Templates can add a comments system with threaded discussions on documents. The content template includes a full implementation with:
+Templates can add a comments system with threaded discussions on documents. The content template's comments system includes a full implementation with:
 
 - `document_comments` SQL table (threads, replies, resolved status)
-- REST routes for update/delete at `/api/comments/:id`; create and list run through the `add-comment` / `list-comments` actions
+- The content template's REST routes for update/delete at `/api/comments/:id`; create and list run through the `add-comment` / `list-comments` actions. Custom templates implement their own equivalent endpoints against the core `POST /_agent-native/collab/:docId/search-replace` route.
 - Comments sidebar with threaded view and reply UI
 - Resolve/unresolve threads
 - **Send to AI** button — sends the comment thread context to the agent chat via `sendToAgentChat()`
@@ -161,7 +163,7 @@ All collab routes are auto-mounted under `/_agent-native/collab/` by the collab 
 
 ## Agent edit action {#edit-document}
 
-The `edit-document` action is the primary way agents make changes to documents in collaborative mode:
+The content template's `edit-document` action is the primary way agents make changes to documents in collaborative mode:
 
 ```bash
 # Single edit

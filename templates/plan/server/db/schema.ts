@@ -46,6 +46,9 @@ export const plans = table("plans", {
   usageCostCentsX100: integer("usage_cost_cents_x100"),
   usageCostSource: text("usage_cost_source"),
   usageRecordedAt: text("usage_recorded_at"),
+  // URL of the source PR, issue, or page that triggered this recap (e.g. the
+  // GitHub PR URL). Nullable — only populated when the caller supplies it.
+  sourceUrl: text("source_url"),
   ...ownableColumns(),
 });
 
@@ -129,5 +132,18 @@ export const planShares = createSharesTable("plan_shares");
 export const planGuestMints = table("plan_guest_mints", {
   id: text("id").primaryKey(),
   ipHash: text("ip_hash").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const planAssets = table("plan_assets", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id")
+    .notNull()
+    .references(() => plans.id),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  /** Base64-encoded image data. Used as SQL-fallback when no upload provider is configured. */
+  data: text("data").notNull(),
+  byteSize: integer("byte_size").notNull(),
   createdAt: text("created_at").notNull(),
 });

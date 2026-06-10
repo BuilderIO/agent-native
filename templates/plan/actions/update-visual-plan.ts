@@ -375,26 +375,65 @@ function contentPatchDetails(input: {
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits such as title/brief metadata, copy changes, one element/text/color inside an html mockup via patch-wireframe-html or patch-prototype-html, one diagram html/css edit via patch-diagram-html or update-block, one legacy wireframe kit-tree node, a whole wireframe, one canvas frame, one canvas annotation, one block append/remove, or one custom HTML fragment. Use full content only for broad restructuring; HTML updates are legacy import compatibility only.",
+    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits. Use full content only for broad restructuring.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
-    title: z.string().optional(),
-    brief: z.string().optional(),
-    status: planStatusSchema.optional(),
-    currentFocus: z.string().optional(),
-    html: z.string().optional(),
-    content: planContentSchema.optional(),
+    title: z.string().optional().describe("Plan title."),
+    brief: z
+      .string()
+      .optional()
+      .describe("One-line plan summary shown under the title."),
+    status: planStatusSchema
+      .optional()
+      .describe(
+        'Plan status. Setting "approved" also records approvedAt timestamp.',
+      ),
+    currentFocus: z
+      .string()
+      .optional()
+      .describe("Current agent focus label shown in the review surface."),
+    html: z
+      .string()
+      .optional()
+      .describe(
+        "Legacy: a standalone HTML document. Setting this NULLS structured content — blocks, contentPatches, inline editing, and MDX round-trip all stop working for this plan. Only for preserving a pre-existing HTML artifact; never author new plans this way.",
+      ),
+    content: planContentSchema
+      .optional()
+      .describe(
+        "Full structured content replacement. Prefer contentPatches for targeted edits; use this only for broad restructuring.",
+      ),
     contentPatches: planContentPatchesSchema
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits addressed by stable id. Prefer these for small changes: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype plans; update-block / replace-block, update-rich-text, patch-wireframe-html (change one element/text/color inside an html mockup via find/replace edits - read the current html first with get-visual-plan), patch-diagram-html (change one element/text/class inside a diagram while preserving .diagram-* primitives and --wf-* token CSS), update-wireframe-node (one legacy kit-tree node), replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, or update-custom-html. Any agent (Claude, Codex, Cursor) can patch a single mockup, prototype state, diagram, or node without regenerating the plan. The renderer owns all visual styling; emit lean content, not pixels - never supply geometry or coordinates.",
+        "Targeted structured content edits addressed by stable id. For live plans this is the preferred edit path; patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype plans; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html.",
       ),
-    markdown: z.string().optional(),
-    sections: z.array(sectionInputSchema).optional().default([]),
-    comments: z.array(commentInputSchema).optional().default([]),
-    consumedCommentIds: z.array(z.string()).optional().default([]),
-    note: z.string().optional(),
+    markdown: z
+      .string()
+      .optional()
+      .describe("Legacy markdown source. Prefer content blocks."),
+    sections: z
+      .array(sectionInputSchema)
+      .optional()
+      .default([])
+      .describe("Legacy section array. Prefer content blocks."),
+    comments: z
+      .array(commentInputSchema)
+      .optional()
+      .default([])
+      .describe(
+        "Legacy comment array. Prefer reply-to-plan-comment / resolve-plan-comment for new comments.",
+      ),
+    consumedCommentIds: z
+      .array(z.string())
+      .optional()
+      .default([])
+      .describe("Prefer consume-plan-feedback for marking feedback consumed."),
+    note: z
+      .string()
+      .optional()
+      .describe("Short label saved as the version-history snapshot label."),
   }),
   publicAgent: {
     expose: true,
@@ -543,7 +582,11 @@ export default defineAction({
         : markdownFromContent
           ? { markdown: markdownFromContent }
           : {}),
-      ...(args.status === "approved" ? { approvedAt: now } : {}),
+      ...(args.status === "approved"
+        ? { approvedAt: now }
+        : args.status
+          ? { approvedAt: null }
+          : {}),
       updatedAt: now,
     };
 
@@ -618,10 +661,28 @@ export default defineAction({
       }
     }
 
-    const commentsBeforeInserts =
+    const bundleForCommentInserts =
       pendingCommentInserts.length > 0
-        ? (await loadPlanBundle(args.planId)).comments
-        : [];
+        ? await loadPlanBundle(args.planId)
+        : null;
+    const commentsBeforeInserts = bundleForCommentInserts?.comments ?? [];
+
+    // Validate that any sectionId referenced by a new comment actually exists on
+    // this plan. A bogus or cross-plan sectionId would silently store a dangling
+    // FK; reject early with a clear message instead.
+    if (bundleForCommentInserts) {
+      const validSectionIds = new Set(
+        (bundleForCommentInserts.sections ?? []).map((s) => s.id),
+      );
+      for (const comment of pendingCommentInserts) {
+        if (comment.sectionId && !validSectionIds.has(comment.sectionId)) {
+          throw new Error(
+            `Section ${comment.sectionId} was not found on plan ${args.planId}.`,
+          );
+        }
+      }
+    }
+
     const commentRows = buildUpdatedPlanCommentRows({
       planId: args.planId,
       comments: pendingCommentInserts,
@@ -680,23 +741,37 @@ export default defineAction({
     await (async (tx: typeof db) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
-      const updatedRows = await tx
-        .update(schema.plans)
-        .set(planPatch)
-        .where(
-          versionAtLoad
-            ? and(
-                eq(schema.plans.id, args.planId),
-                eq(schema.plans.updatedAt, versionAtLoad),
-              )
-            : eq(schema.plans.id, args.planId),
-        )
-        .returning({ id: schema.plans.id });
+      //
+      // Skip the plans row UPDATE entirely when there are no plan-authoring
+      // changes (pure comments and/or consumedCommentIds). This prevents
+      // comment activity from bumping plans.updatedAt, which would:
+      //   1. break a concurrent agent's optimistic-lock check (false "Plan
+      //      changed" conflict when the agent read the plan before a reviewer
+      //      commented and then posts contentPatches), and
+      //   2. reorder the plan list by updatedAt-desc even though no authored
+      //      content changed.
+      // Comments still propagate to the polling UI because get-visual-plan /
+      // loadPlanBundle queries planComments independently (not via plans.updatedAt)
+      // and planEvents still gets a row written below.
+      if (hasPlanAuthoringChanges) {
+        const updatedRows = await tx
+          .update(schema.plans)
+          .set(planPatch)
+          .where(
+            versionAtLoad
+              ? and(
+                  eq(schema.plans.id, args.planId),
+                  eq(schema.plans.updatedAt, versionAtLoad),
+                )
+              : eq(schema.plans.id, args.planId),
+          )
+          .returning({ id: schema.plans.id });
 
-      if (updatedRows.length === 0) {
-        throw new Error(
-          "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
-        );
+        if (updatedRows.length === 0) {
+          throw new Error(
+            "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
+          );
+        }
       }
 
       for (const [index, section] of args.sections.entries()) {
@@ -780,10 +855,24 @@ export default defineAction({
                   sectionId: comment.sectionId ?? null,
                   kind: comment.kind,
                   status: comment.status,
-                  anchor: metadata?.anchor,
+                  // Preserve stored anchor/resolutionTarget/mentionsJson when the
+                  // caller omits them (e.g. a mixed resolve+consume request that
+                  // only carries { id, status, message }). Only overwrite when the
+                  // input explicitly provides a value.
+                  anchor:
+                    comment.anchor !== undefined
+                      ? (metadata?.anchor ?? null)
+                      : comment.existing.anchor,
                   message: comment.message,
-                  resolutionTarget: metadata?.resolutionTarget,
-                  mentionsJson: metadata?.mentionsJson,
+                  resolutionTarget:
+                    comment.resolutionTarget !== undefined
+                      ? (metadata?.resolutionTarget ?? null)
+                      : comment.existing.resolutionTarget,
+                  mentionsJson:
+                    comment.mentions !== undefined ||
+                    comment.anchor !== undefined
+                      ? (metadata?.mentionsJson ?? null)
+                      : comment.existing.mentionsJson,
                   resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
                   resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
                   updatedAt: now,

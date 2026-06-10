@@ -1,6 +1,7 @@
 import {
   PLAN_CONTENT_VERSION,
   createPlanBlockId,
+  exceedsPlanBlockDepth,
   migratePlanContent,
   planContentSchema,
   type PlanArtboard,
@@ -55,13 +56,17 @@ export function parsePlanContent(value: unknown): PlanContent | null {
       preSanitizePlanContentInput(migrated),
     );
     if (result.success) return result.data;
-    // Surface parse failures instead of swallowing them so a bad migration is
-    // diagnosable rather than silently erasing a plan body.
+    // Full-document parse failed. Attempt per-block salvage so one unknown or
+    // malformed block does not blank the entire document. Validate each block
+    // individually; replace failing blocks with a typed `unknown-block`
+    // placeholder that carries the original type + error summary. The reader
+    // renders these as "Unsupported block" cards so the rest of the document
+    // remains visible.
     console.warn(
-      "[plan-content] failed to parse stored content:",
+      "[plan-content] full parse failed; attempting per-block salvage:",
       result.error.issues.slice(0, 4),
     );
-    return null;
+    return parsePlanContentWithSalvage(migrated);
   } catch (error) {
     // Defense-in-depth: pathological input (e.g. deeply nested tabs) can overflow
     // the recursive schema/migration and throw a RangeError that safeParse does
@@ -70,6 +75,92 @@ export function parsePlanContent(value: unknown): PlanContent | null {
     console.warn("[plan-content] errored while parsing stored content:", error);
     return null;
   }
+}
+
+/**
+ * Per-block salvage fallback. When the full planContentSchema parse fails,
+ * validate each block individually and substitute an `unknown-block` placeholder
+ * (stored as a `callout` with a special marker in `data`) for any that fail.
+ * This keeps N-1 good blocks visible instead of blanking the whole document.
+ */
+function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
+  if (!migrated || typeof migrated !== "object") return null;
+  const raw = migrated as Record<string, unknown>;
+
+  // Check if the block tree is pathologically deep BEFORE attempting per-block
+  // salvage. exceedsPlanBlockDepth walks the full container-block tree using
+  // the same visit-budget as the schema's preflight preprocessor. When the
+  // depth limit is exceeded the schema would replace ALL blocks with a single
+  // sentinel placeholder; per-block salvage would turn that into a single
+  // "Unsupported block" card, which is misleading. Bail closed instead.
+  if (exceedsPlanBlockDepth(raw)) {
+    console.warn("[plan-content] per-block salvage bailed: depth-exceeded");
+    return null;
+  }
+
+  // Validate the document envelope (version, title, brief, canvas, prototype)
+  // independently of the blocks array so we keep the metadata even when blocks
+  // fail.
+  const envelopeResult = planContentSchema.safeParse(
+    preSanitizePlanContentInput({ ...raw, blocks: [] }),
+  );
+  const envelope = envelopeResult.success
+    ? envelopeResult.data
+    : ({
+        version: typeof raw.version === "number" ? raw.version : 1,
+        title:
+          typeof raw.title === "string" ? raw.title.slice(0, 240) : undefined,
+        brief:
+          typeof raw.brief === "string" ? raw.brief.slice(0, 4000) : undefined,
+        blocks: [],
+      } as PlanContent);
+
+  // If the blocks field is not an array, the document structure itself is
+  // unsalvageable — bail closed so we don't return an empty document.
+  if (!Array.isArray(raw.blocks)) {
+    console.warn(
+      "[plan-content] per-block salvage bailed: blocks is not an array",
+    );
+    return null;
+  }
+
+  // Validate each block individually; replace bad ones with a callout placeholder.
+  const rawBlocks = raw.blocks;
+  const salvaged: PlanBlock[] = rawBlocks
+    .slice(0, 200)
+    .map((rawBlock: unknown) => {
+      const singleResult = planContentSchema.safeParse(
+        preSanitizePlanContentInput({ ...raw, blocks: [rawBlock] }),
+      );
+      if (singleResult.success && singleResult.data.blocks[0]) {
+        return singleResult.data.blocks[0];
+      }
+      // Replace with an `unknown-block` placeholder stored as a special callout.
+      const rb = (rawBlock as Record<string, unknown> | null) ?? {};
+      const originalType = typeof rb.type === "string" ? rb.type : "unknown";
+      const blockId =
+        typeof rb.id === "string" && rb.id.length > 0
+          ? rb.id
+          : `unknown-block-${Math.random().toString(36).slice(2, 9)}`;
+      const errorSummary = singleResult.success
+        ? "Block data was missing"
+        : String(
+            singleResult.error?.issues?.[0]?.message ?? "Parse error",
+          ).slice(0, 200);
+      return {
+        id: blockId,
+        type: "callout",
+        title: typeof rb.title === "string" ? rb.title : undefined,
+        // Embed a machine-readable marker so the client can render a better
+        // "Unsupported block" card rather than a generic callout.
+        data: {
+          tone: "warning" as const,
+          body: `​__unknown_block__:${originalType}\n${errorSummary}`,
+        },
+      } satisfies PlanBlock;
+    });
+
+  return sanitizePlanContent({ ...envelope, blocks: salvaged });
 }
 
 export function serializePlanContent(content: PlanContentInput): string {
@@ -785,7 +876,11 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
     return {
       id: `frame-${stateIds[index] ?? index + 1}`,
       label: state.name,
-      blockId: stateBlockIds[index]?.wireframe,
+      // Only reference a blockId when the matching wireframe block is included in
+      // blocks[]. Component plans set duplicateVisualBlocks=false (!componentPlan),
+      // so those wireframe blocks are omitted — inline the wireframe directly on
+      // the frame instead of leaving a dangling blockId that fails schema validation.
+      ...(!componentPlan ? { blockId: stateBlockIds[index]?.wireframe } : {}),
       surface: wireframe.surface,
       wireframe,
       ...(componentPlan

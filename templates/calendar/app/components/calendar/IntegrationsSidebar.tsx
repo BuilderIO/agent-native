@@ -660,7 +660,7 @@ function ApolloSection({ email }: { email: string }) {
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
               >
-                {person.organization.website_url
+                {(person.organization?.website_url ?? "")
                   .replace(/^https?:\/\/(www\.)?/, "")
                   .replace(/\/$/, "")}
               </a>

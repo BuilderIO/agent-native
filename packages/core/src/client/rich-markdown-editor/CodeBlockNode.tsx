@@ -229,7 +229,8 @@ export function createCodeBlockNode({
   return CodeBlockLowlight.extend({
     addOptions() {
       return {
-        ...this.parent?.(),
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        ...this.parent!(),
         languagePickerOptions: languages,
         codeBlockClassNames: resolvedClassNames,
       };

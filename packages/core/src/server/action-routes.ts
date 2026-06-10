@@ -112,12 +112,13 @@ type CorsOrigin = {
 function getAllowedCorsOrigin(origin: string | undefined): CorsOrigin | null {
   const allowedOrigin = resolveAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
-    allowLocalhostWhenNoAllowlist: true,
+    // Let the cors-origins default apply (dev-only). Omitting this option
+    // keeps production from trusting arbitrary localhost callers.
   });
   if (allowedOrigin) {
     return { origin: allowedOrigin, credentials: true };
   }
-  if (isMcpEmbedCorsOrigin(origin)) {
+  if (origin && isMcpEmbedCorsOrigin(origin)) {
     return {
       origin,
       credentials: shouldAllowMcpEmbedCredentials(origin),

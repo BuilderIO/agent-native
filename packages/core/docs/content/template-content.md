@@ -43,6 +43,14 @@ When you open the app, click **+ New page** in the sidebar, give it a title, and
 
 Select text and hit Cmd+I to focus the agent with that selection pre-loaded — "make this punchier" then operates on exactly what you highlighted.
 
+## Why it's interesting
+
+Three things make Content a good showcase of the framework:
+
+1. **Agent and editor share one Yjs document.** The same CRDT that prevents conflicts between two simultaneous human typists is what the agent writes through via `edit-document`. There is no separate AI path — the diff appears live in every open browser tab.
+2. **Notion sync as a two-way bridge.** Rather than replacing Notion, the template treats it as a peer: pull, push, bidirectional comment sync, conflict detection, and content-hash deduplication are all first-class. It demonstrates how agent-native apps can round-trip with external systems without losing their SQL-backed canonical form.
+3. **Inline databases alongside prose.** The `content_databases` / `content_database_items` / `document_property_definitions` stack shows how structured tabular data can live inside an agent-native document without needing a separate app or a custom Airtable integration.
+
 ## For developers
 
 The rest of this doc is for anyone forking the Content template or extending it.
@@ -80,7 +88,7 @@ Interactive surfaces include:
 
 ### Collaborative editing
 
-Content is edited through Yjs CRDT so multiple users and the agent can type into the same document at once without clobbering each other. The agent's `edit-document` action writes through the same pipeline as a human keystroke, so changes appear live in every open editor. See the `real-time-collab` skill for the sync model.
+Content is edited through Yjs CRDT so multiple users and the agent can type into the same document at once without clobbering each other. The agent's `edit-document` action writes through the same pipeline as a human keystroke, so changes appear live in every open editor. See [Real-time collaboration](/docs/real-time-collaboration) for the sync model.
 
 ### Search
 
@@ -132,14 +140,26 @@ For small edits, the agent uses `edit-document --find ... --replace ...` so only
 
 If you select text and press Cmd+I (or focus the agent panel), the selection travels with your next message as context, so "make this punchier" operates on exactly what you highlighted.
 
+### Databases and properties
+
+Documents can host inline databases — Notion-style tables where each row is itself a document. The agent can create databases, add items, configure column definitions, and set property values through actions: `create-content-database`, `add-database-item`, `set-document-property`. Property definitions (type, visibility, options, position) live in `document_property_definitions`; per-row values live in `document_property_values`.
+
+### Additional actions
+
+Beyond the CRUD surface in the data model, the template ships `export-document` for converting a page to Markdown or HTML, `transcribe-media` for attaching a transcript to a page, and `restore-document-version` for rolling back to an earlier snapshot.
+
 ### Data model
 
-Four core tables, all defined in `server/db/schema.ts`:
+Nine tables, all defined in `server/db/schema.ts`:
 
 - **`documents`** — the page tree. Columns: `id`, `parent_id`, `title`, `content` (markdown), `icon`, `position`, `is_favorite`, `visibility`, `owner_email`, `org_id`, `created_at`, `updated_at`.
-- **`document_versions`** — full snapshots of title and content for version history.
+- **`document_versions`** — full snapshots of title and content for version history. Roll back with `restore-document-version`.
 - **`document_comments`** — threaded comments with `thread_id`, `parent_id`, `quoted_text`, `resolved`, and an optional `notion_comment_id` for bidirectional Notion sync.
-- **`document_sync_links`** — one row per Notion-linked document tracking remote page ID, last sync times, conflict state, and errors.
+- **`document_sync_links`** — one row per Notion-linked document tracking remote page ID, last sync times, conflict state, content hash, and errors.
+- **`document_property_definitions`** — column definitions for inline databases: name, type, visibility, options, and position.
+- **`content_databases`** — inline database objects attached to a `document_id` with a title and view config JSON.
+- **`content_database_items`** — rows in an inline database, each linking a `database_id` to a `document_id`.
+- **`document_property_values`** — per-document property values (`property_id` → `value_json`).
 - **`document_shares`** — per-user and per-org grants created via `createSharesTable`.
 
 Content is stored as markdown. The editor converts to and from the Tiptap JSON model in memory; the SQL row is always markdown so actions, search, and Notion sync can operate on a single canonical format.

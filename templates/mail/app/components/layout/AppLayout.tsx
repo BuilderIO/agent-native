@@ -62,7 +62,7 @@ import { toast } from "sonner";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {

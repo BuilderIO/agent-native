@@ -12,6 +12,7 @@ const npmPublishAllowlist = new Set([
   "@agent-native/dispatch",
   "@agent-native/pinpoint",
   "@agent-native/scheduling",
+  "@agent-native/skills",
 ]);
 
 // Packages that are NOT published to npm and therefore exempt from the

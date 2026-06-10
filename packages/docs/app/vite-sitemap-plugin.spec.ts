@@ -39,4 +39,16 @@ describe("docs agent web generation", () => {
     expect(sitemap).toContain("<loc>https://www.agent-native.com/</loc>");
     expect(sitemap).toContain("<loc>https://www.agent-native.com/docs</loc>");
   });
+
+  it("derives lastmod from a Date (from git or mtime fallback)", () => {
+    const pages = buildAgentWebPages(rootDir);
+    const gettingStarted = pages.find((page) => page.path === "/docs");
+
+    // lastmod must be a valid Date regardless of whether git log returns a
+    // commit timestamp or we fall back to fs mtime
+    expect(gettingStarted?.lastmod).toBeInstanceOf(Date);
+    expect(Number.isFinite((gettingStarted?.lastmod as Date).getTime())).toBe(
+      true,
+    );
+  });
 });

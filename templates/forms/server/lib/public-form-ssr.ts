@@ -343,9 +343,9 @@ function renderFormPage(
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
 <meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
 <link rel="icon" type="image/svg+xml" href="${faviconPath}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- Self-hosted Inter via Bunny Fonts CDN (privacy-respecting, no tracking) -->
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet">
 <style>${CSS()}</style>
 <script>
   try {
@@ -619,7 +619,9 @@ function notFoundPage(origin?: string) {
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
 <meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Self-hosted Inter via Bunny Fonts CDN (privacy-respecting, no tracking) -->
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link href="https://fonts.bunny.net/css?family=inter:400,500,600&display=swap" rel="stylesheet">
 <style>${CSS()}</style>
 </head>
 <body>

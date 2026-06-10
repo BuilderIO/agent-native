@@ -1,6 +1,10 @@
 import * as React from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
-import { IconCheck, IconChevronRight, IconCircle } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconChevronRight,
+  IconCircleFilled,
+} from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 
@@ -125,7 +129,7 @@ const ContextMenuRadioItem = React.forwardRef<
   >
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <ContextMenuPrimitive.ItemIndicator>
-        <IconCircle className="h-2 w-2 fill-current" />
+        <IconCircleFilled className="h-2 w-2" />
       </ContextMenuPrimitive.ItemIndicator>
     </span>
     {children}

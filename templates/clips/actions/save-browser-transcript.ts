@@ -236,7 +236,7 @@ export default defineAction({
           recordingId: args.recordingId,
           transcriptText: fullText,
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           console.warn(
             `[clips] native transcript title generation skipped for ${args.recordingId}:`,
             (err as Error)?.message ?? String(err),

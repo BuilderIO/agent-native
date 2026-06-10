@@ -3,8 +3,9 @@ import { schema } from "../db/index.js";
 import { stringifyJson } from "./json.js";
 import { DEFAULT_GENERATION_PRESET_SEEDS } from "../../shared/generation-presets.js";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type InsertDb = {
-  insert: (table: unknown) => {
+  insert: (table: any) => {
     values: (value: Record<string, unknown>) => Promise<unknown>;
   };
 };

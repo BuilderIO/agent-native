@@ -44,7 +44,7 @@ export function getActivePlanTocId(
 }
 
 export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
-  return blocks.flatMap((block) => {
+  const items = blocks.flatMap((block) => {
     if (block.type === "rich-text") {
       const headings = collectMarkdownHeadings(block);
       if (headings.length > 0) return headings;
@@ -60,6 +60,65 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
       },
     ];
   });
+
+  // When heading-derived items are sparse (fewer than 3), synthesize semantic
+  // entries from block types so block-heavy documents get a useful TOC. Entries
+  // are merged with any real headings in document order, and each synthetic
+  // entry is only added once (first matching block wins).
+  const headingCount = items.filter((item) => item.kind === "heading").length;
+  if (items.length < 3) {
+    const synthetic: PlanTocItem[] = [];
+    const usedBlockIds = new Set(items.map((item) => item.blockId));
+
+    // Semantic label map: block type → TOC label. Only the FIRST occurrence of
+    // each type is synthesized (second file-tree, second data-model, etc. get no
+    // separate entry — they're assumed to be the same semantic category).
+    const seenSynthTypes = new Set<string>();
+    const SYNTH_LABELS: Partial<Record<PlanBlock["type"], string>> = {
+      "file-tree": "Files changed",
+      "data-model": "Schema",
+      "api-endpoint": "API",
+      diff: "Key changes",
+      "annotated-code": "Key changes",
+      "question-form": "Open questions",
+    };
+
+    for (const block of blocks) {
+      if (usedBlockIds.has(block.id)) continue;
+      if (block.type === "tabs" || block.type === "columns") continue;
+      const label = SYNTH_LABELS[block.type];
+      if (!label) continue;
+      // De-duplicate: file-tree+file-tree both map to "Files changed", so only
+      // emit the first. But api-endpoint and diff both can synthesize (different
+      // labels), so key by label not type.
+      if (seenSynthTypes.has(label)) continue;
+      seenSynthTypes.add(label);
+      synthetic.push({
+        id: tocIdForBlock(block.id),
+        blockId: block.id,
+        label,
+        level: 0,
+        kind: "block" as const,
+      });
+    }
+
+    // Merge synthetic items with real heading items in document order. Real
+    // headings keep their positions; synthetic items are inserted in between
+    // based on block order.
+    if (synthetic.length > 0) {
+      // Build a block-index lookup for ordering.
+      const blockOrderMap = new Map(blocks.map((b, i) => [b.id, i]));
+      const merged = [...items, ...synthetic].sort((a, b) => {
+        const ia = blockOrderMap.get(a.blockId) ?? 9999;
+        const ib = blockOrderMap.get(b.blockId) ?? 9999;
+        return ia - ib;
+      });
+      return merged;
+    }
+  }
+
+  void headingCount; // referenced above for potential future threshold tuning
+  return items;
 }
 
 function collectMarkdownHeadings(

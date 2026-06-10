@@ -5,11 +5,15 @@ description: "How the agent knows what the user is looking at: navigation state,
 
 # Context Awareness
 
+> **Developer page.** This page is for developers wiring the app's context layer. For the end-user experience — how the agent uses that context in conversation — see [Using Your Agent](/docs/using-your-agent).
+
 How the agent knows what the user is looking at -- and how the agent can control what the user sees.
 
 ## Overview {#overview}
 
 Without context awareness, the agent is blind. It asks "which email?" when the user is staring at one. It cannot act on the current selection, cannot provide relevant suggestions, and cannot modify what the user sees. With context awareness, the user can click a row, highlight a paragraph, select a slide element, or press Cmd+I, then say "summarize this" and the agent already knows what "this" means.
+
+Six patterns solve this. To understand what to put in which surface (AGENTS.md vs. skills vs. application_state), see [Writing Agent Instructions — The four surfaces the agent sees](/docs/writing-agent-instructions#four-surfaces).
 
 Six patterns solve this:
 

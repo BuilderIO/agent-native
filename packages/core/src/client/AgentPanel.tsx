@@ -66,10 +66,16 @@ import {
 import { FeedbackButton } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import type { AgentRun } from "../progress/types.js";
-import {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatHeaderProps,
-} from "./MultiTabAssistantChat.js";
+// Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
+// assistant-ui + zod block schemas) so it is NOT in the static import closure of
+// every page. The header/tab chrome renders immediately; chat streams in once the
+// chunk lands (~650-700 KB gzip saved from the critical path).
+const MultiTabAssistantChatLazy = lazy(() =>
+  import("./MultiTabAssistantChat.js").then((m) => ({
+    default: m.MultiTabAssistantChat,
+  })),
+);
+import type { MultiTabAssistantChatHeaderProps } from "./MultiTabAssistantChat.js";
 import {
   assistantUiRecoverableRenderErrorKind,
   type AssistantChatProps,
@@ -234,6 +240,48 @@ function IconTooltip({
 }
 
 // AgentSettingsPopover and AgentsSection moved to ./settings/
+
+// ─── ChatLoadingSkeleton ─────────────────────────────────────────────────────
+// Renders the sidebar header chrome immediately while the lazy assistant-ui
+// chunk is in flight. Matches the composer-area height so layout does not
+// shift when the real chat surface mounts.
+type ChatHeaderRenderer = (
+  props: MultiTabAssistantChatHeaderProps,
+) => React.ReactNode;
+
+function ChatLoadingSkeleton({
+  renderHeader,
+}: {
+  renderHeader?: ChatHeaderRenderer;
+}) {
+  // Provide empty no-op implementations so renderHeader can render the real
+  // tab/mode buttons without needing actual chat state.
+  const noop = useCallback(() => {}, []);
+  const noopStr = useCallback((_id: string) => {}, []);
+  const stubProps: MultiTabAssistantChatHeaderProps = {
+    tabs: [],
+    activeTabId: "",
+    activeTabMessageCount: 0,
+    setActiveTabId: noopStr,
+    addTab: noop,
+    closeTab: noopStr,
+    closeOtherTabs: noopStr,
+    closeAllTabs: noop,
+    clearActiveTab: noop,
+    showHistory: false,
+    tabCount: 0,
+    toggleHistory: noop,
+  };
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      {renderHeader ? renderHeader(stubProps) : null}
+      {/* Composer-shaped placeholder keeps layout stable during chunk load */}
+      <div className="mt-auto shrink-0 border-t border-border p-3">
+        <div className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+      </div>
+    </div>
+  );
+}
 
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
@@ -1403,7 +1451,9 @@ function AgentPanelInner({
           Header (with tabs + mode buttons) is always visible.
           Chat content is hidden when CLI or resources mode is active.
           The wrapper collapses (no flex-1) when another mode is active
-          so it only takes the height of its header. */}
+          so it only takes the height of its header.
+          The Suspense boundary renders the header chrome immediately while
+          the lazy assistant-ui chunk loads in the background. */}
       <div
         className={cn(
           "flex flex-col min-h-0",
@@ -1411,26 +1461,34 @@ function AgentPanelInner({
         )}
       >
         {mounted && (
-          <MultiTabAssistantChat
-            {...assistantChatProps}
-            apiUrl={apiUrl}
-            showHeader={false}
-            renderHeader={showHeader ? renderChatHeader : undefined}
-            showTabBar={showTabBar}
-            renderOverlay={undefined}
-            contentHidden={mode !== "chat"}
-            emptyStateText={emptyStateText}
-            emptyStateAddon={emptyStateAddon}
-            suggestions={suggestions}
-            dynamicSuggestions={dynamicSuggestions}
-            onSwitchToCli={() => switchMode("cli")}
-            execMode={execMode}
-            onExecModeChange={switchExecMode}
-            storageKey={storageKey}
-            restoreActiveThread={restoreActiveThread}
-            scope={scope}
-            browserTabId={browserTabId}
-          />
+          <Suspense
+            fallback={
+              <ChatLoadingSkeleton
+                renderHeader={showHeader ? renderChatHeader : undefined}
+              />
+            }
+          >
+            <MultiTabAssistantChatLazy
+              {...assistantChatProps}
+              apiUrl={apiUrl}
+              showHeader={false}
+              renderHeader={showHeader ? renderChatHeader : undefined}
+              showTabBar={showTabBar}
+              renderOverlay={undefined}
+              contentHidden={mode !== "chat"}
+              emptyStateText={emptyStateText}
+              emptyStateAddon={emptyStateAddon}
+              suggestions={suggestions}
+              dynamicSuggestions={dynamicSuggestions}
+              onSwitchToCli={() => switchMode("cli")}
+              execMode={execMode}
+              onExecModeChange={switchExecMode}
+              storageKey={storageKey}
+              restoreActiveThread={restoreActiveThread}
+              scope={scope}
+              browserTabId={browserTabId}
+            />
+          </Suspense>
         )}
       </div>
 

@@ -734,7 +734,7 @@ export default function OverviewRoute() {
                 </p>
               </div>
               <div className="mt-4 space-y-2">
-                {(data?.recentApprovals || []).map((approval) => (
+                {(data?.recentApprovals || []).map((approval: any) => (
                   <div
                     key={approval.id}
                     className="rounded-xl border px-4 py-3"

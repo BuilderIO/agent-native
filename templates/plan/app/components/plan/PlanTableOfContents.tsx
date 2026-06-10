@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { IconList } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { PlanContent } from "@shared/plan-content";
 import {
   collectPlanTocItems,
@@ -222,6 +229,11 @@ export function PlanTableOfContents({
                   const target = elementsRef.current.get(item.id);
                   if (!target) return;
                   event.preventDefault();
+                  // Set a stable `id` on the target element so the browser's
+                  // native hash-navigation (and back/forward) works. We write
+                  // it lazily here rather than during DOM setup to avoid
+                  // fighting the Tiptap editor's own reconcile passes.
+                  if (!target.id) target.id = item.id;
                   target.scrollIntoView({
                     behavior: window.matchMedia(
                       "(prefers-reduced-motion: reduce)",
@@ -231,6 +243,13 @@ export function PlanTableOfContents({
                     block: "start",
                   });
                   setActiveId(item.id);
+                  // Update the URL hash so the deep link is shareable and the
+                  // browser back-button returns to this section.
+                  try {
+                    history.pushState(null, "", `#${item.id}`);
+                  } catch {
+                    // Sandboxed or cross-origin — ignore.
+                  }
                 }}
               >
                 {item.label}
@@ -240,5 +259,135 @@ export function PlanTableOfContents({
         </ol>
       </nav>
     </aside>
+  );
+}
+
+/**
+ * Compact floating "On this plan" button that appears in the bottom-right
+ * corner of the document area on viewports narrower than 1400px (where the
+ * full sidebar TOC is hidden). Only rendered when the plan has 3+ sections.
+ * The button opens a Popover listing the same TOC entries; clicking any entry
+ * scrolls to that section using the same element-resolution logic as the
+ * desktop TOC.
+ */
+export function PlanTocFallback({
+  content,
+  isRecap = false,
+  omitBlockId,
+}: {
+  content: PlanContent;
+  isRecap?: boolean;
+  omitBlockId?: string;
+}) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const elementsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const [open, setOpen] = useState(false);
+  const items = useMemo(
+    () =>
+      collectPlanTocItems(content.blocks).filter(
+        (item) => item.blockId !== omitBlockId,
+      ),
+    [content.blocks, omitBlockId],
+  );
+
+  // Resolve element map lazily when the popover opens (the document is
+  // already mounted by then, so we don't need the full mutation-observer
+  // retry loop that the sidebar TOC uses).
+  useEffect(() => {
+    if (!open) return;
+    const nav = anchorRef.current;
+    if (!nav) return;
+    const root =
+      nav
+        .closest(".plan-document-shell")
+        ?.querySelector<HTMLElement>(".plan-document-flow") ?? null;
+    if (!root) return;
+
+    const headings = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        ".an-rich-md-prose > h1, .an-rich-md-prose > h2, .an-rich-md-prose > h3",
+      ),
+    ).filter((heading) => !heading.closest(".plan-block-node"));
+
+    let headingCursor = 0;
+    const map = new Map<string, HTMLElement>();
+    for (const item of items) {
+      let target: HTMLElement | null = null;
+      if (item.kind === "block") {
+        target =
+          root.querySelector<HTMLElement>(
+            `[data-block-id="${CSS.escape(item.blockId)}"]`,
+          ) ?? null;
+      } else {
+        target = headings[headingCursor] ?? null;
+        headingCursor += 1;
+      }
+      if (target) map.set(item.id, target);
+    }
+    elementsRef.current = map;
+  }, [open, items]);
+
+  // Fewer than 3 sections — not worth a button.
+  if (items.length < 3) return null;
+
+  const scrollTo = (item: PlanTocItem) => {
+    const target = elementsRef.current.get(item.id);
+    if (!target) return;
+    target.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "start",
+    });
+    setOpen(false);
+  };
+
+  return (
+    // Wrapper sits in the normal document flow (not fixed/absolute) but the
+    // button itself is sticky so it stays visible while the user scrolls.
+    // display:none is applied above 1400px via global.css so it never
+    // overlaps the full sidebar TOC.
+    <div ref={anchorRef} className="plan-toc-fallback">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="plan-toc-fallback__btn h-8 gap-1.5 rounded-full border-border/80 bg-background/90 px-3 text-xs font-medium shadow-md backdrop-blur-sm"
+            aria-label={isRecap ? "On this recap" : "On this plan"}
+          >
+            <IconList className="size-3.5" />
+            {isRecap ? "On this recap" : "On this plan"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          side="top"
+          sideOffset={8}
+          className="w-56 rounded-xl p-2"
+        >
+          <p className="plan-document-toc__heading mb-2 px-2">
+            {isRecap ? "On this recap" : "On this plan"}
+          </p>
+          <ol className="space-y-0.5">
+            {items.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className={cn(
+                    "block w-full rounded-lg px-2 py-1.5 text-left text-sm leading-5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                    item.level > 0 && "pl-5",
+                  )}
+                  onClick={() => scrollTo(item)}
+                >
+                  {item.label}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }

@@ -15,7 +15,7 @@ export default function AuditRoute() {
     >
       <section className="rounded-2xl border bg-card p-5">
         <div className="space-y-3">
-          {(data || []).map((event) => (
+          {(data || []).map((event: any) => (
             <div
               key={event.id}
               className="rounded-xl border bg-muted/30 px-4 py-3"

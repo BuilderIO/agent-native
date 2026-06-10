@@ -15,10 +15,6 @@ export function meta() {
   ];
 }
 
-export function HydrateFallback() {
-  return <DocumentSkeleton />;
-}
-
 function DocumentSkeleton() {
   return (
     <div className="flex-1 flex items-start justify-center bg-background overflow-hidden">

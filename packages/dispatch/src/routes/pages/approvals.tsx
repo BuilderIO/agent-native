@@ -105,7 +105,7 @@ export default function ApprovalsRoute() {
             Pending and recent requests
           </h2>
           <div className="mt-4 space-y-3">
-            {(approvals || []).map((approval) => (
+            {(approvals || []).map((approval: any) => (
               <div
                 key={approval.id}
                 className="rounded-xl border bg-muted/30 px-4 py-3"

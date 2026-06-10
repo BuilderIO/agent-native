@@ -1,7 +1,4 @@
-import { useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client";
 
 export type ClipsView =
   | "library"
@@ -34,7 +31,6 @@ export interface NavigationState {
 
 interface NavigateCommand extends Partial<NavigationState> {
   path?: string;
-  _ts?: number;
 }
 
 /**
@@ -176,54 +172,10 @@ function pathFromCommand(cmd: NavigateCommand): string {
 }
 
 export function useNavigationState() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Sync current route to application state. Debounced so rapid navigation
-  // (e.g. typing in the library search box) doesn't spam PUTs.
-  useEffect(() => {
-    const state = stateFromLocation(location.pathname, location.search);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-        method: "PUT",
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
-      }).catch(() => {});
-    }, 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [location.pathname, location.search]);
-
-  // Listen for navigate commands from the agent (one-shot; auto-deleted after read).
-  const { data: navCommand } = useQuery<NavigateCommand | null>({
-    queryKey: ["navigate-command"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
-      );
-      if (!res.ok) return null;
-      const data = (await res.json()) as NavigateCommand | null;
-      if (data) return { ...data, _ts: Date.now() };
-      return null;
-    },
-    refetchInterval: 2_000,
-    structuralSharing: false,
+  useAgentRouteState<NavigationState, NavigateCommand>({
+    writeDebounceMs: 300,
+    getNavigationState: ({ pathname, search }) =>
+      stateFromLocation(pathname, search),
+    getCommandPath: (cmd) => pathFromCommand(cmd),
   });
-
-  useEffect(() => {
-    if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it.
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-      method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
-    }).catch(() => {});
-    const path = pathFromCommand(navCommand);
-    navigate(path);
-    qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc]);
 }

@@ -609,6 +609,8 @@ export {
   type ClientActionCallOptions,
   type ClientActionMethod,
 } from "./use-action.js";
+export { createAgentNativeQueryClient } from "./create-query-client.js";
+export { AppProviders, type AppProvidersProps } from "./app-providers.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "./use-pinch-zoom.js";
 export {
   ShareButton,

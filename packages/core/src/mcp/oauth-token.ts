@@ -63,6 +63,13 @@ export async function signMcpOAuthAccessToken(params: {
   issuer: string;
   jti?: string;
   expiresIn?: string | number;
+  /**
+   * When `"full"`, embed a `catalog_scope: "full"` custom claim so that on
+   * hosted multi-tenant deployments (AGENT_NATIVE_CONNECTOR_CATALOG=1) this
+   * token bypasses the connector-catalog tier filter. Used when the connect
+   * flow is initiated with `--full-catalog`.
+   */
+  catalogScope?: "full";
 }): Promise<string> {
   return new jose.SignJWT({
     typ: "agent-native-mcp-oauth",
@@ -72,6 +79,7 @@ export async function signMcpOAuthAccessToken(params: {
     scope: params.scope,
     client_id: params.clientId,
     resource: params.resource,
+    ...(params.catalogScope === "full" ? { catalog_scope: "full" } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(params.issuer)
@@ -92,6 +100,9 @@ export async function verifyMcpOAuthAccessToken(
   scopes: string[];
   clientId: string;
   jti?: string;
+  /** Present when the token was minted with `--full-catalog`; bypasses the
+   *  connector-catalog tier filter on hosted multi-tenant deployments. */
+  catalogScope?: "full";
 } | null> {
   if (!resource) return null;
   try {
@@ -117,6 +128,7 @@ export async function verifyMcpOAuthAccessToken(
       scopes,
       clientId: payload.client_id,
       jti: typeof payload.jti === "string" ? payload.jti : undefined,
+      ...(payload.catalog_scope === "full" ? { catalogScope: "full" } : {}),
     };
   } catch {
     return null;

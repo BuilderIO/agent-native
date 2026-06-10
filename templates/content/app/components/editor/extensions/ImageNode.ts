@@ -60,7 +60,8 @@ export const ImageNode = Image.extend<ContentImageOptions>({
 
   addOptions() {
     return {
-      ...this.parent?.(),
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      ...this.parent!(),
       documentId: undefined,
       onImageComment: undefined,
     };

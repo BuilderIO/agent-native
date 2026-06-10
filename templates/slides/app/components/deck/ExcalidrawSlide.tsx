@@ -49,7 +49,7 @@ export function ExcalidrawSlide({
   const parsed = parseExcalidrawData(initialData);
 
   const handleChange = useCallback(
-    (elements: any[], appState: any, files: any) => {
+    (elements: readonly any[], appState: any, files: any) => {
       if (readOnly || !onChange) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {

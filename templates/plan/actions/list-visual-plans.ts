@@ -62,6 +62,7 @@ export default defineAction({
         currentFocus: schema.plans.currentFocus,
         hostedPlanId: schema.plans.hostedPlanId,
         hostedPlanUrl: schema.plans.hostedPlanUrl,
+        sourceUrl: schema.plans.sourceUrl,
         createdAt: schema.plans.createdAt,
         updatedAt: schema.plans.updatedAt,
         approvedAt: schema.plans.approvedAt,

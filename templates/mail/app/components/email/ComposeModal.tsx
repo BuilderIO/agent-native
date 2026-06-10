@@ -865,7 +865,7 @@ export function ComposeModal({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={() => onDiscard(activeId)}
+                    onClick={() => activeId && onDiscard(activeId)}
                     className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                   >
                     <IconTrash className="h-4 w-4" />

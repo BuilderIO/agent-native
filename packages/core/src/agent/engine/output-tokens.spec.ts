@@ -5,6 +5,7 @@ import {
   DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
   DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
   defaultMaxOutputTokensForEngine,
+  normalizeMaxOutputTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
 
@@ -13,7 +14,7 @@ describe("agent output-token policy", () => {
     vi.unstubAllEnvs();
   });
 
-  it("uses conservative provider-specific defaults", () => {
+  it("uses provider-specific defaults", () => {
     expect(defaultMaxOutputTokensForEngine("ai-sdk:openrouter")).toBe(
       DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
     );
@@ -28,6 +29,10 @@ describe("agent output-token policy", () => {
     );
   });
 
+  it("OpenRouter default is 8192 (not truncation-prone 1024)", () => {
+    expect(DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS).toBe(8192);
+  });
+
   it("lets provider-specific env overrides beat the global override", () => {
     vi.stubEnv("AGENT_MAX_OUTPUT_TOKENS", "2048");
     vi.stubEnv("AGENT_OPENROUTER_MAX_OUTPUT_TOKENS", "768");
@@ -40,5 +45,15 @@ describe("agent output-token policy", () => {
     vi.stubEnv("AGENT_MAX_OUTPUT_TOKENS", "2048");
 
     expect(resolveMaxOutputTokensForEngine("ai-sdk:openrouter", 512)).toBe(512);
+  });
+
+  it("clamp allows values up to 64000", () => {
+    // The global clamp was raised from 32768 to 64000 to support Sonnet 4.6
+    // and GPT-5.x which support 64K+ output tokens.
+    expect(normalizeMaxOutputTokens(64_000)).toBe(64_000);
+    // Stays clamped at 64000 for values above it.
+    expect(normalizeMaxOutputTokens(100_000)).toBe(64_000);
+    // Still rejects values below minimum.
+    expect(normalizeMaxOutputTokens(100)).toBe(256);
   });
 });

@@ -222,6 +222,10 @@ function findCoreSrcDir(cwd: string): string | null {
 const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
+  // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
+  // entry.client.tsx imports from here so it never pulls the full client barrel
+  // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
+  "@agent-native/core/client/api-path",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -335,6 +339,11 @@ function getCoreSourceAliases(
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    // Dedicated thin subpath — only the URL helpers, no chat stack in the closure.
+    "@agent-native/core/client/api-path": path.join(
+      coreSrc,
+      "client/api-path.ts",
+    ),
     "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
@@ -423,6 +432,10 @@ function getCoreSourceAliases(
     "@agent-native/core/server/design-token-utils": path.join(
       coreSrc,
       "server/design-token-utils.ts",
+    ),
+    "@agent-native/core/server/entry-server": path.join(
+      coreSrc,
+      "server/entry-server.tsx",
     ),
     // Shared stylesheet — alias to src so CSS edits (composer/theme rules)
     // take effect live in dev instead of silently loading the stale built
@@ -1170,7 +1183,7 @@ function silenceConnectionResets(): Plugin {
     configureServer(server) {
       // Swallow socket-level resets so Node doesn't surface them as uncaught.
       server.httpServer?.on("connection", (socket) => {
-        socket.on("error", (err) => {
+        socket.on("error", (err: Error) => {
           if (!isBenign(err)) throw err;
         });
       });

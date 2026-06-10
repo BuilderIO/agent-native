@@ -1,21 +1,8 @@
 import { useTheme } from "next-themes";
-import { IconLoader2 } from "@tabler/icons-react";
 import { useActionQuery } from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "{{APP_TITLE}}" }];
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen">
-      <IconLoader2
-        className="size-8 animate-spin text-foreground"
-        role="status"
-        aria-label="Loading"
-      />
-    </div>
-  );
 }
 
 export default function IndexPage() {

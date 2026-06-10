@@ -8,6 +8,8 @@ interface ExecCall {
 const execCalls: ExecCall[] = [];
 let latestEventRows: Array<{ seq: number; event_data: string }> = [];
 let staleSelectRows: Array<{ id: string }> = [];
+let claimSlotRows: Array<{ id: string }> = [];
+let runStatusRows: Array<{ status: string }> = [];
 let insertEventBehavior: () => void = () => {};
 
 const mockDb = {
@@ -19,17 +21,34 @@ const mockDb = {
     if (/SELECT seq, event_data FROM agent_run_events/i.test(rawSql)) {
       return { rows: latestEventRows, rowsAffected: 0 };
     }
+    // tryClaimRunSlot: SELECT id FROM agent_runs WHERE thread_id = ? AND ...
+    // Must come before the broader stale-run SELECT check since both match
+    // "SELECT id FROM agent_runs ... status = 'running'".
+    if (
+      /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(rawSql) &&
+      /COALESCE\(heartbeat_at, started_at\) >=/i.test(rawSql)
+    ) {
+      return { rows: claimSlotRows, rowsAffected: 0 };
+    }
     if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(rawSql)) {
       return { rows: staleSelectRows, rowsAffected: 0 };
+    }
+    // getRunStatus: SELECT status FROM agent_runs WHERE id = ?
+    if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
+      return { rows: runStatusRows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
       return { rows: [], rowsAffected: 1 };
     }
+    // Tool-call result ledger: SELECT result_summary FROM agent_tool_ledger
+    if (/SELECT result_summary FROM agent_tool_ledger/i.test(rawSql)) {
+      return { rows: ledgerRows, rowsAffected: 0 };
+    }
 
     return {
       rows: [],
-      rowsAffected: /^\s*UPDATE\b/i.test(rawSql) ? 1 : 0,
+      rowsAffected: /^\s*(UPDATE|INSERT|DELETE)\b/i.test(rawSql) ? 1 : 0,
     };
   }),
 };
@@ -52,13 +71,25 @@ const {
   reapAllStaleRuns,
   reapIfStale,
   cleanupOldRuns,
+  tryClaimRunSlot,
+  updateRunStatusIfRunning,
+  getRunStatus,
+  writeLedgerEntry,
+  readLedgerEntry,
+  clearLedgerForThread,
 } = await import("./run-store.js");
+
+// Mock storage for ledger SELECT responses, keyed by toolKey
+let ledgerRows: Array<{ result_summary: string }> = [];
 
 describe("run store", () => {
   beforeEach(() => {
     execCalls.length = 0;
     latestEventRows = [];
     staleSelectRows = [];
+    claimSlotRows = [];
+    runStatusRows = [];
+    ledgerRows = [];
     insertEventBehavior = () => {};
     vi.clearAllMocks();
   });
@@ -210,5 +241,141 @@ describe("run store", () => {
     expect(Number(deleteRuns?.args[1])).toBeLessThan(
       Number(deleteRuns?.args[0]),
     );
+  });
+
+  // Fix 2: atomic run lease
+  it("tryClaimRunSlot grants the slot when no live running row exists", async () => {
+    claimSlotRows = []; // no current runner
+    const result = await tryClaimRunSlot("thread-free");
+    expect(result.claimed).toBe(true);
+    expect(result.activeRunId).toBeNull();
+  });
+
+  it("tryClaimRunSlot denies the slot when a live running row exists", async () => {
+    claimSlotRows = [{ id: "run-active-123" }];
+    const result = await tryClaimRunSlot("thread-busy");
+    expect(result.claimed).toBe(false);
+    expect(result.activeRunId).toBe("run-active-123");
+  });
+
+  it("tryClaimRunSlot uses a heartbeat cutoff to exclude stale rows", async () => {
+    claimSlotRows = []; // stale row was filtered by heartbeat cutoff in SQL
+    const result = await tryClaimRunSlot("thread-stale");
+    expect(result.claimed).toBe(true);
+
+    const select = execCalls.find(
+      (call) =>
+        /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&
+        /COALESCE\(heartbeat_at, started_at\) >=/i.test(call.sql),
+    );
+    expect(select).toBeDefined();
+    // The heartbeat cutoff arg must be a recent timestamp
+    expect(Number(select?.args[1])).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  // Fix 1c: conditional terminal status write
+  it("updateRunStatusIfRunning only updates rows still status=running", async () => {
+    const result = await updateRunStatusIfRunning("run-alive", "completed");
+    // The mock returns rowsAffected=1 for any UPDATE — truthy return
+    expect(result).toBe(true);
+
+    const update = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /WHERE id = \? AND status = 'running'/i.test(call.sql),
+    );
+    expect(update).toBeDefined();
+    expect(update?.args[0]).toBe("completed");
+    expect(update?.args[2]).toBe("run-alive");
+  });
+
+  it("getRunStatus returns the current status string for a run", async () => {
+    runStatusRows = [{ status: "errored" }];
+    const status = await getRunStatus("run-check");
+    expect(status).toBe("errored");
+
+    const select = execCalls.find((call) =>
+      /SELECT status FROM agent_runs WHERE id/i.test(call.sql),
+    );
+    expect(select?.args[0]).toBe("run-check");
+  });
+
+  it("getRunStatus returns null when the run row is missing", async () => {
+    runStatusRows = [];
+    const status = await getRunStatus("run-missing");
+    expect(status).toBeNull();
+  });
+
+  // ─── Tool-call result ledger ───────────────────────────────────────────────
+
+  it("writeLedgerEntry persists result via INSERT with UPSERT semantics", async () => {
+    await writeLedgerEntry("thread-abc", "my-tool:{}", "the result");
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert).toBeDefined();
+    expect(insert?.args[0]).toBe("thread-abc");
+    expect(insert?.args[1]).toBe("my-tool:{}");
+    expect(insert?.args[2]).toBe("the result");
+    expect(insert?.sql).toContain("ON CONFLICT");
+  });
+
+  it("writeLedgerEntry caps result at 8 000 chars and appends truncation marker", async () => {
+    const longResult = "X".repeat(8_500);
+    await writeLedgerEntry("thread-cap", "tool:key", longResult);
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    const stored = insert?.args[2] as string;
+    expect(stored.length).toBeLessThanOrEqual(8_050); // 8000 + truncation marker
+    expect(stored).toContain("ledger truncated");
+    expect(stored.startsWith("X".repeat(8_000))).toBe(true);
+  });
+
+  it("readLedgerEntry returns the result when an entry exists", async () => {
+    ledgerRows = [{ result_summary: "cached output" }];
+    const result = await readLedgerEntry("thread-abc", "my-tool:{}");
+
+    expect(result).toBe("cached output");
+    const select = execCalls.find((call) =>
+      /SELECT result_summary FROM agent_tool_ledger/i.test(call.sql),
+    );
+    expect(select?.args[0]).toBe("thread-abc");
+    expect(select?.args[1]).toBe("my-tool:{}");
+  });
+
+  it("readLedgerEntry returns null when no entry exists", async () => {
+    ledgerRows = [];
+    const result = await readLedgerEntry("thread-abc", "tool-unknown:{}");
+    expect(result).toBeNull();
+  });
+
+  it("readLedgerEntry returns null (never throws) on DB error", async () => {
+    mockDb.execute.mockRejectedValueOnce(new Error("DB unavailable"));
+    const result = await readLedgerEntry("thread-err", "any-tool:{}");
+    expect(result).toBeNull();
+  });
+
+  it("writeLedgerEntry never throws on DB error (best-effort)", async () => {
+    mockDb.execute.mockRejectedValueOnce(new Error("DB unavailable"));
+    await expect(
+      writeLedgerEntry("thread-err", "any-tool:{}", "result"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("clearLedgerForThread deletes all entries for the thread", async () => {
+    await clearLedgerForThread("thread-done");
+
+    const del = execCalls.find((call) =>
+      /DELETE FROM agent_tool_ledger WHERE thread_id/i.test(call.sql),
+    );
+    expect(del?.args[0]).toBe("thread-done");
+  });
+
+  it("clearLedgerForThread never throws on DB error (best-effort)", async () => {
+    mockDb.execute.mockRejectedValueOnce(new Error("DB unavailable"));
+    await expect(clearLedgerForThread("thread-err")).resolves.toBeUndefined();
   });
 });

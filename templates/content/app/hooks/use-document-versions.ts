@@ -12,7 +12,7 @@ export function useDocumentVersions(documentId: string | null) {
         const versions = data?.versions ?? data;
         return Array.isArray(versions) ? versions : [];
       },
-      placeholderData: (prev) => prev,
+      placeholderData: (prev: any) => prev,
     } as any,
   );
 }

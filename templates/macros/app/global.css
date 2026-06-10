@@ -1,4 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap");
+/* Self-hosted via @fontsource-variable/inter and @fontsource-variable/outfit — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/outfit";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";

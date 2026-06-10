@@ -391,6 +391,34 @@
   }
 }
 
+/* Compact floating "On this plan" fallback for the sidebar TOC. Shown only when
+ * the viewport is narrower than the 1400px breakpoint where the full TOC rail
+ * becomes visible. Renders as a sticky bottom-right pill at the foot of the
+ * document body so it never covers the prose — it enters the flow at the end of
+ * the document and stays in the viewport as the user scrolls the last section. */
+.plan-toc-fallback {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.75rem 0 0.25rem;
+  /* Stick at the bottom of the scroll viewport so the button remains reachable
+   * while reading the last section. The negative bottom offset ensures the sticky
+   * row doesn't block the last block's text. */
+  position: sticky;
+  bottom: 1rem;
+  pointer-events: none;
+}
+
+.plan-toc-fallback__btn {
+  pointer-events: auto;
+}
+
+@media (min-width: 1400px) {
+  /* The full sidebar TOC is visible; hide the fallback button. */
+  .plan-toc-fallback {
+    display: none;
+  }
+}
+
 /* Recap "Files touched" left rail. Hidden by default (the block renders inline
  * in the document body); on wide screens it mirrors the right-hand contents rail
  * as a permanent left sidebar, positioned in the margin beside the centered

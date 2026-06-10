@@ -30,7 +30,11 @@ import {
   type SkillMetadata,
 } from "./metadata.js";
 import { getSession } from "../server/auth.js";
-import { readBody } from "../server/h3-helpers.js";
+import {
+  readBody,
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  isAllowedUploadMimeType,
+} from "../server/h3-helpers.js";
 import { uploadFile } from "../file-upload/index.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
@@ -556,10 +560,24 @@ export async function handleUploadResource(event: any) {
     return { error: "No file data found" };
   }
 
+  // Reject oversized uploads before touching any storage.
+  if (filePart.data.length > DEFAULT_UPLOAD_MAX_FILE_BYTES) {
+    setResponseStatus(event, 413);
+    return {
+      error: `File too large (max ${Math.round(DEFAULT_UPLOAD_MAX_FILE_BYTES / 1024 / 1024)} MB)`,
+    };
+  }
+
   const fileName = filePart.filename || "upload";
   const path = pathPart?.data?.toString() || `/${fileName}`;
   const shared = sharedPart?.data?.toString() === "true";
   const mimeType = filePart.type || "application/octet-stream";
+
+  // Reject executable / script MIME types.
+  if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
+    setResponseStatus(event, 415);
+    return { error: `Unsupported file type: ${filePart.type}` };
+  }
   if (shared) {
     await assertCanEditShared(event);
   }

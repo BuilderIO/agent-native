@@ -6,11 +6,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  exportPlanContentToMdxFolder,
-  parsePlanMdxFolder,
-  planMdxFileSchema,
-} from "../server/plan-mdx.js";
+import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
 import { serializePlanContent } from "../server/plan-content.js";
 import {
   isLocalPlanRuntime,
@@ -20,6 +16,10 @@ import {
 import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
+import {
+  importPlanAssets,
+  applyImportedAssets,
+} from "../server/lib/plan-assets.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -37,7 +37,7 @@ import {
 
 export default defineAction({
   description:
-    "Create or replace an Agent-Native Plan from source-control friendly MDX files. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON. When replacing an existing plan, pass expectedUpdatedAt (the plan's current updatedAt) to guard against concurrent edits — the action errors if the plan was modified since you last read it.",
+    "Create or replace a plan from source-control friendly MDX files (repo check-in workflows). Use ONLY when working with exported MDX source files; for live plans prefer update-visual-plan with contentPatches. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON. When replacing an existing plan, pass expectedUpdatedAt to guard against concurrent edits.",
   schema: z.object({
     planId: z
       .string()
@@ -64,7 +64,7 @@ export default defineAction({
       .describe("Current plan focus for the review surface."),
     status: planStatusSchema.optional().default("review"),
     mdx: planMdxFileSchema.describe(
-      "Plan source files. plan.mdx holds frontmatter plus markdown/document blocks; canvas.mdx holds optional DesignBoard/Section/Artboard/Screen/Annotation/Connector components.",
+      "Plan source files. plan.mdx holds frontmatter plus markdown/document blocks; canvas.mdx holds optional DesignBoard/Section/Artboard/Screen/Annotation/Connector components. Optional assets/ holds base64-encoded image assets keyed by filename (png, jpg, gif, webp, svg). Size caps: 2 MB per asset, 10 MB total per plan.",
     ),
   }),
   publicAgent: {
@@ -87,7 +87,7 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    const content = await parsePlanMdxFolder(args.mdx);
+    let content = await parsePlanMdxFolder(args.mdx);
     const title = args.title ?? content.title ?? "Imported visual plan";
     const brief = args.brief ?? content.brief ?? "Imported from MDX source.";
     const now = nowIso();
@@ -95,6 +95,18 @@ export default defineAction({
 
     if (args.planId) {
       await assertPlanEditor(args.planId);
+
+      // Import assets before writing content so asset refs in blocks can be
+      // resolved to assetId/CDN URLs. Done here (after assertPlanEditor) so
+      // we know the caller has edit rights before touching asset storage.
+      const incomingAssets = args.mdx["assets/"];
+      if (incomingAssets && Object.keys(incomingAssets).length > 0) {
+        const srcByFilename = await importPlanAssets(
+          args.planId,
+          incomingAssets,
+        );
+        content = applyImportedAssets(content, srcByFilename);
+      }
 
       // Optimistic concurrency check: if the caller supplied expectedUpdatedAt,
       // verify it matches the current plan before overwriting. Mirrors the CAS
@@ -162,13 +174,6 @@ export default defineAction({
         ...bundle,
         planId: bundle.plan.id,
         html: buildPlanHtml(bundle),
-        mdx: await exportPlanContentToMdxFolder({
-          content: bundle.plan.content,
-          title: bundle.plan.title,
-          brief: bundle.plan.brief,
-          planId: bundle.plan.id,
-          url: planPath(bundle.plan.id, bundle.plan.kind),
-        }),
         path: planPath(bundle.plan.id, bundle.plan.kind),
         url: planPath(bundle.plan.id, bundle.plan.kind),
         ...(local?.written ? { localFiles: local } : {}),
@@ -199,6 +204,8 @@ export default defineAction({
       currentFocus: args.currentFocus ?? "source review",
       html: null,
       markdown: args.mdx["plan.mdx"],
+      // Content is persisted after assets are imported (below) so asset refs
+      // in image blocks are resolved to IDs/URLs before the first DB write.
       content: serializePlanContent(content),
       createdAt: now,
       updatedAt: now,
@@ -207,6 +214,18 @@ export default defineAction({
       orgId: ownerOrgId,
       visibility: "private",
     });
+
+    // Import assets now that the plan row exists (FK on plan_assets.plan_id).
+    const incomingAssetsCreate = args.mdx["assets/"];
+    if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
+      const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
+      content = applyImportedAssets(content, srcByFilename);
+      // Re-persist the content now that asset refs are resolved.
+      await db
+        .update(schema.plans)
+        .set({ content: serializePlanContent(content) })
+        .where(eq(schema.plans.id, id));
+    }
 
     await writeEvent({
       planId: id,
@@ -236,13 +255,6 @@ export default defineAction({
       ...bundle,
       planId: id,
       html: buildPlanHtml(bundle),
-      mdx: await exportPlanContentToMdxFolder({
-        content: bundle.plan.content,
-        title: bundle.plan.title,
-        brief: bundle.plan.brief,
-        planId: bundle.plan.id,
-        url: planPath(bundle.plan.id, bundle.plan.kind),
-      }),
       path: planPath(id, kind),
       url: planPath(id, kind),
       ...(local?.written ? { localFiles: local } : {}),

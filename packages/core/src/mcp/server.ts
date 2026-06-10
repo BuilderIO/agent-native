@@ -354,6 +354,9 @@ export async function handleMcpRequest(
   const server = await createMCPServerForRequest(config, authResult.identity, {
     ...requestMeta,
     fullSurface: authResult.fullSurface === true,
+    // When the caller minted their token with --full-catalog (catalog_scope:
+    // "full" JWT claim), bypass the connector-catalog tier filter.
+    ...(authResult.fullCatalog === true ? { fullCatalog: true } : {}),
   });
 
   if (shouldUseNodeFastPath(event)) {

@@ -30,6 +30,22 @@ async function ensureTable(): Promise<void> {
           PRIMARY KEY (session_id, key)
         )
       `);
+      // Indexes for the two hot poll paths:
+      //  - `SELECT … WHERE updated_at > ?` (watermark scan, every poll cycle)
+      //  - `SELECT … WHERE key = ? … ORDER BY updated_at ASC` (marker lookups)
+      // Both are dialect-agnostic (no DESC/partial/PG-only syntax) so they
+      // apply identically on SQLite and Postgres. IF NOT EXISTS makes them
+      // idempotent across restarts on existing databases.
+      for (const ddl of [
+        `CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)`,
+        `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
+      ]) {
+        try {
+          await client.execute(ddl);
+        } catch {
+          // Index already exists or the dialect rejected a duplicate.
+        }
+      }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

@@ -114,7 +114,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
 
     recognition.onstart = () => setState("listening");
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: any) => {
       const current = event.resultIndex;
       const result = event.results[current];
       const transcriptText = result[0].transcript;
@@ -129,7 +129,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
       }
     };
 
-    recognition.onerror = (event) => {
+    recognition.onerror = (event: any) => {
       console.error("Speech recognition error:", event.error);
       if (!isProcessingRef.current) {
         setState("idle");

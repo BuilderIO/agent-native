@@ -22,38 +22,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own wor
 
 Same capabilities. Different economics. See [Templates](/docs/cloneable-saas) for why this matters for SaaS.
 
-## The Workspace tab {#the-tab}
-
-The **Workspace** tab in the agent sidebar is where you and the agent share persistent files — notes, instructions, skills, custom agents, and scheduled jobs. Files live in the database (not the filesystem), so they persist across sessions, work in serverless/edge deploys, and can be edited from both the UI and the agent.
-
-## TL;DR {#tldr}
-
-- Open the **Workspace** tab in the agent sidebar.
-- Create files with the `+` menu. Upload with the upload button. Edit inline (visual or code view).
-- **Personal** is just you. **Shared** is your team/org.
-- The agent can read, write, and rename any of these files as part of a conversation.
-- Special files the agent preloads: shared `AGENTS.md`, shared `instructions/*.md`, shared `LEARNINGS.md`, and personal structured memory at `memory/MEMORY.md`.
-- Shared reference resources such as `context/brand-guidelines.md` are indexed for the agent; it reads the relevant file when a task may depend on company, brand, positioning, persona, product, or domain context.
-
-## What goes in here? {#what-goes-in-here}
-
-| File / path                 | What it's for                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.           |
-| `instructions/<name>.md`    | Additional always-on shared guardrails loaded every turn. Good for compliance, brand voice, and policy. |
-| `LEARNINGS.md` (Shared)     | Shared corrections, conventions, and durable project memory the agent preloads.                         |
-| `memory/MEMORY.md`          | Personal structured memory the chat preloads for the current user.                                      |
-| `skills/<name>/SKILL.md`    | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                 |
-| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions).  |
-| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                            |
-| `mcp-servers/<name>.json`   | HTTP MCP server definitions that add external tools to the agent.                                       |
-| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                       |
-| `context/<name>.md`         | Shared reference material: brand guidelines, personas, positioning, product facts, messaging, etc.      |
-| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                               |
-
 ## Overview {#overview}
-
-Every agent-native app has a built-in resource system. Resources are SQL-backed files that persist across sessions and deployments. Unlike code files, resources live in the database — not the filesystem — so they work in serverless environments, edge runtimes, and production deploys without any filesystem dependency.
 
 Resources have three runtime scopes:
 
@@ -63,14 +32,7 @@ Resources have three runtime scopes:
 
 The in-app Workspace panel shows all three scopes. Personal and shared/organization resources are editable there. Workspace-scope resources are read-only in app panels and edited centrally from Dispatch, so every app sees the same canonical files without a sync step.
 
-### Global resources and canonical paths {#global-resources}
-
-Workspace-scope resources are managed from Dispatch's **Resources** page and inherited by apps at runtime — no copy or sync step. Dispatch supports two grant scopes:
-
-- **All apps** — global resources every app in the workspace inherits. Most company, brand, persona, positioning, messaging, and guardrail context should be **All apps**.
-- **Selected apps** — resources granted to specific apps for app-specific context or tools. Use these sparingly.
-
-The path determines how the agent uses a resource. These canonical paths apply across all three scopes (workspace, organization/app, personal):
+The canonical paths that control how the agent uses each resource:
 
 | Runtime resource        | Path                                    | How agents use it                               |
 | ----------------------- | --------------------------------------- | ----------------------------------------------- |
@@ -80,40 +42,7 @@ The path determines how the agent uses a resource. These canonical paths apply a
 | Custom agent profiles   | `agents/<slug>.md`                      | Available as reusable local agent profiles      |
 | Shared HTTP MCP servers | `mcp-servers/<slug>.json`               | Loaded into granted apps' MCP tool registry     |
 
-This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, shared skills, or shared HTTP MCP tools that many apps should benefit from.
-
-## Workspace Panel {#workspace-panel}
-
-The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse workspace resources, create/edit/delete personal or organization resources, and view inherited workspace defaults. It displays a tree view of all resources organized by folder path.
-
-Resources can be any text file — Markdown, JSON, YAML, plain text. The panel includes an inline editor for viewing and modifying resource content directly.
-
-The `+` menu in Workspace supports typed creation flows for:
-
-- **Files** — arbitrary resources
-- **Skills** — reusable instruction files under `skills/`
-- **Agents** — custom sub-agent profiles under `agents/*.md`
-- **Scheduled Tasks** — recurring jobs under `jobs/`
-
-Workspace resources appear in three scopes:
-
-- **Workspace** — inherited from Dispatch by every app; read-only in app panels
-- **Organization** — visible across the team/org
-- **Personal** — visible only to the current user
-
-When you open a resource, the editor shows an **Effective context** strip with the precedence stack:
-
-```text
-workspace default -> organization/app override -> personal override
-```
-
-If the same path exists at multiple levels, the later level wins. For example, `instructions/guardrails.md` in Personal overrides the organization version, which overrides the workspace default. Workspace resources are still visible in the stack so users can see what was inherited and why an override is active.
-
-Dispatch shows the same model from the control-plane side. On the **Resources** page, expand a resource and use **Effective in app** to choose an app and optional user email. The preview reports whether the resource is inherited by all apps or selected-only, and which layer is active for that exact path. From an app card's **Context** dialog, expand **Stack** on any resource row to see the same winner/override chain for that app.
-
-When Dispatch approval policy is enabled, creating, updating, or deleting an **All apps** resource queues an approval request instead of applying immediately. The create/edit/delete dialogs show an impact preview before save: whether the change reaches all apps, whether approval is required, and whether the same path is overridden at the organization/app or personal layer.
-
-Click the `?` icon in the Workspace toolbar to jump back to these docs at any time.
+These paths apply across all three scopes — workspace, organization/app, and personal. The later scope wins when the same path exists at multiple levels.
 
 ## Getting Started: a 1-minute walkthrough {#getting-started}
 
@@ -137,63 +66,16 @@ Change how the agent behaves, in 60 seconds.
 - **Scheduled Tasks** (`+` → **Scheduled Task**) — prompts that run on a cron.
 - **Memory** — shared `LEARNINGS.md` and personal `memory/MEMORY.md` keep durable context available across conversations.
 
-## How the Agent Uses Resources {#how-the-agent-uses-resources}
+## Global resources and canonical paths {#global-resources}
 
-The built-in app agent manages resources with the unified `resources` tool: use `action: "list"`, `"read"`, `"effective"`, `"write"`, `"promote"`, or `"delete"`. External CLI/code agents can use the equivalent `pnpm action resource-*` commands.
+Workspace-scope resources are managed from Dispatch's **Resources** page and inherited by apps at runtime — no copy or sync step. Dispatch supports two grant scopes:
 
-At the start of every conversation, the agent automatically reads:
+- **All apps** — global resources every app in the workspace inherits. Most company, brand, persona, positioning, messaging, and guardrail context should be **All apps**.
+- **Selected apps** — resources granted to specific apps for app-specific context or tools. Use these sparingly.
 
-### AGENTS.md {#agents-md}
+The path determines how the agent uses a resource (see the table in [Overview](#overview) above). This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, shared skills, or shared HTTP MCP tools that many apps should benefit from.
 
-An instruction resource seeded by default. The agent loads `AGENTS.md` from workspace, shared/organization, and personal scopes in that order. Edit the workspace version from Dispatch for company-wide defaults, the shared/app version for team or app-specific rules, and the personal version for per-user preferences.
-
-```text
-# Agent Instructions
-
-## Tone
-
-Be concise. Lead with the answer.
-
-## Code style
-
-- Use TypeScript, never JavaScript
-- Prefer named exports
-
-## Skills
-
-| Skill         | Path                            | Description                 |
-| ------------- | ------------------------------- | --------------------------- |
-| data-analysis | `skills/data-analysis/SKILL.md` | BigQuery and data workflows |
-```
-
-### Global Instructions {#global-instructions}
-
-Use workspace `AGENTS.md` for company-wide defaults, shared `AGENTS.md` for app/team rules, and personal `AGENTS.md` for per-user preferences. Use files under `instructions/` for separate guardrail documents that should also apply every turn, such as compliance rules, customer-facing tone, escalation policy, or brand voice. These files use the same workspace -> organization/app -> personal precedence.
-
-For example:
-
-```text
-AGENTS.md
-instructions/customer-support-guardrails.md
-instructions/legal-review-policy.md
-```
-
-Both normal chat and integration-triggered agent runs load these instruction resources before responding.
-
-### Reference Resources {#reference-resources}
-
-Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of workspace and shared reference resources and reads the relevant file with the `resources` tool (`action: "read"`) when a task may depend on it. Use `resources` with `action: "effective"` and `path: "context/brand.md"` when you need to see whether a workspace default is overridden by an organization/app or personal resource.
-
-Examples:
-
-```text
-context/core-positioning.md
-context/buyer-personas.md
-context/brand-guidelines.md
-context/company-facts.md
-```
-
-For a new workspace, a useful starter pack is:
+A useful starter pack for a new workspace:
 
 ```text
 context/company.md              # what the company does, ICP, products, links
@@ -201,6 +83,7 @@ context/brand.md                # voice, visual identity, spelling, forbidden us
 context/messaging.md            # positioning, value props, proof points, objections
 instructions/guardrails.md      # compliance, escalation, and approval rules
 skills/company-voice/SKILL.md   # on-demand guidance for customer-facing writing
+agents/<slug>.md                # reusable custom agent profiles
 ```
 
 Keep `context/` files factual and easy to skim. Put rules that must apply every turn in `instructions/guardrails.md`. Use `skills/company-voice/SKILL.md` when the agent should deliberately transform or review copy in the company's voice.
@@ -259,6 +142,80 @@ description: Rewrite or review customer-facing copy using the workspace brand an
 Read `context/brand.md` and `context/messaging.md` before writing. Keep claims grounded in those files, preserve approved terminology, and flag missing proof instead of inventing it.
 ```
 
+## Workspace Panel {#workspace-panel}
+
+The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse workspace resources, create/edit/delete personal or organization resources, and view inherited workspace defaults. It displays a tree view of all resources organized by folder path.
+
+Resources can be any text file — Markdown, JSON, YAML, plain text. The panel includes an inline editor for viewing and modifying resource content directly.
+
+The `+` menu in Workspace supports typed creation flows for:
+
+- **Files** — arbitrary resources
+- **Skills** — reusable instruction files under `skills/`
+- **Agents** — custom sub-agent profiles under `agents/*.md`
+- **Scheduled Tasks** — recurring jobs under `jobs/`
+
+When you open a resource, the editor shows an **Effective context** strip with the precedence stack:
+
+```text
+workspace default -> organization/app override -> personal override
+```
+
+If the same path exists at multiple levels, the later level wins. Workspace resources are still visible in the stack so users can see what was inherited and why an override is active.
+
+Dispatch shows the same model from the control-plane side. On the **Resources** page, expand a resource and use **Effective in app** to choose an app and optional user email. From an app card's **Context** dialog, expand **Stack** on any resource row to see the same winner/override chain for that app.
+
+When Dispatch approval policy is enabled, creating, updating, or deleting an **All apps** resource queues an approval request instead of applying immediately. The create/edit/delete dialogs show an impact preview before save.
+
+Click the `?` icon in the Workspace toolbar to jump back to these docs at any time.
+
+## How the Agent Uses Resources {#how-the-agent-uses-resources}
+
+The built-in app agent manages resources with the unified `resources` tool: use `action: "list"`, `"read"`, `"effective"`, `"write"`, `"promote"`, or `"delete"`. External CLI/code agents can use the equivalent `pnpm action resource-*` commands.
+
+At the start of every conversation, the agent automatically reads:
+
+### AGENTS.md {#agents-md}
+
+An instruction resource seeded by default. The agent loads `AGENTS.md` from workspace, shared/organization, and personal scopes in that order. Edit the workspace version from Dispatch for company-wide defaults, the shared/app version for team or app-specific rules, and the personal version for per-user preferences.
+
+```text
+# Agent Instructions
+
+## Tone
+
+Be concise. Lead with the answer.
+
+## Code style
+
+- Use TypeScript, never JavaScript
+- Prefer named exports
+
+## Skills
+
+| Skill         | Path                            | Description                 |
+| ------------- | ------------------------------- | --------------------------- |
+| data-analysis | `skills/data-analysis/SKILL.md` | BigQuery and data workflows |
+```
+
+### Global Instructions {#global-instructions}
+
+Use workspace `AGENTS.md` for company-wide defaults, shared `AGENTS.md` for app/team rules, and personal `AGENTS.md` for per-user preferences. Use files under `instructions/` for separate guardrail documents that should also apply every turn, such as compliance rules, customer-facing tone, escalation policy, or brand voice. These files use the same workspace -> organization/app -> personal precedence.
+
+For example:
+
+```text
+AGENTS.md
+instructions/customer-support-guardrails.md
+instructions/legal-review-policy.md
+```
+
+Both normal chat and integration-triggered agent runs load these instruction resources before responding.
+
+### Reference Resources {#reference-resources}
+
+Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of workspace and shared reference resources and reads the relevant file with the `resources` tool (`action: "read"`) when a task may depend on it. Use `resources` with `action: "effective"` and `path: "context/brand.md"` when you need to see whether a workspace default is overridden by an organization/app or personal resource.
+
 ### Memory {#memory}
 
 The workspace has two current memory surfaces:
@@ -290,42 +247,19 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 
 **Where it fits.**
 
-| Surface            | Scope              | Written by                           | Read when                                                                                                                                           |
-| ------------------ | ------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENTS.md`        | Shared             | Humans / agent on request            | Every turn                                                                                                                                          |
-| `LEARNINGS.md`     | Shared             | Humans / agent on request            | Every turn (Shared copy only — a personal `LEARNINGS.md` is seeded for back-compat but isn't preloaded; put personal context in `memory/MEMORY.md`) |
-| `memory/MEMORY.md` | Personal           | Agent / humans                       | Every turn                                                                                                                                          |
-| `instructions/…`   | Shared             | Humans / agent on request            | Every turn                                                                                                                                          |
-| `skills/…`         | Shared             | Humans / agent on request            | On demand (`/slash` command)                                                                                                                        |
-| `context/…`        | Shared             | Humans / agent on request            | Indexed every turn, read when relevant                                                                                                              |
-| `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app workspace | MCP config refresh                                                                                                                                  |
+| Surface            | Scope              | Written by                           | Read when                              |
+| ------------------ | ------------------ | ------------------------------------ | -------------------------------------- |
+| `AGENTS.md`        | Shared             | Humans / agent on request            | Every turn                             |
+| `LEARNINGS.md`     | Shared             | Humans / agent on request            | Every turn (shared copy only)          |
+| `memory/MEMORY.md` | Personal           | Agent / humans                       | Every turn                             |
+| `instructions/…`   | Shared             | Humans / agent on request            | Every turn                             |
+| `skills/…`         | Shared             | Humans / agent on request            | On demand (`/slash` command)           |
+| `context/…`        | Shared             | Humans / agent on request            | Indexed every turn, read when relevant |
+| `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app workspace | MCP config refresh                     |
+
+> A personal `LEARNINGS.md` is seeded for back-compat with older workspaces, but the chat preload path reads the shared copy. Put personal context in `memory/MEMORY.md` instead.
 
 Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
-
-## Workspace Connections {#workspace-connections}
-
-Workspace Connections are the reusable integration framework primitive for apps
-that need the same third-party account. A connection records provider identity,
-account labels, status, scopes, app grants, and credential references in
-portable SQL. Secrets stay in the scoped credential store; connection records
-should only point at credential keys such as `SLACK_BOT_TOKEN` or
-`GITHUB_TOKEN`.
-
-This is the foundation for “connect once, use everywhere”: Brain can ingest
-approved repositories, Analytics can analyze the same provider later, and
-Dispatch can remain the control plane for sharing credentials and policy. The
-initial API lives in `@agent-native/core/workspace-connections` and is scoped by
-the active request user/org.
-
-The boundary is deliberate: reusable connections own provider identity and
-grants; app-local source config still belongs to the app. Brain decides which
-channels, repositories, captures, review gates, and citations are allowed.
-Analytics decides which source is authoritative for a metric and stores the
-dashboard, dictionary, and analysis context.
-
-See [Workspace Connections](/docs/workspace-connections) for the reusable
-connector pattern, app grant/readiness APIs, and concrete Slack, HubSpot, and
-GitHub examples.
 
 ## Skills {#skills}
 
@@ -340,18 +274,34 @@ There are two ways to add skills:
 1. **Via Workspace tab** — Create a new resource with a path like `skills/my-skill/SKILL.md`. This works in both Code mode and App mode.
 2. **Via code (Code mode only)** — Add a Markdown file to `.agents/skills/` in your project. These are available when the app runs in Code mode.
 
+### Skill Format {#skill-format}
+
+Skills are Markdown files with optional YAML frontmatter for metadata:
+
+```markdown
+---
+name: data-analysis
+description: BigQuery queries, data transforms, and visualization
+---
+
+# Data Analysis
+
+## When to use
+
+Use this skill when the user asks about data, queries, or analytics.
+
+## Rules
+
+- Always validate SQL before executing
+- Prefer CTEs over subqueries
+- Include LIMIT on exploratory queries
+```
+
 ## Custom Agents {#custom-agents}
 
-Custom agents are reusable local sub-agent profiles stored as Markdown resources under `agents/*.md`.
+Custom agents are reusable local sub-agent profiles stored as Markdown resources under `agents/*.md`. Agent-teams.md and agent-mentions.md use `/docs/workspace#custom-agents` as the canonical reference for this pattern.
 
-Use them when you want a focused delegate with its own:
-
-- name
-- description
-- model preference
-- instruction set
-
-Unlike skills, custom agents are not passive guidance. They are operational personas the main agent can invoke through `@` mentions or by selecting them during sub-agent spawning.
+Use them when you want a focused delegate with its own name, description, model preference, and instruction set. Unlike skills, custom agents are not passive guidance — they are operational personas the main agent can invoke through `@` mentions or by selecting them during sub-agent spawning.
 
 ### Agent format {#agent-format}
 
@@ -393,36 +343,6 @@ There are two agent types in Workspace:
 
 Use custom agents for delegation within one app. Use connected agents when you need to call another app over A2A.
 
-### Skill Format {#skill-format}
-
-Skills are Markdown files with optional YAML frontmatter for metadata:
-
-```markdown
----
-name: data-analysis
-description: BigQuery queries, data transforms, and visualization
----
-
-# Data Analysis
-
-## When to use
-
-Use this skill when the user asks about data, queries, or analytics.
-
-## Rules
-
-- Always validate SQL before executing
-- Prefer CTEs over subqueries
-- Include LIMIT on exploratory queries
-
-## Patterns
-
-    -- Standard BigQuery date filter
-    WHERE DATE(created_at) BETWEEN @start_date AND @end_date
-```
-
-> Skill bodies can embed fenced code blocks in any language — shown above as indented code to keep this outer example readable, but you'd normally use a language-tagged fence in your real skill file.
-
 ## @ Tagging {#at-tagging}
 
 Type `@` in the chat input to reference workspace items. A dropdown appears at the cursor showing matching agents and files. Use arrow keys to navigate and Enter to select. The selected item appears as an inline chip in the input.
@@ -440,7 +360,7 @@ What shows up depends on the mode:
 
 ## / Slash Commands {#slash-commands}
 
-Type `/` at the start of a line to invoke a skill. A dropdown shows available skills with their names and descriptions. Selecting a skill adds it as an inline chip, and its content is included as context when the message is sent when the backend can resolve it; otherwise the agent receives the exact skill path and reads it with the appropriate resource or file tool.
+Type `/` at the start of a line to invoke a skill. A dropdown shows available skills with their names and descriptions. Selecting a skill adds it as an inline chip, and its content is included as context when the message is sent.
 
 What shows up depends on the mode:
 
@@ -460,6 +380,12 @@ The resource system works identically in both modes. The difference is what addi
 | Agent file access  | Filesystem + resources                                                  | Resources only                                         |
 | Workspace panel    | Full access                                                             | Full access                                            |
 | AGENTS.md / memory | Available                                                               | Available                                              |
+
+## Workspace Connections {#workspace-connections}
+
+Workspace Connections let apps share the same provider account (Slack, GitHub, HubSpot, etc.) without duplicating credentials. A connection records provider identity, account labels, status, scopes, app grants, and credential references in SQL. Secrets stay in the credential store; connections only point at credential key names such as `SLACK_BOT_TOKEN`.
+
+See [Workspace Connections](/docs/workspace-connections) for the quickstart, connection/grant/credentialRef API, and concrete Slack, HubSpot, and GitHub examples.
 
 ## Resource API {#resource-api}
 

@@ -133,7 +133,7 @@ export default defineAction({
             principalType: share.principalType,
             principalId: share.principalId,
             role: share.role,
-            createdBy: getRequestUserEmail() ?? ownerEmail,
+            createdBy: getRequestUserEmail() ?? ownerEmail ?? "",
             createdAt: now,
           })),
         );

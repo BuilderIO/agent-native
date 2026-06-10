@@ -379,7 +379,7 @@ export function CreateEventPopover({
       ...reminderPatch,
       colorId,
       attachments:
-        attachmentResult.error || attachmentResult.attachments.length === 0
+        attachmentResult.error || (attachmentResult.attachments?.length ?? 0) === 0
           ? undefined
           : attachmentResult.attachments,
       attendees:
@@ -608,7 +608,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
         color: colorId ? getGoogleEventColorHex(colorId) : undefined,
         colorId,
         attachments:
-          attachmentResult.attachments.length > 0
+          (attachmentResult.attachments?.length ?? 0) > 0
             ? attachmentResult.attachments
             : undefined,
         attendees:

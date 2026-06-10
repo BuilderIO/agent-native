@@ -302,7 +302,7 @@ export default defineAction({
           );
         }
 
-        const bytes = b64ToBytes(b64);
+        const bytes = b64ToBytes(b64!);
         const expectedBytes = stateNumber(entry, "bytes");
         if (
           typeof expectedBytes === "number" &&
@@ -540,7 +540,7 @@ export default defineAction({
       // the UI shows an infinite "Transcribing…" spinner.
       void requestTranscript
         .run({ recordingId: id, force: true })
-        .catch((err) => {
+        .catch((err: unknown) => {
           console.error("[finalize] background transcript failed", {
             id,
             error: err instanceof Error ? err.message : String(err),

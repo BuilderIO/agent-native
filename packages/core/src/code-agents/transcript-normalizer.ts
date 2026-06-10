@@ -7,7 +7,8 @@ export type NormalizedCodeAgentTranscriptItem =
   | NormalizedCodeAgentUserTurn
   | NormalizedCodeAgentAssistantTurn
   | NormalizedCodeAgentToolEvent
-  | NormalizedCodeAgentStatusEvent;
+  | NormalizedCodeAgentStatusEvent
+  | NormalizedCodeAgentThinkingEvent;
 
 export interface NormalizedCodeAgentTranscript {
   items: NormalizedCodeAgentTranscriptItem[];
@@ -49,6 +50,12 @@ export interface NormalizedCodeAgentToolEvent extends NormalizedCodeAgentTranscr
   activities: string[];
   startedAt?: string;
   completedAt?: string;
+  /**
+   * Structured metadata from the tool execution side-channel.  Present on
+   * bash/edit/write/read tool events when the executor is new enough to emit
+   * it.  Absent on old transcript events — UI must handle both cases.
+   */
+  structuredMeta?: Record<string, unknown>;
 }
 
 export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTranscriptBase {
@@ -59,6 +66,15 @@ export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTrans
   status?: string;
   phase?: string;
   metadata?: Record<string, unknown>;
+}
+
+/**
+ * Accumulated reasoning/thinking text emitted during a model's extended
+ * thinking phase.  Rendered as a collapsed-by-default "Thinking…" cell.
+ */
+export interface NormalizedCodeAgentThinkingEvent extends NormalizedCodeAgentTranscriptBase {
+  type: "thinking";
+  text: string;
 }
 
 export function normalizeCodeAgentTranscript(
@@ -96,6 +112,11 @@ export function normalizeCodeAgentTranscript(
           createAssistantTurn(event, assistantSource, currentTurnIndex, text),
         );
       }
+      continue;
+    }
+
+    if (isThinkingEvent(event)) {
+      appendThinkingChunk(items, event, currentTurnIndex);
       continue;
     }
 
@@ -174,6 +195,40 @@ function appendAssistantChunk(
   item.events.push(event);
 }
 
+function isThinkingEvent(event: CodeAgentTranscriptEvent): boolean {
+  return (
+    event.kind === "status" &&
+    stringMetadata(event.metadata, "type") === "thinking"
+  );
+}
+
+function appendThinkingChunk(
+  items: NormalizedCodeAgentTranscriptItem[],
+  event: CodeAgentTranscriptEvent,
+  turnIndex: number,
+): void {
+  const previous = items.at(-1);
+  if (previous?.type === "thinking" && previous.turnIndex === turnIndex) {
+    // Accumulate consecutive thinking chunks into one cell.
+    previous.text = `${previous.text}${event.message}`;
+    previous.updatedAt = event.createdAt;
+    previous.eventIds.push(event.id);
+    previous.events.push(event);
+    return;
+  }
+  const thinkingItem: NormalizedCodeAgentThinkingEvent = {
+    type: "thinking",
+    id: event.id,
+    text: event.message,
+    createdAt: event.createdAt,
+    updatedAt: event.createdAt,
+    eventIds: [event.id],
+    events: [event],
+    turnIndex,
+  };
+  items.push(thinkingItem);
+}
+
 function createStatusEvent(
   event: CodeAgentTranscriptEvent,
   turnIndex: number,
@@ -230,6 +285,8 @@ function appendToolEvent(
     if (wasActivity || item.label === item.activities.at(-1)) {
       item.label = event.message;
     }
+    const startMeta = structuredMetadata(event.metadata);
+    if (startMeta) item.structuredMeta = startMeta;
     return;
   }
 
@@ -240,6 +297,8 @@ function appendToolEvent(
   }
   const mcpApp = mcpAppMetadata(event.metadata);
   if (mcpApp) item.mcpApp = mcpApp;
+  const doneMeta = structuredMetadata(event.metadata);
+  if (doneMeta) item.structuredMeta = doneMeta;
 }
 
 function createToolEvent(
@@ -266,6 +325,7 @@ function createToolEvent(
     activities: toolType === "activity" ? [event.message] : [],
     startedAt: toolType === "tool_start" ? event.createdAt : undefined,
     completedAt: toolType === "tool_done" ? event.createdAt : undefined,
+    structuredMeta: structuredMetadata(metadata),
     createdAt: event.createdAt,
     updatedAt: event.createdAt,
     eventIds: [event.id],
@@ -342,6 +402,9 @@ function suppressDuplicateFinalAssistantText(
 function shouldShowStatusEvent(event: CodeAgentTranscriptEvent): boolean {
   if (event.kind === "artifact" || event.kind === "note") return true;
   if (event.kind !== "status") return false;
+  // Thinking events are handled separately by appendThinkingChunk; never
+  // render them again as plain status entries.
+  if (isThinkingEvent(event)) return false;
   if (isLowSignalLifecycleEvent(event)) return false;
   return true;
 }
@@ -537,6 +600,15 @@ function hasMetadataKey(
   return (
     Boolean(metadata) && Object.prototype.hasOwnProperty.call(metadata, key)
   );
+}
+
+function structuredMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  const value = metadata?.structuredMeta;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  return value as Record<string, unknown>;
 }
 
 function mcpAppMetadata(

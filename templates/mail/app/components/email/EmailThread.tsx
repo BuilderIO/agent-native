@@ -34,7 +34,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { getResolvedTheme } from "@/lib/theme";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import {
   decodeHtmlEntities,
   processHtmlImages,
@@ -3346,7 +3346,7 @@ function ThreadSearchBar({
   onClose: () => void;
   matchIdx: number;
   totalMatches: number;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {

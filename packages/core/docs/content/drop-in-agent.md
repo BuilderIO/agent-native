@@ -5,6 +5,8 @@ description: "Mount the agent chat + workspace into any React app with <AgentPan
 
 # Drop-in Agent
 
+> **Developer page.** This page is for developers embedding the agent into a React app. For the end-user experience of working with the agent, see [Using Your Agent](/docs/using-your-agent).
+
 You don't need to build agent-native from scratch. The agent chat, workspace tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
 
 > **Prerequisite:** the server has to be running the `agent-chat-plugin` (it auto-mounts in every template). If you're starting from scratch, see [Server](/docs/server).
@@ -138,12 +140,12 @@ const { send, isGenerating } = useSendToAgentChat();
 
 ## Typesafe actions from the UI: `useActionMutation()` {#use-action-mutation}
 
-When the UI needs to run the same operation an agent tool would run — the fourth rung of the [ladder](/docs/what-is-agent-native#rung-three) — use `useActionMutation`:
+When the UI needs to run the same operation an agent tool would run — rung 3 of the [ladder](/docs/what-is-agent-native#rung-three) — use `useActionMutation`:
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client";
 
-const { mutate, isPending } = useActionMutation("replyToEmail");
+const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
   Send Reply

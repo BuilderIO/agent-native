@@ -124,7 +124,7 @@ export function createTranscribeVoiceHandler() {
     const audio = parts?.find((p) => p.name === "audio");
     const textPart = parts?.find((p) => p.name === "text");
     const transcriptText = textPart?.data
-      ? sanitizeTranscriptText(textPart.data.toString("utf8"))
+      ? sanitizeTranscriptText(Buffer.from(textPart.data).toString("utf8"))
       : undefined;
     if (!audio?.data?.length && !transcriptText) {
       setResponseStatus(event, 400);
@@ -137,11 +137,13 @@ export function createTranscribeVoiceHandler() {
 
     const languagePart = parts?.find((p) => p.name === "language");
     const language = languagePart?.data
-      ? languagePart.data.toString("utf8").trim().slice(0, 8)
+      ? Buffer.from(languagePart.data).toString("utf8").trim().slice(0, 8)
       : undefined;
     const instructionsPart = parts?.find((p) => p.name === "instructions");
     const instructions = instructionsPart?.data
-      ? sanitizeInstructions(instructionsPart.data.toString("utf8"))
+      ? sanitizeInstructions(
+          Buffer.from(instructionsPart.data).toString("utf8"),
+        )
       : undefined;
 
     // Resolve provider preference. Per-request "provider" form field takes
@@ -183,7 +185,10 @@ export function createTranscribeVoiceHandler() {
     const providerPart = parts?.find((p) => p.name === "provider");
     let providerExplicit = false;
     if (providerPart?.data) {
-      const v = providerPart.data.toString("utf8").trim().toLowerCase();
+      const v = Buffer.from(providerPart.data)
+        .toString("utf8")
+        .trim()
+        .toLowerCase();
       if (
         v === "auto" ||
         v === "browser" ||

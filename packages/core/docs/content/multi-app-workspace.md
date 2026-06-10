@@ -31,7 +31,7 @@ Anything every app in your org should agree on can live in `packages/shared`:
 
 Each individual app becomes _just a set of screens_ — routes, dashboards, views, domain-specific actions. Framework defaults cover the rest until you add a real workspace customization.
 
-That same boundary applies when your app wants to use another first-party app. A new workspace dashboard that needs email, calendar, analytics, and company-memory context should use the existing Mail, Calendar, Analytics, and Brain apps as connected neighbors over links or A2A. It should not clone those templates, create a wrapper app that nests them, or scaffold child apps inside itself just to get access to their data or agents. For example, the hosted first-party apps already live at [mail.agent-native.com](https://mail.agent-native.com), [calendar.agent-native.com](https://calendar.agent-native.com), [analytics.agent-native.com](https://analytics.agent-native.com), and [brain.agent-native.com](https://brain.agent-native.com). Fork or scaffold a copy only when you explicitly want to customize that app; otherwise, using the hosted/shared app keeps base template improvements flowing automatically.
+That same boundary applies when your app wants to use another first-party app. A new workspace dashboard that needs email, calendar, analytics, and company-memory context should use the existing Mail, Calendar, Analytics, and Brain apps as connected neighbors over links or A2A. It should not clone those templates, create a wrapper app that nests them, or scaffold child apps inside itself just to get access to their data or agents. Fork or scaffold a copy only when you explicitly want to customize that app.
 
 ## Getting started {#getting-started}
 
@@ -138,24 +138,33 @@ Because the shared package is a `workspace:*` dependency, pnpm symlinks it into 
 
 Use `packages/shared` for code-level defaults that should ship with the repo: plugins, shared actions, shared React code, filesystem `AGENTS.md`, and filesystem skills. Use Dispatch workspace resources for runtime-editable global context that admins want to manage without a code change.
 
-Dispatch resources are scoped **All apps** (every app inherits them at runtime, no copy or sync step) or **Selected apps** (granted per app for app-specific context). The path — `AGENTS.md`/`instructions/<slug>.md`, `skills/<slug>/SKILL.md`, `context/<slug>.md`, `agents/<slug>.md`, `mcp-servers/<slug>.json` — determines how the agent uses each resource. See [Workspace](/docs/workspace#global-resources) for the full resource-model table and the recommended starter pack (`context/company.md`, `context/brand.md`, `context/messaging.md`, `instructions/guardrails.md`, `skills/company-voice/SKILL.md`).
+Dispatch resources are scoped **All apps** (every app inherits them at runtime, no copy or sync step) or **Selected apps** (granted per app for app-specific context). See [Workspace](/docs/workspace#global-resources) for the full resource-model table, path conventions, and the recommended starter pack.
 
 ## Authentication and RBAC {#auth-and-rbac}
 
-Every agent-native app already ships with [Better Auth](/docs/authentication) plus the framework's built-in organization system — users, organizations, members, and the `owner` / `admin` / `member` roles are all first-class, shared across every template. (Organizations are framework-managed via the `organizations` / `org_members` tables, not Better Auth's organization plugin, which is intentionally not registered.) In a workspace, you get that for free in every app, backed by the same database.
+Every agent-native app already ships with [Better Auth](/docs/authentication) plus the framework's built-in organization system. In a workspace, you get that for free in every app, backed by the same database. For the full multi-tenancy model — organizations, roles, data isolation — see [Multi-Tenancy](/docs/multi-tenancy).
 
 For enterprise-specific rules (allow-list domains, SSO enforcement, extra role checks), export an `authPlugin` from `packages/shared/src/server/index.ts`. Every app in the workspace now enforces those rules.
 
 Active organization flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL row scoping, so data tagged with `org_id` is invisible to other orgs even to the agent. See [Security & Data Scoping](/docs/security) for the full model.
 
+## Shared MCP servers {#shared-mcp}
+
+The recommended options for sharing MCP servers across workspace apps, in order of preference:
+
+1. **Dispatch workspace MCP resources** — add `mcp-servers/<name>.json` resources in Dispatch at **All apps** scope. Every app in the workspace inherits the MCP server at runtime with no file edits or redeploy. Grant to selected apps only when the server is app-specific. Tokens live in the Dispatch vault; reference them from the resource JSON with `${keys.NAME}`.
+
+2. **Root `mcp.config.json`** — drop a file at the workspace root and every app in the workspace connects to the same MCP servers. Individual apps can override with their own `mcp.config.json` (app-root wins). Use this for local/filesystem MCP servers (`@modelcontextprotocol/server-filesystem`, `claude-in-chrome`, Playwright) that don't need per-user vault credentials.
+
+3. **Settings UI (personal/org scope)** — for remote HTTP MCP servers, users can add them from the settings UI at Personal or Team (org) scope — no file edits, hot-reloaded into the running agent.
+
+See [MCP Clients](/docs/mcp-clients) for the config schema, precedence rules, and hub setup.
+
 ## Shared environment variables {#shared-env}
 
 The workspace root `.env` is loaded into every app automatically. Put shared keys once at the root — `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY`, etc. — and every app picks them up. Per-app overrides go in `apps/<name>/.env` and win on conflict.
 
-For runtime app credentials, prefer the Dispatch vault over hand-editing `.env`
-files. The vault defaults to all-apps access, so every saved vault key is
-available to every workspace app and can be pushed with `sync-vault-to-app`.
-Switch the vault to manual mode only when apps need explicit per-key grants.
+For runtime app credentials, prefer the Dispatch vault over hand-editing `.env` files. The vault defaults to all-apps access, so every saved vault key is available to every workspace app and can be pushed with `sync-vault-to-app`. Switch the vault to manual mode only when apps need explicit per-key grants.
 
 ```text
 my-company-platform/
@@ -169,14 +178,6 @@ A few onboarding flows are workspace-aware out of the box:
 
 - **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and friends to the **workspace root** `.env`, so every app gains browser access at once.
 - **Env-vars settings route** (`POST /_agent-native/env-vars`): when inside a workspace, defaults to writing the workspace root `.env`. Pass `scope: "app"` in the body to override one app.
-
-## Shared MCP servers {#shared-mcp}
-
-Drop an `mcp.config.json` at the workspace root and every app in the workspace connects to the same MCP servers — one place to configure `claude-in-chrome`, `@modelcontextprotocol/server-filesystem`, Playwright, or any internal MCP server. Individual apps can override with their own `mcp.config.json` (app-root wins over the workspace root for that one app).
-
-For remote HTTP MCP servers (Zapier, Composio, internal tools), users can add them from the settings UI at **Personal** or **Team (org)** scope — no file edits, hot-reloaded into the running agent. And if you run the dispatch template, it can act as an **MCP hub** that every other app in the workspace pulls org-scope servers from, so you configure each URL + bearer token exactly once.
-
-See [MCP Clients](/docs/mcp-clients) for the config schema, precedence rules, remote-UI scopes, and hub setup.
 
 ## Shared credentials {#shared-credentials}
 
@@ -242,9 +243,38 @@ For Vercel Git deployments, set the build command to:
 pnpm exec agent-native deploy --preset vercel --build-only
 ```
 
+### Public app routes
+
+Workspace apps are internal by default. For a public site with login-only admin pages, set a public audience and protect the admin prefix in that app's `package.json`:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin"]
+    }
+  }
+}
+```
+
+For mostly internal apps with a few public pages, leave the audience internal and list page prefixes:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "publicPaths": ["/", "/share"]
+    }
+  }
+}
+```
+
+These settings only affect read-only page navigation. Framework tools, agent chat, A2A, vault access, and arbitrary APIs stay authenticated unless the app explicitly declares public prefixes with `createAuthPlugin({ publicPaths: [...] })`.
+
 ### Per-app independent deploy
 
-Prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && agent-native build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`.
+Prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && agent-native build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`. Cross-domain SSO between separately-deployed apps is handled by identity federation with Dispatch as the hub — see [Cross-App SSO](/docs/cross-app-sso); the unified single-origin deploy avoids needing it.
 
 ### Shared database, shared credentials
 
@@ -256,7 +286,6 @@ The shared package itself is never deployed standalone. It's a `workspace:*` dep
 
 The workspace pattern is intentionally narrow. A few things it deliberately doesn't handle yet:
 
-- **Cross-domain SSO.** The unified `agent-native deploy` flow solves the common case (one origin, many apps at `/mail`, `/calendar`, …). If you need `mail.company.com` and `calendar.company.com` on _different_ domains to share a session, that requires a shared cookie domain or a central auth app with OAuth redirects — both supported by the underlying stack but neither scaffolded out of the box.
 - **Encrypted credential vault.** Prefer the Dispatch vault for runtime app credentials (see [Shared environment variables](#shared-env)). The non-vault fallback path — shared credentials written directly to the framework `settings` table — stores them as plain text today, so rotate responsibly when you rely on it.
 - **Publishing shared code to private npm.** The shared package is `workspace:*` only; multi-repo sharing via a private registry is doable but not scaffolded.
 - **Opinionated component library.** `packages/shared` is where _you_ put shared components. The framework doesn't force shadcn/ui or any other system into that slot.
@@ -265,4 +294,6 @@ The workspace pattern is intentionally narrow. A few things it deliberately does
 
 - [Workspace](/docs/workspace) — the customization layer (`AGENTS.md`, `LEARNINGS.md`, personal memory, skills, custom agents) every app in the workspace shares.
 - [Workspace Governance](/docs/workspace-management) — branching, CODEOWNERS, PR review across many apps in one repo.
+- [Multi-Tenancy](/docs/multi-tenancy) — organizations, roles, and per-org data isolation.
+- [Cross-App SSO](/docs/cross-app-sso) — identity federation for separate-domain deploys.
 - [Dispatch](/docs/dispatch) — the runtime control plane that typically lives inside a multi-app workspace as the secrets vault, integration catalog, and approvals hub.

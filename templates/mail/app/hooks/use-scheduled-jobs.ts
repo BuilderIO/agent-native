@@ -7,7 +7,7 @@ import {
   flattenInfiniteEmails,
   type InfiniteEmails,
 } from "./use-emails";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import type { ComposeAttachment } from "@shared/types";
 
 export interface ScheduledJob {

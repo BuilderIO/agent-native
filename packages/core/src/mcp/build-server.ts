@@ -108,6 +108,29 @@ export interface MCPConfig {
    * a constrained / locked-down mount.
    */
   builtinCrossAppTools?: boolean;
+  /**
+   * Curated allow-list of action names served to **external connector** clients
+   * on a hosted multi-tenant deployment.
+   *
+   * When `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set and this list is non-empty,
+   * the MCP server trims both the advertised tool list *and* the callable
+   * surface to exactly these names (plus any builtin cross-app tools such as
+   * `list_apps` / `open_app`). Any tool call for a name **not** in the list is
+   * rejected — it is not merely hidden. This prevents the ~105-tool full
+   * catalog from landing in every external agent's context window and removes
+   * footguns (db-exec, seed-*, extension tools, browser-session tools, etc.)
+   * from multi-tenant hosted connectors.
+   *
+   * Callers who need the full surface can opt up with
+   * `agent-native connect --full-catalog`, which embeds a `catalog_scope: "full"`
+   * claim in their connect-minted JWT. Local/dev deployments without
+   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` are unaffected — they always see the
+   * full surface.
+   *
+   * Declare this in your template's `createAgentChatPlugin` options rather than
+   * setting it on `MCPConfig` directly; the plugin copies it through.
+   */
+  connectorCatalog?: string[];
 }
 
 /**
@@ -268,6 +291,19 @@ function explicitlyRequestsFullMcpCatalog(
     return FULL_CATALOG_CLIENT_RE.test(requestMeta.clientHint);
   }
   return FULL_CATALOG_CLIENT_RE.test(requestMeta?.clientName ?? "");
+}
+
+/**
+ * Returns true when the given action name is in the template's connector
+ * catalog, OR is a builtin cross-app tool that is always included for
+ * external connector clients. Builtin tool names from
+ * `COMPACT_MCP_APP_CATALOG_BUILTINS` are always allowed since they are the
+ * stable external-agent verb set.
+ */
+function isActionInConnectorCatalog(name: string, config: MCPConfig): boolean {
+  if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+  if (!Array.isArray(config.connectorCatalog)) return false;
+  return config.connectorCatalog.includes(name);
 }
 
 function shouldUseCompactMcpCatalogByDefault(
@@ -1174,13 +1210,36 @@ export async function createMCPServerForRequest(
         hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
       (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
       shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
-  const advertisedActions = compactMcpAppCatalog
+  const advertisedActionsBeforeConnector = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
           isActionAdvertisedInCompactMcpAppCatalog(name, entry, config),
         ),
       )
     : visibleActions;
+  // Connector-catalog tier: on hosted multi-tenant deployments (signalled by
+  // AGENT_NATIVE_CONNECTOR_CATALOG=1) restrict external callers to the
+  // template-declared allow-list unless the token was minted with
+  // --full-catalog (catalog_scope: "full"). This prevents the ~105-tool full
+  // catalog from bloating every external agent's context window and removes
+  // db-exec / seed-* / extension / browser-session footguns.
+  const connectorCatalogActive =
+    process.env.AGENT_NATIVE_CONNECTOR_CATALOG === "1" &&
+    Array.isArray(config.connectorCatalog) &&
+    config.connectorCatalog.length > 0 &&
+    !explicitlyRequestsFullMcpCatalog(requestMeta);
+  // When the connector catalog is active, filter directly from visibleActions
+  // rather than advertisedActionsBeforeConnector. This ensures the connector
+  // tier is an independent, template-declared surface that doesn't accidentally
+  // narrow to just the compact-catalog builtins when shouldUseCompactMcpCatalogByDefault
+  // would have activated the compact catalog for the same caller.
+  const advertisedActions = connectorCatalogActive
+    ? Object.fromEntries(
+        Object.entries(visibleActions).filter(([name]) =>
+          isActionInConnectorCatalog(name, config),
+        ),
+      )
+    : advertisedActionsBeforeConnector;
   const supportsMcpApps =
     compactMcpAppCatalog ||
     Object.values(advertisedActions).some((entry) =>
@@ -1292,6 +1351,7 @@ export async function createMCPServerForRequest(
 
       if (
         !compactMcpAppCatalog &&
+        !connectorCatalogActive &&
         config.askAgent &&
         hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
       ) {
@@ -1331,7 +1391,7 @@ export async function createMCPServerForRequest(
       const { name, arguments: args } = request.params;
 
       if (name === "ask-agent" && config.askAgent) {
-        if (compactMcpAppCatalog) {
+        if (compactMcpAppCatalog || connectorCatalogActive) {
           return {
             content: [{ type: "text", text: `Unknown tool: ${name}` }],
             isError: true,
@@ -1360,9 +1420,13 @@ export async function createMCPServerForRequest(
         }
       }
 
-      const callableActions = compactMcpAppCatalog
-        ? advertisedActions
-        : actions;
+      // Connector-catalog tier: when active, callableActions === advertisedActions
+      // (the filtered set). Non-listed tools are not callable — mirroring how
+      // compactMcpAppCatalog gates calls on advertisedActions.
+      const callableActions =
+        compactMcpAppCatalog || connectorCatalogActive
+          ? advertisedActions
+          : actions;
       const entry = callableActions[name];
       if (!entry) {
         return {
@@ -1739,6 +1803,14 @@ export async function verifyAuth(
    * path (no secret, no token, no owner header) is `false`.
    */
   fullSurface?: boolean;
+  /**
+   * The caller explicitly opted up to the full connector catalog by minting
+   * their token with `--full-catalog` (or equivalent). When `true`, the
+   * connector-catalog tier filter is bypassed even when
+   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set. Derived from a
+   * `catalog_scope: "full"` claim in the verified A2A/connect JWT.
+   */
+  fullCatalog?: boolean;
 }> {
   // No auth configured → allow only when the route caller has already
   // established that this is a loopback/local dev request. Still honour an
@@ -1768,6 +1840,9 @@ export async function verifyAuth(
           oauthClientId: oauthIdentity.clientId,
         },
         fullSurface: true,
+        // Per-token opt-up: `catalog_scope: "full"` in the OAuth token
+        // bypasses the connector-catalog tier filter on hosted deployments.
+        fullCatalog: oauthIdentity.catalogScope === "full",
       };
     }
   }
@@ -1814,6 +1889,13 @@ export async function verifyAuth(
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
+        // Org SERVICE tokens (connect-minted, synthetic `svc-*@service.<org>`
+        // subject) carry the org id directly as an `org_id` claim so the
+        // resolved identity is org-scoped even when the org has no domain
+        // mapping. Personal/delegation JWTs don't set the claim — unchanged.
+        ...(typeof payload.org_id === "string" && payload.org_id
+          ? { orgId: payload.org_id as string }
+          : {}),
         orgDomain:
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
@@ -1821,6 +1903,10 @@ export async function verifyAuth(
       },
       // Verified JWT (connect-minted or A2A delegation) — a real caller.
       fullSurface: true,
+      // Per-token opt-up: `catalog_scope: "full"` embedded at mint time via
+      // `agent-native connect --full-catalog` bypasses the connector-catalog
+      // tier filter on hosted multi-tenant deployments.
+      fullCatalog: payload.catalog_scope === "full",
     };
   }
 

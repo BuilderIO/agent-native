@@ -269,6 +269,71 @@ describe("normalizeCodeAgentTranscript", () => {
     ]);
   });
 
+  it("propagates structuredMeta from tool_start and tool_done into the normalized tool event", () => {
+    const bashMeta = {
+      toolKind: "bash",
+      command: "pnpm test",
+      cwd: "/workspace",
+    };
+    const bashMetaDone = {
+      toolKind: "bash",
+      command: "pnpm test",
+      cwd: "/workspace",
+      exitCode: 0,
+      durationMs: 4200,
+    };
+    const events = [
+      event("evt-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "pnpm test" },
+        structuredMeta: bashMeta,
+      }),
+      event("evt-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "All tests passed.",
+        structuredMeta: bashMetaDone,
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toHaveLength(1);
+    expect(transcript.items[0]).toMatchObject({
+      type: "tool",
+      tool: "bash",
+      state: "completed",
+      structuredMeta: bashMetaDone,
+    });
+  });
+
+  it("preserves structuredMeta from old events that lack it (backward compat)", () => {
+    const events = [
+      event("evt-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "echo hi" },
+        // no structuredMeta — old event format
+      }),
+      event("evt-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "hi",
+        // no structuredMeta
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toHaveLength(1);
+    const item = transcript.items[0];
+    expect(item.type).toBe("tool");
+    if (item.type === "tool") {
+      expect(item.structuredMeta).toBeUndefined();
+    }
+  });
+
   it("retains note and artifact events in the normal output", () => {
     const events = [
       event("evt-artifact", "artifact", "Migration dossier created.", {

@@ -988,7 +988,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const total = data?.total ?? 0;
 
   const filtered = search.trim()
-    ? allResponses.filter((r) => {
+    ? allResponses.filter((r: any) => {
         const needle = search.toLowerCase();
         return fields.some((f) => {
           const val = r.data[f.id];

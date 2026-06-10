@@ -389,7 +389,11 @@ function referrerTargetPathname(event: H3Event): string | null {
     (event as any).node?.req?.headers?.referrer ??
     null;
   try {
-    raw = raw ?? getHeader(event, "referer") ?? getHeader(event, "referrer");
+    raw =
+      raw ??
+      getHeader(event, "referer") ??
+      getHeader(event, "referrer") ??
+      null;
   } catch {
     raw = raw ?? null;
   }

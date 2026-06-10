@@ -11,7 +11,7 @@ export function GoogleSyncButton() {
 
   function handleSync() {
     syncGoogle.mutate(undefined, {
-      onSuccess: (data: { synced?: number }) => {
+      onSuccess: (data: any) => {
         const count = data?.synced ?? 0;
         setLastResult(`${count} event${count !== 1 ? "s" : ""} synced`);
         toast.success(

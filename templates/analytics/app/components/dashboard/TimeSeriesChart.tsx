@@ -31,7 +31,7 @@ export function TimeSeriesChart({
   error,
   yFormatter,
 }: TimeSeriesChartProps) {
-  const formatXLabel = (value: string) => {
+  const formatXLabel = (value: any) => {
     try {
       const d = new Date(value);
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });

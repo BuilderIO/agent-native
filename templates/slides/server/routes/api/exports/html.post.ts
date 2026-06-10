@@ -32,8 +32,8 @@ export default defineEventHandler(async (event) => {
       return { error: result.error };
     }
 
-    event.node.res.setHeader("Content-Type", "text/html; charset=utf-8");
-    event.node.res.setHeader(
+    event.node!.res!.setHeader("Content-Type", "text/html; charset=utf-8");
+    event.node!.res!.setHeader(
       "Content-Disposition",
       `attachment; filename="${path.basename(result.filename)}"`,
     );

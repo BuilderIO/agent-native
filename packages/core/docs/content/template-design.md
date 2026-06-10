@@ -11,7 +11,18 @@ Use it when you want a polished landing page concept, product UI direction, bran
 
 ![Design studio showing generated HTML prototypes and tweak controls](https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=1200)
 
-## Start Here
+## What you can do with it
+
+- **Generate complete prototypes.** Describe the screen or page you need and the agent creates a working HTML document with Tailwind styling and Alpine interactions.
+- **Compare variants.** Start with multiple directions, pick the strongest one, then continue refining.
+- **Tweak visually.** Use the built-in tweak controls for common changes, or ask the agent for copy, layout, color, spacing, and interaction updates.
+- **Apply design systems.** Save and reuse design-system preferences so generated work stays closer to your brand.
+- **Import references.** Bring in existing HTML or reference material as context for a new design pass.
+- **Export real files.** Export HTML, ZIP, or PDF from the generated prototype.
+
+## Getting started
+
+Live demo: [design.agent-native.com](https://design.agent-native.com).
 
 1. **Describe the artifact.** Ask for the screen, flow, landing page, or visual
    direction you want. Include audience, tone, and any product constraints.
@@ -22,7 +33,7 @@ Use it when you want a polished landing page concept, product UI direction, bran
 4. **Export when it is useful.** Download HTML, ZIP, or PDF once the prototype
    is ready to hand to another tool or teammate.
 
-## Useful Prompts
+### Useful prompts
 
 - "Create three landing-page directions for a technical analytics product."
 - "Make this dashboard denser and easier to scan for an operations team."
@@ -30,22 +41,13 @@ Use it when you want a polished landing page concept, product UI direction, bran
 - "Export this prototype as a ZIP once the final variant is selected."
 - "Turn this HTML into a stronger pricing page without changing the brand colors."
 
-## What You Can Do With It
-
-- **Generate complete prototypes.** Describe the screen or page you need and the agent creates a working HTML document with Tailwind styling and Alpine interactions.
-- **Compare variants.** Start with multiple directions, pick the strongest one, then continue refining.
-- **Tweak visually.** Use the built-in tweak controls for common changes, or ask the agent for copy, layout, color, spacing, and interaction updates.
-- **Apply design systems.** Save and reuse design-system preferences so generated work stays closer to your brand.
-- **Import references.** Bring in existing HTML or reference material as context for a new design pass.
-- **Export real files.** Export HTML, ZIP, or PDF from the generated prototype.
-
-## Why It's Interesting
+## Why it's interesting
 
 Design is useful because the agent edits an artifact that is already close to shippable web UI. There is no separate "AI mockup" format to translate later: the preview, the editable source, and the exported artifact all come from the same HTML.
 
 The template is also a good example of agent-native ownership. The app stores designs in SQL, exposes template operations as actions, and lets you fork the whole workflow when your team needs a different renderer, exporter, or design-system model.
 
-## For Developers
+## For developers
 
 The rest of this doc is for anyone forking the Design template or extending it.
 
@@ -55,7 +57,7 @@ The rest of this doc is for anyone forking the Design template or extending it.
 npx @agent-native/core create my-design --standalone --template design
 ```
 
-### Data Model
+### Data model
 
 All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schema.ts`. Designs and design systems carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
 
@@ -71,7 +73,7 @@ A design project is a shell until it has content: `create-design` makes an empty
 
 Routes in the UI live under `templates/design/app/routes/`: `_index.tsx` (list), `design.$id.tsx` (editor), `present.$id.tsx` (presentation), `design-systems.tsx` and `design-systems_.setup.tsx`, `templates.tsx`, `examples.tsx`, plus `settings.tsx` and `team.tsx`.
 
-### Key Actions
+### Key actions
 
 Every agent-callable operation is a TypeScript file in `templates/design/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. The groupings:
 
@@ -82,7 +84,7 @@ Every agent-callable operation is a TypeScript file in `templates/design/actions
 - **Export & handoff** — `export-html`, `export-pdf`, `export-svg`, `export-zip`, and `export-coding-handoff` to turn a design into a coding-tool handoff.
 - **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant grid), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
 
-### Customizing It
+### Customizing it
 
 Design is a complete, cloneable template. Some practical extension ideas:
 
@@ -94,7 +96,7 @@ Design is a complete, cloneable template. Some practical extension ideas:
 
 The agent edits routes, components, actions, and SQL-backed models as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
 
-## What's Next
+## What's next
 
 - [**Templates**](/docs/cloneable-saas) — the clone-and-own model
 - [**Context Awareness**](/docs/context-awareness) — how the agent knows what the user is viewing

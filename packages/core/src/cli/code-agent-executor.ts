@@ -6,7 +6,9 @@ import {
   createCodingToolRegistry,
   isReadOnlyShellCommand,
   runCodingCommand,
+  truncateBashOutput,
   truncateCodingOutput,
+  type StructuredToolMetadata,
 } from "../coding-tools/index.js";
 import {
   buildMergedConfig,
@@ -18,6 +20,7 @@ import {
   actionsToEngineTools,
   runAgentLoop,
   type ActionEntry,
+  type AgentLoopUsage,
 } from "../agent/production-agent.js";
 import {
   resolveEngine,
@@ -41,9 +44,11 @@ import {
   type AgentPromptAttachment,
 } from "../code-agents/prompt-attachments.js";
 import {
+  addCodeAgentCommandToAllowlist,
   appendCodeAgentTranscriptEvent,
   dequeueCodeAgentFollowUp,
   getCodeAgentRunRecord,
+  isCodeAgentCommandAllowed,
   listCodeAgentTranscriptEvents,
   updateCodeAgentRunRecord,
   type CodeAgentPermissionMode,
@@ -83,9 +88,17 @@ export async function executeCodeAgentRun(
   if (!existing) return null;
 
   const prompt = options.prompt ?? latestUserPrompt(existing.id);
+  const rawAttachments =
+    options.attachments ?? latestUserPromptAttachments(existing.id, prompt);
+
+  // Split attachments: images (dataUrl) go as engine image parts; text/file
+  // attachments are still inlined into the prompt text. This prevents 2 MB
+  // images from consuming ~700 K tokens of garbage when treated as plain text.
+  const imageAttachments = rawAttachments.filter((a) => a.dataUrl);
+  const textOnlyAttachments = rawAttachments.filter((a) => !a.dataUrl);
   const executionPrompt = formatPromptWithAttachments(
     prompt,
-    options.attachments ?? latestUserPromptAttachments(existing.id, prompt),
+    textOnlyAttachments,
   );
   if (!prompt) {
     appendCodeAgentTranscriptEvent({
@@ -172,14 +185,35 @@ export async function executeCodeAgentRun(
     options.reasoningEffort ?? metadataReasoningEffort(existing);
   const cwd = existing.cwd || process.cwd();
   const permissionMode = existing.permissionMode ?? "full-auto";
-  const actions = createLocalCodeAgentActions(cwd, permissionMode, existing.id);
+
+  // Holds structured metadata emitted by the coding tools side-channel.
+  // Keyed by tool name; consumed when the matching tool_start / tool_done fires.
+  const pendingToolMeta = new Map<string, StructuredToolMetadata>();
+
+  const actions = createLocalCodeAgentActions(
+    cwd,
+    permissionMode,
+    existing.id,
+    (toolName, _phase, meta) => {
+      // Both "start" and "done" phases update the map; done has richer data.
+      pendingToolMeta.set(toolName, meta);
+    },
+    (chunk) => {
+      // Stream incremental bash output to stdout for the terminal smoother
+      options.stdout?.write(chunk);
+    },
+  );
   const mcpManager = await startCodeAgentMcpManager(existing.id);
   if (mcpManager) {
     Object.assign(actions, mcpToolsToActionEntries(mcpManager));
   }
   actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
   const tools = actionsToEngineTools(actions);
-  const messages = buildCodeAgentMessages(existing, executionPrompt);
+  const messages = buildCodeAgentMessages(
+    existing,
+    executionPrompt,
+    imageAttachments,
+  );
   const controller = new AbortController();
   const abortFromParent = () => controller.abort();
   if (options.signal) {
@@ -190,10 +224,42 @@ export async function executeCodeAgentRun(
 
   let assistantText = "";
   const outputSmoother = createCodeAgentOutputSmoother(options.stdout);
+
+  // Accumulate thinking text across deltas so we can persist a single event
+  // per reasoning block rather than one event per delta chunk.
+  let pendingThinkingText = "";
+  let thinkingFlushTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const runId = existing.id;
+  function flushThinkingEvent() {
+    thinkingFlushTimer = undefined;
+    const text = pendingThinkingText.trim();
+    pendingThinkingText = "";
+    if (!text) return;
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message: text,
+      metadata: { type: "thinking" },
+    });
+  }
+
   const send = (event: AgentChatEvent) => {
     if (event.type === "text") {
+      // Flush any buffered thinking when real content arrives.
+      if (thinkingFlushTimer !== undefined) {
+        clearTimeout(thinkingFlushTimer);
+        flushThinkingEvent();
+      }
       assistantText += event.text;
       outputSmoother.write(event.text);
+      return;
+    }
+    if (event.type === "thinking") {
+      pendingThinkingText += event.text;
+      // Debounce: flush 300ms after the last delta so rapid chunks are merged.
+      if (thinkingFlushTimer !== undefined) clearTimeout(thinkingFlushTimer);
+      thinkingFlushTimer = setTimeout(flushThinkingEvent, 300);
       return;
     }
     if (event.type === "activity") {
@@ -206,15 +272,23 @@ export async function executeCodeAgentRun(
       return;
     }
     if (event.type === "tool_start") {
+      const startMeta = pendingToolMeta.get(event.tool ?? "");
       appendCodeAgentTranscriptEvent({
         runId: existing.id,
         kind: "status",
         message: `Running ${event.tool}.`,
-        metadata: { type: "tool_start", tool: event.tool, input: event.input },
+        metadata: {
+          type: "tool_start",
+          tool: event.tool,
+          input: event.input,
+          ...(startMeta ? { structuredMeta: startMeta } : {}),
+        },
       });
       return;
     }
     if (event.type === "tool_done") {
+      const pendingMeta = pendingToolMeta.get(event.tool ?? "");
+      if (pendingMeta) pendingToolMeta.delete(event.tool ?? "");
       appendCodeAgentTranscriptEvent({
         runId: existing.id,
         kind: "status",
@@ -222,8 +296,11 @@ export async function executeCodeAgentRun(
         metadata: {
           type: "tool_done",
           tool: event.tool,
-          result: truncateCodingOutput(event.result, 4000),
+          result: truncateBashOutput(
+            truncateCodingOutput(event.result, MAX_TOOL_OUTPUT_CHARS),
+          ),
           ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
+          ...(pendingMeta ? { structuredMeta: pendingMeta } : {}),
         },
       });
       return;
@@ -238,21 +315,37 @@ export async function executeCodeAgentRun(
     }
   };
 
+  let loopUsage: AgentLoopUsage | null = null;
   try {
-    await runWithOptionalCodeAgentRequestContext(existing, () =>
-      runAgentLoop({
-        engine,
-        model,
-        systemPrompt: codeAgentSystemPrompt(cwd, permissionMode),
-        tools,
-        actions,
-        messages,
-        send,
-        signal: controller.signal,
-        maxIterations: 12,
-        reasoningEffort,
-      }),
+    const usageResult = await runWithOptionalCodeAgentRequestContext(
+      existing,
+      () =>
+        runAgentLoop({
+          engine,
+          model,
+          systemPrompt: codeAgentSystemPrompt(cwd, permissionMode),
+          tools,
+          actions,
+          messages,
+          send,
+          signal: controller.signal,
+          maxIterations: 12,
+          reasoningEffort,
+        }),
     );
+    loopUsage = usageResult ?? null;
+    // Persist cumulative token totals from this turn into the run record so
+    // the UI can display per-run usage statistics.
+    if (loopUsage) {
+      updateCodeAgentRunRecord(existing.id, (record) => ({
+        metadata: {
+          tokenUsage: accumulateTokenUsage(
+            record.metadata?.tokenUsage,
+            loopUsage!,
+          ),
+        },
+      }));
+    }
     await outputSmoother.flush();
     if (assistantText.trim()) {
       options.stdout?.write("\n");
@@ -378,6 +471,10 @@ export async function executeCodeAgentRun(
       },
     });
   } finally {
+    if (thinkingFlushTimer !== undefined) {
+      clearTimeout(thinkingFlushTimer);
+      flushThinkingEvent();
+    }
     outputSmoother.cancel();
     options.signal?.removeEventListener("abort", abortFromParent);
     await mcpManager?.stop().catch(() => undefined);
@@ -390,6 +487,28 @@ export async function executeExistingCodeAgentRun(
   options: Omit<ExecuteCodeAgentRunOptions, "runId"> = {},
 ): Promise<CodeAgentRunRecord | null> {
   return executeCodeAgentRun({ ...options, runId, appendUserEvent: false });
+}
+
+/**
+ * Add the pending approval command to the per-project allowlist, then approve
+ * and auto-resume.  Future occurrences of this exact command will bypass the
+ * approval gate without prompting.
+ */
+export async function executeApproveAlwaysCodeAgentApproval(
+  runId: string,
+  options: { stdout?: NodeJS.WritableStream } = {},
+): Promise<CodeAgentRunRecord | null> {
+  const approval = getPendingApproval(runId);
+  if (approval?.command) {
+    addCodeAgentCommandToAllowlist(approval.command);
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message: `Command added to allowlist: ${approval.command}`,
+      metadata: { type: "allowlist-added", command: approval.command },
+    });
+  }
+  return executePendingCodeAgentApproval(runId, options);
 }
 
 export async function executePendingCodeAgentApproval(
@@ -458,24 +577,19 @@ export async function executePendingCodeAgentApproval(
     kind: "status",
     message: summary,
     metadata: {
-      status: result.code === 0 ? "paused" : "errored",
+      status: "running",
       phase: "approval-complete",
       approvalId: approval.id,
       exitCode: result.code,
       timedOut: result.timedOut,
     },
   });
-  return updateCodeAgentRunRecord(runId, {
-    status: result.code === 0 ? "paused" : "errored",
-    phase: result.code === 0 ? "approval-complete" : "approval-command-error",
+  // Clear the pending approval and immediately auto-resume so the model sees
+  // the command result and can continue — no manual "Resume" click needed.
+  updateCodeAgentRunRecord(runId, {
+    status: "running",
+    phase: "approval-resuming",
     needsApproval: false,
-    progress: {
-      label: result.code === 0 ? "Approval complete" : "Approval failed",
-      completed: result.code === 0 ? 1 : 0,
-      total: 1,
-      failed: result.code === 0 ? 0 : 1,
-      percent: result.code === 0 ? 100 : 0,
-    },
     metadata: {
       pendingApproval: undefined,
       lastApproval: {
@@ -485,6 +599,65 @@ export async function executePendingCodeAgentApproval(
       },
     },
   });
+  appendCodeAgentTranscriptEvent({
+    runId,
+    kind: "status",
+    message: "Resuming run after approval.",
+    metadata: { status: "running", phase: "approval-resuming" },
+  });
+  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+}
+
+/**
+ * Deny a pending approval: record the denial, feed it back to the model as a
+ * "command denied by user" result, and immediately resume the run so the model
+ * can adapt its plan without leaving the run dangling.
+ */
+export async function executeDenyCodeAgentApproval(
+  runId: string,
+  options: { stdout?: NodeJS.WritableStream } = {},
+): Promise<CodeAgentRunRecord | null> {
+  const record = getCodeAgentRunRecord(runId);
+  if (!record) return null;
+  const approval = getPendingApproval(runId);
+  if (!approval) {
+    options.stdout?.write("No pending approval was found for this run.\n");
+    return record;
+  }
+
+  const message = `User denied command: ${approval.command} (${approval.reason})`;
+  options.stdout?.write(`${message}\n`);
+  appendCodeAgentTranscriptEvent({
+    runId,
+    kind: "status",
+    message,
+    metadata: {
+      status: "running",
+      phase: "approval-denied",
+      approvalId: approval.id,
+      command: approval.command,
+    },
+  });
+  updateCodeAgentRunRecord(runId, {
+    status: "running",
+    phase: "approval-denied-resuming",
+    needsApproval: false,
+    metadata: {
+      pendingApproval: undefined,
+      lastApproval: {
+        ...approval,
+        deniedAt: new Date().toISOString(),
+        denied: true,
+      },
+    },
+  });
+  appendCodeAgentTranscriptEvent({
+    runId,
+    kind: "status",
+    message: "Resuming run after denial — model will adapt its plan.",
+    metadata: { status: "running", phase: "approval-denied-resuming" },
+  });
+  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
 }
 
 function latestUserPrompt(runId: string): string {
@@ -668,9 +841,18 @@ function createFakeCodeAgentEngine(text: string): AgentEngine {
   };
 }
 
+const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
 function buildCodeAgentMessages(
   run: CodeAgentRunRecord,
   prompt: string,
+  attachments?: AgentPromptAttachment[],
 ): EngineMessage[] {
   const transcript = listCodeAgentTranscriptEvents(run.id)
     .slice(-40)
@@ -687,15 +869,49 @@ function buildCodeAgentMessages(
   const context = transcript
     ? `\n\nPrevious session transcript:\n${transcript}`
     : "";
+
+  // Separate image attachments from text attachments. Images are passed as
+  // proper EngineImagePart entries rather than inlined base64 text (which
+  // would consume ~700K tokens per megabyte of image data).
+  const imageParts: import("../agent/engine/types.js").EngineImagePart[] = [];
+  const unsupportedImageNotes: string[] = [];
+
+  for (const att of attachments ?? []) {
+    if (!att.dataUrl) continue;
+    const match = att.dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+    if (!match) continue;
+    const mime = match[1].toLowerCase();
+    if (SUPPORTED_IMAGE_MEDIA_TYPES.has(mime)) {
+      imageParts.push({
+        type: "image",
+        data: match[2],
+        mediaType:
+          mime as import("../agent/engine/types.js").EngineImagePart["mediaType"],
+      });
+    } else {
+      // Unsupported format — inject a note so the model understands what happened.
+      const label = att.name ? `"${att.name}"` : "An image";
+      unsupportedImageNotes.push(
+        `[${label} could not be processed — unsupported image format (${mime}). ` +
+          `Only JPEG, PNG, GIF, and WebP are supported.]`,
+      );
+    }
+  }
+
+  const notesBlock =
+    unsupportedImageNotes.length > 0
+      ? `\n\n${unsupportedImageNotes.join("\n")}`
+      : "";
+
+  const textContent: import("../agent/engine/types.js").EngineContentPart = {
+    type: "text",
+    text: `${prompt}${context}${notesBlock}`,
+  };
+
   return [
     {
       role: "user",
-      content: [
-        {
-          type: "text",
-          text: `${prompt}${context}`,
-        },
-      ],
+      content: [...imageParts, textContent],
     },
   ];
 }
@@ -765,6 +981,12 @@ function createLocalCodeAgentActions(
   cwd: string,
   permissionMode: CodeAgentPermissionMode,
   runId: string,
+  onToolMetadata?: (
+    toolName: string,
+    phase: "start" | "done",
+    meta: StructuredToolMetadata,
+  ) => void,
+  onBashOutputChunk?: (chunk: string) => void,
 ): Record<string, ActionEntry> {
   const actions = createCodingToolRegistry({
     cwd,
@@ -773,6 +995,8 @@ function createLocalCodeAgentActions(
     maxOutputChars: MAX_TOOL_OUTPUT_CHARS,
     maxFileReadChars: MAX_FILE_READ_CHARS,
     canWrite: (toolName) => permissionErrorForWrite(permissionMode, toolName),
+    onToolMetadata,
+    onBashOutputChunk,
     beforeBash: ({ command }) => {
       const permission = classifyCodeAgentCommandPermission(command);
       if (permission.kind === "forbidden") {
@@ -783,6 +1007,8 @@ function createLocalCodeAgentActions(
         if (permissionError) return permissionError;
       }
       if (permission.kind === "approval-required") {
+        // Skip the approval gate when the user has allowlisted this command.
+        if (isCodeAgentCommandAllowed(command)) return null;
         const approval = requestCodeAgentApproval(runId, {
           tool: "bash",
           command,
@@ -958,5 +1184,30 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
       candidate.permissionMode === "full-auto"
         ? candidate.permissionMode
         : "full-auto",
+  };
+}
+
+// --------------- Token usage accumulator ---------------
+
+interface StoredTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+function accumulateTokenUsage(
+  existing: unknown,
+  next: AgentLoopUsage,
+): StoredTokenUsage {
+  const prev =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? (existing as Partial<StoredTokenUsage>)
+      : {};
+  return {
+    inputTokens: (prev.inputTokens ?? 0) + next.inputTokens,
+    outputTokens: (prev.outputTokens ?? 0) + next.outputTokens,
+    cacheReadTokens: (prev.cacheReadTokens ?? 0) + next.cacheReadTokens,
+    cacheWriteTokens: (prev.cacheWriteTokens ?? 0) + next.cacheWriteTokens,
   };
 }

@@ -159,6 +159,19 @@ function googleThinkingBudget(effort: string) {
   return -1;
 }
 
+/**
+ * Map a reasoning effort level to Gemini 3.x thinkingLevel string.
+ * Gemini 3 models (gemini-3.*) reject thinkingBudget and require thinkingLevel
+ * with values 'low' | 'medium' | 'high'. Gemini 3.0 only supports 'low'/'high';
+ * Gemini 3.1+ adds 'medium'. We always emit 'medium' for medium effort since it
+ * is accepted by 3.1+, and 3.0 is expected to be phased out quickly.
+ */
+function gemini3ThinkingLevel(effort: string): string {
+  if (effort === "low") return "low";
+  // medium/high/xhigh/max all map to the strongest available level for Gemini 3
+  return "high";
+}
+
 // ---------------------------------------------------------------------------
 // AISDKEngine implementation
 // ---------------------------------------------------------------------------
@@ -284,11 +297,14 @@ class AISDKEngine implements AgentEngine {
           reasoning: { effort: reasoningEffort },
         };
       } else if (this.provider === "google") {
+        // Gemini 3.x models reject thinkingBudget — they require thinkingLevel.
+        // Gemini 2.5.x models use thinkingBudget (integer token count or -1).
+        const isGemini3 = /^gemini-3/.test(opts.model);
         providerOpts.google = {
           ...((providerOpts.google as object) ?? {}),
-          thinkingConfig: {
-            thinkingBudget: googleThinkingBudget(reasoningEffort),
-          },
+          thinkingConfig: isGemini3
+            ? { thinkingLevel: gemini3ThinkingLevel(reasoningEffort) }
+            : { thinkingBudget: googleThinkingBudget(reasoningEffort) },
         };
       }
     }
@@ -334,10 +350,19 @@ class AISDKEngine implements AgentEngine {
       yield { type: "assistant-content", parts: assistantContent };
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
+      // Surface structured fields from AI SDK's APICallError so
+      // isRetryableError can check statusCode/providerRetryable directly
+      // rather than keyword-matching the message string.
+      const statusCode: number | undefined =
+        typeof err?.statusCode === "number" ? err.statusCode : undefined;
+      const providerRetryable: boolean | undefined =
+        typeof err?.isRetryable === "boolean" ? err.isRetryable : undefined;
       yield {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
+        ...(statusCode !== undefined ? { statusCode } : {}),
+        ...(providerRetryable !== undefined ? { providerRetryable } : {}),
       };
       throw err;
     }

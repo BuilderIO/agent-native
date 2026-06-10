@@ -1,9 +1,12 @@
 import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
-import { useSearchModal, SearchModal } from "./SearchModal";
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { IconMessage } from "@tabler/icons-react";
 import { FeedbackButton } from "@agent-native/core/client";
+
+const SearchModal = lazy(() =>
+  import("./SearchModal").then((m) => ({ default: m.SearchModal })),
+);
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
@@ -70,8 +73,32 @@ function CloseIcon() {
   );
 }
 
+function useSearchModal() {
+  const [open, setOpen] = useState(false);
+  const [everOpened, setEverOpened] = useState(false);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setEverOpened(true);
+        setOpen(true);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  const openModal = () => {
+    setEverOpened(true);
+    setOpen(true);
+  };
+
+  return { open, setOpen, everOpened, openModal };
+}
+
 export default function Header() {
-  const { open, setOpen } = useSearchModal();
+  const { open, setOpen, everOpened, openModal } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isHome = useLocation().pathname === "/";
   const [scrolled, setScrolled] = useState(false);
@@ -199,7 +226,7 @@ export default function Header() {
               align="end"
               side="bottom"
             />
-            <SearchTrigger onClick={() => setOpen(true)} />
+            <SearchTrigger onClick={openModal} />
             <ThemeToggle />
             <button
               onClick={() =>
@@ -298,7 +325,11 @@ export default function Header() {
           </div>
         )}
       </header>
-      <SearchModal open={open} onClose={() => setOpen(false)} />
+      {everOpened && (
+        <Suspense fallback={null}>
+          <SearchModal open={open} onClose={() => setOpen(false)} />
+        </Suspense>
+      )}
     </>
   );
 }

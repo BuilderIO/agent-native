@@ -297,7 +297,7 @@ describe("Plans skills install — materialized output", () => {
         {
           baseDir: root,
           runCommand: async (cmd, args) => {
-            if (cmd === "npx" && args.includes("skills@latest")) {
+            if (cmd === "npx" && args.includes("@agent-native/skills@latest")) {
               npxCalls += 1;
               const source = args[3];
               if (source) {

@@ -50,11 +50,14 @@ const mockDb = {
       }
       return affected(0);
     }
-    // bump continuation
+    // bump continuation (with or without attempts fencing)
     if (s.includes("continuation_count = continuation_count + 1")) {
-      const [updatedAt, taskId] = args;
+      const [updatedAt, taskId, claimedAttempts] = args;
       const r = rows.find(
-        (x) => x.task_id === taskId && x.status === "running",
+        (x) =>
+          x.task_id === taskId &&
+          x.status === "running" &&
+          (claimedAttempts === undefined || x.attempts === claimedAttempts),
       );
       if (r) {
         r.continuation_count += 1;
@@ -64,10 +67,14 @@ const mockDb = {
       }
       return affected(0);
     }
-    // complete
-    if (s.includes("SET status = ?, updated_at = ? WHERE task_id = ?")) {
-      const [status, updatedAt, taskId] = args;
-      const r = rows.find((x) => x.task_id === taskId);
+    // complete (with or without attempts fencing)
+    if (s.includes("SET status = ?, updated_at = ?")) {
+      const [status, updatedAt, taskId, claimedAttempts] = args;
+      const r = rows.find(
+        (x) =>
+          x.task_id === taskId &&
+          (claimedAttempts === undefined || x.attempts === claimedAttempts),
+      );
       if (r) {
         r.status = status;
         r.updated_at = updatedAt;
@@ -75,13 +82,16 @@ const mockDb = {
       }
       return affected(0);
     }
-    // touch
+    // touch (with or without attempts fencing)
     if (
       s.includes("SET updated_at = ? WHERE task_id = ? AND status = 'running'")
     ) {
-      const [updatedAt, taskId] = args;
+      const [updatedAt, taskId, claimedAttempts] = args;
       const r = rows.find(
-        (x) => x.task_id === taskId && x.status === "running",
+        (x) =>
+          x.task_id === taskId &&
+          x.status === "running" &&
+          (claimedAttempts === undefined || x.attempts === claimedAttempts),
       );
       if (r) {
         r.updated_at = updatedAt;

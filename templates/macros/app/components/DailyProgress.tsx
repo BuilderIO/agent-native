@@ -279,7 +279,7 @@ export function DailyProgress({
                           color: "#fff",
                         }}
                         cursor={{ stroke: "rgba(255,255,255,0.1)" }}
-                        formatter={(value: number, name: string) => [
+                        formatter={(value: any, name: any) => [
                           `${value} lbs`,
                           name === "trendWeight" ? "Trend" : "Actual",
                         ]}
@@ -372,7 +372,7 @@ export function DailyProgress({
                           color: "#fff",
                         }}
                         cursor={{ stroke: "rgba(255,255,255,0.1)" }}
-                        formatter={(value: number) => [
+                        formatter={(value: any) => [
                           `${value} kcal`,
                           "Net Calories",
                         ]}

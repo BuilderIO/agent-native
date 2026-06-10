@@ -1272,7 +1272,17 @@ async function inspectDreamSource(
     candidateCount: candidates.length,
     errors: inspected
       .map((entry) => entry.error)
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry)),
+      .filter(
+        (
+          entry,
+        ): entry is {
+          threadId: string;
+          sourceId: string;
+          durationMs: number;
+          timedOut: boolean;
+          message: string;
+        } => entry !== null,
+      ) as Array<Record<string, unknown>>,
     candidates,
   };
 }

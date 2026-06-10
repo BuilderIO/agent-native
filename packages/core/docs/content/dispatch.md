@@ -7,9 +7,9 @@ description: "The workspace control plane: secrets vault, integration hub, cross
 
 Dispatch is the central app that sits in front of every other app in your workspace and handles secrets, integrations, messaging, and cross-app delegation. It is the **workspace control plane** — the single agent your team talks to, the single place credentials live, and the single router that decides which specialist app should handle a given request.
 
-Without Dispatch, every app in a multi-app workspace ends up re-implementing the same plumbing: its own Slack bot, its own secret store, its own scheduled jobs, its own copy of the workspace's instructions. Rotating one API key turns into ten redeployments. Adding a new policy turns into ten copy-pastes. Dispatch centralizes all of that in one app so the others stay focused on their domain.
+> **Dispatch the template vs. `@agent-native/dispatch` the package.** This page covers the Dispatch app/template concept — what it does and why you'd want it. The `@agent-native/dispatch` npm package is the separately published runtime that bundles the Dispatch template's server logic (vault, integrations, destinations, scheduled jobs, and cross-app delegation) as a drop-in package for workspaces that extend it. For the scaffolded app itself (routes, screens, agent guide), see the [Dispatch template](/docs/template-dispatch).
 
-> Dispatch is shipped as a first-party template. This page covers the **concept** — what it is, why you'd want it, and how it fits into a workspace. For the scaffolded app itself (routes, screens, agent guide), see the [Dispatch template](/docs/template-dispatch).
+Without Dispatch, every app in a multi-app workspace ends up re-implementing the same plumbing: its own Slack bot, its own secret store, its own scheduled jobs, its own copy of the workspace's instructions. Rotating one API key turns into ten redeployments. Adding a new policy turns into ten copy-pastes. Dispatch centralizes all of that in one app so the others stay focused on their domain.
 
 ## When you want Dispatch {#when}
 
@@ -68,50 +68,24 @@ Dispatch gateway is the lower-friction path.
 
 ### Workspace resources
 
-Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app, and there is no manual workspace-resource sync step. App shared resources and personal resources can override or narrow the workspace defaults locally. Selected resources use explicit per-app grants for app-specific exceptions.
+Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app, and there is no manual workspace-resource sync step. App shared resources and personal resources can override or narrow the workspace defaults locally.
 
-Use the canonical paths to control how agents consume them:
-
-- `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails loaded by every app agent
-- `skills/<slug>/SKILL.md` for on-demand skills available through `/` commands and the prompt skill index
-- `context/<slug>.md` for brand, persona, positioning, messaging, company facts, and other reference material the agent reads when relevant
-- `agents/<slug>.md` for reusable custom agent profiles
-- `mcp-servers/<slug>.json` for HTTP MCP servers that should add external tools to granted app agents
-
-Starter global resources usually look like:
-
-```text
-context/company.md
-context/brand.md
-context/messaging.md
-instructions/guardrails.md
-skills/company-voice/SKILL.md
-```
-
-Set these to **All apps** when every app should inherit the same company facts, brand rules, messaging, safety constraints, and customer-facing writing style. Use selected-app grants only for resources that are genuinely app-specific.
+See [Workspace — Global resources](/docs/workspace#global-resources) for the canonical path table, starter pack, and override model.
 
 MCP server resources use JSON and are intentionally HTTP-only. Store tokens in
 Dispatch Vault, grant or sync those keys to the target apps, and reference them
 from headers with `${keys.NAME}` so the raw credential never lives in the
 resource body.
 
-The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, restore missing starter files without overwriting existing ones, and edit their contents. Expand any resource to preview its effective runtime stack for a selected app/user: workspace default, organization/app override, then personal override. Each app card also has a **Context** view that shows exactly what that app receives: inherited workspace resources, selected grants, and auto-loaded instructions. Use a resource row's **Stack** control to inspect which layer wins for that app.
-
-This is how a team-wide change ("always use British English in customer-facing replies") or a shared brand guideline propagates without editing ten repos.
+The **Resources** page highlights the recommended starter pack so admins can quickly see which files exist, restore missing starter files without overwriting existing ones, and edit their contents. Expand any resource to preview its effective runtime stack for a selected app/user. Each app card also has a **Context** view that shows exactly what that app receives.
 
 ### Dreams
 
 Dispatch Dreams review prior agent runs, feedback, evals, and repeated failures to propose durable improvements. A dream report is a review surface, not a silent rewrite: it can suggest personal memory updates, stale-memory cleanup, shared `LEARNINGS.md` edits, workspace instruction/skill/knowledge/agent resources, or recurring jobs, and each proposal links back to the runs that justify it. Shared instructions and team-wide resources require review before they are applied, especially when the evidence came from inbound Slack, email, Telegram, WhatsApp, or web content.
 
-Before proposing a write, Dreams compare the evidence against the personal memory index, existing `memory/*.md` notes, and shared `LEARNINGS.md`. If a lesson is already captured, the report records that it was skipped; if a related personal memory looks stale, the proposal targets that existing note instead of creating a duplicate. Dream reports deduplicate repeated evidence by thread, signal type, and normalized quote, strip injected context from correction detection, and summarize raw eval/tool rows into readable bullets. If a pass finds signals but creates no proposals, guardrail notes explain which evidence was suppressed.
+Before proposing a write, Dreams compare the evidence against the personal memory index, existing `memory/*.md` notes, and shared `LEARNINGS.md`. If a lesson is already captured, the report records that it was skipped; if a related personal memory looks stale, the proposal targets that existing note instead of creating a duplicate.
 
-Use Dreams as the workspace's offline reflection loop: "what did agents keep getting wrong this week?", "what should we remember?", and "which repeated workflow should become a skill or scheduled job?"
-
-Start from the **Dreams** tab in Dispatch. Run a manual pass first, open a proposal review sheet to compare the current target with the proposed content and source evidence, then apply only the changes you want to keep. Once the reports are consistently useful, Dispatch can create a recurring dream job that keeps producing proposals without auto-applying shared or instruction-level changes. Workspace-instruction proposals require durable evidence from at least two threads or two source apps, while eval-only noise, account setup issues, quota limits, and single-app UI wording corrections remain out of all-app instructions.
-
-When a workspace has several thread-debug sources, Dreams can scan them together with `sourceId: "all"` or an explicit `sourceIds` list. Each source gets its own timeout, start stagger, concurrency cap, per-thread timeout, and persisted health row, so a slow or unavailable production database produces a partial result instead of blocking the whole dream pass.
-
-Recurring dream settings are stored at user or org scope and can be edited from the Dreams settings sheet. They control the cron schedule, source selection, per-source timeout, source concurrency, source start stagger, per-thread timeout, candidate limit, and minimum candidate threshold. The default recurring shape is a weekly all-source review that writes proposals only; applying shared or workspace-resource proposals still goes through review and approval.
+Start from the **Dreams** tab in Dispatch. Run a manual pass first, open a proposal review sheet to compare the current target with the proposed content and source evidence, then apply only the changes you want to keep. Once the reports are consistently useful, Dispatch can create a recurring dream job that keeps producing proposals without auto-applying shared or instruction-level changes.
 
 ### Approval flow
 
@@ -125,7 +99,7 @@ Walk through one example end-to-end. A user DMs the bot: _"summarize last week's
 2. **Fresh processor execution.** The processor endpoint runs in a brand-new function execution with its own full timeout. It atomically claims the task and starts the agent loop.
 3. **Dispatch agent decides.** The agent reads the message, recognizes "signups" as an analytics intent, and invokes `call-agent` against the analytics app's [A2A endpoint](/docs/a2a-protocol). The actual SQL work runs over there.
 4. **Reply posted in thread.** The analytics agent returns a result. Dispatch formats it and posts back into the same Slack thread the user wrote in, using the linked identity if there is one (so the agent acts with the requester's permissions, not the workspace owner's).
-5. **Recovery if anything dies.** If the processor crashes mid-flight — A2A timeout, downstream agent error, function freeze — a retry job sweeps stuck tasks every 60 seconds and re-fires the processor. Up to three attempts before the task is marked `failed`. The user still gets a reply on the next sweep instead of the message disappearing into the void.
+5. **Recovery if anything dies.** If the processor crashes mid-flight — A2A timeout, downstream agent error, function freeze — a retry job sweeps stuck tasks every 60 seconds and re-fires the processor. Up to three attempts before the task is marked `failed`.
 
 The same flow applies for email, Telegram, and WhatsApp — only the adapter changes.
 
@@ -136,8 +110,6 @@ The whole pipeline is built to survive on every serverless host (Netlify, Vercel
 - **Webhook → SQL queue → fresh-execution processor.** The agent loop never runs inside the webhook handler. The handler's only job is to verify, enqueue, and return 200. A separate fresh execution drains the queue, so a slow agent run can never tie up the inbound webhook or cause the platform to retry.
 - **A2A continuation polling.** When Dispatch delegates to another app, it polls the downstream task with a bounded timeout. If the downstream agent takes too long or crashes, Dispatch records the continuation and the retry job picks it up — the user's Slack reply still arrives.
 - **Auto-signed cross-app A2A.** Hosted multi-app workspaces auto-generate per-app A2A credentials at deploy time, so apps in the same workspace can call each other without you ever pasting a JWT secret. Dispatch's agent-discovery layer reads those creds from the workspace database so newly added apps appear as callable peers automatically.
-
-This is the hardened reliability story. Conceptually: every step that crosses a network or a process boundary is recoverable.
 
 ## Setup {#setup}
 
@@ -155,4 +127,4 @@ Then add credentials to the vault and (optionally) author global workspace resou
 - [Messaging](/docs/messaging) — connecting Slack, email, Telegram, WhatsApp
 - [A2A Protocol](/docs/a2a-protocol) — how cross-app delegation works under the hood
 - [Multi-App Workspace](/docs/multi-app-workspace) — the deployment shape Dispatch is built for
-- [Workspace Management](/docs/workspace-management) — git/GitHub governance that pairs with Dispatch's runtime governance
+- [Workspace Governance](/docs/workspace-management) — git/GitHub governance that pairs with Dispatch's runtime governance

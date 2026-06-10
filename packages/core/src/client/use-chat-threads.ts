@@ -936,20 +936,23 @@ export function useChatThreads(
         } else {
           thread = await res.json();
         }
+        // thread is non-null: the null branch returned early above (line 935)
+        // and the else branch always assigns it.
+        const t = thread!;
         setThreads((prev) => [
           {
-            id: thread.id,
-            title: thread.title,
-            preview: thread.preview,
-            messageCount: thread.messageCount,
-            createdAt: thread.createdAt,
-            updatedAt: thread.updatedAt,
-            scope: thread.scope ?? null,
+            id: t.id,
+            title: t.title,
+            preview: t.preview,
+            messageCount: t.messageCount,
+            createdAt: t.createdAt,
+            updatedAt: t.updatedAt,
+            scope: t.scope ?? null,
           },
           ...prev,
         ]);
         emitThreadsUpdated();
-        return thread.id;
+        return t.id;
       } catch (err) {
         console.error(`[chat] fork threw for ${sourceId}:`, err);
         return null;

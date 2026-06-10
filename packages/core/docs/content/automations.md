@@ -63,21 +63,21 @@ Each automation is a markdown file with YAML frontmatter and a body containing n
 
 ### Frontmatter fields {#frontmatter}
 
-| Field         | Type                                                   | Default      | Description                                          |
-| ------------- | ------------------------------------------------------ | ------------ | ---------------------------------------------------- |
-| `schedule`    | cron expression                                        | `""`         | Cron expression (required for schedule triggers)     |
-| `enabled`     | boolean                                                | `true`       | Whether the automation is active                     |
-| `triggerType` | `"schedule"` \| `"event"`                              | `"schedule"` | How the automation fires                             |
-| `event`       | string                                                 | _(optional)_ | Event name to subscribe to (event triggers only)     |
-| `condition`   | string                                                 | _(optional)_ | Natural-language condition evaluated before dispatch |
-| `mode`        | `"agentic"` \| `"deterministic"`                       | `"agentic"`  | Full agent loop vs. fixed action set                 |
-| `domain`      | string                                                 | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)           |
-| `createdBy`   | email                                                  | _(auto)_     | Owner email                                          |
-| `orgId`       | string                                                 | _(auto)_     | Org scope; inherited from the creator's active org   |
-| `runAs`       | `"creator"` \| `"shared"`                              | `"creator"`  | Whose API key and permissions to use                 |
-| `lastRun`     | ISO timestamp                                          | _(managed)_  | Written by the dispatcher after each run             |
-| `lastStatus`  | `"success"` \| `"error"` \| `"running"` \| `"skipped"` | _(managed)_  | Latest outcome                                       |
-| `lastError`   | string                                                 | _(managed)_  | Error message if the last run failed                 |
+| Field         | Type                                                   | Default      | Description                                                                                                                                                  |
+| ------------- | ------------------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schedule`    | cron expression                                        | `""`         | Cron expression (required for schedule triggers)                                                                                                             |
+| `enabled`     | boolean                                                | `true`       | Whether the automation is active                                                                                                                             |
+| `triggerType` | `"schedule"` \| `"event"`                              | `"schedule"` | How the automation fires                                                                                                                                     |
+| `event`       | string                                                 | _(optional)_ | Event name to subscribe to (event triggers only)                                                                                                             |
+| `condition`   | string                                                 | _(optional)_ | Natural-language condition evaluated before dispatch                                                                                                         |
+| `mode`        | `"agentic"` \| `"deterministic"`                       | `"agentic"`  | Full agent loop. (`"deterministic"` is reserved but not yet implemented — automations that set it are skipped. Use `"agentic"` for all current automations.) |
+| `domain`      | string                                                 | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)                                                                                                                   |
+| `createdBy`   | email                                                  | _(auto)_     | Owner email                                                                                                                                                  |
+| `orgId`       | string                                                 | _(auto)_     | Org scope; inherited from the creator's active org                                                                                                           |
+| `runAs`       | `"creator"` \| `"shared"`                              | `"creator"`  | Whose API key and permissions to use                                                                                                                         |
+| `lastRun`     | ISO timestamp                                          | _(managed)_  | Written by the dispatcher after each run                                                                                                                     |
+| `lastStatus`  | `"success"` \| `"error"` \| `"running"` \| `"skipped"` | _(managed)_  | Latest outcome                                                                                                                                               |
+| `lastError`   | string                                                 | _(managed)_  | Error message if the last run failed                                                                                                                         |
 
 ## The event bus {#event-bus}
 
@@ -235,8 +235,36 @@ Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitutio
    - `body`: `Send a Slack message to #sales with the booking details. Use the web-request tool to POST to ${keys.SLACK_WEBHOOK}.`
 4. The automation is saved as `jobs/slack-on-builder-booking.md` and begins listening immediately.
 
+## More examples {#more-examples}
+
+### Notify via webhook when a plan is commented on
+
+Ask the plan agent: _"When someone adds a human comment on a plan, POST a
+notification to my webhook."_
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+POST to ${keys.NOTIFY_WEBHOOK} with a JSON body:
+{"title": "<plan title>", "excerpt": "<comment excerpt>", "author": "<author email or null>", "url": "<app base url + path>"}
+```
+
+Set `NOTIFY_WEBHOOK` to any HTTP endpoint — a Slack incoming webhook, a generic
+notification service, or a custom receiver. The `web-request` tool resolves
+`${keys.NOTIFY_WEBHOOK}` server-side; the raw URL never appears in the agent's
+context. See [Visual Plans — Events and notifications](/docs/template-plan#events)
+for the full `plan.commented` payload reference and all four plan events.
+
 ## What's next
 
 - [**Recurring Jobs**](/docs/recurring-jobs) — schedule-triggered automations reuse the same scheduler
 - [**Actions**](/docs/actions) — automations can call any registered action via the agent loop
 - [**Security**](/docs/security) — input validation and secret handling
+- [**Visual Plans — Events**](/docs/template-plan#events) — plan events reference and automation recipes

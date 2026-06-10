@@ -63,7 +63,7 @@ export async function tryAnswerBrainA2AQuestion(
 export function formatBrainA2AAnswer(result: AskBrainResult): string {
   const sources = result.citations
     .slice(0, 6)
-    .map((citation, index) => formatCitation(citation, index + 1))
+    .map((citation: any, index: number) => formatCitation(citation, index + 1))
     .join("\n");
 
   return `${result.answer.trim()}\n\nSources:\n${sources}`;

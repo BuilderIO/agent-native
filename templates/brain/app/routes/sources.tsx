@@ -1563,7 +1563,7 @@ function SourceListItem({
 
         {coverage ? (
           <Progress
-            value={source.coverage * 100}
+            value={(source.coverage ?? 0) * 100}
             className="mt-4 h-1.5 bg-muted"
           />
         ) : null}

@@ -28,6 +28,9 @@ When you open a deck, you get a slide editor in the middle, a sidebar of slides 
 - **Present full-screen** with keyboard navigation, auto-hiding controls, and speaker notes.
 - **Comment, collaborate, and share.** Multiple people can edit the same deck in real time. Generate a public read-only URL or share with specific teammates.
 - **Import from PDF.** Turn a PDF into a starter deck — the agent parses it and lays out the content.
+- **Import from other formats.** Import PPTX, DOCX, Google Docs, GitHub repos, or any URL as a starting point. Export to PPTX, Google Slides, or HTML.
+- **Apply design systems.** Brand tokens, custom instructions, and default palettes are saved as design systems and applied to new decks.
+- **Restore earlier versions.** Each deck change is snapshotted; list or restore any prior version.
 
 ## Getting started
 
@@ -51,6 +54,14 @@ When you open the app:
 
 Select text on a slide and hit Cmd+I to focus the agent with that selection — it'll act only on what you selected.
 
+## Why it's interesting
+
+Three things make Slides a good showcase of the framework:
+
+1. **Streamed, parallel generation.** The agent fires parallel `add-slide` calls so you see the deck assemble in real time — one slide at a time — rather than waiting for a full batch. That pattern works for any content type that benefits from progressive rendering.
+2. **Agent and editor share one document.** The same Yjs CRDT that lets two humans type concurrently is what the agent writes through via `update-slide --find/--replace`. There is no separate "AI-only" edit path.
+3. **Multi-modal source ingestion.** PPTX, DOCX, Google Docs, PDFs, URLs, and GitHub repos all feed through the same `import-*` action surface. Adding a new source format is a single action file; the agent picks it up immediately.
+
 ## For developers
 
 The rest of this doc is for anyone forking the Slides template or extending it.
@@ -68,7 +79,19 @@ pnpm dev
 
 ### Key features (technical) {#key-features}
 
-### Prompt-to-deck generation
+#### Import and export
+
+The template can pull content in from PPTX (`import-pptx`), DOCX (`import-docx`), Google Docs (`import-google-doc`), arbitrary URLs (`import-from-url`), and GitHub repos (`import-github`). Export paths cover PPTX (`export-pptx`), Google Slides (`export-google-slides`), and HTML (`export-html`). Importing uses the same action surface as the rest of the template — no separate pipeline.
+
+#### Design systems
+
+Reusable brand tokens are stored in the `design_systems` table (colors, typography, spacing, assets, custom instructions, and an `is_default` flag). Sharing is managed via `design_system_shares`. Actions: `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system`, and `analyze-brand-assets` (collects brand data before analysis). See the `design-systems` and `image-generation-via-a2a` skills for the full pattern.
+
+#### Deck versions
+
+Every significant deck change is snapshotted in the `deck_versions` table (stores a full copy of title and deck data with an optional `changeLabel`). Actions: `list-deck-versions`, `restore-deck-version`, `get-deck-version`.
+
+#### Prompt-to-deck generation
 
 Ask the agent for a deck and it builds one slide at a time. Slides stream into the editor live as each one is generated — the agent fires parallel `add-slide` calls so you see the deck assemble in seconds.
 
@@ -150,7 +173,7 @@ The agent can embed a live slide preview directly in a chat reply using the fram
 
 All deck data lives in SQL via Drizzle ORM. Schema: `templates/slides/server/db/schema.ts`.
 
-### decks
+#### decks
 
 | Column       | Type | Notes                                                     |
 | ------------ | ---- | --------------------------------------------------------- |
@@ -162,7 +185,7 @@ All deck data lives in SQL via Drizzle ORM. Schema: `templates/slides/server/db/
 
 Each deck also carries the standard `ownableColumns` (owner, visibility, share token) so it slots into the framework's sharing model.
 
-### slide_comments
+#### slide_comments
 
 | Column                        | Notes                                  |
 | ----------------------------- | -------------------------------------- |
@@ -174,11 +197,27 @@ Each deck also carries the standard `ownableColumns` (owner, visibility, share t
 | `author_email`, `author_name` | Author                                 |
 | `resolved`                    | Boolean flag                           |
 
-### deck_shares
+#### deck_shares
 
 Framework-provided shares table (created via `createSharesTable`) that maps principals (users or orgs) to roles (viewer, editor, admin) per deck.
 
-### Slide structure
+#### deck_versions
+
+Point-in-time snapshots of a deck — `deck_id`, `title`, `data` (full deck JSON), and an optional `change_label`. Used by `list-deck-versions` / `restore-deck-version`.
+
+#### design_systems
+
+Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag. Uses `ownableColumns` so design systems can be shared per-user or per-org.
+
+#### design_system_shares
+
+Framework shares table for design systems, mapping principals to roles (viewer, editor, admin).
+
+#### deck_share_links
+
+Persisted public share-link snapshots keyed by `token`. Each row stores a `title`, a JSON `slides` array snapshot, an optional `aspect_ratio`, and `created_at`. Persisting share links here means they survive server restarts and work across serverless instances.
+
+#### Slide structure
 
 Each slide inside `decks.data` is:
 
@@ -192,11 +231,11 @@ Each slide inside `decks.data` is:
 
 `content` is raw HTML — the renderer (`app/components/deck/SlideRenderer.tsx`) provides the black background and fixed aspect ratio, and the HTML provides everything inside. Rich embedding is supported too: Excalidraw diagrams via `ExcalidrawSlide.tsx` and Mermaid charts via `MermaidRenderer.tsx`.
 
-### Customizing it
+### Customizing it {#customizing}
 
 The Slides template is fully forkable. Key places to look when extending it:
 
-### Actions — `templates/slides/actions/`
+#### Actions — `templates/slides/actions/`
 
 Every agent-callable operation lives here as a TypeScript file. A few you'll touch often:
 
@@ -209,7 +248,7 @@ Every agent-callable operation lives here as a TypeScript file. A few you'll tou
 
 Every action is auto-mounted at `POST /_agent-native/actions/:name` and callable from the CLI as `pnpm action <name>`. Add a new file here to give the agent a new capability.
 
-### Routes — `templates/slides/app/routes/`
+#### Routes — `templates/slides/app/routes/`
 
 - `_index.tsx` — deck list.
 - `deck.$id.tsx` — the editor.
@@ -219,11 +258,11 @@ Every action is auto-mounted at `POST /_agent-native/actions/:name` and callable
 - `settings.tsx` — template settings.
 - `team.tsx` — org and team management.
 
-### Editor components — `templates/slides/app/components/editor/`
+#### Editor components — `templates/slides/app/components/editor/`
 
 Most UI customization happens here: `SlideEditor.tsx`, `EditorToolbar.tsx`, `EditorSidebar.tsx`, bubble menus, slash menu, and the panels for image generation, search, and history.
 
-### Skills — `templates/slides/.agents/skills/`
+#### Skills — `templates/slides/.agents/skills/`
 
 Agent skills that explain patterns when the agent needs to modify code:
 
@@ -232,10 +271,10 @@ Agent skills that explain patterns when the agent needs to modify code:
 - `deck-management/` — how decks are stored and accessed.
 - `slide-images/` — image generation and search workflow.
 
-### AGENTS.md
+#### AGENTS.md
 
 `templates/slides/AGENTS.md` is the short router the agent reads on every conversation. It points at the skills under `.agents/skills/` and lays out the core rules, application-state contract, and skill index. The exact slide HTML templates for every layout live in `.agents/skills/create-deck/SKILL.md` — update that skill whenever you add or change a slide layout pattern.
 
-### API routes
+#### API routes
 
 For cases where actions aren't the right fit (file uploads, streaming), the template exposes a small set of REST endpoints: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. See `templates/slides/server/routes/api/`.

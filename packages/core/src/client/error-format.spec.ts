@@ -52,6 +52,26 @@ describe("formatChatErrorText", () => {
     expect(text).not.toContain("[Upgrade at builder.io]");
   });
 
+  it("adds a Start-new-chat CTA for context_length_exceeded errors", () => {
+    const text = formatChatErrorText(
+      "Conversation has grown too long. The agent tried to recover automatically but the context is still too large. You can continue in a new chat, or ask the agent to summarize the conversation and continue.",
+      undefined,
+      "context_length_exceeded",
+    );
+    expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
+    expect(text).toMatch(/^Error: /);
+    expect(text).not.toContain("[Upgrade at builder.io]");
+  });
+
+  it("adds a Start-new-chat CTA for input_too_long errors", () => {
+    const text = formatChatErrorText(
+      "Input is too long.",
+      undefined,
+      "input_too_long",
+    );
+    expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
+  });
+
   it("keeps raw gateway events out of the primary user-facing message", () => {
     const normalized = normalizeChatError(
       'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',

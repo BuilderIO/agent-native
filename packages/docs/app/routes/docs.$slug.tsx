@@ -18,6 +18,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (target) {
     throw redirect(`/docs/${target}`, 301);
   }
+  if (!getDoc(slug)) {
+    throw new Response("Not Found", { status: 404 });
+  }
   return null;
 }
 
@@ -28,6 +31,9 @@ export const meta = ({ params }: { params: { slug: string } }) => {
   return withDefaultSocialImage([
     { title: `${doc.title} — Agent-Native` },
     { name: "description", content: doc.description },
+    { property: "og:title", content: `${doc.title} — Agent-Native` },
+    { property: "og:description", content: doc.description },
+    { property: "og:type", content: "article" },
   ]);
 };
 
@@ -35,14 +41,14 @@ export default function DocPage() {
   const { slug } = useParams<{ slug: string }>();
   const doc = getDoc(slug!);
 
-  if (!doc) {
-    throw new Response("Not Found", { status: 404 });
-  }
+  // Loader already throws 404 for unknown slugs; this is just a type-narrowing
+  // guard for the TypeScript type — should never be reached at runtime.
+  if (!doc) return null;
 
   const toc = doc.headings.map((h) => ({
     id: h.id,
     label: h.label,
-    indent: h.level === 3,
+    level: h.level,
   }));
 
   return (

@@ -1,28 +1,22 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import {
   useDbSync,
-  ClientOnly,
+  AppProviders,
   CommandMenu,
-  DefaultSpinner,
   appPath,
+  createAgentNativeQueryClient,
   useCommandMenuShortcut,
+  getThemeInitScript,
+  configureTracking,
 } from "@agent-native/core/client";
-import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -103,37 +97,23 @@ function ThemeToggleItem() {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <TooltipProvider>
-            <DbSyncSetup />
-            <NavigationStateSync />
-            <Toaster richColors position="bottom-left" />
-            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Forms">
-                <CommandMenu.Item onSelect={() => {}}>
-                  Search forms
-                </CommandMenu.Item>
-              </CommandMenu.Group>
-              <CommandMenu.Group heading="Appearance">
-                <ThemeToggleItem />
-              </CommandMenu.Group>
-            </CommandMenu>
-            <Outlet />
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ClientOnly>
+    <AppProviders queryClient={queryClient}>
+      <DbSyncSetup />
+      <NavigationStateSync />
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Forms">
+          <CommandMenu.Item onSelect={() => {}}>Search forms</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <ThemeToggleItem />
+        </CommandMenu.Group>
+      </CommandMenu>
+      <Outlet />
+    </AppProviders>
   );
 }
 

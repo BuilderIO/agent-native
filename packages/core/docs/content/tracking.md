@@ -7,6 +7,8 @@ description: "Server-side analytics with pluggable providers — PostHog, Mixpan
 
 One function, multiple destinations. Call `track()` from any server-side code — actions, plugins, server routes — and the event fans out to every registered analytics provider. No SDK dependencies, no client-side scripts, no blocking. The same `track()` is also available in [browser/app code](#client) and routes to the same providers.
 
+This is _product_ analytics — your app's events flowing to PostHog/Mixpanel/Amplitude. For _agent quality_ metrics (traces, cost, evals, feedback) stored in your own database, see [Observability](/docs/observability).
+
 ```ts
 import { track } from "@agent-native/core/tracking";
 
@@ -130,18 +132,6 @@ Only `name` and `track` are required. `identify` and `flush` are optional — im
 - **Best-effort delivery** — provider errors are caught and logged. A failing analytics integration never crashes the caller or blocks request handling.
 - **Global singleton** — the registry uses a `Symbol.for` key on `globalThis` so multiple ESM graph instances (dev-mode Vite + Nitro, symlinks) share one provider set.
 
-## Browser defaults {#browser-defaults}
-
-Template roots call `configureTracking()` once at startup. Browser events sent with `trackEvent()` automatically include app/template context plus the current LLM connection when the app can resolve it:
-
-- `llm_connection` — normalized provider label such as `builder`, `anthropic`, `openai`, `google`, or `none`
-- `llm_engine` — the engine id, for example `builder` or `ai-sdk:openai`
-- `llm_model` — the selected/default model when known
-- `llm_connection_source` — `app_secrets`, `settings`, or `env`
-- `llm_connection_configured` — whether an LLM connection is available
-
-The framework also tracks `builder connect clicked` from Connect Builder CTAs, and the server-side Builder connect routes track started/succeeded/failed lifecycle events.
-
 ## Using track() in templates {#templates}
 
 Call `track()` from action handlers to record user or agent activity:
@@ -191,7 +181,21 @@ Key differences from the [server `track()`](#track):
 - **Fire-and-forget.** It never blocks the UI, never throws, and swallows network errors.
 - **Authenticated, first-party only.** The route requires a session and a same-origin/CSRF marker (set automatically by the helper), so it can't be used as an open analytics relay. `name` is capped at 200 characters and `properties` at ~16KB; oversized or malformed payloads are rejected.
 
-This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults)), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
+This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults) below), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
+
+## Browser defaults {#browser-defaults}
+
+This section covers the framework's own internal telemetry — mostly relevant to framework contributors and advanced template authors.
+
+Template roots call `configureTracking()` once at startup. Browser events sent with `trackEvent()` automatically include app/template context plus the current LLM connection when the app can resolve it:
+
+- `llm_connection` — normalized provider label such as `builder`, `anthropic`, `openai`, `google`, or `none`
+- `llm_engine` — the engine id, for example `builder` or `ai-sdk:openai`
+- `llm_model` — the selected/default model when known
+- `llm_connection_source` — `app_secrets`, `settings`, or `env`
+- `llm_connection_configured` — whether an LLM connection is available
+
+The framework also tracks `builder connect clicked` from Connect Builder CTAs, and the server-side Builder connect routes track started/succeeded/failed lifecycle events. `configureTracking()` is called automatically by the framework; you don't need to call it in your own template code.
 
 ## What's next
 

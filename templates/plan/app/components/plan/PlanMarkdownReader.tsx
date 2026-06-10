@@ -1,7 +1,8 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { isValidElement } from "react";
+import type { ComponentPropsWithoutRef, ElementType, ReactNode } from "react";
+import { isValidElement, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { IconLink } from "@tabler/icons-react";
 import { CodeSurface } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
 import { PlanImageViewer } from "./PlanImageViewer";
@@ -9,6 +10,12 @@ import { PlanImageViewer } from "./PlanImageViewer";
 type PlanMarkdownReaderProps = {
   markdown: string;
   className?: string;
+  /**
+   * When provided, h1/h2/h3 headings receive stable anchor ids matching the
+   * TOC (`plan-heading-{blockId}-{index}`) and a copy-link affordance so users
+   * can share deep links to individual sections.
+   */
+  blockId?: string;
 };
 
 /** Flatten react-markdown's code-element children into the raw code string. */
@@ -45,7 +52,47 @@ function extractText(node: ReactNode): string {
 export function PlanMarkdownReader({
   markdown,
   className,
+  blockId,
 }: PlanMarkdownReaderProps) {
+  // Track the heading count so each heading gets the same index-based id that
+  // `collectPlanTocItems` assigns: `plan-heading-{blockId}-{index}`.
+  const headingIndexRef = useRef(0);
+  // Reset the counter each render (new markdown / blockId) so ids are stable.
+  headingIndexRef.current = 0;
+
+  const makeHeading = useCallback(
+    (Tag: ElementType, { children }: { children?: ReactNode }) => {
+      if (!blockId) {
+        // No blockId — render plain heading without anchor.
+        return <Tag>{children}</Tag>;
+      }
+      const index = headingIndexRef.current++;
+      const id = `plan-heading-${blockId}-${index}`;
+      return (
+        <Tag id={id} className="group/heading relative">
+          {children}
+          <a
+            href={`#${id}`}
+            aria-label="Copy link to this section"
+            className="plan-heading-anchor ml-2 inline-flex size-4 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity group-hover/heading:opacity-60 hover:!opacity-100"
+            onClick={(event) => {
+              event.preventDefault();
+              try {
+                history.pushState(null, "", `#${id}`);
+                void navigator.clipboard.writeText(window.location.href);
+              } catch {
+                // Clipboard or history not available — ignore.
+              }
+            }}
+          >
+            <IconLink className="size-3.5 text-plan-muted" />
+          </a>
+        </Tag>
+      );
+    },
+    [blockId],
+  );
+
   return (
     <div
       className={cn(
@@ -57,6 +104,9 @@ export function PlanMarkdownReader({
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
+            h1: ({ children }) => makeHeading("h1", { children }),
+            h2: ({ children }) => makeHeading("h2", { children }),
+            h3: ({ children }) => makeHeading("h3", { children }),
             a: ({ className: linkClassName, ...props }) => (
               <a
                 {...props}

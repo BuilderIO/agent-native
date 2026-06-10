@@ -268,6 +268,7 @@ const content: PlanContent = {
 
 export default defineAction({
   description: "DEV-ONLY: seed a public diff-blocks kitchen-sink plan.",
+  agentTool: false,
   schema: z.object({}).optional(),
   run: async () => {
     if (process.env.NODE_ENV !== "development") {

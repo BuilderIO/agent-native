@@ -1544,7 +1544,7 @@ function RunCard({
           </div>
           {outputIds.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
-              {outputIds.map((assetId) => {
+              {outputIds.map((assetId: any) => {
                 const outputAsset = outputAssets?.get(assetId);
                 return (
                   <Button

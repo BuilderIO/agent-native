@@ -1383,7 +1383,27 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
 export const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
   .object({
     assetId: z.string().trim().min(1).max(200).optional(),
-    url: z.string().trim().max(2_000).url().optional(),
+    // Accepts absolute URLs and relative `assets/<filename>` paths produced by
+    // exportPlanContentToMdxFolder for the MDX round-trip.
+    url: z
+      .string()
+      .trim()
+      .max(2_000)
+      .refine(
+        (v) =>
+          v.startsWith("assets/") ||
+          v.startsWith("/_agent-native/plan-asset/") ||
+          (() => {
+            try {
+              new URL(v);
+              return true;
+            } catch {
+              return false;
+            }
+          })(),
+        { message: "url must be an absolute URL or a relative assets/ path" },
+      )
+      .optional(),
     alt: z.string().trim().min(1).max(400),
     caption: z.string().trim().max(400).optional(),
     fit: z.enum(["contain", "cover"]).optional(),
@@ -1967,7 +1987,7 @@ const prototypeSchema: z.ZodType<PlanPrototype> = z
     }
   });
 
-function exceedsPlanBlockDepth(input: unknown): boolean {
+export function exceedsPlanBlockDepth(input: unknown): boolean {
   if (!input || typeof input !== "object") return false;
 
   const stack: Array<{ blocks: unknown; depth: number }> = [

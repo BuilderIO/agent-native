@@ -67,6 +67,14 @@ The app has three primary surfaces you'll spend time in:
 
 The dictionary is seeded by asking the agent: "import our dbt definitions" or "pull the metrics from our Notion handbook" and it does the work.
 
+## Why it's interesting
+
+Three things make Analytics a good showcase of the framework:
+
+1. **The data dictionary keeps SQL grounded.** The agent consults the dictionary before writing any query, so it uses real warehouse column names and honors documented caveats. The dictionary is itself an agent-native resource — seeded and edited through the same chat interface that runs the queries.
+2. **Multi-source, single action surface.** BigQuery, GA4, Mixpanel, Amplitude, HubSpot, Jira, and a dozen other sources are each a single action file. Adding a new connector is adding a file; the agent picks it up automatically with no registration step.
+3. **Reusable workspace integrations.** When a workspace already has a provider connected (e.g. HubSpot), Analytics requests a grant instead of requiring a second copy of the same credentials. The Data Sources page shows workspace-level readiness alongside local-credential status.
+
 ## For developers
 
 The rest of this doc is for anyone forking the Analytics template or extending it.

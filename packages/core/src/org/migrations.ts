@@ -47,4 +47,12 @@ export const ORG_MIGRATIONS = [
     version: 1006,
     sql: `ALTER TABLE org_invitations ADD COLUMN IF NOT EXISTS role TEXT`,
   },
+  {
+    // Every authenticated request calls `getOrgContext` which queries
+    // `WHERE LOWER(m.email) = ?`. Without a supporting index this is a
+    // full table scan on every request. A LOWER(email) expression index
+    // lets the planner use an index seek instead.
+    version: 1007,
+    sql: `CREATE INDEX IF NOT EXISTS org_members_lower_email_idx ON org_members (LOWER(email))`,
+  },
 ];

@@ -28,9 +28,9 @@ Every agent-native app is three things working together:
 >
 > **Application** — Full React UI with dashboards, flows, and visualizations. Guided experiences your team can use.
 >
-> **Computer** — Database, browser, code execution. Agents work directly with SQL and tools — no MCPs needed.
+> **Computer** — Database, browser, code execution. Agents work directly with SQL and built-in tools; MCP servers are optional add-ons, not the foundation.
 
-Every app includes an embedded agent panel with chat and optional CLI terminal. Locally, you run `pnpm dev` and the agent is right there. In the cloud, Builder.io provides a managed frame with collaboration, visual editing, and managed infrastructure for teams.
+Every app includes an embedded agent panel with chat and optional CLI terminal. Locally, you run `pnpm dev` and the agent is right there. In the cloud, Builder.io provides a managed frame — the environment that hosts the agent next to your app — with collaboration, visual editing, and managed infrastructure for teams.
 
 Six rules govern the architecture:
 
@@ -40,23 +40,6 @@ Six rules govern the architecture:
 4. **Live sync keeps the UI in sync** — database changes stream over SSE with polling as the universal fallback
 5. **The agent can modify code** — the app evolves as you use it
 6. **Application state in SQL** — ephemeral UI state lives in the database, readable by both agent and UI
-
-## What you get for free {#what-you-get-for-free}
-
-Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
-
-- **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
-- **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
-- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
-- **Live sync between agent and UI.** Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.
-- **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).
-- **Context awareness.** The agent always knows what the user is looking at through the `navigation` app-state key. See [Context Awareness](/docs/context-awareness).
-- **MCP client + server, both directions.** The app ingests MCP servers (local, remote, hub-shared) _and_ exposes its own actions as an MCP server. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).
-- **Inter-app delegation.** Agents in different apps talk over [A2A](/docs/a2a-protocol). Same-origin deploys skip JWT; cross-origin uses a shared `A2A_SECRET`.
-- **Sub-agent teams.** Spawn a sub-agent with its own thread and tools, surfaced as a chip inline in chat. See [Agent Teams](/docs/agent-teams).
-- **Portability.** Any Drizzle-supported SQL database, any Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).
-
-That's the "and everything else" you'd otherwise be gluing together yourself.
 
 ## The four-area checklist {#four-area-checklist}
 
@@ -181,6 +164,8 @@ This works in all deployment environments — including serverless and edge — 
 
 ## Frames {#frames}
 
+A _frame_ is the environment that hosts the agent next to your app — locally that's the embedded panel; in the cloud it's Builder.io's managed surface. See [Frames](/docs/frames).
+
 Agent-native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work.
 
 > **Embedded Agent Panel** — Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free and open source.
@@ -190,6 +175,14 @@ Agent-native apps include an embedded agent panel that provides the AI agent alo
 ## Context awareness {#context-awareness}
 
 The agent always knows what the user is looking at. The UI writes a `navigation` key to application-state on every route change. The agent reads it via the `view-screen` action before acting.
+
+For example, when you open an email thread the UI upserts a row like:
+
+```json
+{ "key": "navigation", "value": { "view": "thread", "threadId": "th_abc123" } }
+```
+
+The UI writes this on route change; the agent reads it (via `view-screen`) before taking any action, so it always knows which thread — or chart, or slide — you're focused on.
 
 See [Context Awareness](/docs/context-awareness) for the full pattern: navigation state, view-screen, navigate commands, and jitter prevention.
 
@@ -283,6 +276,23 @@ Every user gets a personal **workspace** — instructions, skills, memory, custo
 ## A2A {#a2a}
 
 Agent-to-agent (**A2A**) is how apps in the same workspace discover and call each other. Each app publishes an agent card with skill metadata; other agents can invoke its actions over JSON-RPC. Same-origin deploys skip JWT; cross-origin uses a shared secret. See [A2A Protocol](/docs/a2a-protocol).
+
+## What you get for free {#what-you-get-for-free}
+
+Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
+
+- **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
+- **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
+- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
+- **Live sync between agent and UI.** Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.
+- **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).
+- **Context awareness.** The agent always knows what the user is looking at through the `navigation` app-state key. See [Context Awareness](/docs/context-awareness).
+- **MCP client + server, both directions.** The app ingests MCP servers (local, remote, hub-shared) _and_ exposes its own actions as an MCP server. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).
+- **Inter-app delegation.** Agents in different apps talk over [A2A](/docs/a2a-protocol). Same-origin deploys skip JWT; cross-origin uses a shared `A2A_SECRET`.
+- **Sub-agent teams.** Spawn a sub-agent with its own thread and tools, surfaced as a chip inline in chat. See [Agent Teams](/docs/agent-teams).
+- **Portability.** Any Drizzle-supported SQL database, any Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).
+
+That's the "and everything else" you'd otherwise be gluing together yourself.
 
 ## Deep dives {#deep-dives}
 

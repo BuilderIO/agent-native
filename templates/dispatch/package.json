@@ -15,9 +15,10 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/dispatch": "workspace:*",
+    "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",
     "@radix-ui/react-tooltip": "^1.2.7",
-    "@tabler/icons-react": "^3.40.0",
+    "@tabler/icons-react": "catalog:",
     "@tanstack/react-query": "^5.99.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
@@ -30,16 +31,16 @@
     "@react-router/fs-routes": "^7.16.0",
     "@tailwindcss/vite": "catalog:",
     "@types/node": "^24.2.1",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "prettier": "^3.6.2",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "react-router": "^7.16.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
     "typescript": "^6.0.3",
     "vite": "catalog:",
-    "vitest": "^4.1.5"
+    "vitest": "catalog:"
   }
 }

@@ -43,6 +43,14 @@ const PLAN_SERVER_LIBRARY_OVERRIDES: LibraryBlockConfigOverrides = {
     description:
       "A VS Code / GitHub-explorer file and change tree derived from slash-delimited paths, with per-file change badges (added/modified/removed/renamed), notes, and code snippets.",
   },
+  "code-tabs": {
+    description:
+      "A vertical file tab rail of syntax-highlighted code snippets, one tab per file. Deprecated: prefer a `tabs` block with `code` children.",
+  },
+  "visual-questions": {
+    description:
+      "A visual-intake question block with the same editable question/option shape as question-form. Deprecated: prefer `question-form`.",
+  },
 };
 
 export function registerPlanBlocks(registry: BlockRegistry): void {

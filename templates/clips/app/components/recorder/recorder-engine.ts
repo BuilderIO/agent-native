@@ -752,7 +752,10 @@ export class RecorderEngine {
       this.mimeType,
     );
 
-    this.recorder.addEventListener("dataavailable", (event) => {
+    // recorder is guaranteed non-null here: if it were null after the codec
+    // loop, the throw above (line ~730) would have already exited.
+    const recorder = this.recorder!;
+    recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
       if (!blob || blob.size === 0) return;
       // Mirror to local buffer first. Upload waits until stop(), after we know
@@ -765,11 +768,11 @@ export class RecorderEngine {
       }
     });
 
-    this.recorder.addEventListener("stop", () => {
+    recorder.addEventListener("stop", () => {
       // Final flush is handled by `stop()` itself.
     });
 
-    this.recorder.addEventListener("error", (e) => {
+    recorder.addEventListener("error", (e) => {
       const err =
         (e as unknown as { error?: Error }).error ||
         new Error("Recorder error");
@@ -777,9 +780,9 @@ export class RecorderEngine {
     });
 
     if (useTimeslicedLocalChunks) {
-      this.recorder.start(this.opts.chunkIntervalMs);
+      recorder.start(this.opts.chunkIntervalMs);
     } else {
-      this.recorder.start();
+      recorder.start();
     }
     this.startedAtMs = performance.now();
     this.transition("recording");

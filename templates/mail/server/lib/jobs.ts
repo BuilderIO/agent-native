@@ -269,7 +269,7 @@ export async function listPendingJobs(
       .from(schema.scheduledJobs)
       .where(inArray(schema.scheduledJobs.status, ["pending", "processing"]));
 
-    return jobs.filter((job) => {
+    return jobs.filter((job: any) => {
       const jobOwner = job.ownerEmail || job.accountEmail;
       return !jobOwner || jobOwner === ownerEmail;
     }) as ScheduledJobRecord[];

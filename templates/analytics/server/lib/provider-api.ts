@@ -50,6 +50,10 @@ const runtime = createProviderApiRuntime({
   resolveCredential: resolveAnalyticsCredential,
 });
 
+export function getAnalyticsProviderApiRuntime() {
+  return runtime;
+}
+
 export function listProviderApiCatalog(provider?: AnalyticsProviderApiId) {
   return runtime.listCatalog(provider);
 }

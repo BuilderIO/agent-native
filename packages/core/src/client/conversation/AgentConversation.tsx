@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -16,6 +16,7 @@ import { cn } from "../utils.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { humanizeToolName } from "../tool-display.js";
 import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
+import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import type {
   AgentConversationAttachment,
   AgentConversationArtifact,
@@ -226,10 +227,12 @@ let _highlighterLoader: Promise<ShikiHighlighter> | null = null;
 function loadConversationHighlighter(): Promise<ShikiHighlighter> {
   if (!_highlighterLoader) {
     _highlighterLoader = (async () => {
-      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
+      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
+      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
+      const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
         await Promise.all([
           import("shiki/core"),
-          import("shiki/engine/oniguruma"),
+          import("shiki/engine/javascript"),
         ]);
       return createHighlighterCore({
         themes: [
@@ -251,7 +254,7 @@ function loadConversationHighlighter(): Promise<ShikiHighlighter> {
           import("shiki/langs/yaml.mjs"),
           import("shiki/langs/sql.mjs"),
         ],
-        engine: createOnigurumaEngine(import("shiki/wasm")),
+        engine: createJavaScriptRegexEngine({ forgiving: true }),
       }) as unknown as Promise<ShikiHighlighter>;
     })().catch((err) => {
       _highlighterLoader = null;
@@ -259,65 +262,6 @@ function loadConversationHighlighter(): Promise<ShikiHighlighter> {
     });
   }
   return _highlighterLoader;
-}
-
-const LANG_ALIASES: Record<string, string> = {
-  js: "javascript",
-  ts: "typescript",
-  sh: "bash",
-  shell: "bash",
-  zsh: "bash",
-  py: "python",
-  yml: "yaml",
-  md: "markdown",
-  bq: "sql",
-  bigquery: "sql",
-};
-
-function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
-  const [html, setHtml] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadConversationHighlighter()
-      .then((highlighter) => {
-        const requested = (lang || "text").toLowerCase();
-        const resolved = LANG_ALIASES[requested] ?? requested;
-        const loaded = highlighter.getLoadedLanguages();
-        const finalLang = loaded.includes(resolved) ? resolved : "text";
-        return highlighter.codeToHtml(code, {
-          lang: finalLang,
-          themes: {
-            light: "github-light-default",
-            dark: "github-dark-default",
-          },
-          defaultColor: false,
-        });
-      })
-      .then((out) => {
-        if (!cancelled) setHtml(out as string);
-      })
-      .catch(() => {
-        if (!cancelled) setHtml(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [code, lang]);
-
-  if (html) {
-    return (
-      <div
-        className="agent-conversation-shiki"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
-  }
-  return (
-    <pre>
-      <code className={lang ? `language-${lang}` : undefined}>{code}</code>
-    </pre>
-  );
 }
 
 function ConversationMarkdown({ text }: { text: string }) {
@@ -357,7 +301,14 @@ function ConversationMarkdown({ text }: { text: string }) {
                   /\n$/,
                   "",
                 );
-                return <HighlightedCodeBlock code={code} lang={langMatch[1]} />;
+                return (
+                  <SharedHighlightedCodeBlock
+                    code={code}
+                    lang={langMatch[1]}
+                    containerClass="agent-conversation-shiki"
+                    loadHighlighter={loadConversationHighlighter}
+                  />
+                );
               }
             }
             return <pre {...rest}>{children}</pre>;

@@ -17,8 +17,9 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.0",
-    "@tabler/icons-react": "^3.40.0",
+    "@tabler/icons-react": "catalog:",
     "chrono-node": "^2.7.6",
     "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
@@ -26,6 +27,7 @@
     "input-otp": "^1.4.2",
     "isbot": "^5",
     "jose": "^6.2.2",
+    "marked": "^18.0.0",
     "nanoid": "^5.1.9",
     "react-day-picker": "^9.14.0",
     "recharts": "^3.8.1",
@@ -74,8 +76,8 @@
     "@tiptap/react": "^3.26.0",
     "@tiptap/starter-kit": "^3.26.0",
     "@types/node": "^24.2.1",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -88,8 +90,8 @@
     "motion": "^12.38.0",
     "next-themes": "^0.4.6",
     "prettier": "^3.6.2",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "react-hook-form": "^7.71.2",
     "react-resizable-panels": "^4.10.0",
     "react-router": "^7.16.0",
@@ -101,7 +103,7 @@
     "typescript": "^6.0.3",
     "vaul": "^1.1.2",
     "vite": "catalog:",
-    "vitest": "^4.1.5"
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
 }

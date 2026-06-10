@@ -746,7 +746,14 @@ describe("granular patch ops", () => {
     expect(replacedWf.data.screen[0]?.id).toBeTruthy();
   });
 
-  it("clears linked canvas wireframes when source blocks stop being wireframes", () => {
+  it("preserves linked canvas wireframes inline when replace-block changes a wireframe to prose", () => {
+    // Design decision (PR #1081, commit 510f15d46): when a wireframe block is
+    // replaced with a non-wireframe block (or removed), the canvas frame that
+    // referenced it via blockId gets an inline snapshot copy of the wireframe
+    // so the artboard stays visible on the canvas. This mirrors remove-block
+    // behaviour and prevents the canvas from going blank after a document edit.
+    // The frame's blockId is cleared (it is no longer a live reference); the
+    // inline wireframe copy becomes the artboard's permanent visual content.
     const content: PlanContent = planContentSchema.parse({
       version: 2,
       title: "Linked",
@@ -777,7 +784,10 @@ describe("granular patch ops", () => {
         },
       },
     ]);
-    expect(replaced.canvas?.frames[0]?.wireframe).toBeUndefined();
+    // The frame retains its inline wireframe snapshot so the canvas artboard
+    // remains visible; it no longer carries a live blockId reference.
+    expect(replaced.canvas?.frames[0]?.wireframe?.surface).toBe("desktop");
+    expect(replaced.canvas?.frames[0]?.blockId).toBeUndefined();
     expect(replaced.canvas?.frames[0]?.legacyWireframe).toBeUndefined();
   });
 });
@@ -1267,5 +1277,115 @@ describe("patch-diagram-html (granular diagram edits)", () => {
         },
       ]),
     ).toThrow();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Per-block salvage                                                          */
+/* -------------------------------------------------------------------------- */
+
+describe("parsePlanContent per-block salvage", () => {
+  const ZWSP = "​";
+  const UNKNOWN_MARKER = `${ZWSP}__unknown_block__:`;
+
+  it("returns a full document when all blocks are valid", () => {
+    const result = parsePlanContent({
+      version: 2,
+      title: "Test",
+      blocks: [
+        { id: "b1", type: "rich-text", data: { markdown: "# Hello" } },
+        { id: "b2", type: "callout", data: { body: "Info" } },
+      ],
+    });
+    expect(result).not.toBeNull();
+    expect(result?.blocks).toHaveLength(2);
+    expect(result?.blocks[0]?.type).toBe("rich-text");
+  });
+
+  it("salvages good blocks and replaces the bad block with a callout placeholder", () => {
+    const result = parsePlanContent({
+      version: 2,
+      title: "Mixed",
+      blocks: [
+        { id: "good1", type: "rich-text", data: { markdown: "Intro" } },
+        // This block has an invalid structure (mermaid requires `data.code`).
+        { id: "bad1", type: "mermaid", data: { notCode: "graph TD; A-->B" } },
+        { id: "good2", type: "callout", data: { body: "Conclusion" } },
+      ],
+    });
+    expect(result).not.toBeNull();
+    expect(result?.blocks).toHaveLength(3);
+    // Good blocks survive unchanged.
+    expect(result?.blocks[0]?.type).toBe("rich-text");
+    expect(result?.blocks[2]?.type).toBe("callout");
+    // Bad block becomes a callout placeholder with the unknown-block marker.
+    const placeholder = result?.blocks[1];
+    expect(placeholder?.type).toBe("callout");
+    expect(placeholder?.id).toBe("bad1");
+    if (placeholder?.type !== "callout") throw new Error("expected callout");
+    expect(placeholder.data.body).toContain(UNKNOWN_MARKER);
+    expect(placeholder.data.body).toContain("mermaid");
+  });
+
+  it("preserves the block id and title in the placeholder", () => {
+    const result = parsePlanContent({
+      version: 2,
+      blocks: [
+        {
+          id: "titled-bad",
+          type: "mermaid",
+          title: "My diagram",
+          data: { wrong: true },
+        },
+      ],
+    });
+    expect(result).not.toBeNull();
+    const block = result?.blocks[0];
+    expect(block?.id).toBe("titled-bad");
+    expect(block?.title).toBe("My diagram");
+    if (block?.type !== "callout") throw new Error("expected callout");
+    expect(block.data.body).toContain(UNKNOWN_MARKER);
+    expect(block.data.body).toContain("mermaid");
+  });
+
+  it("returns null for a document whose entire block tree exceeds the depth budget", () => {
+    // nestTabs(2000) exceeds exceedsPlanBlockDepth; salvage must bail, not return
+    // a single placeholder for the whole document.
+    function nestTabs(depth: number): unknown {
+      let block: unknown = {
+        id: "leaf",
+        type: "rich-text",
+        data: { markdown: "leaf" },
+      };
+      for (let i = 0; i < depth; i++) {
+        block = {
+          id: `t${i}`,
+          type: "tabs",
+          data: { tabs: [{ id: `tab${i}`, label: "Tab", blocks: [block] }] },
+        };
+      }
+      return block;
+    }
+    const result = parsePlanContent({ version: 2, blocks: [nestTabs(2000)] });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when blocks is not an array", () => {
+    const result = parsePlanContent({ version: 2, blocks: "nope" });
+    expect(result).toBeNull();
+  });
+
+  it("caps salvaged blocks at 200", () => {
+    const blocks = Array.from({ length: 250 }, (_, i) => ({
+      id: `b${i}`,
+      // Force a full-document parse failure by having one truly invalid block,
+      // then fill the rest with valid ones (to confirm salvage trims to 200).
+      type: i === 0 ? "mermaid" : "rich-text",
+      data: i === 0 ? { wrong: true } : { markdown: "x" },
+    }));
+    const result = parsePlanContent({ version: 2, blocks });
+    expect(result).not.toBeNull();
+    // 250 → capped at 200 during salvage.
+    expect(result!.blocks.length).toBeLessThanOrEqual(200);
   });
 });

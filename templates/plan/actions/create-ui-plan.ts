@@ -9,7 +9,6 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   createUiPlanContent,
   normalizePlanContent,
-  sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "../server/plan-content.js";
 import {
@@ -54,7 +53,7 @@ const uiPlanComponentSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a UI-first Agent-Native plan. Use this for /ui-plan when the work needs a top pan/zoom wireframe or diagram canvas plus a refined implementation document with annotated code for the key files, contracts, validation, comments, share/export, and agent handoff. The only supported output is the published plan this tool returns — never deliver the plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
+    "Create a UI-first plan whose centerpiece is wireframed screens/states on a canvas. For a document-first plan use create-visual-plan; for a recap of an existing diff use create-visual-recap; for a running interactive prototype use create-prototype-plan; for a full-fidelity branded design use create-plan-design. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short UI plan title"),
@@ -64,20 +63,11 @@ export default defineAction({
         .describe(
           "One short sentence summarizing the UI plan, shown as the lede under the title. Keep it to a single tight line; the document carries the detail.",
         ),
-      goal: z
-        .string()
-        .optional()
-        .describe("Compatibility alias for brief; prefer brief"),
+      goal: z.string().optional().describe("Alias for brief."),
       source: planSourceSchema.optional().default("manual"),
       repoPath: z.string().optional().describe("Repository path for the run"),
       currentFocus: z.string().optional().describe("Current UI plan focus"),
       status: planStatusSchema.optional().default("review"),
-      html: z
-        .string()
-        .optional()
-        .describe(
-          "Legacy standalone HTML document. Prefer content blocks for new UI plans.",
-        ),
       content: planContentSchema
         .optional()
         .describe(
@@ -100,14 +90,6 @@ export default defineAction({
         .default([])
         .describe(
           "Focused UI parts and constraints for canvas annotations and the implementation document. Do not use these to create redundant wireframe tabs when the top canvas already shows the UI.",
-        ),
-      sketchiness: z
-        .number()
-        .min(0)
-        .max(100)
-        .optional()
-        .describe(
-          "Sketchiness for generated wireframes and diagrams, from 0 for crisp to 100 for very hand-drawn.",
         ),
       implementationNotes: z
         .string()
@@ -194,17 +176,15 @@ export default defineAction({
           ];
     const content = args.content
       ? normalizePlanContent(args.content)
-      : args.html
-        ? null
-        : createUiPlanContent({
-            title,
-            brief,
-            source: args.source,
-            repoPath: args.repoPath,
-            states: args.states,
-            components: args.components,
-            implementationNotes: args.implementationNotes,
-          });
+      : createUiPlanContent({
+          title,
+          brief,
+          source: args.source,
+          repoPath: args.repoPath,
+          states: args.states,
+          components: args.components,
+          implementationNotes: args.implementationNotes,
+        });
 
     await getDb()
       .insert(schema.plans)
@@ -216,7 +196,7 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "ui plan review",
-        html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null,
+        html: null,
         markdown: args.markdown ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,

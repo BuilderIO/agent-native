@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, Link } from "react-router";
 import { createPortal } from "react-dom";
 import { buildSearchIndex, type SearchEntry } from "./docs-content";
 
-const searchIndex = buildSearchIndex();
+// Lazily built on first open — not at module scope — so the index and the full
+// docs corpus are not included in the initial page bundle.
+let cachedIndex: SearchEntry[] | null = null;
+function getSearchIndex(): SearchEntry[] {
+  if (!cachedIndex) cachedIndex = buildSearchIndex();
+  return cachedIndex;
+}
 
 function highlightMatch(text: string, query: string) {
   if (!query.trim()) return text;
@@ -28,10 +34,11 @@ function highlightMatch(text: string, query: string) {
 
 function search(query: string): SearchEntry[] {
   if (!query.trim()) return [];
+  const index = getSearchIndex();
   const q = query.toLowerCase();
   const words = q.split(/\s+/).filter(Boolean);
 
-  const scored = searchIndex
+  const scored = index
     .map((entry) => {
       const textLower = entry.text.toLowerCase();
       const sectionLower = entry.section.toLowerCase();
@@ -88,14 +95,21 @@ export function SearchModal({
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<Element | null>(null);
   const navigate = useNavigate();
   const results = search(query);
 
+  // Focus management: save focus before open, restore on close
   useEffect(() => {
     if (open) {
+      previousFocusRef.current = document.activeElement;
       setQuery("");
       setActiveIdx(0);
       setTimeout(() => inputRef.current?.focus(), 0);
+    } else if (previousFocusRef.current instanceof HTMLElement) {
+      previousFocusRef.current.focus();
+      previousFocusRef.current = null;
     }
   }, [open]);
 
@@ -113,6 +127,7 @@ export function SearchModal({
     [navigate, onClose],
   );
 
+  // Keyboard: Escape, arrows, Enter, and Tab focus trap
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -126,6 +141,29 @@ export function SearchModal({
         setActiveIdx((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter" && results[activeIdx]) {
         go(results[activeIdx]);
+      } else if (e.key === "Tab") {
+        // Focus trap: cycle focus within the modal
+        const modal = modalRef.current;
+        if (!modal) return;
+        const focusable = Array.from(
+          modal.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])',
+          ),
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
       }
     }
     document.addEventListener("keydown", onKey);
@@ -144,6 +182,10 @@ export function SearchModal({
 
       {/* modal */}
       <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search documentation"
         className="relative w-full max-w-[600px] mx-4 overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -159,6 +201,7 @@ export function SearchModal({
             strokeLinecap="round"
             strokeLinejoin="round"
             className="shrink-0"
+            aria-hidden="true"
           >
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -170,6 +213,7 @@ export function SearchModal({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 border-0 bg-transparent text-base text-[var(--fg)] outline-none placeholder:text-[var(--fg-secondary)]"
+            aria-label="Search documentation"
           />
           <kbd className="rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] text-[var(--fg-secondary)]">
             Esc
@@ -184,7 +228,14 @@ export function SearchModal({
             </div>
           ) : results.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
-              No results found for "{query}"
+              <p className="mb-3">No results found for &quot;{query}&quot;</p>
+              <Link
+                to="/docs"
+                onClick={onClose}
+                className="inline-flex items-center gap-1 rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)]"
+              >
+                Browse all docs
+              </Link>
             </div>
           ) : (
             <div className="py-2">
@@ -214,6 +265,7 @@ export function SearchModal({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       className="shrink-0"
+                      aria-hidden="true"
                     >
                       <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
                       <polyline points="13 2 13 9 20 9" />
@@ -244,6 +296,7 @@ export function SearchModal({
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         className="ml-auto shrink-0"
+                        aria-hidden="true"
                       >
                         <polyline points="9 10 4 15 9 20" />
                         <path d="M20 4v7a4 4 0 0 1-4 4H4" />

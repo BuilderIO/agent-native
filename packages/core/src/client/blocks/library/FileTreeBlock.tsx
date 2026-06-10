@@ -391,6 +391,7 @@ export function FileTreeRead({
         <button
           type="button"
           data-plan-interactive
+          data-file-path={node.path}
           disabled={!hasDetail}
           aria-expanded={hasDetail ? isOpen : undefined}
           onClick={hasDetail ? () => toggleFile(node.index) : undefined}

@@ -13,6 +13,8 @@ Use it when your team needs reusable visual direction and searchable source asse
 
 ## Getting started
 
+Live demo: [assets.agent-native.com](https://assets.agent-native.com).
+
 1. **Create a library.** Add the brand, campaign, product, or content stream you
    want to manage.
 2. **Upload references.** Add approved logos, product shots, style examples, or

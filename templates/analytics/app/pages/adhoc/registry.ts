@@ -137,9 +137,8 @@ export function toggleFavoriteDashboard(id: string): Set<string> {
 
 // Lazy-load dashboard components by ID.
 // When adding a new dashboard, add a lazy import here matching the id above.
-export const dashboardComponents: Record<
-  string,
-  React.LazyExoticComponent<ComponentType>
+export const dashboardComponents: Partial<
+  Record<string, React.LazyExoticComponent<ComponentType>>
 > = {
   explorer: lazy(() => import("./explorer")),
   "explorer-dashboard": lazy(() => import("./explorer-dashboard")),

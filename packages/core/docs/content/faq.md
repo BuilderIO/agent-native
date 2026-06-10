@@ -58,22 +58,7 @@ You can, but agent-native works best when built from the ground up. The architec
 
 ### What templates are available? {#what-templates-are-available}
 
-The framework ships with production-ready templates you can use as daily drivers:
-
-- **[Calendar](/docs/template-calendar)** — Google Calendar + Calendly-style booking links
-- **[Content](/docs/template-content)** — Notion-style documents
-- **[Brain](/docs/template-brain)** — full-page company chat, cited memory, sources, and review queue
-- **[Assets](/docs/template-assets)** — brand asset libraries, uploads, and generated media
-- **[Slides](/docs/template-slides)** — presentation builder
-- **[Video](/docs/template-videos)** — Remotion-based video editor
-- **[Analytics](/docs/template-analytics)** — data platform (like Amplitude/Mixpanel)
-- **[Mail](/docs/template-mail)** — full-featured email client (like Superhuman)
-- **[Clips](/docs/template-clips)** — async screen + camera recording (replaces Loom)
-- **[Design](/docs/template-design)** — agent-native HTML prototyping studio
-- **[Forms](/docs/template-forms)** — form builder (like Typeform)
-- **[Dispatch](/docs/template-dispatch)** — workspace control plane: shared secrets, integrations, jobs
-
-Each template is a complete app with UI, agent actions, database schema, and AI instructions. See [Templates](/docs/cloneable-saas) for the full picture, or all [Templates](/templates).
+The framework ships with production-ready templates including [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Plan](/docs/template-plan) (visual plans and PR recaps), [Analytics](/docs/template-analytics), [Dispatch](/docs/template-dispatch), and more. Each is a complete app with UI, agent actions, database schema, and AI instructions ready to go. See [Templates](/docs/cloneable-saas) for the full catalog.
 
 ### Can I customize templates? {#can-i-customize-templates}
 
@@ -81,17 +66,11 @@ That's the whole point. Fork a template and customize it by asking the agent. "A
 
 ### Can I build something the templates don't cover? {#build-from-scratch}
 
-Yes. Run `npx @agent-native/core create my-app` without picking a template — you get the framework scaffolding (frontend, backend, agent panel, database) but no domain-specific code. See [Getting Started](/docs/getting-started). For agent-first products with no traditional UI, see [Pure-Agent Apps](/docs/pure-agent-apps).
+Yes. Run `npx @agent-native/core create my-app` and accept the default **Starter** selection in the picker (or pass `--template starter`) — you get the framework scaffolding (frontend, backend, agent panel, database) but no domain-specific code. See [Getting Started](/docs/getting-started). For agent-first products with no traditional UI, see [Pure-Agent Apps](/docs/pure-agent-apps).
 
 ### Can I try it without forking a template? {#try-with-a-skill}
 
-Yes. Add an agent-native **skill** to a coding agent you already use (Claude Code, Codex, Cursor) with one command — no scaffold, no deploy. Start with the **Plans** skill:
-
-```bash
-npx @agent-native/core@latest skills add visual-plan
-```
-
-It installs the skill, registers the hosted MCP connector, and signs you in once; then run `/visual-plan`. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills.
+Yes — install a skill into a coding agent you already use with one command and no scaffold required. See [Try it with a skill](/docs/getting-started#try-with-a-skill) in Getting Started for the full walkthrough.
 
 ## Agent capabilities {#agent-capabilities}
 
@@ -117,9 +96,9 @@ The agent always knows what the user is currently viewing. The UI writes navigat
 
 Any AI coding tool that reads project instructions. The framework uses AGENTS.md as the universal standard and auto-creates symlinks for specific tools:
 
-- **Claude Code** — reads CLAUDE.md (symlinked from AGENTS.md)
-- **Cursor** — reads .cursorrules (symlinked from AGENTS.md)
-- **Windsurf** — reads .windsurfrules (symlinked from AGENTS.md)
+- **Claude Code** — reads CLAUDE.md (symlinked from AGENTS.md by the CLI setup)
+- **Cursor** — reads AGENTS.md directly, or `.cursorrules` (Cursor's legacy location) if present in your project
+- **Windsurf** — reads .windsurfrules (symlinked from AGENTS.md by the CLI setup)
 - **Codex, Gemini, and others** — work via the embedded agent panel
 - **Builder.io** — cloud-hosted agent with visual editing and collaboration
 

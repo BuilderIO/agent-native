@@ -9,7 +9,56 @@ export interface CodingCommandResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  durationMs?: number;
 }
+
+/**
+ * Structured metadata emitted on tool_start / tool_done events so the UI can
+ * render bespoke cells (bash terminal, edit diff, etc.) instead of the generic
+ * pill.  Fields are additive — older consumers that don't know them are unaffected.
+ */
+export interface BashToolMetadata {
+  toolKind: "bash";
+  command: string;
+  cwd: string;
+  exitCode?: number | null;
+  durationMs?: number;
+  timedOut?: boolean;
+}
+
+export interface EditToolMetadata {
+  toolKind: "edit";
+  filePath: string;
+  /** The exact old text replaced (capped at EDIT_CONTENT_MAX_CHARS). */
+  oldText?: string;
+  /** The exact new text written (capped at EDIT_CONTENT_MAX_CHARS). */
+  newText?: string;
+  truncated?: boolean;
+}
+
+export interface WriteToolMetadata {
+  toolKind: "write";
+  filePath: string;
+  /** Full file content written (capped at EDIT_CONTENT_MAX_CHARS). */
+  content?: string;
+  truncated?: boolean;
+  lineCount?: number;
+}
+
+export interface ReadToolMetadata {
+  toolKind: "read";
+  filePath: string;
+  lineCount?: number;
+}
+
+export type StructuredToolMetadata =
+  | BashToolMetadata
+  | EditToolMetadata
+  | WriteToolMetadata
+  | ReadToolMetadata;
+
+/** Callback invoked with incremental bash output while the command is running. */
+export type BashOutputChunkCallback = (chunk: string) => void;
 
 export interface CreateCodingToolRegistryOptions {
   cwd?: string;
@@ -24,6 +73,19 @@ export interface CreateCodingToolRegistryOptions {
     cwd: string;
     timeoutMs: number;
   }) => string | null | Promise<string | null>;
+  /** Called with incremental stdout+stderr chunks while a bash command runs. */
+  onBashOutputChunk?: BashOutputChunkCallback;
+  /**
+   * Called when structured metadata is available for a tool call.  The
+   * `phase` is "start" (right before execution) or "done" (after execution).
+   * This is the side-channel used to populate bespoke tool-cell fields without
+   * changing the string-result contract that the agent sees.
+   */
+  onToolMetadata?: (
+    toolName: string,
+    phase: "start" | "done",
+    meta: StructuredToolMetadata,
+  ) => void;
 }
 
 interface EditOperation {
@@ -35,6 +97,16 @@ interface EditOperation {
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const DEFAULT_MAX_FILE_READ_CHARS = 120_000;
+
+/**
+ * Output retention window for bash: keep first HEAD_CHARS + last TAIL_CHARS,
+ * separated by a truncation marker.  Replaces the old flat 4 000-char cap.
+ */
+export const BASH_OUTPUT_HEAD_CHARS = 4_096;
+export const BASH_OUTPUT_TAIL_CHARS = 16_384;
+
+/** Maximum chars stored per side of an edit/write for diff rendering. */
+export const EDIT_CONTENT_MAX_CHARS = 49_152;
 
 const mutationQueues = new Map<string, Promise<unknown>>();
 
@@ -104,9 +176,26 @@ export function createCodingToolRegistry(
           })) ?? null;
         if (policyResult) return policyResult;
 
+        options.onToolMetadata?.("bash", "start", {
+          toolKind: "bash",
+          command,
+          cwd: commandCwd,
+        });
+
         const result = await runCodingCommand(command, commandCwd, timeoutMs, {
           stdin: stringArg(args.stdin) || undefined,
+          onChunk: options.onBashOutputChunk,
         });
+
+        options.onToolMetadata?.("bash", "done", {
+          toolKind: "bash",
+          command,
+          cwd: commandCwd,
+          exitCode: result.code,
+          durationMs: result.durationMs,
+          timedOut: result.timedOut || undefined,
+        });
+
         if (options.bashThrowsOnNonZero && result.code !== 0) {
           throw new Error(formatCodingCommandResult(result, maxOutputChars));
         }
@@ -156,10 +245,22 @@ export function createCodingToolRegistry(
           return `Error: ${requestedPath} is not a file. Use bash for directories and file lists.`;
         }
         const content = fs.readFileSync(filePath, "utf8");
-        return truncateCodingOutput(
+        const lineCount = content.split("\n").length;
+        options.onToolMetadata?.("read", "start", {
+          toolKind: "read",
+          filePath: path.relative(cwd, filePath) || requestedPath,
+          lineCount,
+        });
+        const result = truncateCodingOutput(
           formatFileReadOutput(cwd, filePath, content, args),
           maxFileReadChars,
         );
+        options.onToolMetadata?.("read", "done", {
+          toolKind: "read",
+          filePath: path.relative(cwd, filePath) || requestedPath,
+          lineCount,
+        });
+        return result;
       },
     },
     edit: {
@@ -208,6 +309,12 @@ export function createCodingToolRegistry(
         });
         if (!filePath) return "Error: path must stay inside the workspace.";
         const edits = parseEditOperations(args);
+        const relPath = path.relative(cwd, filePath) || requestedPath;
+
+        options.onToolMetadata?.("edit", "start", {
+          toolKind: "edit",
+          filePath: relPath,
+        });
 
         return queueFileMutation(filePath, async () => {
           if (!fs.existsSync(filePath)) {
@@ -218,7 +325,8 @@ export function createCodingToolRegistry(
             throw new Error(`${requestedPath} is not a file`);
           }
 
-          let content = fs.readFileSync(filePath, "utf8");
+          const originalContent = fs.readFileSync(filePath, "utf8");
+          let content = originalContent;
           let replacements = 0;
           for (const edit of edits) {
             const count = countOccurrences(content, edit.oldText);
@@ -241,7 +349,20 @@ export function createCodingToolRegistry(
           }
 
           fs.writeFileSync(filePath, content, "utf8");
-          return `Edited ${path.relative(cwd, filePath) || requestedPath} (${replacements} replacement${replacements === 1 ? "" : "s"}).`;
+
+          // Emit structured diff metadata so the UI can render a real diff.
+          const truncated =
+            originalContent.length > EDIT_CONTENT_MAX_CHARS ||
+            content.length > EDIT_CONTENT_MAX_CHARS;
+          options.onToolMetadata?.("edit", "done", {
+            toolKind: "edit",
+            filePath: relPath,
+            oldText: originalContent.slice(0, EDIT_CONTENT_MAX_CHARS),
+            newText: content.slice(0, EDIT_CONTENT_MAX_CHARS),
+            truncated,
+          });
+
+          return `Edited ${relPath} (${replacements} replacement${replacements === 1 ? "" : "s"}).`;
         });
       },
     },
@@ -276,6 +397,12 @@ export function createCodingToolRegistry(
         });
         if (!filePath) return "Error: path must stay inside the workspace.";
         const content = stringArg(args.content);
+        const relPath = path.relative(cwd, filePath) || requestedPath;
+
+        options.onToolMetadata?.("write", "start", {
+          toolKind: "write",
+          filePath: relPath,
+        });
 
         return queueFileMutation(filePath, async () => {
           fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -283,7 +410,17 @@ export function createCodingToolRegistry(
           fs.writeFileSync(filePath, content, "utf8");
           const bytes = Buffer.byteLength(content, "utf8");
           const lines = content.split("\n").length;
-          return `${existed ? "Updated" : "Created"} ${path.relative(cwd, filePath) || requestedPath} (${lines} lines, ${bytes} bytes).`;
+
+          const truncated = content.length > EDIT_CONTENT_MAX_CHARS;
+          options.onToolMetadata?.("write", "done", {
+            toolKind: "write",
+            filePath: relPath,
+            content: content.slice(0, EDIT_CONTENT_MAX_CHARS),
+            truncated,
+            lineCount: lines,
+          });
+
+          return `${existed ? "Updated" : "Created"} ${relPath} (${lines} lines, ${bytes} bytes).`;
         });
       },
     },
@@ -294,7 +431,7 @@ export async function runCodingCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
-  options: { stdin?: string } = {},
+  options: { stdin?: string; onChunk?: BashOutputChunkCallback } = {},
 ): Promise<CodingCommandResult> {
   const child = spawn(command, {
     cwd,
@@ -305,15 +442,20 @@ export async function runCodingCommand(
   let stdout = "";
   let stderr = "";
   let timedOut = false;
+  const startMs = Date.now();
   const timer = setTimeout(() => {
     timedOut = true;
     child.kill("SIGTERM");
   }, timeoutMs);
-  child.stdout?.on("data", (chunk) => {
-    stdout += chunk.toString();
+  child.stdout?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    stdout += text;
+    options.onChunk?.(text);
   });
-  child.stderr?.on("data", (chunk) => {
-    stderr += chunk.toString();
+  child.stderr?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    stderr += text;
+    options.onChunk?.(text);
   });
   if (options.stdin) child.stdin?.end(options.stdin);
   else child.stdin?.end();
@@ -322,7 +464,7 @@ export async function runCodingCommand(
     child.once("exit", resolve);
   });
   clearTimeout(timer);
-  return { code, stdout, stderr, timedOut };
+  return { code, stdout, stderr, timedOut, durationMs: Date.now() - startMs };
 }
 
 export function formatCodingCommandResult(
@@ -344,6 +486,23 @@ export function formatCodingCommandResult(
 export function truncateCodingOutput(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max)}\n\n...[truncated ${value.length - max} chars]`;
+}
+
+/**
+ * Retain the first HEAD_CHARS and the last TAIL_CHARS of bash output, inserting
+ * a truncation marker in the middle.  This is a better window than a simple
+ * prefix slice because the end of the output usually contains the most important
+ * signal (error messages, test results, etc.).
+ */
+export function truncateBashOutput(
+  value: string,
+  headChars = BASH_OUTPUT_HEAD_CHARS,
+  tailChars = BASH_OUTPUT_TAIL_CHARS,
+): string {
+  const max = headChars + tailChars;
+  if (value.length <= max) return value;
+  const omitted = value.length - max;
+  return `${value.slice(0, headChars)}\n\n...[${omitted} chars omitted]\n\n${value.slice(value.length - tailChars)}`;
 }
 
 export function isReadOnlyShellCommand(command: string): boolean {

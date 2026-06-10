@@ -21,8 +21,15 @@ export type Dialect = "sqlite" | "postgres" | "d1";
 
 export interface DbExec {
   execute(
-    sql: string | { sql: string; args: any[] },
+    sql: string | { sql: string; args?: unknown[] },
   ): Promise<{ rows: any[]; rowsAffected: number }>;
+  /**
+   * Release the underlying connection/pool held by this exec.
+   * Only non-singleton execs created via `createDbExec()` (e.g. the migration
+   * direct-endpoint exec) should call this. The global singleton exec (`getDbExec`)
+   * is managed by `closeDbExec()` instead.
+   */
+  close?(): Promise<void>;
 }
 
 export interface DbExecConfig {
@@ -636,7 +643,7 @@ async function createDbExecInternal(
         }
         const r = await d1
           .prepare(sql.sql)
-          .bind(...sql.args)
+          .bind(...(sql.args ?? []))
           .all();
         return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
       },
@@ -724,6 +731,9 @@ async function createDbExecInternal(
             rows: result.rows,
             rowsAffected: result.rowCount ?? 0,
           };
+        },
+        async close() {
+          await pool.end();
         },
       };
     }
@@ -818,6 +828,9 @@ async function createDbExecInternal(
             rowsAffected: result.count ?? 0,
           };
         },
+        async close() {
+          await pool.end();
+        },
       };
     }
   }
@@ -851,6 +864,9 @@ async function createDbExecInternal(
           rowsAffected: result.changes ?? 0,
         };
       },
+      async close() {
+        sqlite.close();
+      },
     };
   }
 
@@ -877,6 +893,9 @@ async function createDbExecInternal(
         rows: r.rows as any[],
         rowsAffected: r.rowsAffected,
       };
+    },
+    async close() {
+      client.close();
     },
   };
 }
@@ -909,10 +928,10 @@ export function getDbExec(): DbExec {
 
   // Sanitize args: replace undefined with null (libsql rejects undefined)
   function sanitize(
-    sql: string | { sql: string; args: any[] },
-  ): string | { sql: string; args: any[] } {
+    sql: string | { sql: string; args?: unknown[] },
+  ): string | { sql: string; args?: unknown[] } {
     if (typeof sql === "object" && sql.args) {
-      return { ...sql, args: sql.args.map((a: any) => a ?? null) };
+      return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
   }

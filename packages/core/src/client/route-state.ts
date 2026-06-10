@@ -37,7 +37,13 @@ export interface UseSemanticNavigationStateOptions<
   commandQueryKey?: QueryKey;
   /** Request source tag for `useDbSync({ ignoreSource })` jitter prevention. */
   requestSource?: string;
-  /** Poll interval for command reads. Defaults to 2000ms. Pass false to disable polling. */
+  /**
+   * Poll interval for command reads.
+   * Defaults to 15 000 ms — a safety-net fallback for agents that bypass the
+   * useDbSync event path. useDbSync already invalidates `navigate-command` on
+   * app-state writes in real time, so the fallback only fires when the SSE/poll
+   * connection is unavailable. Pass false to disable polling entirely.
+   */
   commandRefetchInterval?: number | false;
   /** Disable both navigation writes and command reads. */
   enabled?: boolean;
@@ -111,7 +117,11 @@ export interface UseAgentRouteStateOptions<
   readGlobalCommandFallback?: boolean;
   /** React Query key used for command polling/cache. */
   commandQueryKey?: QueryKey;
-  /** Poll interval for command reads. Defaults to 2000ms. Pass false to disable polling. */
+  /**
+   * Poll interval for command reads.
+   * Defaults to 15 000 ms — a safety-net fallback; useDbSync real-time events
+   * cover the common case. Pass false to disable polling.
+   */
   refetchInterval?: number | false;
   /** Disable both navigation writes and command reads. */
   enabled?: boolean;
@@ -193,7 +203,7 @@ export function useSemanticNavigationState<
 ): UseSemanticNavigationStateResult<NavigationState, NavigateCommand> {
   const {
     requestSource,
-    commandRefetchInterval = 2_000,
+    commandRefetchInterval = 15_000,
     enabled = true,
     keepalive = true,
     writeDebounceMs = 0,

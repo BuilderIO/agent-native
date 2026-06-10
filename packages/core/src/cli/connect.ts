@@ -103,6 +103,15 @@ export interface ParsedConnectArgs {
   name?: string;
   /** No-browser fallback: skip device flow, use this token directly. */
   token?: string;
+  /**
+   * Mint an ORG SERVICE token with this service name (e.g. "ci") instead of
+   * writing local MCP configs. Authenticates the human via the device flow,
+   * then calls the app's `create-org-service-token` action and prints the
+   * token once — for CI secrets like PLAN_RECAP_TOKEN.
+   */
+  serviceToken?: string;
+  /** Optional token TTL in days (1–365) for --service-token. */
+  ttlDays?: number;
   /** Connect every first-party hosted app. */
   all: boolean;
   /** Comma-separated app names for profile switching. */
@@ -113,6 +122,13 @@ export interface ParsedConnectArgs {
   port?: number;
   /** Local owner email override for dev entries. */
   ownerEmail?: string;
+  /**
+   * Embed `catalog_scope: "full"` in the minted token so the connected client
+   * bypasses the connector-catalog tier and sees the complete action surface,
+   * identical to the local/dev experience. Matches the `fullCatalog` body
+   * param on the app's token-mint route.
+   */
+  fullCatalog?: boolean;
 }
 
 export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
@@ -141,7 +157,10 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
       out.clientExplicit = true;
     } else if ((v = eat("--scope")) !== undefined) out.scope = v;
     else if ((v = eat("--name")) !== undefined) out.name = v;
+    else if ((v = eat("--service-token")) !== undefined) out.serviceToken = v;
+    else if ((v = eat("--ttl-days")) !== undefined) out.ttlDays = Number(v);
     else if ((v = eat("--token")) !== undefined) out.token = v;
+    else if (a === "--full-catalog") out.fullCatalog = true;
     else if (!a.startsWith("-") && !out.url) {
       if (
         !out.mode &&
@@ -647,6 +666,7 @@ export async function runDeviceFlow(
   appSlug: string,
   clientArg: string,
   deps: ConnectDeps = {},
+  options: { fullCatalog?: boolean } = {},
 ): Promise<{
   token?: string;
   mcpUrl: string;
@@ -663,7 +683,11 @@ export async function runDeviceFlow(
     const { status, json } = await postJson(
       fetchImpl,
       `${baseUrl}${DEVICE_START_PATH}`,
-      { client: clientArg, app: appSlug },
+      {
+        client: clientArg,
+        app: appSlug,
+        ...(options.fullCatalog ? { fullCatalog: true } : {}),
+      },
     );
     if (status < 200 || status >= 300 || !json?.device_code) {
       logErr(
@@ -1690,6 +1714,7 @@ async function connectOne(
       appSlug,
       clientArgForDeviceFlow(deviceFlowClients),
       deps,
+      { fullCatalog: parsed.fullCatalog },
     );
     if (!grant) return { ok: false };
     token = grant.token;
@@ -1889,6 +1914,149 @@ async function connectAll(
 }
 
 // ---------------------------------------------------------------------------
+// Org service-token mint (--service-token <name>)
+// ---------------------------------------------------------------------------
+
+/** `postJson` with a bearer Authorization header (action-route calls). */
+async function postJsonAuthed(
+  fetchImpl: typeof fetch,
+  url: string,
+  body: unknown,
+  bearerToken: string,
+): Promise<{ status: number; json: any }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${bearerToken}`,
+      },
+      body: JSON.stringify(body ?? {}),
+      signal: controller.signal,
+    });
+    let json: any = null;
+    try {
+      json = await response.json();
+    } catch {
+      json = null;
+    }
+    return { status: response.status, json };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * `agent-native connect <url> --service-token <name>` — mint an ORG service
+ * token for CI (e.g. the PLAN_RECAP_TOKEN GitHub secret).
+ *
+ * Flow: authenticate the human via the existing browser device flow, then use
+ * that short-lived grant to call the app's `create-org-service-token` action
+ * (org owner/admin gated server-side). The service token is printed exactly
+ * once and never written to any local config file.
+ */
+export async function runServiceTokenMint(
+  parsed: ParsedConnectArgs,
+  deps: ConnectDeps = {},
+): Promise<boolean> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const serviceName = parsed.serviceToken?.trim() ?? "";
+  if (!parsed.url) {
+    logErr("  --service-token requires the app URL.");
+    logErr(
+      "  Usage: agent-native connect <url> --service-token <name> [--ttl-days <1-365>]",
+    );
+    return false;
+  }
+  if (!serviceName) {
+    logErr(
+      "  --service-token requires a service name, e.g. --service-token ci",
+    );
+    return false;
+  }
+
+  const normalizedUrl = normalizeUrl(parsed.url);
+  const baseUrl = stripMcpPath(normalizedUrl);
+  const appSlug = appSlugFromUrl(baseUrl);
+
+  logOut("");
+  logOut(`  Creating org service token "${serviceName}" on ${baseUrl}`);
+  logOut("  First, verify it's you (the token will belong to your org)…");
+
+  // Use a non-OAuth client arg so the server mints a bearer grant we can use
+  // against the action route (same approach as the Plans publish-token mint).
+  const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps);
+  if (!grant?.token) {
+    logErr("  Could not authenticate (the server returned no bearer token).");
+    logErr("  Org service tokens require a deployed app with auth configured.");
+    return false;
+  }
+
+  let status: number;
+  let json: any;
+  try {
+    ({ status, json } = await postJsonAuthed(
+      fetchImpl,
+      `${baseUrl}/_agent-native/actions/create-org-service-token`,
+      {
+        name: serviceName,
+        ...(Number.isFinite(parsed.ttlDays) && parsed.ttlDays
+          ? { ttlDays: parsed.ttlDays }
+          : {}),
+      },
+      grant.token,
+    ));
+  } catch (err: any) {
+    logErr(`  Could not reach ${baseUrl} (${err?.message ?? err}).`);
+    return false;
+  }
+
+  if (status === 404) {
+    logErr(
+      "  This app does not expose the create-org-service-token action yet.",
+    );
+    logErr("  Redeploy it with a current @agent-native/core, then retry.");
+    return false;
+  }
+  if (status < 200 || status >= 300 || typeof json?.token !== "string") {
+    logErr(
+      `  Could not create the service token (HTTP ${status}): ` +
+        responseMessage(json, "server returned an error."),
+    );
+    if (status === 403) {
+      logErr("  Only org owners or admins can create service tokens.");
+    }
+    return false;
+  }
+
+  logOut("");
+  logOut("  Org service token created.");
+  logOut("");
+  logOut(`    Name:     ${json.serviceName ?? serviceName}`);
+  if (typeof json.serviceEmail === "string") {
+    logOut(`    Acts as:  ${json.serviceEmail}`);
+  }
+  if (Number.isFinite(Number(json.ttlDays))) {
+    logOut(`    Expires:  in ${json.ttlDays} days`);
+  }
+  logOut("");
+  // The ONLY place the secret is ever printed. Never logged elsewhere,
+  // never written to disk.
+  logOut(`  ${json.token}`);
+  logOut("");
+  logOut("  Shown once — store it now as your CI secret, e.g.:");
+  logOut(`    gh secret set PLAN_RECAP_TOKEN --body "<paste token>"`);
+  logOut("");
+  logOut(
+    "  Manage it later with the list-org-service-tokens / " +
+      "revoke-org-service-token actions (org owners/admins).",
+  );
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -1916,6 +2084,14 @@ Usage:
   agent-native connect <url> --token <token>
       No-browser fallback. Skip the device flow and write the entry with
       the supplied token (get it from the app's Connect page).
+
+  agent-native connect <url> --service-token <name> [--ttl-days <1-365>]
+      Mint an ORG service token for CI (e.g. the PLAN_RECAP_TOKEN secret for
+      PR Visual Recap). Authenticates you via the browser device flow, then
+      mints a token owned by your ORGANIZATION — it keeps working if you
+      leave or revoke your personal tokens, and CI-created plans are
+      org-visible. Org owner/admin only. Printed once; nothing is written
+      to local MCP configs.
 
   agent-native reconnect [<url>] [--client <c>] [--scope user|project]
   agent-native connect reconnect [<url>] [--client <c>] [--scope user|project]
@@ -1967,6 +2143,12 @@ export async function runConnect(
           : parsed.mode === "prod"
             ? await connectProdProfile(parsed, clients, deps)
             : await reconnectOne(parsed, clients, deps);
+      if (!ok) process.exitCode = 1;
+      return;
+    }
+
+    if (parsed.serviceToken !== undefined) {
+      const ok = await runServiceTokenMint(parsed, deps);
       if (!ok) process.exitCode = 1;
       return;
     }

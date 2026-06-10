@@ -89,7 +89,7 @@ export function FormsListPage() {
   useEffect(() => {
     setSelectedIds((prev) => {
       if (prev.size === 0) return prev;
-      const visibleIds = new Set(forms.map((form) => form.id));
+      const visibleIds = new Set(forms.map((form: any) => form.id));
       const next = new Set([...prev].filter((id) => visibleIds.has(id)));
       return next.size === prev.size ? prev : next;
     });
@@ -196,10 +196,10 @@ export function FormsListPage() {
 
   function toggleSelectAll() {
     setSelectedIds((prev) => {
-      if (forms.length > 0 && forms.every((form) => prev.has(form.id))) {
+      if (forms.length > 0 && forms.every((form: any) => prev.has(form.id))) {
         return new Set();
       }
-      return new Set(forms.map((form) => form.id));
+      return new Set(forms.map((form: any) => form.id));
     });
   }
 
@@ -327,7 +327,7 @@ export function FormsListPage() {
   const isArchive = view === "archive";
   const selectedCount = selectedIds.size;
   const allFormsSelected =
-    forms.length > 0 && forms.every((form) => selectedIds.has(form.id));
+    forms.length > 0 && forms.every((form: any) => selectedIds.has(form.id));
 
   return (
     <div className="p-3 sm:p-6 max-w-5xl mx-auto">
@@ -428,7 +428,7 @@ export function FormsListPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {forms.map((form) => {
+          {forms.map((form: any) => {
             const selected = selectedIds.has(form.id);
 
             return (

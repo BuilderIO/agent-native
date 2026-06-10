@@ -949,8 +949,8 @@ function PieRenderer({
             cx="50%"
             cy="50%"
             outerRadius={80}
-            label={({ name, percent }) =>
-              `${seriesNameFormatter(String(name))} ${(percent * 100).toFixed(0)}%`
+            label={(props: any) =>
+              `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
             }
             labelLine={false}
           >
@@ -996,7 +996,8 @@ function BarRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
-  const xLabelFormatter = (value: string) => formatXLabel(value, panel);
+  const xLabelFormatter = (value: any) =>
+    formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
 
@@ -1077,7 +1078,8 @@ function TimeSeriesRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
-  const xLabelFormatter = (value: string) => formatXLabel(value, panel);
+  const xLabelFormatter = (value: any) =>
+    formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
 

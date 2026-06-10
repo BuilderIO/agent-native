@@ -13,6 +13,25 @@ export default defineAction({
     "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan.",
   schema: z.object({
     id: z.string().describe("Plan ID"),
+    include: z
+      .object({
+        mdx: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include the exported MDX folder in the response. Defaults to true for agents; set false to skip the Prettier-formatted MDX export when you only need structured content or HTML.",
+          ),
+        html: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include the exported HTML bundle in the response. Defaults to true for legacy plans; set false to skip when you only need structured content.",
+          ),
+      })
+      .optional()
+      .describe(
+        "Control which expensive fields are included in the response. Defaults match the existing behaviour so nothing breaks.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -49,19 +68,26 @@ export default defineAction({
     // for their iframe.
     const isFrontend = ctx?.caller === "frontend";
     const isModern = Boolean(bundle.plan.content);
+    // Caller-controlled opt-out; defaults preserve existing behavior.
+    const wantMdx = args.include?.mdx ?? true;
+    const wantHtml = args.include?.html ?? true;
     return {
       ...bundle,
       planId: bundle.plan.id,
-      html: isFrontend && isModern ? undefined : buildPlanHtml(bundle),
-      mdx: isFrontend
-        ? undefined
-        : await exportPlanContentToMdxFolder({
-            content: bundle.plan.content,
-            title: bundle.plan.title,
-            brief: bundle.plan.brief,
-            planId: bundle.plan.id,
-            url: planPath(bundle.plan.id, bundle.plan.kind),
-          }),
+      html:
+        !wantHtml || (isFrontend && isModern)
+          ? undefined
+          : buildPlanHtml(bundle),
+      mdx:
+        !wantMdx || isFrontend
+          ? undefined
+          : await exportPlanContentToMdxFolder({
+              content: bundle.plan.content,
+              title: bundle.plan.title,
+              brief: bundle.plan.brief,
+              planId: bundle.plan.id,
+              url: planPath(bundle.plan.id, bundle.plan.kind),
+            }),
     };
   },
   link: ({ args }) => ({

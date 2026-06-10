@@ -81,7 +81,7 @@ const prototypeTransitionSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a prototype-first Agent-Native plan for /prototype-plan: a functional top prototype viewer, static mocks in the document where useful, implementation notes, comments, sharing, export, and agent handoff. Prototype screen HTML is declarative, stateful through safe Alpine-like directives, and uses data-goto only for true screen navigation; no scripts. The only supported output is the published plan this tool returns — never deliver the plan as inline chat content (markdown, ASCII sketch, or table); an inline plan is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
+    "Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short prototype plan title"),
@@ -91,10 +91,7 @@ export default defineAction({
         .describe(
           "The question the prototype answers, in one short line. Shown as the lede under the title — keep it tight, not a paragraph.",
         ),
-      goal: z
-        .string()
-        .optional()
-        .describe("Compatibility alias for brief; prefer brief"),
+      goal: z.string().optional().describe("Alias for brief."),
       source: planSourceSchema.optional().default("manual"),
       repoPath: z.string().optional().describe("Repository path for the run"),
       currentFocus: z

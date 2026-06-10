@@ -70,6 +70,19 @@ export function builderCreditsFromCostCents(cents: number): number {
 }
 
 const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
+  // ── Anthropic ──────────────────────────────────────────────────────────────
+  // claude-fable-5: $10/$50 per MTok (Mythos-class, launched 2026-06-09)
+  {
+    match: /fable-5/i,
+    pricing: { input: 1000, output: 5000, cacheRead: 100, cacheWrite: 1250 },
+  },
+  // claude-opus-4-8: $5/$25 standard mode (fast mode same as fable-5 $10/$50)
+  // Use standard-mode pricing as default; fast-mode is a separate model id.
+  {
+    match: /opus-4-8/i,
+    pricing: { input: 500, output: 2500, cacheRead: 50, cacheWrite: 625 },
+  },
+  // claude-opus-4-7 and older opus: ~$15/$75 per MTok
   {
     match: /opus/i,
     pricing: { input: 1500, output: 7500, cacheRead: 150, cacheWrite: 1875 },
@@ -78,12 +91,10 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /haiku/i,
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
-  // OpenAI / Codex models (cents per 1M tokens). Without these, a Codex recap
-  // model like "gpt-5.5" falls through to the default (Sonnet) row and is
-  // mispriced. Published rates as of 2026-06; OpenAI bills cached input at a
-  // discount and has no separate cache-write token charge, so cacheWrite is 0
-  // (recap usage passes 0 cache-write anyway). The /gpt-5\.5/ row must precede
-  // /gpt-5/ since the latter also matches "gpt-5.5".
+  // ── OpenAI / Codex ──────────────────────────────────────────────────────────
+  // Published rates as of 2026-06; OpenAI bills cached input at a discount
+  // and has no separate cache-write token charge, so cacheWrite is 0.
+  // /gpt-5\.5/ must precede /gpt-5/ since the latter also matches "gpt-5.5".
   {
     match: /gpt-5\.5/i,
     pricing: { input: 500, output: 3000, cacheRead: 50, cacheWrite: 0 },
@@ -92,7 +103,49 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /gpt-5/i,
     pricing: { input: 125, output: 1000, cacheRead: 12.5, cacheWrite: 0 },
   },
-  // default → sonnet pricing
+  // ── Google Gemini ───────────────────────────────────────────────────────────
+  // Gemini 3 Pro / 3.1 Pro: ~$1.25/$10 per MTok (approximate; verify on billing)
+  {
+    match: /gemini-3[\.\-]1-pro/i,
+    pricing: { input: 125, output: 1000, cacheRead: 31, cacheWrite: 0 },
+  },
+  // Gemini 3.5 Flash / 3 Flash: ~$0.15/$0.60 per MTok
+  {
+    match: /gemini-3[\.\-][0-9]+-flash/i,
+    pricing: { input: 15, output: 60, cacheRead: 4, cacheWrite: 0 },
+  },
+  // Gemini 2.5 Pro/Flash (catch-all for older 2.5)
+  {
+    match: /gemini-2\.5-pro/i,
+    pricing: { input: 125, output: 1000, cacheRead: 31, cacheWrite: 0 },
+  },
+  {
+    match: /gemini-2\.5-flash/i,
+    pricing: { input: 15, output: 60, cacheRead: 4, cacheWrite: 0 },
+  },
+  // ── Groq ────────────────────────────────────────────────────────────────────
+  // Groq Llama 3.3 70B: $0.59/$0.79 per MTok
+  {
+    match: /llama-3\.3-70b/i,
+    pricing: { input: 59, output: 79, cacheRead: 0, cacheWrite: 0 },
+  },
+  // Groq Llama 3.1 8B instant: $0.05/$0.08 per MTok
+  {
+    match: /llama-3\.1-8b|llama3-8b/i,
+    pricing: { input: 5, output: 8, cacheRead: 0, cacheWrite: 0 },
+  },
+  // ── Mistral ─────────────────────────────────────────────────────────────────
+  // Mistral Large: ~$2/$6 per MTok
+  {
+    match: /mistral-large/i,
+    pricing: { input: 200, output: 600, cacheRead: 0, cacheWrite: 0 },
+  },
+  // Mistral Small/Medium: ~$0.2/$0.6 per MTok
+  {
+    match: /mistral-small|mistral-medium/i,
+    pricing: { input: 20, output: 60, cacheRead: 0, cacheWrite: 0 },
+  },
+  // default → sonnet pricing ($3/$15 per MTok)
   {
     match: /.*/,
     pricing: { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },

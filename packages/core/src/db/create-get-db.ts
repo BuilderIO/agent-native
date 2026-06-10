@@ -5,11 +5,15 @@ import {
   getDatabaseUrl,
   getDatabaseAuthToken,
   isLocalSqliteUrl,
+  isConnectionError,
   prepareLocalSqliteUrl,
   sqliteFilenameFromUrl,
   pgPoolOptions,
   neonPoolMax,
   attachNeonPoolErrorLogger,
+  withDbTimeout,
+  retryOnConnectionError,
+  dbOpTimeoutMs,
 } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
@@ -39,6 +43,137 @@ function getNeonServerlessDrizzle() {
     }));
   }
   return _neonServerlessDrizzle;
+}
+
+/**
+ * Returns true when a SQL string starts with a SELECT-class verb.
+ * Used by the Neon resilience wrapper to decide retry safety:
+ *   - reads (SELECT) → retryable on any connection-class error
+ *   - writes (INSERT/UPDATE/DELETE/…) → only retryable on errors that
+ *     provably occurred BEFORE the statement was sent (e.g. an acquire /
+ *     connect timeout). Post-send write failures must propagate to the caller
+ *     to avoid double-execution.
+ */
+export function isSqlRead(sql: string): boolean {
+  return /^\s*(SELECT|WITH\s)/i.test(sql);
+}
+
+/**
+ * Wraps a @neondatabase/serverless Pool so every query goes through
+ * the same withDbTimeout + retryOnConnectionError resilience that the
+ * raw DbExec path in client.ts uses. This protects Drizzle queries
+ * (which bypass DbExec) from the frozen-WebSocket failure mode documented
+ * in client.ts (~lines 378–408).
+ *
+ * Retry-safety rule (prevents double-execution on writes):
+ *   - Reads (SELECT / WITH …): retry freely on any connection-class error.
+ *   - Writes: only retry when the error occurred during connection acquire
+ *     (i.e. withDbTimeout "connect" timed out before the statement was ever
+ *     sent). Post-send failures on writes are rethrown immediately.
+ *
+ * Transactions: we do NOT wrap individual queries inside a drizzle
+ * transaction — drizzle-neon-serverless manages the session itself, so
+ * interposing a per-query client acquire/release would break the sticky
+ * connection the transaction needs. The pool-level error logger still fires
+ * on idle-client drops inside transactions.
+ */
+export function buildResilientNeonPool(pool: {
+  connect(): Promise<any>;
+  query(
+    sql: string,
+    args?: any[],
+  ): Promise<{ rows: unknown[]; rowCount?: number }>;
+  end(): Promise<void>;
+  on(event: string, listener: (...args: any[]) => void): unknown;
+}): typeof pool {
+  // Preserve all original pool methods and properties; only override `connect`
+  // and `query` at the Pool level (used by drizzle's neon-serverless adapter
+  // when it calls pool.query() directly, e.g. outside a transaction).
+  const resilientQuery = async (
+    sql: string,
+    args?: any[],
+  ): Promise<{ rows: unknown[]; rowCount?: number }> => {
+    const isRead = isSqlRead(sql);
+
+    const runAttempt = async (): Promise<{
+      rows: unknown[];
+      rowCount?: number;
+    }> => {
+      // Bound the pool.connect() acquire — a frozen Neon WebSocket stalls here
+      // before the query ever starts, so a query-level timeout alone won't help.
+      let acquireTimedOut = false;
+      const client = await withDbTimeout(
+        "connect",
+        () =>
+          pool.connect().then((c: any) => {
+            // If we already gave up on this slot, immediately release it so
+            // the scarce pool connection isn't leaked.
+            if (acquireTimedOut) c.release();
+            return c;
+          }),
+        dbOpTimeoutMs(),
+        () => {
+          acquireTimedOut = true;
+        },
+      );
+
+      let released = false;
+      const releaseClient = (err?: Error | boolean) => {
+        if (released) return;
+        released = true;
+        client.release(err);
+      };
+
+      try {
+        const result = await withDbTimeout(
+          "query",
+          () =>
+            client.query(sql, args ?? []) as Promise<{
+              rows: unknown[];
+              rowCount?: number;
+            }>,
+          dbOpTimeoutMs(),
+          () => releaseClient(true),
+        );
+        releaseClient();
+        return result;
+      } catch (err) {
+        releaseClient(isConnectionError(err) ? true : undefined);
+        throw err;
+      }
+    };
+
+    if (isRead) {
+      // Reads: retry on any connection-class error (safe — no side effects).
+      return retryOnConnectionError(runAttempt);
+    }
+
+    // Writes: attempt once. If the acquire itself times out (error occurs
+    // before the statement was sent), that produces a CONNECT_TIMEOUT which
+    // isConnectionError() recognises → retry is safe. Any error that surfaces
+    // AFTER the statement was sent must propagate immediately to avoid
+    // double-execution.
+    try {
+      return await runAttempt();
+    } catch (err) {
+      // acquire-timeout fires before the statement → safe to retry once.
+      if (isConnectionError(err) && (err as any)?.code === "CONNECT_TIMEOUT") {
+        return runAttempt();
+      }
+      throw err;
+    }
+  };
+
+  // Return a proxy so every pool property/method is forwarded as-is, but
+  // pool.query() goes through the resilient wrapper. drizzle-neon-serverless
+  // calls pool.connect() for transactions and pool.query() for simple queries.
+  return new Proxy(pool, {
+    get(target, prop) {
+      if (prop === "query") return resilientQuery;
+      const val = (target as any)[prop];
+      return typeof val === "function" ? val.bind(target) : val;
+    },
+  });
 }
 
 /**
@@ -82,6 +217,105 @@ function getBetterSqliteDrizzle() {
   return _betterSqliteDrizzle;
 }
 
+/**
+ * Patch a drizzle-orm/better-sqlite3 instance so that db.transaction(async …)
+ * works. The native better-sqlite3 Transaction wrapper is sync-only — passing
+ * an async callback throws "Transaction function cannot return a promise".
+ *
+ * This wrapper bypasses the native path by issuing raw SQL control statements
+ * on the single better-sqlite3 connection, which is safe because:
+ *   - better-sqlite3 is single-connection (no concurrency inside one process)
+ *   - the framework serialises all async work through one Database instance
+ *
+ * Nesting: if a transaction is already open (sqlite.inTransaction === true),
+ * SAVEPOINT / RELEASE / ROLLBACK TO is used instead of BEGIN / COMMIT /
+ * ROLLBACK, matching drizzle's own BetterSQLiteTransaction.transaction().
+ *
+ * The patched transaction also patches the tx object it passes to the callback
+ * so that nested async calls (tx.transaction(async …)) work recursively.
+ */
+function patchBetterSqliteTransactions<
+  DB extends { transaction: (...args: any[]) => any; session: any },
+>(db: DB, sqlite: { inTransaction: boolean; exec: (sql: string) => void }): DB {
+  let savepointSeq = 0;
+
+  function makeAsyncTransaction(
+    originalTransaction: (...args: any[]) => any,
+  ): (...args: any[]) => Promise<unknown> {
+    return async function asyncTransaction(
+      cb: (tx: unknown) => unknown,
+    ): Promise<unknown> {
+      // Extract the drizzle tx proxy synchronously — call the original with a
+      // stub that captures the tx arg then immediately throws a sentinel so
+      // better-sqlite3's native wrapper rolls back the stub and re-throws.
+      // The sentinel is caught here and never propagates further.
+      let capturedTx: unknown;
+      try {
+        originalTransaction((tx: unknown) => {
+          capturedTx = tx;
+          throw _EXTRACT_TX;
+        });
+      } catch (e) {
+        if (e !== _EXTRACT_TX) throw e;
+      }
+
+      // Recursively patch the nested tx so tx.transaction(async …) also works.
+      const tx = capturedTx as { transaction: (...a: any[]) => any };
+      if (tx && typeof tx.transaction === "function") {
+        tx.transaction = makeAsyncTransaction(tx.transaction.bind(tx));
+      }
+
+      const nested = sqlite.inTransaction;
+      if (nested) {
+        const sp = `sp_async_${++savepointSeq}`;
+        sqlite.exec(`SAVEPOINT ${sp}`);
+        let released = false;
+        try {
+          const result = await cb(tx);
+          sqlite.exec(`RELEASE SAVEPOINT ${sp}`);
+          released = true;
+          return result;
+        } catch (err) {
+          if (!released) {
+            try {
+              sqlite.exec(`ROLLBACK TO SAVEPOINT ${sp}`);
+              sqlite.exec(`RELEASE SAVEPOINT ${sp}`);
+            } catch {
+              /* ignore: connection may already be in an error state */
+            }
+          }
+          throw err;
+        }
+      }
+
+      // Top-level: BEGIN IMMEDIATE … COMMIT / ROLLBACK.
+      sqlite.exec("BEGIN IMMEDIATE");
+      let committed = false;
+      try {
+        const result = await cb(tx);
+        sqlite.exec("COMMIT");
+        committed = true;
+        return result;
+      } catch (err) {
+        if (!committed) {
+          try {
+            sqlite.exec("ROLLBACK");
+          } catch {
+            /* swallow: connection may already be unusable */
+          }
+        }
+        throw err;
+      }
+    };
+  }
+
+  db.transaction = makeAsyncTransaction(db.transaction.bind(db));
+  return db;
+}
+
+/** Sentinel thrown inside the tx-extraction stub — never escapes the catch. */
+const _EXTRACT_TX = Symbol("extract-tx");
+
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
@@ -105,8 +339,16 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     if (dialect === "postgres") {
       if (isNeonUrl(url)) {
         _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
-          const pool = new Pool({ connectionString: url, max: neonPoolMax() });
-          attachNeonPoolErrorLogger(pool);
+          const rawPool = new Pool({
+            connectionString: url,
+            max: neonPoolMax(),
+          });
+          attachNeonPoolErrorLogger(rawPool);
+          // Wrap the pool with the resilience layer so Drizzle queries get the
+          // same withDbTimeout + retryOnConnectionError protection as the raw
+          // DbExec path in client.ts. Reads retry freely; writes only retry on
+          // acquire-timeout (pre-send) errors to avoid double-execution.
+          const pool = buildResilientNeonPool(rawPool);
           _db = drizzle(pool, { schema });
         });
       } else {
@@ -125,7 +367,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       ]).then(([sqliteUrl, { drizzle, Database }]) => {
         const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
         sqlite.pragma("journal_mode = WAL");
-        _db = drizzle(sqlite, { schema });
+        const db = drizzle(sqlite, { schema });
+        _db = patchBetterSqliteTransactions(db, sqlite);
       });
     } else {
       _dbReady = getLibsqlWebDrizzle().then(({ drizzle }) => {

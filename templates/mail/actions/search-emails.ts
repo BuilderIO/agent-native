@@ -176,7 +176,7 @@ export default defineAction({
       }
 
       emails = emails
-        .filter((e: any) => emailMessageMatchesSearch(e, args.q))
+        .filter((e: any) => emailMessageMatchesSearch(e, args.q ?? ""))
         .sort(
           (a: any, b: any) =>
             new Date(b.date).getTime() - new Date(a.date).getTime(),

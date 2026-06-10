@@ -1338,7 +1338,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 
   // Find the live `registryBlock` node (and its position) for a blockId.
   const findNode = useCallback(
-    (blockId: string) => {
+    (blockId: string): { pos: number; node: ProseMirrorNode } | null => {
       if (!editor || editor.isDestroyed) return null;
       let result: { pos: number; node: ProseMirrorNode } | null = null;
       editor.state.doc.descendants((node, pos) => {

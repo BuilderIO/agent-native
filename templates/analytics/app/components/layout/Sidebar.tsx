@@ -1633,7 +1633,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           item.id === a.id ? { ...item, name: trimmed } : item,
         ),
       );
-      queryClient.setQueriesData<any>({ queryKey: detailKey }, (old) =>
+      queryClient.setQueriesData<any>({ queryKey: detailKey }, (old: any) =>
         old ? { ...old, name: trimmed } : old,
       );
 

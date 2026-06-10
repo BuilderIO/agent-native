@@ -146,7 +146,7 @@ export function getElementPath(
   let current: Element | null = target;
 
   while (current && current !== root) {
-    const parent = current.parentElement;
+    const parent: HTMLElement | null = current.parentElement;
     if (!parent) return null;
     const index = Array.from(parent.children).indexOf(current);
     if (index === -1) return null;
@@ -164,7 +164,8 @@ export function resolveElementPath(
   let current: Element | null = root;
 
   for (const index of path) {
-    const next = current.children.item(index);
+    if (!current) return null;
+    const next: Element | null = current.children.item(index);
     if (!next) return null;
     current = next;
   }

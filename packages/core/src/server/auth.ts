@@ -2457,7 +2457,7 @@ async function mountBetterAuthRoutes(
             getAppUrl(event, "/_agent-native/google/callback"),
           );
           callbackFlowId = flowId;
-          callbackDesktop = desktop;
+          callbackDesktop = desktop ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
             flowId,
             desktop,

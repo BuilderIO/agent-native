@@ -15,7 +15,7 @@ Actions are the single source of truth for anything your app does. Define an act
 - **An A2A tool** — called by other agent-native apps over A2A.
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
-One definition, six consumers. This is rung 3 of the [ladder](/docs/what-is-agent-native#the-ladder).
+One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-agent-native#the-ladder).
 
 ## Defining an action {#defining}
 
@@ -57,15 +57,17 @@ By default every action is exposed as `POST /_agent-native/actions/<name>`. Over
 export default defineAction({
   description: "Get details for a lead.",
   schema: z.object({ leadId: z.string() }),
-  http: { method: "GET", path: "leads/:leadId" }, // optional override
+  http: { method: "GET" },
   run: async ({ leadId }) => {
     return await db.select().from(leads).where(eq(leads.id, leadId));
   },
 });
 ```
 
+For a `GET` action, `leadId` is passed as a query param: `/_agent-native/actions/get-lead?leadId=abc`.
+
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — default `POST`. `GET` actions are auto-marked `readOnly` so successful calls don't trigger a UI poll-refresh.
-- **`http: { path: "..." }`** — override the route path under `/_agent-native/actions/`. Defaults to the filename.
+- **`http: { path: "..." }`** — override the mounted URL under `/_agent-native/actions/`. Defaults to the filename. **Path overrides change the URL only for direct HTTP callers** — `useActionQuery`, `useActionMutation`, and `callAction` always call `/_agent-native/actions/<name>` regardless of this override, so overriding the path makes those hooks 404. Use path overrides only for external HTTP callers. Note also that `:param` route segments in the override path are **not** parsed into `run()` args — only query-string params and JSON body fields are.
 - **`http: false`** — disable the HTTP endpoint entirely. Agent + CLI only.
 - **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
 - **`parallelSafe: true`** — allow a mutating action to run concurrently with other same-turn tool calls. Only set this when the action is internally concurrency-safe and order-independent; mutating actions serialize by default.
@@ -133,7 +135,7 @@ export default defineAction({
 | `false`     | Explicit deny. The extension bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                                                                     |
 | `undefined` | **Default-allow.** Extensions are intra-org and typically authored by trusted teammates, so the default trusts the org-level access controls. Set `false` only for genuinely auth-adjacent operations (account deletion, org membership changes). |
 
-Enforcement: the parent host (`ToolViewer.tsx` / `EmbeddedTool.tsx` — physical class names retained) tags every outbound action call from an extension iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
+Enforcement: the parent host tags every outbound action call from an extension iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
 
 Set `toolCallable: false` for actions that:
 
@@ -169,12 +171,13 @@ export default defineAction({
 
 `ActionRunContext` fields:
 
-| Field       | Type                  | Notes                                                                                                                                                           |
-| ----------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userEmail` | `string \| undefined` | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
-| `orgId`     | `string \| null`      | Resolved org id, or `null` when the request has no org.                                                                                                         |
-| `caller`    | `ActionCaller`        | How the action was invoked (see below).                                                                                                                         |
-| `send`      | `(event) => void`     | Optional. Emit an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`); `undefined` elsewhere.                                   |
+| Field         | Type                    | Notes                                                                                                                                                           |
+| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
+| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                         |
+| `caller`      | `ActionCaller`          | How the action was invoked (see below).                                                                                                                         |
+| `send`        | `(event) => void`       | Optional. Emit an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`); `undefined` elsewhere.                                   |
+| `attachments` | `AgentChatAttachment[]` | Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: "tool"`; `undefined` on all other surfaces.           |
 
 `caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`:
 
@@ -188,6 +191,35 @@ export default defineAction({
 | `"a2a"`      | Reserved for a future direct A2A action dispatch. Today A2A runs through the agent loop, so those calls are `"tool"`.                |
 
 `run` stays backward compatible: existing 1-argument handlers and handlers that only destructure `{ send }` continue to work unchanged.
+
+### Access control in actions {#access-control}
+
+User-owned tables must scope reads through `accessFilter` and writes through `assertAccess` — the same helpers the framework's sharing system uses. Here is a complete, paste-ready example:
+
+```ts
+// actions/create-lead.ts
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+export default defineAction({
+  description: "Create a lead in the CRM.",
+  schema: z.object({ name: z.string(), company: z.string() }),
+  run: async ({ name, company }, ctx) => {
+    const db = getDb();
+    await db.insert(schema.leads).values({
+      id: crypto.randomUUID(),
+      name,
+      company,
+      ownerEmail: ctx?.userEmail ?? "system",
+    });
+    return { ok: true };
+  },
+});
+```
+
+For list and read actions, use `accessFilter` to scope the query to the current user and org. For actions that update or delete a specific row, use `assertAccess` to confirm the caller is allowed before writing. See [Security](/docs/security#access-guards) and [Sharing](/docs/sharing) for the full helper API.
 
 ## Calling it from the UI {#ui}
 

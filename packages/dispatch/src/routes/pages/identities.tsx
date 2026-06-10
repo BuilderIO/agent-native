@@ -39,7 +39,7 @@ export default function IdentitiesRoute() {
             </div>
           </div>
           <div className="mt-4 space-y-3">
-            {(data?.links || []).map((link) => (
+            {(data?.links || []).map((link: any) => (
               <div
                 key={link.id}
                 className="rounded-xl border bg-muted/30 px-4 py-3"
@@ -64,7 +64,7 @@ export default function IdentitiesRoute() {
         <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">Link tokens</h2>
           <div className="mt-4 space-y-3">
-            {(data?.tokens || []).map((token) => (
+            {(data?.tokens || []).map((token: any) => (
               <div key={token.id} className="rounded-xl border px-4 py-3">
                 <div className="text-sm font-medium text-foreground">
                   /link {token.token}

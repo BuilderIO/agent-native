@@ -398,7 +398,7 @@ class CompositionValidator {
             severity: "error",
             message:
               "🚫 CRITICAL: Manual Cursor component found. Use cursor track + CameraHost instead.",
-            fix: "Remove <Cursor> and let CameraHost render it from track. See docs/ANIMATED_COMPONENTS_GUIDE.md#cursor-animation-tracks",
+            fix: "Remove <Cursor> and let CameraHost render it from track.",
           });
         }
       }

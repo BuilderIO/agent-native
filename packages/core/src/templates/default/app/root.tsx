@@ -9,11 +9,7 @@ import {
   useRouteError,
 } from "react-router";
 import { useEffect, useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import {
@@ -21,6 +17,7 @@ import {
   DefaultSpinner,
   appPath,
   getThemeInitScript,
+  createAgentNativeQueryClient,
 } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { configureTracking } from "@agent-native/core/client";
@@ -92,7 +89,7 @@ function DbSyncSetup() {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <ThemeProvider

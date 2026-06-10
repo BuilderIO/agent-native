@@ -17,10 +17,12 @@ let highlighterLoader: Promise<ShikiHighlighter> | null = null;
 function loadHighlighter(): Promise<ShikiHighlighter> {
   if (!highlighterLoader) {
     highlighterLoader = (async () => {
-      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
+      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
+      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
+      const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
         await Promise.all([
           import("shiki/core"),
-          import("shiki/engine/oniguruma"),
+          import("shiki/engine/javascript"),
         ]);
       return createHighlighterCore({
         themes: [
@@ -42,7 +44,7 @@ function loadHighlighter(): Promise<ShikiHighlighter> {
           import("shiki/langs/yaml.mjs"),
           import("shiki/langs/sql.mjs"),
         ],
-        engine: createOnigurumaEngine(import("shiki/wasm")),
+        engine: createJavaScriptRegexEngine({ forgiving: true }),
       }) as unknown as Promise<ShikiHighlighter>;
     })().catch((error) => {
       highlighterLoader = null;

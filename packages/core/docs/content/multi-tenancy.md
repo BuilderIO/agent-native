@@ -16,7 +16,7 @@ The framework provides full multi-tenancy through its own built-in organization 
 - **Active organization** — the session tracks which org the user is currently working in (`session.orgId`). Switching orgs changes the data they see.
 - **Data isolation** — SQL queries are automatically scoped to the active org via `org_id` columns. Data tagged with one org is invisible to users in another org, including the agent.
 
-All first-party templates (Mail, Calendar, Content, Brain, Assets, Slides, Video, Analytics, Clips, Design, Forms, and Dispatch) are multi-tenant out of the box. If you're building on any of these, your app already supports teams with no extra work.
+All first-party templates are multi-tenant out of the box. See [Cloneable SaaS templates](/docs/cloneable-saas) for the full list.
 
 ## Organizations and members {#organizations-and-members}
 

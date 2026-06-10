@@ -41,6 +41,8 @@ const COMMANDS_DIR = path.join(".agents", "commands");
 const SKILLS_DIR = path.join(".agents", "skills");
 const RESERVED_PROJECT_COMMAND_NAMES = new Set([
   "approve",
+  "approve-always",
+  "deny",
   "attach",
   "audit",
   "audit-agent-web",

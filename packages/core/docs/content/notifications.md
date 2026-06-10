@@ -7,6 +7,8 @@ description: "In-app notifications with pluggable channels — inbox, webhook, o
 
 One function, many destinations. Call `notify()` from any server-side code — an action, an automation, a plugin — and the event lands in the user's in-app inbox and fans out to every registered channel. Ships with a bell-and-dropdown UI component that the host template drops into its header.
 
+Notifications are one-way alerts into the app's bell inbox (plus webhook fan-out). To _converse_ with your agent from Slack/email/Telegram/WhatsApp, see [Messaging](/docs/messaging).
+
 ```ts
 import { notify } from "@agent-native/core/notifications";
 
@@ -160,14 +162,14 @@ Pass `browserNotifications` to also fire system `new Notification(...)` popups f
 
 ## Agent tools {#agent-tools}
 
-Two native tools are registered in every template:
+A single `manage-notifications` tool is registered in every template. The `action` parameter selects the operation:
 
-| Tool                 | Purpose                                              |
-| -------------------- | ---------------------------------------------------- |
-| `notify`             | Send a notification from an agent turn or automation |
-| `list-notifications` | Show recent notifications to the agent for context   |
+| Action | Parameters                                                                    | Purpose                                                         |
+| ------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `send` | `severity` (required), `title` (required), `body`, `metadataJson`, `channels` | Send a notification to the user's inbox and registered channels |
+| `list` | `unreadOnly`, `limit` (max 200, default 20)                                   | List recent notifications for context                           |
 
-Automations (see [Automations](/docs/automations)) can call `notify` in their body — this is the canonical pattern for turning an external event into a user-visible alert.
+Automations (see [Automations](/docs/automations)) can call `manage-notifications` with `action=send` in their body — this is the canonical pattern for turning an external event into a user-visible alert.
 
 ## Event bus {#event-bus}
 

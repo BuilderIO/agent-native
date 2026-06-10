@@ -482,8 +482,9 @@ function evaluateFormulaExpression(
   expression: string,
   valuesByName: Record<string, DocumentPropertyValue>,
 ): FormulaPrimitive {
-  const tokens = tokenizeFormulaExpression(expression);
-  if (!tokens) return null;
+  const tokensOrNull = tokenizeFormulaExpression(expression);
+  if (!tokensOrNull) return null;
+  const tokens = tokensOrNull;
   let index = 0;
 
   function peek() {
@@ -803,8 +804,9 @@ function evaluateFormulaFunction(
 }
 
 export function evaluateNumericExpression(expression: string): number | null {
-  const tokens = tokenizeNumericExpression(expression);
-  if (!tokens) return null;
+  const tokensOrNull = tokenizeNumericExpression(expression);
+  if (!tokensOrNull) return null;
+  const tokens = tokensOrNull;
   let index = 0;
 
   function peek() {

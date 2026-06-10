@@ -30,6 +30,8 @@ When you open the app, you see your forms, the current editor, and a live previe
 
 ## Getting started
 
+Live demo: [forms.agent-native.com](https://forms.agent-native.com).
+
 1. **Create a form from a prompt.** Ask for the form you want, including the
    audience and what should happen after submission.
 2. **Refine in the editor.** Adjust labels, validation, choices, and order in
@@ -49,7 +51,11 @@ When you open the app, you see your forms, the current editor, and a live previe
 
 ## Why it's interesting
 
-The useful part of an agent-native form builder is that setup and iteration happen in the same place. You can ask the agent to add fields, adjust copy, connect Slack notifications, or inspect the submission data, while the UI remains the direct editor for the same SQL records.
+Three things make Forms a good showcase of the framework:
+
+1. **Single SQL record, two editors.** The form's `fields` JSON column is the source of truth for both the visual builder and the agent. Ask the agent to add a field and the builder re-renders — no sync step, no separate "AI draft" state.
+2. **Public and private surfaces from one schema.** The same form row serves authenticated editors (full field + settings access) and anonymous respondents (public fill page with secrets stripped). `toPublicFormSettings` handles the split at the action layer.
+3. **Integrations as settings, not infrastructure.** Slack, Discord, Google Sheets, and webhook destinations are stored as JSON in the form's settings column and executed server-side at submission time — adding a new integration type is an action-layer change, not a schema migration.
 
 See [What is agent-native?](/docs/what-is-agent-native) for the broader framework model.
 
@@ -80,6 +86,27 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema
 | `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
 
 The `fields` and `settings` JSON shapes are defined in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Owner-private settings such as integration webhook URLs and allowed origins are stripped before any data reaches the public fill page via `toPublicFormSettings`.
+
+### Key features (technical) {#key-features}
+
+Forms are defined as JSON field arrays (`FormField[]`) and stored in a single `fields` column — no separate table per field type. This makes the schema additive and the agent's edits surgical: changing a field label is a JSON-patch on one column, not a row update across a join table. All field types (text, email, number, long text, select, multi-select, checkbox, radio, date, rating, scale) are handled by the renderer and editor without schema changes.
+
+The public fill page is fully unauthenticated. `toPublicFormSettings` strips integration URLs and other owner-private settings before the form data reaches the browser, so secrets never leak to respondents.
+
+Integrations (Slack, Discord, Google Sheets, webhooks) are stored as settings inside the form's `settings` JSON column and executed server-side at submission time.
+
+### Key actions
+
+Every operation is a TypeScript file in `templates/forms/actions/`, auto-mounted at `POST /_agent-native/actions/:name`:
+
+- `create-form` — create a new form (title, description, fields, settings)
+- `update-form` — update fields, settings, or status
+- `get-form` — retrieve a form by id or slug
+- `list-forms` — list accessible forms
+- `delete-form` — soft-delete (sets `deleted_at`)
+- `restore-form` — restore a soft-deleted form
+- `list-responses` — list submissions for a form with optional filters
+- `export-responses` — export responses as CSV or JSON
 
 ### Customizing it
 

@@ -59,7 +59,7 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
       (l) =>
         l.value === currentLang ||
         (l.value === null && !currentLang) ||
-        (l.value === "plaintext" && !currentLang),
+        ((l.value as string) === "plaintext" && !currentLang),
     )?.label ||
     currentLang ||
     "Plain text";

@@ -7,11 +7,10 @@ canvas layouts from memory or paraphrase these rules per mode.
 
 <!-- SHARED-CORE:canvas-surface START -->
 
-**Artboard placement is locked by the `surface`, not by coordinates.** The
-surface locks the footprint and aspect; never set artboard width/height and
-never use coordinates inside the wireframe HTML. Let canvas auto-placement
-handle simple one-row boards. For mixed-footprint canvases, board-level artboard
-`x`/`y` is allowed and expected when it creates clear lanes.
+**The coordinate rule.** The `surface` locks each artboard's footprint and
+aspect — never set artboard width/height and never use coordinates inside the
+wireframe HTML; board-level artboard `x`/`y` IS allowed when it creates clear
+lanes. Let canvas auto-placement handle simple one-row boards.
 
 **Lay out mixed canvases in lanes.** When a canvas contains broad browser /
 desktop frames plus compact `mobile`, `popover`, or `panel` surfaces, do not put
@@ -72,9 +71,9 @@ prototype. When the user asks for a mockup, UI state, loading state, layout,
 screen, or visual comparison, make the canvas the primary home for that static
 visual. When the user asks for a prototype or the plan contains a sequence the
 reviewer must feel, keep the canvas artboards and add `content.prototype` so the
-top surface shows Wireframes / Prototype tabs. Architecture/code diagrams are
-different: keep them inline in the document, close to the recommendation they
-support, unless the user explicitly asks for a spatial board. Document blocks
+top surface shows Wireframes / Prototype tabs. Architecture/code diagrams stay
+inline in the document (the SKILL.md Visual Surface Choice section owns that
+rule) unless the user explicitly asks for a spatial board. Document blocks
 can explain, compare, or map implementation, but they should not host the
 primary UI mockup or prototype just because `custom-html`, screenshots, or prose
 are easier to produce. If the canvas/prototype surface cannot represent the
@@ -87,10 +86,8 @@ nodes instead of `html`; the renderer still accepts and displays it, but new
 plans emit `html`. Do not author fresh kit-tree screens - write the HTML mockup
 instead. Likewise, old or imported plans may carry coordinate-based regions or
 free-float x/y on notes; those are legacy escape hatches the renderer still
-shows but you must never produce. The `surface` drives each artboard's aspect
-and footprint, and the gutter parks notes by `targetId` + `placement`. The only
-new-plan coordinate exception is deliberate board-level artboard `x`/`y` for
-multi-lane mixed-surface canvases; never supply artboard width/height, note
-coordinates, or wireframe-internal coordinates.
+shows but you must never produce. The gutter parks notes by `targetId` +
+`placement`, and the coordinate rule at the top of this file governs all
+new-plan placement.
 
 <!-- SHARED-CORE:canvas-surface END -->

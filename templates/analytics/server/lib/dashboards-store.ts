@@ -840,7 +840,7 @@ export async function listAnalyses(
     .select(analysisListColumns)
     .from(schema.analyses)
     .where(where);
-  const out = rows.map(listRowToAnalysis);
+  const out: AnalysisRecord[] = rows.map(listRowToAnalysis);
   const seen = new Set<string>(out.map((r) => r.id));
   // Legacy settings rows have no hidden concept, so hidden-only queries skip
   // the legacy scan entirely.

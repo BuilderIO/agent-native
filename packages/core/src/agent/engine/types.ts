@@ -24,14 +24,25 @@ import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 export class EngineError extends Error {
   readonly errorCode?: string;
   readonly upgradeUrl?: string;
+  /** HTTP status code from the provider (429, 529, 503, etc.), if known. */
+  readonly statusCode?: number;
+  /** Whether the provider explicitly marked this error as retryable. */
+  readonly providerRetryable?: boolean;
   constructor(
     message: string,
-    opts?: { errorCode?: string; upgradeUrl?: string },
+    opts?: {
+      errorCode?: string;
+      upgradeUrl?: string;
+      statusCode?: number;
+      providerRetryable?: boolean;
+    },
   ) {
     super(message);
     this.name = "EngineError";
     this.errorCode = opts?.errorCode;
     this.upgradeUrl = opts?.upgradeUrl;
+    this.statusCode = opts?.statusCode;
+    this.providerRetryable = opts?.providerRetryable;
   }
 }
 
@@ -175,6 +186,19 @@ export type EngineEvent =
        * a link to the user's Builder billing page.
        */
       upgradeUrl?: string;
+      /**
+       * HTTP status code from the provider (e.g. 429, 529, 503).
+       * Populated by engines that have structured error information so
+       * isRetryableError can check the code directly instead of keyword-
+       * matching the message string.
+       */
+      statusCode?: number;
+      /**
+       * Whether the provider explicitly marked this error as retryable
+       * (e.g. AI SDK APICallError.isRetryable). When true, isRetryableError
+       * should retry even if status code / message patterns don't match.
+       */
+      providerRetryable?: boolean;
     };
 
 // ---------------------------------------------------------------------------

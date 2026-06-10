@@ -1994,6 +1994,15 @@ export function createAgentChatAdapter(options?: {
                   content: snapshotContent(content),
                 } as ChatModelRunResult;
               }
+              // Signal to the UI that we are in the continuation window so it
+              // can display "Resuming…" instead of "Thinking" during the gap.
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:auto-continue", {
+                    detail: { tabId },
+                  }),
+                );
+              }
               await delay(250, abortSignal);
               if (abortSignal.aborted) return;
               continue;
@@ -2130,6 +2139,14 @@ export function createAgentChatAdapter(options?: {
                 yield {
                   content: snapshotContent(content),
                 } as ChatModelRunResult;
+              }
+              // Signal to the UI that we are in the continuation window.
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:auto-continue", {
+                    detail: { tabId },
+                  }),
+                );
               }
               await delay(250, abortSignal);
               if (abortSignal.aborted) return;

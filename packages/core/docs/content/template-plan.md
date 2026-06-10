@@ -236,7 +236,7 @@ available.
 The rest of this doc is for anyone forking or self-hosting the Plans template.
 Most users should install the skill with the CLI instead of scaffolding the app.
 
-### Scaffold the template
+### Quick start
 
 ```bash
 npx @agent-native/core create my-plans --standalone --template plan
@@ -250,21 +250,188 @@ The hosted app-backed skill uses:
 - App: `https://plan.agent-native.com`
 - MCP: `https://plan.agent-native.com/_agent-native/mcp`
 
-The local template is useful when you are developing Plans itself, testing local
-persistence, or running a fully self-hosted review surface.
+The local template is useful when you are developing Plans itself, testing local persistence, or running a fully self-hosted review surface.
 
-### Local mode (advanced, offline)
+### Data model
 
-For fully offline, no-account use, you can run the Plans app locally and sync
-your plans to your repo as MDX. This local mode is a separate, advanced path —
-not the default hosted flow — and is best when you need everything to stay on
-your machine and in version control. For the stricter no-DB path, use
-[local-files privacy mode](#local-files), which reads from MDX folders instead
-of creating local SQL rows.
+Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
+
+| Table              | What it holds                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url` |
+| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                 |
+| `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                               |
+| `plan_events`      | Audit log of agent/human events on a plan                                                                                                                    |
+| `plan_versions`    | Point-in-time snapshots for version history                                                                                                                  |
+| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                         |
+| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                |
+| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                      |
+
+### Key actions
+
+Actions in `templates/plan/actions/`:
+
+- **Creation** — `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
+- **Reading & editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **Publishing & sharing** — `publish-visual-plan`
+- **Versions** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
+- **Comments & feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`
+- **Prototype** — `convert-visual-plan-to-prototype`, `create-prototype-plan`
+- **Context & navigation** — `view-screen`, `navigate`
+
+### Route map
+
+- `app/routes/plans.$id.tsx` — plan editor / review surface
+- `app/routes/plans._index.tsx` — plan list
+- `app/routes/share.$token.tsx` — public / shared plan view
+- `app/routes/local-plans.$slug.tsx` — local-files mode preview
+
+### Local mode (advanced, offline) {#local-mode}
+
+For fully offline, no-account use, you can run the Plans app locally and point it at local MDX folders. For the stricter no-DB path, use [local-files privacy mode](#local-files), which reads from MDX folders instead of creating local SQL rows. Local mode is a separate, advanced path — not the default hosted flow.
+
+## Events and notifications {#events}
+
+The Plan template emits four events on the framework event bus. Any automation
+can subscribe to them — no custom integration code needed.
+
+### Event reference {#event-reference}
+
+#### `plan.created`
+
+Fires when a new visual plan or recap is created.
+
+| Field       | Type                  | Description                              |
+| ----------- | --------------------- | ---------------------------------------- |
+| `planId`    | string                | Unique plan identifier                   |
+| `title`     | string                | Plan title                               |
+| `kind`      | `"plan"` \| `"recap"` | Whether this is a plan or a recap        |
+| `status`    | string                | Initial status (e.g. `"review"`)         |
+| `path`      | string                | App-relative path (e.g. `/plans/plan-…`) |
+| `createdBy` | string                | Always `"agent"` for plan creation       |
+
+#### `plan.commented`
+
+Fires when one or more comments are added to a plan.
+
+| Field              | Type                             | Description                                                 |
+| ------------------ | -------------------------------- | ----------------------------------------------------------- |
+| `planId`           | string                           | Plan identifier                                             |
+| `title`            | string                           | Plan title                                                  |
+| `kind`             | `"plan"` \| `"recap"`            | Plan or recap                                               |
+| `commentIds`       | string[]                         | IDs of the new comments                                     |
+| `commentCount`     | number                           | Number of new comments in this batch                        |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Dominant target — `"agent"` if any comment targets an agent |
+| `excerpt`          | string                           | First 200 characters of the first comment                   |
+| `author`           | string \| null                   | Email of the commenter, if known                            |
+| `path`             | string                           | App-relative path                                           |
+
+#### `plan.published`
+
+Fires when a local plan is published (or re-published) to a hosted shareable URL.
+
+| Field                 | Type                  | Description                        |
+| --------------------- | --------------------- | ---------------------------------- |
+| `planId`              | string                | Local plan identifier              |
+| `title`               | string                | Plan title                         |
+| `kind`                | `"plan"` \| `"recap"` | Plan or recap                      |
+| `hostedPlanId`        | string                | Hosted plan identifier             |
+| `url`                 | string                | Full public URL of the hosted plan |
+| `requestedVisibility` | string                | `"public"`, `"private"`, etc.      |
+
+#### `plan.status.changed`
+
+Fires when a plan's status changes (e.g. `review` → `approved`).
+
+| Field       | Type                  | Description                        |
+| ----------- | --------------------- | ---------------------------------- |
+| `planId`    | string                | Plan identifier                    |
+| `title`     | string                | Plan title                         |
+| `kind`      | `"plan"` \| `"recap"` | Plan or recap                      |
+| `oldStatus` | string \| null        | Previous status                    |
+| `newStatus` | string                | New status                         |
+| `changedBy` | string \| null        | Email of the person who changed it |
+| `path`      | string                | App-relative path                  |
+
+### Automation recipes {#automation-recipes}
+
+These automations are created by asking the plan agent — no code changes needed.
+The agent calls `manage-automations` with `action=define`, writes a
+`jobs/<name>.md` resource, and the event subscription starts immediately.
+
+#### Notify via webhook when someone comments on a plan
+
+Ask the plan agent:
+
+> "When someone adds a human comment on a plan, POST a message to my webhook."
+
+The agent creates an automation like this:
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+Before the automation can fire you need to add the webhook URL as an ad-hoc key:
+
+1. Go to **Settings → Keys** and add a key named `NOTIFY_WEBHOOK` with your
+   webhook URL (e.g. a Slack incoming webhook, a generic HTTP endpoint, or any
+   notification service URL).
+2. Optionally set a URL allowlist on the key to restrict which origins it can
+   POST to.
+
+The `web-request` tool resolves `${keys.NOTIFY_WEBHOOK}` server-side before
+sending — the raw URL never appears in the agent's context.
+
+**To target Slack specifically:** set `NOTIFY_WEBHOOK` to your Slack incoming
+webhook URL
+(`https://hooks.slack.com/services/…`). The automation body above already
+produces a payload Slack's incoming webhook accepts via the `text` or `blocks`
+fields — ask the agent to format the body as a Slack message if you want richer
+formatting.
+
+#### Wake the coding agent when feedback targets it
+
+For feedback directed at the coding agent (`resolutionTarget === "agent"`), ask:
+
+> "When a plan comment targets the agent, run my coding agent with the plan
+> excerpt as context."
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+Because the automation runs a full agent loop (`mode: agentic`), it can call
+`web-request`, send notifications, or invoke any action the agent has access to.
+The exact delivery mechanism depends on what notification channels you have
+configured — the agent picks the best available one.
 
 ## What's next
 
 - [**PR Visual Recap**](/docs/pr-visual-recap) — run `/visual-recap` automatically on every pull request
+- [**Automations**](/docs/automations) — event-triggered and scheduled automations
 - [**Plan plugin & marketplace**](/docs/plan-plugin) — install the Plan skills as a Claude Code or Codex plugin
 - [**Skills**](/docs/skills-guide) — how Agent-Native installs skills
 - [**MCP Clients**](/docs/mcp-clients) — configuring hosted MCP connectors

@@ -25,6 +25,7 @@ import { getAppName } from "./app-name.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -264,18 +265,9 @@ export function getOrigin(event: H3Event): string {
   return `${headerProto}://${headerHost ?? "localhost"}`;
 }
 
-function normalizeAppBasePath(value: string | undefined): string {
-  if (!value || value === "/") return "";
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "/") return "";
-  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
-}
-
 /** App mount prefix, if the template is served under APP_BASE_PATH. */
 export function getAppBasePath(): string {
-  return normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
+  return getConfiguredAppBasePath();
 }
 
 /** Build an absolute same-origin URL that preserves APP_BASE_PATH. */

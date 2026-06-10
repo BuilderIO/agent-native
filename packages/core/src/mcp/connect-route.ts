@@ -41,6 +41,8 @@ import {
   recordMintedToken,
   listTokens,
   revokeToken,
+  normalizeServiceName,
+  serviceIdentityEmail,
   createDeviceCode,
   getDeviceCode,
   approveDeviceCode,
@@ -207,6 +209,9 @@ async function mintConnectToken(params: {
   label: string | null;
   ttlDays: number;
   appUrl: string;
+  /** When `"full"`, embed `catalog_scope: "full"` in the JWT to bypass the
+   *  connector-catalog tier on hosted multi-tenant deployments. */
+  catalogScope?: "full";
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
   const jti = randomUUID();
@@ -217,6 +222,7 @@ async function mintConnectToken(params: {
     appUrl: params.appUrl,
     expiresIn: `${params.ttlDays}d`,
     jti,
+    ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
   });
   await recordMintedToken({
     jti,
@@ -234,12 +240,34 @@ async function signConnectToken(params: {
   appUrl: string;
   expiresIn: string;
   jti: string;
+  /**
+   * When true, embed the org id directly as an `org_id` claim on the
+   * A2A-signed path (the OAuth-signed path already carries `params.orgId`).
+   * Used for org SERVICE tokens, whose synthetic identity must resolve to the
+   * org even when the org has no domain mapping. Personal tokens keep the
+   * original domain-based resolution — behavior unchanged.
+   */
+  includeOrgIdClaim?: boolean;
+  /**
+   * When `"full"`, embed a `catalog_scope: "full"` claim so that on hosted
+   * multi-tenant deployments (AGENT_NATIVE_CONNECTOR_CATALOG=1) this token
+   * bypasses the connector-catalog tier filter and gets the complete action
+   * surface. Minted when the user connects with `agent-native connect --full-catalog`.
+   */
+  catalogScope?: "full";
 }): Promise<string> {
   if (process.env.A2A_SECRET?.trim()) {
     return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
       preferGlobalSecret: true,
       expiresIn: params.expiresIn,
-      extraClaims: { jti: params.jti, scope: MCP_CONNECT_SCOPE },
+      extraClaims: {
+        jti: params.jti,
+        scope: MCP_CONNECT_SCOPE,
+        ...(params.includeOrgIdClaim && params.orgId
+          ? { org_id: params.orgId }
+          : {}),
+        ...(params.catalogScope === "full" ? { catalog_scope: "full" } : {}),
+      },
     });
   }
 
@@ -253,7 +281,69 @@ async function signConnectToken(params: {
     issuer: params.appUrl,
     jti: params.jti,
     expiresIn: params.expiresIn,
+    ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
   });
+}
+
+/**
+ * Mint an ORG SERVICE token: a connect-scoped, revocable bearer whose subject
+ * is the synthetic service identity `svc-<name>@service.<orgId>` instead of a
+ * person. Built for CI (e.g. the `PLAN_RECAP_TOKEN` GitHub secret) so the
+ * credential survives any individual leaving or revoking their personal
+ * tokens, and so rows created by CI are org-scoped (visible to org members)
+ * rather than owned by one person.
+ *
+ * The token value is returned exactly once and never persisted — only the
+ * random `jti` is stored, so the standard revocation path
+ * (`isJtiRevoked` in `verifyAuth`) applies to service tokens identically.
+ *
+ * Authorization is the CALLER'S responsibility: this function does not check
+ * org membership/role. The `create-org-service-token` action gates on org
+ * owner/admin before calling it.
+ */
+export async function mintOrgServiceToken(params: {
+  /** Human-readable service principal name, e.g. "ci" or "pr-recap". */
+  serviceName: string;
+  /** Org the service token acts for; becomes the resolved session orgId. */
+  orgId: string;
+  /** The human minting the token — stored for audit, never used as identity. */
+  createdBy: string;
+  /** 1–365 days; clamped. Defaults to DEFAULT_TOKEN_TTL_DAYS. */
+  ttlDays?: number;
+  /** App origin used for OAuth-signed tokens (resource/issuer binding). */
+  appUrl: string;
+}): Promise<{
+  token: string;
+  jti: string;
+  id: string;
+  serviceName: string;
+  serviceEmail: string;
+  ttlDays: number;
+}> {
+  const serviceName = normalizeServiceName(params.serviceName);
+  const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
+  const orgDomain = await resolveOrgDomain(params.orgId);
+  const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
+  const jti = randomUUID();
+  const token = await signConnectToken({
+    ownerEmail: serviceEmail,
+    orgId: params.orgId,
+    orgDomain,
+    appUrl: params.appUrl,
+    expiresIn: `${ttlDays}d`,
+    jti,
+    includeOrgIdClaim: true,
+  });
+  const id = await recordMintedToken({
+    jti,
+    ownerEmail: serviceEmail,
+    orgId: params.orgId,
+    label: `Service token: ${serviceName}`,
+    kind: "service",
+    serviceName,
+    createdBy: params.createdBy,
+  });
+  return { token, jti, id, serviceName, serviceEmail, ttlDays };
 }
 
 function mcpResultPayload(
@@ -1131,12 +1221,17 @@ export async function handleMcpConnect(
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       label?: unknown;
       ttlDays?: unknown;
+      fullCatalog?: unknown;
     };
     const label =
       typeof body.label === "string" && body.label.trim()
         ? body.label.trim().slice(0, 120)
         : null;
     const ttlDays = clampTtlDays(body.ttlDays);
+    const catalogScope: "full" | undefined =
+      body.fullCatalog === true || body.fullCatalog === "true"
+        ? "full"
+        : undefined;
     try {
       const { token } = await mintConnectToken({
         email: session.email,
@@ -1144,6 +1239,7 @@ export async function handleMcpConnect(
         label,
         ttlDays,
         appUrl,
+        ...(catalogScope ? { catalogScope } : {}),
       });
       return json(mcpResultPayload(appUrl, options, { token }));
     } catch {

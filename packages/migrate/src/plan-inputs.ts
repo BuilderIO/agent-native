@@ -228,7 +228,7 @@ export function normalizeMigrationPlanInputs(
       jqueryValue.classifications,
     ),
   };
-  if (jquery.policy || jquery.classifications.length) {
+  if (jquery.policy || jquery.classifications?.length) {
     normalized.jquery = stripEmptyArrays(jquery);
   }
 

@@ -65,6 +65,19 @@ function setUserScrollTop(element: HTMLDivElement, value: number) {
   element.dispatchEvent(new Event("scroll"));
 }
 
+// Simulates the message list briefly shrinking (content swap, collapsing
+// placeholder, etc.). The browser is forced to clamp scrollTop down to the new
+// bottom and fires a scroll event — without going through wheel/touch/keys.
+function simulateContentShrink(
+  element: HTMLDivElement,
+  metrics: ScrollMetrics,
+  scrollHeight: number,
+) {
+  metrics.scrollHeight = scrollHeight;
+  metrics.scrollTop = Math.min(metrics.scrollTop, bottomScrollTop(metrics));
+  element.dispatchEvent(new Event("scroll"));
+}
+
 function ScrollHarness({
   apiRef,
   followKey,
@@ -265,6 +278,44 @@ describe("useNearBottomAutoscroll", () => {
     expect(
       container.querySelector('[data-testid="follow-state"]')?.textContent,
     ).toBe("detached");
+  });
+
+  it("stays anchored when content briefly collapses to the top", async () => {
+    const apiRef = React.createRef<AutoscrollApi>();
+    // A long, ongoing conversation pinned to the bottom.
+    const metrics = {
+      clientHeight: 200,
+      scrollHeight: 3000,
+      scrollTop: 2800,
+    };
+    const scroller = renderHarness({
+      apiRef,
+      followKey: 1,
+      metrics,
+      streaming: true,
+    });
+
+    // The list momentarily collapses (e.g. a re-render swaps the message
+    // subtree on send). The browser clamps scrollTop to 0 and fires a scroll
+    // event — this must NOT be mistaken for the user scrolling up.
+    act(() => {
+      simulateContentShrink(scroller, metrics, 200);
+    });
+    expect(metrics.scrollTop).toBe(0);
+    expect(
+      container.querySelector('[data-testid="follow-state"]')?.textContent,
+    ).toBe("following");
+
+    // Once the content comes back, we snap to the bottom instead of being
+    // stranded at the top.
+    metrics.scrollHeight = 3000;
+    renderHarness({ apiRef, followKey: 2, metrics, streaming: true });
+    await advanceAutoscrollTimers();
+
+    expect(metrics.scrollTop).toBe(2800);
+    expect(
+      container.querySelector('[data-testid="follow-state"]')?.textContent,
+    ).toBe("following");
   });
 
   it("reattaches once the user scrolls back to the bottom", async () => {

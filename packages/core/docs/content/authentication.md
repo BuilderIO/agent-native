@@ -91,15 +91,7 @@ Templates that use `createGoogleAuthPlugin()` show a "Sign in with Google" page.
 
 ### OAuth State Signing {#oauth-state-secret}
 
-OAuth state envelopes (Google, Atlassian, Zoom) are HMAC-signed with `OAUTH_STATE_SECRET`. Set this to a random 32+ char value in production:
-
-```bash
-OAUTH_STATE_SECRET=$(openssl rand -hex 32)
-```
-
-If unset, the framework falls back to `BETTER_AUTH_SECRET`. A dedicated `OAUTH_STATE_SECRET` is recommended so rotating one secret doesn't invalidate the other. Reusing a third-party client secret (e.g. `GOOGLE_CLIENT_SECRET`) for OAuth state signing is **not** supported — a leak of the third-party secret would let attackers forge state envelopes.
-
-`redirect_uri` query parameters on framework OAuth endpoints are validated against an allowlist (same-origin + framework `/_agent-native/...` paths). Custom OAuth flows in templates should use `isAllowedOAuthRedirectUri(candidate, event)` from `@agent-native/core/server` before signing state.
+Set `OAUTH_STATE_SECRET` to a random 32+ char value in production so OAuth state envelopes (Google, Atlassian, Zoom) are HMAC-signed with a dedicated key independent of any third-party secret. See [Security — OAuth State Signing](/docs/security#oauth-state) for the full requirements and threat model.
 
 ## Organizations {#organizations}
 
@@ -205,6 +197,7 @@ interface AuthSession {
   userId?: string; // Better Auth user ID
   token?: string; // Session token
   name?: string; // Display name from the auth provider, when available
+  image?: string; // Profile image from the auth provider, when available
   orgId?: string; // Active organization ID
   orgRole?: string; // Role in active org (owner/admin/member)
 }
@@ -258,18 +251,15 @@ When an anonymous user navigates directly to a private path like `/dashboard`, t
 
 Both flows (the explicit `/_agent-native/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.
 
-If your template wraps `/_agent-native/google/auth-url` directly (e.g. mail and calendar templates do, to widen scopes), accept a `?return=<path>` query and forward it as the sixth argument to `encodeOAuthState`:
+If your template wraps `/_agent-native/google/auth-url` directly (e.g. mail and calendar templates do, to widen scopes), accept a `?return=<path>` query and forward it via the options-object form of `encodeOAuthState`:
 
 ```typescript
 const returnUrl = getQuery(event).return;
-const state = encodeOAuthState(
+const state = encodeOAuthState({
   redirectUri,
-  undefined,
   desktop,
-  false,
-  undefined,
-  typeof returnUrl === "string" ? returnUrl : undefined,
-);
+  returnUrl: typeof returnUrl === "string" ? returnUrl : undefined,
+});
 ```
 
 The default `/_agent-native/google/auth-url` route does this automatically — only override if your template needs custom OAuth handling.
@@ -287,4 +277,3 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients; not browser auth                                                                  |
 | `ACCESS_TOKENS`                | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                 |
 | `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                |
-| `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                                                            |

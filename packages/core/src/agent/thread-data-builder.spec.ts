@@ -1049,4 +1049,90 @@ describe("upsertUserMessage", () => {
       role: "user",
     });
   });
+
+  it("stores image attachments as URL references when a hosted URL exists", () => {
+    // Simulate a pre-uploaded image: the `url` property has been injected by
+    // preUploadAttachments; base64 `data` is still present for the current turn.
+    const attWithUrl = {
+      type: "image",
+      name: "screenshot.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,abc123",
+    };
+    (attWithUrl as any).url = "https://cdn.example.com/screenshot.png";
+    (attWithUrl as any).uploadProvider = "builder";
+
+    const message = buildUserMessage({
+      text: "Describe this image",
+      runId: "run-url-img",
+      attachments: [attWithUrl as any],
+    });
+
+    const updated = upsertUserMessage({}, message);
+    const storedAtt = updated.messages[0].message.attachments?.[0];
+    expect(storedAtt).toBeDefined();
+    // Content should use the hosted URL, not the base64 string.
+    expect(storedAtt.content[0]).toEqual({
+      type: "image",
+      image: "https://cdn.example.com/screenshot.png",
+    });
+    // Reference metadata must be present for tooling.
+    expect(storedAtt.metadata).toMatchObject({
+      uploadUrl: "https://cdn.example.com/screenshot.png",
+      uploadProvider: "builder",
+    });
+  });
+
+  it("stores file attachments as URL references when a hosted URL exists", () => {
+    const attWithUrl = {
+      type: "file",
+      name: "report.pdf",
+      contentType: "application/pdf",
+      data: "data:application/pdf;base64,JVBERi0x",
+    };
+    (attWithUrl as any).url = "https://cdn.example.com/report.pdf";
+    (attWithUrl as any).uploadProvider = "builder";
+
+    const message = buildUserMessage({
+      text: "Summarize this PDF",
+      runId: "run-url-file",
+      attachments: [attWithUrl as any],
+    });
+
+    const updated = upsertUserMessage({}, message);
+    const storedAtt = updated.messages[0].message.attachments?.[0];
+    expect(storedAtt).toBeDefined();
+    expect(storedAtt.content[0]).toMatchObject({
+      type: "file",
+      url: "https://cdn.example.com/report.pdf",
+    });
+    expect(storedAtt.metadata).toMatchObject({
+      uploadUrl: "https://cdn.example.com/report.pdf",
+    });
+  });
+
+  it("caps base64 image data larger than 2 MB when no URL exists", () => {
+    // Generate a fake base64 string that's clearly over 2 MB of decoded bytes.
+    // 2 MB = 2097152 bytes; base64 is 4/3 of that ≈ 2796203 chars.
+    const bigB64 = "A".repeat(3_000_000);
+    const att = {
+      type: "image",
+      name: "big.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${bigB64}`,
+    };
+
+    const message = buildUserMessage({
+      text: "big image",
+      runId: "run-big-img",
+      attachments: [att as any],
+    });
+
+    const storedAtt = message.attachments?.[0];
+    expect(storedAtt).toBeDefined();
+    const img = storedAtt.content[0].image as string;
+    // The stored value must NOT contain the raw big base64.
+    expect(img).not.toContain("A".repeat(100));
+    expect(img).toContain("[base64 truncated");
+  });
 });

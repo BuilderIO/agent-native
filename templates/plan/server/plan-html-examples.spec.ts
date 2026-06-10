@@ -132,8 +132,11 @@ describe("technical plan HTML examples", () => {
       "ProviderApiRequestAction",
       "POST /api/provider-api-request",
       "GET /v1/uploads/{uploadId}",
-      "provider-api-catalog",
-      "provider-api-docs",
+      // The fixture diagram text was updated in fa107db92 from an explicit chain
+      // (provider-api-catalog -> provider-api-docs -> ...) to grouped-layer
+      // terminology; provider-api-catalog and provider-api-docs are no longer
+      // present in completeTechnicalPlanHtml. provider-api-request still appears
+      // as a substring of POST /api/provider-api-request.
       "provider-api-request",
       "packages/core/src/provider-api/request.ts",
       "assertAccess",

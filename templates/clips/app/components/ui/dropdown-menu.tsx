@@ -1,6 +1,10 @@
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import { IconCheck, IconChevronRight, IconCircle } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconChevronRight,
+  IconCircleFilled,
+} from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 
@@ -15,14 +19,6 @@ const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
 const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
-
-type DropdownMenuContentProps = React.ComponentPropsWithoutRef<
-  typeof DropdownMenuPrimitive.Content
-> & {
-  container?: React.ComponentPropsWithoutRef<
-    typeof DropdownMenuPrimitive.Portal
-  >["container"];
-};
 
 const DropdownMenuSubTrigger = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
@@ -61,6 +57,16 @@ const DropdownMenuSubContent = React.forwardRef<
 ));
 DropdownMenuSubContent.displayName =
   DropdownMenuPrimitive.SubContent.displayName;
+
+type DropdownMenuContentProps = React.ComponentPropsWithoutRef<
+  typeof DropdownMenuPrimitive.Content
+> & {
+  // Allows rendering the portal into a custom container; useful when the menu
+  // must appear above a specific stacking context (e.g. a fullscreen video player).
+  container?: React.ComponentPropsWithoutRef<
+    typeof DropdownMenuPrimitive.Portal
+  >["container"];
+};
 
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
@@ -136,7 +142,7 @@ const DropdownMenuRadioItem = React.forwardRef<
   >
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
-        <IconCircle className="h-2 w-2 fill-current" />
+        <IconCircleFilled className="h-2 w-2" />
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}

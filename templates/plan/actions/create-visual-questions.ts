@@ -9,7 +9,6 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   createVisualQuestionsContent,
   normalizePlanContent,
-  sanitizeStoredPlanHtml,
   serializePlanContent,
   type VisualQuestionBuilderInput,
 } from "../server/plan-content.js";
@@ -83,7 +82,7 @@ const visualQuestionsSchema = z
 
 export default defineAction({
   description:
-    "Create a visual intake questionnaire as an Agent-Native Plan. Use this for explicit /visual-questions workflows when the user should answer rich visual questions with chips, mockup options, diagrams, and freeform notes before a later plan. The only supported output is the published questionnaire this tool returns — never deliver the questions as inline chat content; an inline questionnaire is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
+    "Create a visual intake questionnaire before a plan. Use this only when the user explicitly wants to answer rich visual questions (chips, mockup options, diagrams, freeform) before planning. For a forward plan use create-visual-plan; for a UI-first wireframe plan use create-ui-plan. Publish via this tool; never deliver the questions as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short questionnaire title"),
@@ -93,10 +92,7 @@ export default defineAction({
         .describe(
           "One short line on what the questions clarify, shown as the lede under the title. Keep it tight.",
         ),
-      goal: z
-        .string()
-        .optional()
-        .describe("Compatibility alias for brief; prefer brief"),
+      goal: z.string().optional().describe("Alias for brief."),
       source: planSourceSchema.optional().default("manual"),
       repoPath: z.string().optional().describe("Repository path for the run"),
       currentFocus: z
@@ -109,12 +105,6 @@ export default defineAction({
         .default([])
         .describe(
           "Optional custom question schema. Omit for the default UI intake flow.",
-        ),
-      html: z
-        .string()
-        .optional()
-        .describe(
-          "Legacy standalone questionnaire HTML. Prefer content blocks for new visual question plans.",
         ),
       content: planContentSchema
         .optional()
@@ -205,13 +195,11 @@ export default defineAction({
           ];
     const content = args.content
       ? normalizePlanContent(args.content)
-      : args.html
-        ? null
-        : createVisualQuestionsContent({
-            title,
-            brief,
-            questions,
-          });
+      : createVisualQuestionsContent({
+          title,
+          brief,
+          questions,
+        });
 
     await getDb()
       .insert(schema.plans)
@@ -223,7 +211,7 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "visual questions",
-        html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null,
+        html: null,
         markdown: args.markdown ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,

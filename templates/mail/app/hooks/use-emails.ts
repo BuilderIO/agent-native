@@ -14,7 +14,7 @@ import type {
 } from "@shared/types";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import { TAB_ID } from "@/lib/tab-id";
-import { appApiPath } from "@/lib/api-path";
+import { appApiPath } from "@agent-native/core/client";
 import { bodyToHtml } from "@/lib/utils";
 import {
   useThreadCache,

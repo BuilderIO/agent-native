@@ -80,6 +80,7 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     const el = scrollRef.current;
     if (!el || !enabled) return;
     lastScrollTopRef.current = el.scrollTop;
+    let lastScrollHeight = el.scrollHeight;
 
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) detachFromBottom();
@@ -106,8 +107,20 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     const onScroll = () => {
       const previousScrollTop = lastScrollTopRef.current;
       const nextScrollTop = el.scrollTop;
+      const nextScrollHeight = el.scrollHeight;
+      // When the message list briefly shrinks (a re-render swaps content, a
+      // streaming/reconnect placeholder collapses, images unload, the message
+      // list remounts as a new run starts, etc.) the browser is forced to clamp
+      // scrollTop downward and fires a scroll event. That clamp is not the user
+      // scrolling up — treating it as such detaches auto-follow and strands the
+      // conversation scrolled up, sometimes all the way at the top. Only treat a
+      // downward jump as user intent when the content did not shrink underneath
+      // it. Genuine user scroll-ups (wheel/touch/keys, scrollbar drag at a
+      // stable height) are unaffected.
+      const contentShrank = nextScrollHeight < lastScrollHeight;
       lastScrollTopRef.current = nextScrollTop;
-      if (nextScrollTop < previousScrollTop) {
+      lastScrollHeight = nextScrollHeight;
+      if (nextScrollTop < previousScrollTop && !contentShrank) {
         detachFromBottom();
         return;
       }

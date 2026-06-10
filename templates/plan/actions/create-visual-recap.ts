@@ -10,9 +10,17 @@ import {
 } from "../server/plans.js";
 import { getDb, schema } from "../server/db/index.js";
 
+const sourceUrlSchema = z
+  .string()
+  .url()
+  .refine((url) => /^https?:\/\//i.test(url), {
+    message: "sourceUrl must be an http or https URL",
+  })
+  .optional();
+
 export default defineAction({
   description:
-    "Create or replace a visual recap plan from source-control friendly MDX generated from a PR, commit, branch, or git diff. Use this for high-altitude code review recaps after a code change exists; the caller should derive the MDX from the real diff and avoid inventing schema, API, file, or contract facts. When the diff changes rendered UI, include realistic wireframes of the changed surface instead of abstract diagrams. The only supported output is the published recap this tool returns — never deliver the recap as inline chat content (markdown, ASCII sketch, table, or fenced wireframe); an inline recap is a defect, not a fallback. If this tool is unreachable, stop and give the user the connect step rather than improvising inline.",
+    "Create a visual code-review recap from an existing PR, commit, branch, or git diff. For a forward plan before implementation use create-visual-plan; for a UI-first plan use create-ui-plan; for a running prototype use create-prototype-plan. Derive all content from the real diff — never invent schema, API, file, or contract facts. Publish via this tool; never deliver the recap as inline chat text.",
   schema: z.object({
     planId: z
       .string()
@@ -34,6 +42,9 @@ export default defineAction({
       ),
     source: planSourceSchema.optional().default("imported"),
     repoPath: z.string().optional().describe("Repository path for the recap."),
+    sourceUrl: sourceUrlSchema.describe(
+      "URL of the pull request, issue, or commit that this recap covers. Must be an http(s) URL. When set, the hosted recap page shows a 'View PR' link back to the source.",
+    ),
     currentFocus: z
       .string()
       .optional()
@@ -41,7 +52,7 @@ export default defineAction({
       .describe("Current focus for the review surface."),
     status: planStatusSchema.optional().default("review"),
     mdx: planMdxFileSchema.describe(
-      "Recap source files. Before authoring structured content, call the get-plan-blocks tool on the plan MCP server for the authoritative current block catalog and per-block schemas (exact tags, required fields, prop shapes) so you never author from memorized tags that have drifted. When the change has UI, also read references/wireframe.md in the visual-recap skill directory for the wireframe quality bar before authoring any WireframeBlock/Screen. plan.mdx should contain grounded blocks derived from the real diff: file-tree, split diffs with line-anchored annotations on the key hunks (so the recap calls out what each important change does, not just code for code's sake), horizontal TabsBlock groups for multiple key-file diffs so each split diff gets full document width, annotated-code for substantial new files with no meaningful before, columns, data-model, api-endpoint, realistic wireframes for UI changes, diagrams for architecture/data-flow changes, and short prose. Include WireframeBlock or canvas.mdx before/after wireframes whenever the diff changes rendered UI, layout, density, visual state, or interaction affordances. For comparable before/after UI states, put one standard WireframeBlock in each side of a Columns block and set the column labels to Before and After; the renderer draws each label as a heading above its frame and lays narrow surfaces side by side while stacking wide desktop/browser frames vertically on its own, so never bake a Before/After label inside the wireframe or hand-stack the pair as separate top-level wireframes. Use the standard WireframeBlock/Screen renderer so the Plan viewer owns the surface, theme, and sketchy/clean toggle; keep renderMode unset or wireframe unless a design-only editable mock is explicitly required, and use --wf-* tokens, semantic controls, and rough targets such as data-rough/.wf-card/.wf-box/buttons/inputs/textareas. Let canvas artboards use surface preset sizing/auto-layout when possible; do not rely on custom width/height props to shrink desktop/browser frames, and render-check that artboards and labels do not overlap. Small UI surfaces must look like the real component: a popover change should use a popover surface with matching before/after geometry, a root wrapper with at least 14-16px of padding inside the bordered Screen, visible fields/options, and the changed control placed in its actual slot (for example a top-right header action stays in the top-right header). Do not use diagram blocks as stand-ins for rendered UI. Keep API endpoint groups in normal single-column document flow; use columns for API material only when it is an explicit before/after contract comparison. Diagram data.html/data.css should use renderer-owned .diagram-* primitives and --wf-* tokens instead of custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct.",
+      "Recap source files. Call the get-plan-blocks tool FIRST for the authoritative block catalog, authoring rules, and style tokens — do not author from memory. Key rules: derive all blocks from the real diff only; use diff blocks with line-anchored annotations on key hunks; for UI changes include realistic WireframeBlock before/after in a Columns block (labels: Before / After); use .diagram-* primitives and --wf-* tokens in diagrams (no hex/rgb/hsl, no custom fonts); keep API endpoint blocks in single-column flow unless it is an explicit before/after contract comparison.",
     ),
   }),
   publicAgent: {
@@ -78,12 +89,18 @@ export default defineAction({
     // guarantees the recap is accessible even if the agent skips the second step.
     const planId = (result as { planId?: string } | null)?.planId;
     const visibility = args.visibility ?? "org";
-    if (planId && visibility !== "private") {
+    if (planId) {
       const db = getDb();
-      await db
-        .update(schema.plans)
-        .set({ visibility })
-        .where(eq(schema.plans.id, planId));
+      const patch: Partial<typeof schema.plans.$inferInsert> = {};
+      if (visibility !== "private") patch.visibility = visibility;
+      if (args.sourceUrl !== undefined)
+        patch.sourceUrl = args.sourceUrl ?? null;
+      if (Object.keys(patch).length > 0) {
+        await db
+          .update(schema.plans)
+          .set(patch)
+          .where(eq(schema.plans.id, planId));
+      }
     }
     return result;
   },

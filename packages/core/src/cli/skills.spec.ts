@@ -78,6 +78,24 @@ describe("agent-native skills", () => {
     ).toMatchObject({ withGithubAction: true });
   });
 
+  it("parses managed instruction update flags for plain skill repos", () => {
+    expect(
+      parseSkillsArgs([
+        "add",
+        "BuilderIO/skills",
+        "--skill",
+        "quick-recap",
+        "--update-instructions",
+      ]),
+    ).toMatchObject({
+      plainSkillNames: ["quick-recap"],
+      updateInstructions: true,
+    });
+    expect(
+      parseSkillsArgs(["add", "BuilderIO/skills", "--no-update-instructions"]),
+    ).toMatchObject({ updateInstructions: false });
+  });
+
   it("parses status/update without prompting for add defaults", () => {
     expect(parseSkillsArgs(["status", "visual-plan"])).toMatchObject({
       command: "status",
@@ -239,7 +257,7 @@ describe("agent-native skills", () => {
           baseDir: root,
           runCommand: async (cmd, args) => {
             commands.push({ cmd, args });
-            if (cmd === "npx" && args.includes("skills@latest")) {
+            if (cmd === "npx" && args.includes("@agent-native/skills@latest")) {
               const source = args[3];
               if (source) {
                 materializedVisualPlan = fs.readFileSync(
@@ -266,6 +284,7 @@ describe("agent-native skills", () => {
       expect(result.skillNames).toEqual(PLANS_SKILL_NAMES);
       expect(commands[0].args).toEqual(
         expect.arrayContaining([
+          "@agent-native/skills@latest",
           "--skill",
           "visual-plan",
           "--skill",
@@ -673,7 +692,7 @@ describe("agent-native skills", () => {
     expect(commands[0].cmd).toBe("npx");
     expect(commands[0].args).toEqual(
       expect.arrayContaining([
-        "skills@latest",
+        "@agent-native/skills@latest",
         "add",
         "--copy",
         "--skill",
@@ -687,6 +706,56 @@ describe("agent-native skills", () => {
       JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"))
         .mcpServers["agent-native-assets"].url,
     ).toBe("https://assets.agent-native.com/_agent-native/mcp");
+  });
+
+  it("delegates plain GitHub skill repos to @agent-native/skills", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[]; stdio?: string }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "BuilderIO/skills",
+        "--skill",
+        "quick-recap",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--update-instructions",
+        "--with-github-action",
+        "--yes",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args, options) => {
+          commands.push({ cmd, args, stdio: options?.stdio });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("BuilderIO/skills");
+    expect(result.mcpUrl).toBe("");
+    expect(result.local).toBe(true);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({ cmd: "npx", stdio: "silent" });
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "@agent-native/skills@latest",
+        "add",
+        "BuilderIO/skills",
+        "--skill",
+        "quick-recap",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--update-instructions",
+        "--with-github-action",
+        "--yes",
+      ]),
+    );
   });
 
   it("prompts for target clients in interactive installs when --client is omitted", async () => {

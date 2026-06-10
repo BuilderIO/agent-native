@@ -367,6 +367,9 @@ export function useCollaborativeDoc(
   // Poll for remote doc updates + awareness sync
   useEffect(() => {
     if (!ydoc || !docId || docMissing) return;
+    // Non-null capture: null branch returned early above; async closures lose
+    // the narrowing on the outer ydoc variable.
+    const doc: Y.Doc = ydoc;
 
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -401,7 +404,7 @@ export function useCollaborativeDoc(
         for (const evt of events) {
           if (evt.source === "collab" && evt.docId === docId && evt.update) {
             if (requestSource && evt.requestSource === requestSource) continue;
-            Y.applyUpdate(ydoc, base64ToUint8Array(evt.update), "remote");
+            Y.applyUpdate(doc, base64ToUint8Array(evt.update), "remote");
 
             // Show agent presence indicator briefly
             if (evt.requestSource === "agent") {
@@ -421,7 +424,7 @@ export function useCollaborativeDoc(
           // The poll ring buffer is process-local. Fetching a state-vector diff
           // makes collaboration durable across serverless invocations, process
           // restarts, or any missed poll event.
-          const stateVector = uint8ArrayToBase64(Y.encodeStateVector(ydoc));
+          const stateVector = uint8ArrayToBase64(Y.encodeStateVector(doc));
           const stateRes = await fetch(
             `${baseUrl}/${docId}/state?stateVector=${encodeURIComponent(
               stateVector,
@@ -434,7 +437,7 @@ export function useCollaborativeDoc(
             if (stateData?.state) {
               const binary = base64ToUint8Array(stateData.state);
               if (binary.length > 2) {
-                Y.applyUpdate(ydoc, binary, "remote");
+                Y.applyUpdate(doc, binary, "remote");
               }
             }
           }
@@ -450,7 +453,7 @@ export function useCollaborativeDoc(
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                clientId: ydoc.clientID,
+                clientId: doc.clientID,
                 state: JSON.stringify(localState),
               }),
             });
@@ -470,7 +473,7 @@ export function useCollaborativeDoc(
               }
               const changes = reconcileRemoteAwarenessStates(
                 awareness.getStates() as Map<number, unknown>,
-                ydoc.clientID,
+                doc.clientID,
                 remoteStates,
               );
               if (
@@ -511,7 +514,7 @@ export function useCollaborativeDoc(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clientId: ydoc.clientID,
+          clientId: doc.clientID,
           state: JSON.stringify(localState),
         }),
         keepalive: true,

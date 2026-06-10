@@ -30,7 +30,9 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
 
-## Start Here
+## Getting started
+
+Live demo: [clips.agent-native.com](https://clips.agent-native.com).
 
 1. **Open Library.** Browse screen recordings, meeting recordings, dictations,
    folders, and spaces from one place.
@@ -65,9 +67,16 @@ The rest of this doc is for anyone forking the Clips template or extending it.
 
 ```bash
 npx @agent-native/core create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+pnpm dev
 ```
 
-Clips is a larger template with a native recorder (it ships a desktop companion for local capture). See the template `README.md` for setup specifics around screen-capture permissions and storage configuration.
+Clips is a larger template with a native recorder (it ships a desktop companion for local capture). Three setup steps are needed before recordings can upload:
+
+1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
+2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
+3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
 
 ### Data model
 

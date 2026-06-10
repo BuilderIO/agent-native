@@ -206,13 +206,12 @@ export function SharedRichEditor({
     // With a custom `setContent` the reconcile seeds the editor too (the raw
     // `value` is not directly settable content — e.g. the plan's blocks JSON),
     // so only the plain markdown path seeds from `value` here.
-    content: collab || setContent ? undefined : value,
+    content: collab || setContent ? null : value,
     editable,
     editorProps: {
       attributes: {
         class: cn("an-rich-md-prose", editorClassName),
-        role: ariaLabel ? "textbox" : undefined,
-        "aria-label": ariaLabel,
+        ...(ariaLabel ? { role: "textbox", "aria-label": ariaLabel } : {}),
       },
     },
     onUpdate: ({ editor, transaction }) => {

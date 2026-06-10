@@ -29,6 +29,7 @@ on:
       - "packages/dispatch/**"
       - "packages/pinpoint/**"
       - "packages/scheduling/**"
+      - "packages/skills/**"
       # Ignored internal packages are not versioned by changesets, but changes
       # here should still exercise release preflight/publish no-op behavior.
       - "packages/code-agents-ui/**"

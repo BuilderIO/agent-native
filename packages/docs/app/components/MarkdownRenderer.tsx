@@ -388,11 +388,11 @@ export default function MarkdownRenderer({ markdown }: Props) {
     const el = articleRef.current;
     if (!el) return;
 
-    const headings = el.querySelectorAll("h2[id], h3[id]");
+    const headings = el.querySelectorAll("h2[id], h3[id], h4[id]");
     for (const heading of headings) {
       if (heading.querySelector(".heading-anchor")) continue;
       const anchor = document.createElement("a");
-      anchor.href = `#${heading.id}`;
+      anchor.href = `#${(heading as HTMLElement).id}`;
       anchor.className = "heading-anchor";
       while (heading.firstChild) {
         anchor.appendChild(heading.firstChild);
@@ -403,6 +403,53 @@ export default function MarkdownRenderer({ markdown }: Props) {
       anchor.appendChild(hash);
       heading.appendChild(anchor);
     }
+  }, [highlightedHtml]);
+
+  // Add copy buttons to code blocks after render
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+
+    function handleCopyClick(e: MouseEvent) {
+      const btn = (e.target as Element).closest<HTMLButtonElement>(
+        "button.code-copy-btn",
+      );
+      if (!btn) return;
+      const wrapper = btn.closest<HTMLElement>(".code-block");
+      if (!wrapper) return;
+      const codeEl = wrapper.querySelector("code");
+      const text = codeEl?.textContent ?? "";
+      navigator.clipboard.writeText(text).catch(() => undefined);
+
+      const checkSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+      const copySvg = btn.dataset.copySvg ?? "";
+      btn.innerHTML = checkSvg;
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.innerHTML = copySvg;
+        btn.disabled = false;
+      }, 2000);
+    }
+
+    el.addEventListener("click", handleCopyClick);
+
+    const copySvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
+    const blocks = el.querySelectorAll<HTMLElement>(".code-block");
+    for (const block of blocks) {
+      if (block.querySelector(".code-copy-btn")) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "code-copy-btn";
+      btn.setAttribute("aria-label", "Copy code");
+      btn.dataset.copySvg = copySvg;
+      btn.innerHTML = copySvg;
+      block.appendChild(btn);
+    }
+
+    return () => {
+      el.removeEventListener("click", handleCopyClick);
+    };
   }, [highlightedHtml]);
 
   useEffect(() => {

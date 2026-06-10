@@ -1,5 +1,12 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap");
+/* Self-hosted via @fontsource-variable/inter and @fontsource/poppins — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+/* Poppins has no variable-font Fontsource package; use static weights */
+@import "@fontsource/poppins/300.css";
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+@import "@fontsource/poppins/800.css";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";

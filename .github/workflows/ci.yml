@@ -58,9 +58,9 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    # Cap the run so a hung test/eval (e.g. brain-evals' LLM-backed
-    # run-demo-eval / run-retrieval-eval stalling on a slow or unavailable
-    # endpoint) fails fast instead of pinning a runner for GitHub's 6h default.
+    # Cap the run so a hung test fails fast instead of pinning a runner for
+    # GitHub's 6h default. Brain evals run in a separate job (brain-evals)
+    # because they require LLM endpoints and a longer bounded timeout.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -76,6 +76,27 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+  brain-evals:
+    name: Brain evals
+    runs-on: ubuntu-latest
+    # Brain evals call live LLM endpoints; keep a tight cap so a stalled eval
+    # doesn't pin the runner indefinitely.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run brain evals
+        run: pnpm test:brain-evals
 
   build:
     name: Build

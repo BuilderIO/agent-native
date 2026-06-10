@@ -147,7 +147,7 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
-      desktop = state.desktop;
+      desktop = state.desktop ?? false;
       flowId = state.flowId;
 
       const googleError = query.error as string | undefined;
@@ -275,7 +275,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
-      desktop = state.desktop;
+      desktop = state.desktop ?? false;
       flowId = state.flowId;
 
       const googleError = query.error as string | undefined;

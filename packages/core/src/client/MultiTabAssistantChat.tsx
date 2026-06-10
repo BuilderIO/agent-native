@@ -2517,6 +2517,16 @@ export function MultiTabAssistantChat({
                   onModelChange={handleModelChange}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}
+                  // Sub-agent tabs are read-only: sending a new message from the
+                  // sub-agent tab would start a fresh run on that thread and kill
+                  // the in-flight team chunk. Disable the composer and show a
+                  // hint so users know to send via the orchestrator chat instead.
+                  composerDisabled={Boolean(parentMap[tabId])}
+                  composerDisabledPlaceholder={
+                    parentMap[tabId]
+                      ? "Send messages to the orchestrator chat — this sub-agent runs automatically"
+                      : undefined
+                  }
                 />
               </div>
             );

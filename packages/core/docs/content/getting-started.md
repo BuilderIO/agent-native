@@ -29,40 +29,43 @@ pnpm install && pnpm dev
 
 The `create` command defaults to a workspace monorepo. It shows a multi-select picker — pick one template or several (Mail + Calendar + Forms, for example) and they all scaffold into one workspace sharing auth, brand, and agent config. If you want one app directory instead, pass `--standalone`.
 
-Open the URL the dev server prints. Workspace apps use app-specific ports, often `http://localhost:8080` or another 808x port; standalone apps usually use `http://localhost:3000`.
+Open the URL the dev server prints. The workspace gateway always starts on port 8080 and serves every app through it; individual apps run on their own ports that are printed at startup. Standalone apps default to `http://localhost:3000`.
 
-### Testing local framework changes {#testing-local-framework-changes}
+### Agent credentials {#agent-credentials}
 
-Framework contributors can scaffold against the current checkout instead of the
-published packages:
+In local development the embedded agent panel picks up your existing Claude Code or Codex CLI login automatically, or reads `ANTHROPIC_API_KEY` from a `.env` file in the project root. The database defaults to SQLite (stored at `data/app.db`) when `DATABASE_URL` is not set, so you can run the full stack with no external services. For production deployments — where you'll want Postgres, a persistent secret, and bring-your-own-key per user — see [Deployment](/docs/deployment).
 
-```bash
-AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
-```
+## What just happened? {#what-just-happened}
 
-With that flag, generated workspaces link both the local `@agent-native/core`
-and local `@agent-native/dispatch` packages. Use it when you need to verify
-unpublished template or package changes end-to-end in a freshly generated
-workspace. The packages run their `prepack` build first, so the linked packages
-serve fresh `dist` output instead of stale build artifacts.
+You now have a real, full-featured app running on your machine. Open it in the browser and try it:
 
-To exercise the repo-local CLI itself without building first, run it through
-the root script:
+- Click around the UI like you would any SaaS product.
+- Open the agent panel on the right side. Type something like "show me my settings" or "create a new entry called Welcome." Watch the agent click through the app on your behalf.
+- Anything you do by clicking, the agent can do by reading and writing the same database. Anything the agent does shows up in the UI immediately.
 
-```bash
-pnpm dev:cli --help
-pnpm dev:cli code goals
-```
+That parity between agent and UI is the whole point — see [What Is Agent-Native?](/docs/what-is-agent-native) for the bigger picture.
 
-## Try it with a skill {#try-with-a-skill}
+## Templates {#templates}
 
-Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with a single command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
+Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
 
-```bash
-npx @agent-native/core@latest skills add visual-plan
-```
+| Template                              | What it is                                                            |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| [Calendar](/docs/template-calendar)   | Agent-native Google Calendar + Calendly-style booking                 |
+| [Content](/docs/template-content)     | Agent-native Notion / Google Docs                                     |
+| [Brain](/docs/template-brain)         | Company chat with cited institutional memory                          |
+| [Assets](/docs/template-assets)       | Brand asset libraries and generated media                             |
+| [Slides](/docs/template-slides)       | Agent-native Google Slides / Pitch                                    |
+| [Video](/docs/template-videos)        | Programmatic motion graphics and product-demo videos on Remotion      |
+| [Analytics](/docs/template-analytics) | Agent-native Amplitude / Mixpanel                                     |
+| [Mail](/docs/template-mail)           | Agent-native Superhuman / Gmail                                       |
+| [Clips](/docs/template-clips)         | Async screen + camera recording with transcription and AI summaries   |
+| [Design](/docs/template-design)       | Agent-native HTML prototyping studio                                  |
+| [Forms](/docs/template-forms)         | Agent-native Typeform                                                 |
+| [Plan](/docs/template-plan)           | Visual plans and PR recaps with diagrams, wireframes, and annotations |
+| [Dispatch](/docs/template-dispatch)   | Workspace control plane — shared secrets, integrations, routing       |
 
-That one command installs the skill instructions, registers the hosted MCP connector, and signs you in — no marketplace browsing, no manual OAuth. Then run `/visual-plan` in your agent. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills, local/offline installs, and how app-backed skills work.
+Browse the [template gallery](/templates) for live demos, or see [Templates](/docs/cloneable-saas) for the full catalog and the clone → customize → deploy flow.
 
 ## Creating vs adding apps {#creating-vs-adding-apps}
 
@@ -90,61 +93,15 @@ To make a second app from the same template, give it a new app name:
 npx @agent-native/core add-app design-lab --template design
 ```
 
-## What just happened? {#what-just-happened}
+## Try it with a skill {#try-with-a-skill}
 
-You now have a real, full-featured app running on your machine. Open it in the browser and try it:
+Don't want to scaffold a whole app yet? Add agent-native superpowers to a coding agent you already use — Claude Code, Codex, or Cursor — with a single command. Installing the **Plans** skill turns the plans your agent writes into structured, reviewable docs with diagrams, wireframes, and inline comments:
 
-- Click around the UI like you would any SaaS product.
-- Open the agent panel on the right side. Type something like "show me my settings" or "create a new entry called Welcome." Watch the agent click through the app on your behalf.
-- Anything you do by clicking, the agent can do by reading and writing the same database. Anything the agent does shows up in the UI immediately.
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
 
-That parity between agent and UI is the whole point — see [What Is Agent-Native?](/docs/what-is-agent-native) for the bigger picture.
-
-## Try one concrete next step {#first-next-step}
-
-From here, use any AI coding tool (Agent-Native Code, Claude Code, Cursor, Windsurf, Builder.io) to customize the app. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
-
-Good first moves:
-
-- **Open Agent-Native Code** — run `npx @agent-native/core@latest` or `npx @agent-native/core@latest code` from the project. A bare command opens the local Claude Code/Codex-like workspace; a bare prompt such as `npx @agent-native/core@latest "rename the app"` starts a Code task directly.
-- **Ask the built-in agent what it sees** — open the agent panel and type "what app am I looking at, and what can you do here?" This verifies the app, UI state, and agent loop are all talking to each other.
-- **Make a tiny customization** — ask your coding tool to rename the app, change the first screen copy, or add one field to a form. It will read `AGENTS.md` for the framework conventions.
-- **Add another app to the same workspace** — use `npx @agent-native/core add-app` from inside the workspace folder. The command starts at `npx`.
-- **Single app instead of a monorepo?** Pass `--standalone` when creating: `npx @agent-native/core create my-app --standalone --template mail`.
-
-Agent-Native Code understands built-in slash goals such as `/migrate` and `/audit`, plus project commands in `.agents/commands/*.md`. Use `agent-native code list`, `status`, `resume`, `stop`, or `ui` to inspect and control the same run from the CLI, the local UI, or the Desktop Code tab.
-
-## Next docs to read {#next-docs}
-
-Once your app is running, the most useful follow-ups are:
-
-- **Connect Slack or email** so you can message your agent from anywhere — see [Messaging](/docs/messaging).
-- **Set up Dispatch as your central inbox** to triage messages and orchestrate across multiple apps — see [Dispatch](/docs/dispatch).
-- **Customize via Workspace** — edit instructions, skills, memory, and connect MCP servers per user — see [Workspace](/docs/workspace).
-- **Troubleshoot common setup questions** — see the [FAQ](/docs/faq).
-- **Understand the architecture** — see [Key Concepts](/docs/key-concepts) for how SQL, actions, polling sync, and context awareness fit together.
-
-## Templates {#templates}
-
-Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
-
-| Template                              | Replaces                                        |
-| ------------------------------------- | ----------------------------------------------- |
-| [Calendar](/docs/template-calendar)   | Google Calendar, Calendly                       |
-| [Content](/docs/template-content)     | Notion, Google Docs                             |
-| [Brain](/docs/template-brain)         | Company chat with cited institutional memory    |
-| [Assets](/docs/template-assets)       | Brand asset libraries and generated media       |
-| [Slides](/docs/template-slides)       | Google Slides, Pitch                            |
-| [Video](/docs/template-videos)        | Remotion-based video editing                    |
-| [Analytics](/docs/template-analytics) | Amplitude, Mixpanel                             |
-| [Mail](/docs/template-mail)           | Superhuman, Gmail                               |
-| [Clips](/docs/template-clips)         | Replaces Loom — screen + camera recording       |
-| [Design](/docs/template-design)       | HTML prototyping studios                        |
-| [Forms](/docs/template-forms)         | Typeform                                        |
-| [Dispatch](/docs/template-dispatch)   | Workspace control plane — integrations, routing |
-| [Starter](/docs/template-starter)     | Minimal scaffold — build from scratch           |
-
-Browse the [template gallery](/templates) for live demos, or see [Templates](/docs/cloneable-saas) for the full list and the clone → customize → deploy flow.
+That one command installs the skill instructions, registers the hosted MCP connector, and signs you in — no marketplace browsing, no manual OAuth. Then run `/visual-plan` in your agent. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for more skills, local/offline installs, and how app-backed skills work.
 
 ## Project structure {#project-structure}
 
@@ -160,13 +117,59 @@ my-app/
 
 Templates add domain-specific code on top: database schemas in `server/db/`, API routes in `server/routes/api/`, and actions in `actions/`. Building from scratch? See [Creating Templates](/docs/creating-templates) for `vite.config.ts`, `tsconfig.json`, and Tailwind setup.
 
+## Next docs to read {#next-docs}
+
+Once your app is running, the most useful follow-ups are:
+
+- **Connect Slack or email** so you can message your agent from anywhere — see [Messaging](/docs/messaging).
+- **Set up Dispatch as your central inbox** to triage messages and orchestrate across multiple apps — see [Dispatch](/docs/dispatch).
+- **Customize via Workspace** — edit instructions, skills, memory, and connect MCP servers per user — see [Workspace](/docs/workspace).
+- **Troubleshoot common setup questions** — see the [FAQ](/docs/faq).
+- **Understand the architecture** — see [Key Concepts](/docs/key-concepts) for how SQL, actions, polling sync, and context awareness fit together.
+
+## Try one concrete next step {#first-next-step}
+
+From here, use any AI coding tool (Agent-Native Code, Claude Code, Cursor, Windsurf, Builder.io) to customize the app. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
+
+Good first moves:
+
+- **Open Agent-Native Code** — run `npx @agent-native/core@latest` or `npx @agent-native/core@latest code` from the project. A bare command opens the local Claude Code/Codex-like workspace; a bare prompt such as `npx @agent-native/core@latest "rename the app"` starts a Code task directly.
+- **Ask the built-in agent what it sees** — open the agent panel and type "what app am I looking at, and what can you do here?" This verifies the app, UI state, and agent loop are all talking to each other.
+- **Make a tiny customization** — ask your coding tool to rename the app, change the first screen copy, or add one field to a form. It will read `AGENTS.md` for the framework conventions.
+- **Add another app to the same workspace** — use `npx @agent-native/core add-app` from inside the workspace folder. The command starts at `npx`.
+- **Single app instead of a monorepo?** Pass `--standalone` when creating: `npx @agent-native/core create my-app --standalone --template mail`.
+
+Agent-Native Code understands built-in slash goals such as `/migrate` and `/audit`, plus project commands in `.agents/commands/*.md`. Use `agent-native code list`, `status`, `resume`, `stop`, or `ui` to inspect and control the same run from the CLI, the local UI, or the Desktop Code tab.
+
 ## Architecture principles {#architecture-principles}
 
-These principles apply to all agent-native apps. Skim them now, revisit them when you're customizing.
+The three principles that apply to every agent-native app:
 
-1. **Agent + UI are equal partners** — Everything the UI can do, the agent can do, and vice versa. They share the same database and always stay in sync. You don't think about "the agent" and "the app" separately — you think about them together.
-2. **Context-aware** — The agent always knows what you're looking at. If an email is open, it knows which one. If you select text and hit Cmd+I, it can act on just that selection.
-3. **Skills-driven** — Core functionality has written instructions so the agent doesn't explore from scratch every time. New features update all four areas: UI, actions, skills/instructions, and application state.
-4. **Inter-agent communication** — Agents can discover and call each other via the A2A protocol. Tag your analytics agent from the mail app to pull data into a draft.
-5. **Fully portable** — Any SQL database Drizzle supports, any hosting backend Nitro supports, any AI coding tool. These are non-negotiable.
-6. **Fork and customize** — Apps you clone and evolve. The agent can modify the app's own code — components, routes, styles, actions — so it gets better over time.
+- **Agent + UI are equal partners** — everything the UI can do, the agent can do, and vice versa; they share the same database.
+- **Everything is an action** — agent tools, UI mutations, HTTP endpoints, MCP tools, and CLI commands are all the same `defineAction()` definition.
+- **All state in SQL** — app state, navigation, drafts, and settings live in the database so both agent and UI always see the same picture.
+
+The definitive six rules are in [Key Concepts](/docs/key-concepts).
+
+## Testing local framework changes {#testing-local-framework-changes}
+
+Framework contributors can scaffold against the current checkout instead of the
+published packages:
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+With that flag, generated workspaces link both the local `@agent-native/core`
+and local `@agent-native/dispatch` packages. Use it when you need to verify
+unpublished template or package changes end-to-end in a freshly generated
+workspace. The packages run their `prepack` build first, so the linked packages
+serve fresh `dist` output instead of stale build artifacts.
+
+To exercise the repo-local CLI itself without building first, run it through
+the root script:
+
+```bash
+pnpm dev:cli --help
+pnpm dev:cli code goals
+```

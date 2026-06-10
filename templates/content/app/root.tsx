@@ -9,19 +9,17 @@ import {
   useRouteError,
 } from "react-router";
 import { useCallback, useEffect, useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
-import { useTheme } from "next-themes";
 import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import {
-  ClientOnly,
-  DefaultSpinner,
   AgentSidebar,
+  AppProviders,
   appPath,
   CommandMenu,
+  createAgentNativeQueryClient,
+  getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { useDbSync } from "./hooks/use-db-sync";
@@ -29,7 +27,6 @@ import { useNavigationState } from "./hooks/use-navigation-state";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -41,6 +38,7 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
+// Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
 const themeOptions = [
@@ -207,50 +205,44 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const location = useLocation();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
-  if (location.pathname.startsWith("/p/")) {
+  // Public document paths (/p/*) SSR real content without the ClientOnly gate
+  // so crawlers and unauthenticated visitors receive full markup on first visit.
+  const isPublicPath = location.pathname.startsWith("/p/");
+
+  if (isPublicPath) {
     return (
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner closeButton position="bottom-left" />
-            <PublicAgentShell>
-              <Outlet />
-            </PublicAgentShell>
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
+      <AppProviders queryClient={queryClient} isPublicPath>
+        <Toaster />
+        <Sonner closeButton position="bottom-left" />
+        <PublicAgentShell>
+          <Outlet />
+        </PublicAgentShell>
+      </AppProviders>
     );
   }
 
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <QueryClientProvider client={queryClient}>
-          <AppSetup />
-          <TooltipProvider>
-            <Toaster />
-            <Sonner closeButton position="bottom-left" />
-            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Content">
-                <CommandMenu.Item onSelect={() => {}}>
-                  Search documents
-                </CommandMenu.Item>
-              </CommandMenu.Group>
-              <CommandMenu.Group heading="Appearance">
-                <ThemeToggleItem />
-              </CommandMenu.Group>
-            </CommandMenu>
-            <Outlet />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ClientOnly>
+    <AppProviders queryClient={queryClient}>
+      <AppSetup />
+      <Toaster />
+      <Sonner closeButton position="bottom-left" />
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Content">
+          <CommandMenu.Item onSelect={() => {}}>
+            Search documents
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <ThemeToggleItem />
+        </CommandMenu.Group>
+      </CommandMenu>
+      <Outlet />
+    </AppProviders>
   );
 }
 

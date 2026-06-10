@@ -9,7 +9,7 @@ import {
 } from "../components/TemplateCard";
 
 const quickStartCode = `# Fork a template and start building
-npx @agent-native/core create my-app --template mail
+npx @agent-native/core@latest create my-app --template mail
 cd my-app
 pnpm install
 pnpm dev`;
@@ -19,7 +19,7 @@ npx @agent-native/core@latest skills add visual-plan`;
 
 function TerminalCommand() {
   const [copied, setCopied] = useState(false);
-  const command = "npx @agent-native/core create my-app";
+  const command = "npx @agent-native/core@latest create my-app";
 
   function handleCopy() {
     navigator.clipboard.writeText(command);

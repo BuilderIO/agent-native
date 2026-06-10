@@ -663,6 +663,37 @@ h4 {
 /* Shiki code blocks */
 .code-block {
   margin: 16px 0;
+  position: relative;
+}
+
+/* Copy button injected by MarkdownRenderer into .code-block wrappers */
+.code-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--code-border);
+  background: var(--code-bg);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease;
+}
+
+.code-block:hover .code-copy-btn {
+  opacity: 1;
+}
+
+.code-copy-btn:hover {
+  color: var(--fg);
 }
 
 .code-block pre {

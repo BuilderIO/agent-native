@@ -32,8 +32,16 @@ import {
   resolveOrgByDomain,
 } from "./context.js";
 
-// A throwaway H3-like event; getSession is fully mocked so the shape is unused.
-const EVENT = {} as any;
+// Factory so each test gets a fresh event object — getOrgContext is per-event
+// memoized on event.context, so sharing a module-level object would bleed
+// cached results across tests.
+function makeEvent() {
+  return { context: {} } as any;
+}
+
+// Backwards-compat alias used by tests that don't need a fresh object each
+// time but still pass through the factory so the cache is always clean.
+let EVENT: ReturnType<typeof makeEvent>;
 
 function queueSelect(...rows: any[][]) {
   for (const r of rows) {
@@ -48,6 +56,8 @@ describe("getOrgContext", () => {
     mockGetUserSetting.mockResolvedValue(null);
     mockGetSetting.mockResolvedValue(null);
     delete process.env.AUTO_CREATE_DEFAULT_ORG;
+    // Fresh event per test so per-event memoization doesn't bleed.
+    EVENT = makeEvent();
   });
 
   it("returns the empty context for an unauthenticated request", async () => {
@@ -217,6 +227,49 @@ describe("getOrgContext", () => {
         orgName: null,
         role: null,
       });
+    });
+  });
+
+  describe("per-event memoization", () => {
+    it("returns the same result for two calls on the same event without an extra DB query", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "memo@example.com",
+        // No orgId: forces a real org_members lookup.
+      });
+      queueSelect([{ orgId: "org-memo", role: "owner", orgName: "Memo Co" }]);
+
+      const event = makeEvent();
+      const [ctx1, ctx2] = await Promise.all([
+        getOrgContext(event),
+        getOrgContext(event),
+      ]);
+
+      // Both calls return the same resolved value.
+      expect(ctx1).toBe(ctx2); // identical reference, not just deep-equal
+      // Only one DB round trip, not two.
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT share the cache between two different event objects", async () => {
+      mockGetSession.mockResolvedValue({ email: "split@example.com" });
+      mockExecute
+        .mockResolvedValueOnce({
+          rows: [{ orgId: "org-a", role: "owner", orgName: "Org A" }],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ orgId: "org-b", role: "member", orgName: "Org B" }],
+        });
+
+      const eventA = makeEvent();
+      const eventB = makeEvent();
+      const [ctxA, ctxB] = await Promise.all([
+        getOrgContext(eventA),
+        getOrgContext(eventB),
+      ]);
+
+      expect(ctxA.orgId).toBe("org-a");
+      expect(ctxB.orgId).toBe("org-b");
+      expect(mockExecute).toHaveBeenCalledTimes(2);
     });
   });
 

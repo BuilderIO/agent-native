@@ -29,13 +29,10 @@ export default function MobileDocsNav() {
   const location = useLocation();
 
   const currentPath = location.pathname;
+  const norm = currentPath.replace(/\/+$/, "") || "/";
+
   const currentItem =
-    NAV_ITEMS.find((item) => {
-      if (item.to === "/docs") {
-        return currentPath === "/docs" || currentPath === "/docs/";
-      }
-      return currentPath.startsWith(item.to);
-    }) ?? NAV_ITEMS[0];
+    NAV_ITEMS.find((item) => norm === item.to) ?? NAV_ITEMS[0];
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

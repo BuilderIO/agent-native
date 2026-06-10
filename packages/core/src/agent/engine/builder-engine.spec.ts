@@ -204,9 +204,23 @@ describe("createBuilderEngine", () => {
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
     expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
-    expect(body.system).toBe("You are helpful.");
+    // With prompt caching enabled the system prompt is wrapped in an array
+    // with a cache_control block on the last element.
+    expect(body.system).toEqual([
+      {
+        type: "text",
+        text: "You are helpful.",
+        cache_control: { type: "ephemeral" },
+      },
+    ]);
+    // Message should have a cache_control block on its last content element.
     expect(body.messages).toEqual([
-      { role: "user", content: [{ type: "text", text: "Hi" }] },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Hi", cache_control: { type: "ephemeral" } },
+        ],
+      },
     ]);
   });
 

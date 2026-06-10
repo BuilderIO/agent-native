@@ -30,8 +30,10 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
+// react-markdown + remark-gfm type imports only — loaded lazily below.
+import type { default as ReactMarkdownType } from "react-markdown";
+import type { defaultUrlTransform as DefaultUrlTransformType } from "react-markdown";
+import type remarkGfmType from "remark-gfm";
 import {
   createAgentChatAdapter,
   type AgentChatSurfaceKind,
@@ -56,6 +58,8 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../shared/streaming-text-smoothing.js";
+import { splitMarkdownBlocks } from "../shared/markdown-block-split.js";
+import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "./HighlightedCodeBlock.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type {
   ChatThreadScope,
@@ -80,6 +84,12 @@ import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
 import { humanizeToolName } from "./tool-display.js";
+import {
+  BashCell,
+  EditCell,
+  FilesChangedSummary,
+  WriteCell,
+} from "./tool-cells/index.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
@@ -173,6 +183,44 @@ export {
   isAssistantUiStaleIndexError,
 } from "./assistant-ui-recovery.js";
 
+// ─── Lazy markdown loader ────────────────────────────────────────────────────
+// react-markdown + remark-gfm are deferred so they stay off the critical path
+// of every page. The loader fires as soon as this module is evaluated (i.e.
+// when the lazy AssistantChat chunk lands — not at initial page parse).
+// This mirrors the existing shiki lazy-load pattern further below.
+
+type ReactMarkdownModule = {
+  default: typeof ReactMarkdownType;
+  defaultUrlTransform: typeof DefaultUrlTransformType;
+};
+
+let markdownModule: ReactMarkdownModule | null = null;
+let remarkGfmFn: typeof remarkGfmType | null = null;
+const markdownListeners = new Set<() => void>();
+
+function loadMarkdown(): void {
+  if (markdownModule !== null) return; // already loaded
+  Promise.all([import("react-markdown"), import("remark-gfm")]).then(
+    ([md, gfm]) => {
+      markdownModule = md as ReactMarkdownModule;
+      remarkGfmFn = gfm.default;
+      markdownListeners.forEach((fn) => fn());
+      markdownListeners.clear();
+    },
+  );
+}
+
+function onMarkdownReady(fn: () => void): () => void {
+  if (markdownModule !== null) {
+    fn();
+    return () => {};
+  }
+  markdownListeners.add(fn);
+  return () => markdownListeners.delete(fn);
+}
+
+loadMarkdown();
+
 class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   public accept = "image/*";
 
@@ -207,6 +255,10 @@ class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   }
 }
 
+// Maximum PDF/document size (4 MB). Larger PDFs would bloat the JSON POST
+// body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).
+const MAX_PDF_BYTES = 4 * 1024 * 1024;
+
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public accept = "application/pdf,.pdf";
 
@@ -224,6 +276,13 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public async send(
     attachment: PendingAttachment,
   ): Promise<CompleteAttachment> {
+    if (attachment.file && attachment.file.size > MAX_PDF_BYTES) {
+      const mb = (attachment.file.size / 1024 / 1024).toFixed(1);
+      const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
+      throw new Error(
+        `"${attachment.name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`,
+      );
+    }
     return {
       ...attachment,
       status: { type: "complete" },
@@ -264,6 +323,21 @@ function getFileDataURL(file: File | Blob): Promise<string> {
 // images on the client before we ever serialize them.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
+// Estimated total serialized body budget (JSON POST). Vercel/Netlify cap ~4.5 MB.
+// We stop well below to leave room for the text payload and JSON framing.
+const MAX_ESTIMATED_BODY_BYTES = 3.5 * 1024 * 1024;
+// At 3.5 MB of serializable attachments, aggressively re-downscale images.
+const AGGRESSIVE_MAX_IMAGE_DIMENSION = 1024;
+const AGGRESSIVE_JPEG_QUALITY = 0.7;
+
+/** MIME types that vision models accept natively (no canvas transcoding needed). */
+const WEB_SAFE_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -274,19 +348,34 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-async function getImageFileDataURL(file: File): Promise<string> {
-  if (file.size <= MAX_IMAGE_BYTES) {
-    return getFileDataURL(file);
-  }
-  if (typeof document === "undefined" || typeof Image === "undefined") {
-    return getFileDataURL(file);
-  }
+/**
+ * Returns true when the MIME type is natively accepted by vision APIs
+ * (jpeg / png / gif / webp). HEIC, TIFF, AVIF, BMP, etc. return false.
+ */
+function isWebSafeImageType(mimeType: string): boolean {
+  return WEB_SAFE_IMAGE_TYPES.has(mimeType.toLowerCase());
+}
+
+/**
+ * Transcode an image to a web-safe JPEG or PNG via canvas and return its
+ * data-URL. Throws if canvas is unavailable.
+ */
+async function transcodeImageToDataURL(
+  file: File,
+  opts: {
+    maxDimension?: number;
+    jpegQuality?: number;
+  } = {},
+): Promise<string> {
+  const maxDimension = opts.maxDimension ?? MAX_IMAGE_DIMENSION;
+  const jpegQuality = opts.jpegQuality ?? 0.85;
+
   const objectUrl = URL.createObjectURL(file);
   try {
     const img = await loadImage(objectUrl);
     const ratio = Math.min(
-      MAX_IMAGE_DIMENSION / img.naturalWidth,
-      MAX_IMAGE_DIMENSION / img.naturalHeight,
+      maxDimension / img.naturalWidth,
+      maxDimension / img.naturalHeight,
       1,
     );
     const width = Math.max(1, Math.round(img.naturalWidth * ratio));
@@ -295,18 +384,70 @@ async function getImageFileDataURL(file: File): Promise<string> {
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return getFileDataURL(file);
-    }
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
     ctx.drawImage(img, 0, 0, width, height);
-    const useJpeg =
-      file.type !== "image/png" || file.size > MAX_IMAGE_BYTES * 2;
-    return canvas.toDataURL(useJpeg ? "image/jpeg" : "image/png", 0.85);
-  } catch {
-    return getFileDataURL(file);
+    const keepPng =
+      file.type === "image/png" && file.size <= MAX_IMAGE_BYTES * 2;
+    return canvas.toDataURL(keepPng ? "image/png" : "image/jpeg", jpegQuality);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+/**
+ * Return a web-safe, size-bounded data-URL for an image file.
+ *
+ * - Always transcodes formats that vision APIs reject (HEIC, TIFF, AVIF, BMP, …)
+ *   to JPEG/PNG via canvas, regardless of file size.
+ * - Also downscales files over MAX_IMAGE_BYTES so large screenshots/photos
+ *   don't blow up the request body.
+ * - Throws (does NOT silently fall back) when the format is non-web-safe and
+ *   canvas transcoding fails — the adapter should surface a visible error.
+ */
+async function getImageFileDataURL(file: File): Promise<string> {
+  const needsTranscode = !isWebSafeImageType(file.type);
+  const tooBig = file.size > MAX_IMAGE_BYTES;
+
+  if (!needsTranscode && !tooBig) {
+    // Already a supported type and within size budget — serve raw.
+    return getFileDataURL(file);
+  }
+
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    if (needsTranscode) {
+      // Can't transcode server-side — surface an error rather than silently
+      // attaching garbage bytes that the model cannot decode.
+      throw new Error(
+        `"${file.name}" is a ${file.type || "unknown"} image. Only JPEG, PNG, GIF, and WebP are supported in this environment.`,
+      );
+    }
+    // Can't downscale but the type is fine — send raw and hope for the best.
+    return getFileDataURL(file);
+  }
+
+  // Transcode via canvas. Throws on decode failure for non-web-safe types
+  // so the adapter can surface a visible error; falls back to raw for
+  // oversized-but-supported types (the older behaviour).
+  try {
+    return await transcodeImageToDataURL(file);
+  } catch (err) {
+    if (needsTranscode) {
+      // Re-throw so the DownscalingImageAttachmentAdapter.send() can surface it.
+      throw err;
+    }
+    // Safe type, just couldn't downscale — fall back to the raw file.
+    return getFileDataURL(file);
+  }
+}
+
+/**
+ * Estimate the serialized byte cost of a collection of attachment data-URLs
+ * (base64 strings, accounting for JSON string escaping overhead).
+ */
+function estimateAttachmentBodyBytes(dataUrls: string[]): number {
+  // JSON.stringify adds ~2 bytes of quotes per string; base64 is already
+  // accounted for in the string length. Add 15% for JSON framing.
+  return dataUrls.reduce((sum, url) => sum + url.length, 0) * 1.15;
 }
 
 type QueuedAttachment = CompleteAttachment;
@@ -887,10 +1028,12 @@ let highlighterLoader: Promise<ShikiHighlighter> | null = null;
 function loadHighlighter(): Promise<ShikiHighlighter> {
   if (!highlighterLoader) {
     highlighterLoader = (async () => {
-      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
+      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
+      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
+      const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
         await Promise.all([
           import("shiki/core"),
-          import("shiki/engine/oniguruma"),
+          import("shiki/engine/javascript"),
         ]);
       return createHighlighterCore({
         themes: [
@@ -912,7 +1055,7 @@ function loadHighlighter(): Promise<ShikiHighlighter> {
           import("shiki/langs/yaml.mjs"),
           import("shiki/langs/sql.mjs"),
         ],
-        engine: createOnigurumaEngine(import("shiki/wasm")),
+        engine: createJavaScriptRegexEngine({ forgiving: true }),
       }) as unknown as Promise<ShikiHighlighter>;
     })().catch((error) => {
       // Reset on failure so a future code block can retry instead of
@@ -928,63 +1071,26 @@ import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
-// Map a few common aliases to languages we bundled above.
-const LANG_ALIASES: Record<string, string> = {
-  js: "javascript",
-  ts: "typescript",
-  sh: "bash",
-  shell: "bash",
-  zsh: "bash",
-  py: "python",
-  yml: "yaml",
-  md: "markdown",
-  bq: "sql",
-  bigquery: "sql",
-};
+// Declared early so HighlightedCodeBlock (used in markdownComponents below) can
+// read the current streaming state without the components object needing to be
+// rebuilt on every render.  Provided by SmoothMarkdownText's parent context.
+const TextStreamingContext = React.createContext(false);
 
+/**
+ * Wrapper around the shared HighlightedCodeBlock that reads the streaming state
+ * from context so markdownComponents (a static constant) can opt into debounced
+ * highlighting without needing to be rebuilt on every render.
+ */
 function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
-  const [html, setHtml] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    loadHighlighter()
-      .then((highlighter) => {
-        const requested = (lang || "text").toLowerCase();
-        const resolved = LANG_ALIASES[requested] ?? requested;
-        const loaded = highlighter.getLoadedLanguages();
-        const finalLang = loaded.includes(resolved) ? resolved : "text";
-        return highlighter.codeToHtml(code, {
-          lang: finalLang,
-          themes: {
-            light: "github-light-default",
-            dark: "github-dark-default",
-          },
-          defaultColor: false,
-        });
-      })
-      .then((out) => {
-        if (!cancelled) setHtml(out);
-      })
-      .catch(() => {
-        // Unknown language or other shiki failure — fall back to plain pre.
-        if (!cancelled) setHtml(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [code, lang]);
-
-  if (html) {
-    return (
-      <div
-        className="agent-markdown-shiki"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
-  }
+  const streaming = React.useContext(TextStreamingContext);
   return (
-    <pre>
-      <code className={lang ? `language-${lang}` : undefined}>{code}</code>
-    </pre>
+    <SharedHighlightedCodeBlock
+      code={code}
+      lang={lang}
+      containerClass="agent-markdown-shiki"
+      streaming={streaming}
+      loadHighlighter={loadHighlighter}
+    />
   );
 }
 
@@ -1085,12 +1191,13 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
 // isn't on its safe list (https, mailto, etc.). Our in-app pseudo-href
 // `agent-native:new-chat` would be blanked out by that, so let it through
 // while delegating every other URL to the default transform for sanitization.
+// Falls back to the value unchanged when the react-markdown module hasn't
+// landed yet (conservative: no stripping beats an empty href).
 function markdownUrlTransform(value: string): string {
   if (value === NEW_CHAT_ACTION_HREF) return value;
-  return defaultUrlTransform(value);
+  if (!markdownModule) return value;
+  return markdownModule.defaultUrlTransform(value);
 }
-
-const TextStreamingContext = React.createContext(false);
 
 function usePrefersReducedMotion(): boolean {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
@@ -1286,10 +1393,71 @@ function useSmoothStreamingText(
     scheduleFrame,
   ]);
 
+  // When the tab returns from background, rAF has been paused and the backlog
+  // may be tens of thousands of characters. Animating from where we left off
+  // would replay minutes of content at the normal rate — instead jump the
+  // cursor to near the tail so only the final ~200 graphemes animate in.
+  // Reduced-motion users already get instant reveals (handled above), so this
+  // guard only applies to the normal animation path.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!streaming || prefersReducedMotion) return;
+      const graphemes = targetGraphemesRef.current;
+      const backlog = graphemes.length - visibleCountRef.current;
+      const BACKGROUND_CATCH_UP_THRESHOLD = 2000;
+      const BACKGROUND_TAIL_GRAPHEMES = 200;
+      if (backlog > BACKGROUND_CATCH_UP_THRESHOLD) {
+        commitVisibleCount(
+          Math.max(0, graphemes.length - BACKGROUND_TAIL_GRAPHEMES),
+        );
+        lastCommitAtRef.current = 0;
+        pauseUntilRef.current = 0;
+        scheduleFrame();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [streaming, prefersReducedMotion, commitVisibleCount, scheduleFrame]);
+
   useEffect(() => cancelFrame, [cancelFrame]);
 
   return visibleText;
 }
+
+function useMarkdownReady(): boolean {
+  const [ready, setReady] = useState(() => markdownModule !== null);
+  useEffect(() => {
+    if (markdownModule !== null) return;
+    return onMarkdownReady(() => setReady(true));
+  }, []);
+  return ready;
+}
+
+/**
+ * Renders a single stable markdown block.  Wrapped in React.memo so React
+ * skips re-rendering completed blocks when only the tail changes.
+ */
+const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
+  blockText,
+}: {
+  blockText: string;
+}) {
+  const ReactMarkdown = markdownModule?.default;
+  const gfm = remarkGfmFn;
+  if (!ReactMarkdown || !gfm) return null;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[gfm]}
+      components={markdownComponents}
+      urlTransform={markdownUrlTransform}
+    >
+      {blockText}
+    </ReactMarkdown>
+  );
+});
 
 function SmoothMarkdownText({
   text,
@@ -1306,8 +1474,21 @@ function SmoothMarkdownText({
     injectMarkdownStyles();
   }, []);
 
+  const mdReady = useMarkdownReady();
   const visibleText = useSmoothStreamingText(text, streaming, resetKey);
   const isVisuallyStreaming = streaming && visibleText !== text;
+  const ReactMarkdown = markdownModule?.default;
+  const gfm = remarkGfmFn;
+
+  // Block-memoized rendering: during streaming split the visible text into
+  // stable completed blocks + an in-progress tail.  Only the tail re-renders
+  // on every commit; completed blocks are React.memo'd and skipped.
+  // On completion we fall through to a single ReactMarkdown pass to guarantee
+  // byte-identical final output (no block-split artifacts).
+  const split = useMemo(
+    () => (isVisuallyStreaming ? splitMarkdownBlocks(visibleText) : null),
+    [isVisuallyStreaming, visibleText],
+  );
 
   return (
     <div
@@ -1315,13 +1496,39 @@ function SmoothMarkdownText({
       data-status={statusType}
       data-streaming={isVisuallyStreaming ? "true" : undefined}
     >
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={markdownComponents}
-        urlTransform={markdownUrlTransform}
-      >
-        {visibleText}
-      </ReactMarkdown>
+      {mdReady && ReactMarkdown && gfm ? (
+        split ? (
+          // Streaming: render completed blocks (memoized) + live tail block
+          <>
+            {split.completedBlocks.map((block, i) => (
+              <MemoizedMarkdownBlock key={i} blockText={block} />
+            ))}
+            {split.tail ? (
+              <ReactMarkdown
+                remarkPlugins={[gfm]}
+                components={markdownComponents}
+                urlTransform={markdownUrlTransform}
+              >
+                {split.tail}
+              </ReactMarkdown>
+            ) : null}
+          </>
+        ) : (
+          // Not streaming (or streaming complete): single-pass render
+          <ReactMarkdown
+            remarkPlugins={[gfm]}
+            components={markdownComponents}
+            urlTransform={markdownUrlTransform}
+          >
+            {visibleText}
+          </ReactMarkdown>
+        )
+      ) : (
+        // Plain text while the react-markdown chunk is in flight.
+        // The chunk is already being fetched by loadMarkdown() above, so
+        // this placeholder is typically only visible for one render frame.
+        <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
+      )}
     </div>
   );
 }
@@ -1352,6 +1559,12 @@ function MarkdownText() {
 
 function getImageAttachmentSrc(attachment: Attachment): string | null {
   if (attachment.type !== "image") return null;
+
+  // Prefer the hosted URL when the server already uploaded this attachment.
+  const uploadUrl = (attachment as any).metadata?.uploadUrl as
+    | string
+    | undefined;
+  if (uploadUrl) return uploadUrl;
 
   if ("file" in attachment && attachment.file) {
     return URL.createObjectURL(attachment.file);
@@ -1741,6 +1954,70 @@ function ToolCallDisplay({
   result,
   mcpApp,
   isRunning,
+  structuredMeta,
+}: {
+  toolName: string;
+  argsText?: string;
+  args: Record<string, unknown>;
+  result?: string;
+  mcpApp?: AgentMcpAppPayload;
+  isRunning: boolean;
+  structuredMeta?: Record<string, unknown>;
+}) {
+  // Delegate to bespoke cells when structured metadata is present.
+  // These must be separate components so hook order in ToolCallDisplayGeneric
+  // is always stable (no conditional hook calls).
+  const toolKind = structuredMeta?.toolKind as string | undefined;
+  if (toolKind === "bash") {
+    return (
+      <BashCell
+        meta={
+          structuredMeta as unknown as Parameters<typeof BashCell>[0]["meta"]
+        }
+        output={result}
+        isRunning={isRunning}
+      />
+    );
+  }
+  if (toolKind === "edit") {
+    return (
+      <EditCell
+        meta={
+          structuredMeta as unknown as Parameters<typeof EditCell>[0]["meta"]
+        }
+        isRunning={isRunning}
+      />
+    );
+  }
+  if (toolKind === "write") {
+    return (
+      <WriteCell
+        meta={
+          structuredMeta as unknown as Parameters<typeof WriteCell>[0]["meta"]
+        }
+        isRunning={isRunning}
+      />
+    );
+  }
+  return (
+    <ToolCallDisplayGeneric
+      toolName={toolName}
+      argsText={argsText}
+      args={args}
+      result={result}
+      mcpApp={mcpApp}
+      isRunning={isRunning}
+    />
+  );
+}
+
+function ToolCallDisplayGeneric({
+  toolName,
+  argsText,
+  args,
+  result,
+  mcpApp,
+  isRunning,
 }: {
   toolName: string;
   argsText?: string;
@@ -1750,6 +2027,7 @@ function ToolCallDisplay({
   isRunning: boolean;
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
+
   const isAgentCall = toolName.startsWith("agent:");
   const [expanded, setExpanded] = useState(isAgentCall);
   const agentName = isAgentCall ? toolName.slice(6) : null;
@@ -1885,13 +2163,17 @@ function ToolCallDisplay({
           ref={streamRef}
           className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
         >
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={markdownComponents}
-            urlTransform={markdownUrlTransform}
-          >
-            {agentStreamText}
-          </ReactMarkdown>
+          {markdownModule?.default && remarkGfmFn ? (
+            <markdownModule.default
+              remarkPlugins={[remarkGfmFn]}
+              components={markdownComponents}
+              urlTransform={markdownUrlTransform}
+            >
+              {agentStreamText}
+            </markdownModule.default>
+          ) : (
+            <span style={{ whiteSpace: "pre-wrap" }}>{agentStreamText}</span>
+          )}
         </div>
       )}
       {isExpanded && !isAgentCall && (hasArgs || result !== undefined) && (
@@ -1910,7 +2192,10 @@ function ToolCallFallback({
   argsText,
   result,
   ...rest
-}: ToolCallMessagePartProps & { mcpApp?: AgentMcpAppPayload }) {
+}: ToolCallMessagePartProps & {
+  mcpApp?: AgentMcpAppPayload;
+  structuredMeta?: Record<string, unknown>;
+}) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning = result === undefined && chatRunning;
   return (
@@ -1926,6 +2211,7 @@ function ToolCallFallback({
             : undefined
       }
       mcpApp={rest.mcpApp}
+      structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
     />
   );
@@ -1962,6 +2248,7 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
                 args={part.args}
                 result={part.result}
                 mcpApp={part.mcpApp}
+                structuredMeta={part.structuredMeta}
                 isRunning={part.result === undefined && chatRunning}
               />
             );
@@ -2096,11 +2383,18 @@ function UserMessageAttachments() {
           return <PastedTextChip key={att.id} attachment={att} compact />;
         }
 
+        // Prefer the hosted upload URL when available (set by the server after
+        // preUploadAttachments). This avoids re-shipping base64 in each poll
+        // and lets the browser cache the image via a stable URL.
+        const uploadUrl = (att as any).metadata?.uploadUrl as
+          | string
+          | undefined;
         const imagePart = att.content?.find(
           (p): p is { type: "image"; image: string } =>
             p.type === "image" && "image" in p && !!p.image,
         );
-        if (imagePart) {
+        const imageSrc = uploadUrl || imagePart?.image || null;
+        if (imageSrc) {
           return (
             <div
               key={att.id}
@@ -2108,7 +2402,7 @@ function UserMessageAttachments() {
               title={att.name}
             >
               <img
-                src={imagePart.image}
+                src={imageSrc}
                 alt={att.name}
                 className="h-full w-full object-cover"
               />
@@ -2445,6 +2739,18 @@ function AssistantMessage() {
 
   const showRestore = cpCtx?.devMode && isComplete && !isLast;
 
+  // Collect parts for the files-changed summary (code-agent turns only).
+  const msgContent = msg.content as ContentPart[] | undefined;
+  const hasCodeAgentTools =
+    Array.isArray(msgContent) &&
+    msgContent.some(
+      (p) =>
+        p.type === "tool-call" &&
+        p.structuredMeta &&
+        (p.structuredMeta.toolKind === "edit" ||
+          p.structuredMeta.toolKind === "write"),
+    );
+
   return (
     <div
       className="group relative"
@@ -2459,6 +2765,9 @@ function AssistantMessage() {
             },
           }}
         />
+        {isComplete && hasCodeAgentTools && msgContent && (
+          <FilesChangedSummary parts={msgContent} />
+        )}
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
@@ -3740,6 +4049,74 @@ import {
 } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
+/**
+ * Strip raw base64 payload from attachment content parts when a hosted URL
+ * already exists in the same content entry. This keeps the periodic thread
+ * save payload compact — the server already stored the URL reference when it
+ * processed the POST, and re-shipping multi-megabyte base64 strings on every
+ * 5-second poll save balloons the SQL thread_data column unnecessarily.
+ *
+ * Only strips the raw base64 data-URL string from `content[].image` / `content[].data`
+ * when a `metadata.uploadUrl` reference is present on the same attachment object,
+ * so the transcript can still render from the hosted URL after hydration.
+ */
+function stripBase64FromRepo(repo: unknown): unknown {
+  if (!repo || typeof repo !== "object") return repo;
+  const r = repo as Record<string, unknown>;
+  if (!Array.isArray(r.messages)) return repo;
+
+  const messages = r.messages.map((entry: unknown) => {
+    if (!entry || typeof entry !== "object") return entry;
+    const e = entry as Record<string, unknown>;
+    const msg = (e.message ?? e) as Record<string, unknown> | null;
+    if (!msg || typeof msg !== "object") return entry;
+
+    const attachments = msg.attachments;
+    if (!Array.isArray(attachments)) return entry;
+
+    const strippedAttachments = attachments.map((att: unknown) => {
+      if (!att || typeof att !== "object") return att;
+      const a = att as Record<string, unknown>;
+      const meta = a.metadata as Record<string, unknown> | undefined;
+      // Only strip when we have a hosted upload URL confirmed by the server.
+      if (!meta?.uploadUrl) return att;
+
+      if (!Array.isArray(a.content)) return att;
+      const strippedContent = a.content.map((part: unknown) => {
+        if (!part || typeof part !== "object") return part;
+        const p = part as Record<string, unknown>;
+        // Replace the raw base64 image data-URL with the hosted URL.
+        if (
+          p.type === "image" &&
+          typeof p.image === "string" &&
+          p.image.startsWith("data:")
+        ) {
+          return { ...p, image: meta.uploadUrl };
+        }
+        // Replace the raw base64 file data with a stripped marker.
+        if (
+          p.type === "file" &&
+          typeof p.data === "string" &&
+          p.data.startsWith("data:")
+        ) {
+          const { data: _d, ...rest } = p;
+          return { ...rest, url: meta.uploadUrl };
+        }
+        return part;
+      });
+      return { ...a, content: strippedContent };
+    });
+
+    const strippedMsg = { ...msg, attachments: strippedAttachments };
+    if (e.message !== undefined) {
+      return { ...e, message: strippedMsg };
+    }
+    return strippedMsg;
+  });
+
+  return { ...r, messages };
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -3820,6 +4197,10 @@ const AssistantChatInner = forwardRef<
   // attachment strip otherwise navigate to the file (browser default), which
   // is why "upload does nothing" — the chat refreshes to the dropped image.
   const [dropActive, setDropActive] = useState(false);
+  // Inline error shown just above the composer for attachment failures
+  // (unsupported format, size cap, body-size rejection, drop errors).
+  // Cleared on the next message send.
+  const [composerError, setComposerError] = useState<string | null>(null);
   const dropDepthRef = useRef(0);
   const handleChatDragEnter = useCallback((e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
@@ -3862,10 +4243,14 @@ const AssistantChatInner = forwardRef<
       void Promise.all(
         attachments.map((file) => composerRuntime.addAttachment(file)),
       ).catch((error) => {
-        console.error("Error adding dropped chat attachment:", error);
+        const msg =
+          error instanceof Error
+            ? error.message
+            : "Could not add the dropped file. Try a different format.";
+        setComposerError(msg);
       });
     },
-    [composerRuntime],
+    [composerRuntime, setComposerError],
   );
 
   // Patch the underlying assistant-ui MessageRepository so addOrUpdateMessage
@@ -4027,6 +4412,11 @@ const AssistantChatInner = forwardRef<
     runId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  // Last activity label emitted by agent-chat:activity events (tool name / step label).
+  const [activityLabel, setActivityLabel] = useState<string | null>(null);
+  // True during the 250ms continuation window and startup of the next chunk
+  // (adapter's auto-continue delay before POSTing the next chunk).
+  const [isAutoResuming, setIsAutoResuming] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
@@ -4047,6 +4437,9 @@ const AssistantChatInner = forwardRef<
   const wasRunningRef = useRef(false);
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
+  // Stable ref to the "stop active run" action so addToQueue can abort
+  // a running turn without adding many unstable closure deps to its dep list.
+  const stopActiveRunRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (lastBroadcastRunningRef.current === isRunning) return;
@@ -4575,7 +4968,7 @@ const AssistantChatInner = forwardRef<
     lastSaveTimeRef.current = now;
     savedTitleRef.current = title;
     onSaveThreadRef.current(threadId, {
-      threadData: JSON.stringify(repo),
+      threadData: JSON.stringify(stripBase64FromRepo(repo)),
       title,
       preview,
       messageCount: messages.length,
@@ -4595,7 +4988,7 @@ const AssistantChatInner = forwardRef<
       const { title, preview } = extractThreadMeta(repo);
       savedTitleRef.current = title;
       onSaveThreadRef.current(threadId, {
-        threadData: JSON.stringify(repo),
+        threadData: JSON.stringify(stripBase64FromRepo(repo)),
         title,
         preview,
         messageCount: messages.length,
@@ -4824,6 +5217,59 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
+  // Track the most recent activity label for the running indicator.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        label?: string;
+        tool?: string;
+        tabId?: string;
+      };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (typeof detail?.label === "string" && detail.label.trim()) {
+        setActivityLabel(detail.label.trim());
+        setIsAutoResuming(false);
+      }
+    };
+    window.addEventListener("agent-chat:activity", handler);
+    return () => window.removeEventListener("agent-chat:activity", handler);
+  }, [tabId]);
+
+  // Clear the activity label when the server clears a corrective draft.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      setActivityLabel(null);
+    };
+    window.addEventListener("agent-chat:activity-clear", handler);
+    return () =>
+      window.removeEventListener("agent-chat:activity-clear", handler);
+  }, [tabId]);
+
+  // Show "Resuming…" during the adapter's auto-continuation window (the
+  // ~250ms gap between the end of one serverless chunk and the POST for the
+  // next). The adapter dispatches `agent-chat:auto-continue` at that moment.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      setIsAutoResuming(true);
+      setActivityLabel(null);
+    };
+    window.addEventListener("agent-chat:auto-continue", handler);
+    return () =>
+      window.removeEventListener("agent-chat:auto-continue", handler);
+  }, [tabId]);
+
+  // Clear auto-resume / activity label when the run stops.
+  useEffect(() => {
+    if (!isRunning) {
+      setIsAutoResuming(false);
+      setActivityLabel(null);
+    }
+  }, [isRunning]);
+
   // Auto-dequeue: when agent finishes running, send the next queued message
   useEffect(() => {
     if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
@@ -4954,6 +5400,51 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
   ]);
 
+  // Abort the active server run (identical to what the Stop button does) so
+  // an immediate-while-running send can proceed cleanly without a 409 race.
+  // Captured in a stable ref so addToQueue can call it without listing
+  // all the stop-related state in its own dep array.
+  const stopActiveRun = useCallback(() => {
+    setForceStopped(true);
+    const activeRun = getActiveRun();
+    const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+    userStoppedRunRef.current = {
+      at: Date.now(),
+      ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+    };
+    setRunErrorInfo(null);
+    setDismissedRunErrorKey(null);
+    if (runIdToAbort) {
+      fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
+        method: "POST",
+      }).catch(() => {});
+    }
+    if (isReconnecting) {
+      reconnectAbortRef.current?.abort();
+      reconnectAbortRef.current = null;
+      reconnectRunIdRef.current = null;
+      setIsReconnecting(false);
+      setReconnectFrozen(reconnectContent.length > 0);
+    }
+    threadRuntime.cancelRun();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: tabId || threadId },
+        }),
+      );
+    }
+  }, [
+    apiUrl,
+    isReconnecting,
+    reconnectContent.length,
+    tabId,
+    threadId,
+    threadRuntime,
+  ]);
+  // Keep the ref current so addToQueue can call it without a stale closure.
+  stopActiveRunRef.current = stopActiveRun;
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4971,6 +5462,7 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      setComposerError(null);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
@@ -4985,12 +5477,119 @@ const AssistantChatInner = forwardRef<
         ? buildComposerContextSubmission(text)
         : { text, includesContext: false };
       const submittedText = submitted.text;
-      const queuedAttachments = await serializeQueuedAttachments(attachments);
+      let queuedAttachments: Awaited<
+        ReturnType<typeof serializeQueuedAttachments>
+      >;
+      try {
+        queuedAttachments = await serializeQueuedAttachments(attachments);
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Attachment could not be processed.";
+        setComposerError(msg);
+        return;
+      }
       const imageAttachments = createAgentImageAttachments(images);
-      const messageAttachments = [
+      const allAttachments = [
         ...(queuedAttachments ?? []),
         ...(imageAttachments ?? []),
       ];
+
+      // ── Body-size guard (Fix 3) ─────────────────────────────────────
+      // Estimate the total serialized attachment payload. If it exceeds the
+      // Vercel/Netlify body limit, progressively re-compress images until
+      // the payload fits, then reject the largest remaining file if still over.
+      let messageAttachments = allAttachments;
+      {
+        const allDataUrls = allAttachments.flatMap((a) =>
+          a.content
+            .filter(
+              (c): c is { type: "image"; image: string } => c.type === "image",
+            )
+            .map((c) => c.image),
+        );
+        if (
+          estimateAttachmentBodyBytes(allDataUrls) > MAX_ESTIMATED_BODY_BYTES
+        ) {
+          // Re-compress image attachments more aggressively.
+          const recompressed: typeof allAttachments = [];
+          let stillOver = false;
+          for (const att of allAttachments) {
+            if (
+              att.type === "image" &&
+              att.content.length === 1 &&
+              att.content[0].type === "image"
+            ) {
+              // Find the original File from the queued attachments input.
+              const rawAtt = (attachments ?? []).find(
+                (r) => (r as any).id === att.id,
+              ) as { file?: File } | undefined;
+              const rawFile = rawAtt?.file;
+              if (rawFile && typeof document !== "undefined") {
+                try {
+                  const recompressedUrl = await transcodeImageToDataURL(
+                    rawFile,
+                    {
+                      maxDimension: AGGRESSIVE_MAX_IMAGE_DIMENSION,
+                      jpegQuality: AGGRESSIVE_JPEG_QUALITY,
+                    },
+                  );
+                  recompressed.push({
+                    ...att,
+                    content: [{ type: "image", image: recompressedUrl }],
+                  });
+                  continue;
+                } catch {
+                  // Could not recompress — keep original and flag overflow
+                  stillOver = true;
+                }
+              } else {
+                stillOver = true;
+              }
+            }
+            recompressed.push(att);
+          }
+          // Re-estimate after recompression.
+          const recompressedUrls = recompressed.flatMap((a) =>
+            a.content
+              .filter(
+                (c): c is { type: "image"; image: string } =>
+                  c.type === "image",
+              )
+              .map((c) => c.image),
+          );
+          if (
+            stillOver ||
+            estimateAttachmentBodyBytes(recompressedUrls) >
+              MAX_ESTIMATED_BODY_BYTES
+          ) {
+            // Find the largest attachment and reject it.
+            let largestIdx = -1;
+            let largestSize = 0;
+            for (let i = 0; i < recompressed.length; i++) {
+              const url =
+                recompressed[i].content.find(
+                  (c): c is { type: "image"; image: string } =>
+                    c.type === "image",
+                )?.image ?? "";
+              if (url.length > largestSize) {
+                largestSize = url.length;
+                largestIdx = i;
+              }
+            }
+            if (largestIdx >= 0) {
+              const rejected = recompressed[largestIdx];
+              setComposerError(
+                `"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`,
+              );
+              return;
+            }
+          }
+          messageAttachments = recompressed;
+        }
+      }
+      // ── End body-size guard ──────────────────────────────────────────
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -5002,7 +5601,36 @@ const AssistantChatInner = forwardRef<
           : execMode === "build"
             ? "act"
             : undefined);
-      if (isRunning && intent === "queued") {
+      if (isRunning && intent === "immediate") {
+        // Mid-run Enter race fix: immediately abort the active server run,
+        // wait for it to clear, then send — mirroring what the auto-dequeue
+        // path already does safely. Without this, assistant-ui's append()
+        // would cancel the adapter run locally but the server run would keep
+        // going; the new POST would then 409, reconnect to the OLD run, and
+        // replay the old answer under the new prompt.
+        setQueuedMessages((prev) => [
+          ...prev,
+          {
+            id:
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            text: submittedText,
+            images,
+            attachments:
+              messageAttachments.length > 0 ? messageAttachments : undefined,
+            references,
+            requestMode: effectiveRequestMode,
+            recoveryAction,
+            trackInRunsTray,
+          },
+        ]);
+        // Abort the server run (same as Stop button). This flips forceStopped
+        // → isRunning=false → auto-dequeue fires → waitForThreadRunToClear →
+        // append. The abort is fire-and-forget; waitForThreadRunToClear does
+        // the actual wait.
+        stopActiveRunRef.current();
+      } else if (isRunning && intent === "queued") {
         setQueuedMessages((prev) => [
           ...prev,
           {
@@ -5642,8 +6270,32 @@ const AssistantChatInner = forwardRef<
               {/* Keep live run progress pinned in the composer footer. */}
               {showRunningInUI && (
                 <RunningActivityStatus
-                  label={isReconnecting ? "Reconnecting" : "Thinking"}
+                  label={
+                    isReconnecting
+                      ? "Reconnecting"
+                      : isAutoResuming
+                        ? "Resuming"
+                        : (activityLabel ?? "Thinking")
+                  }
                 />
+              )}
+              {/* Inline attachment / body-size error */}
+              {composerError && (
+                <div
+                  role="alert"
+                  className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                >
+                  <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="flex-1 leading-snug">{composerError}</span>
+                  <button
+                    type="button"
+                    aria-label="Dismiss error"
+                    onClick={() => setComposerError(null)}
+                    className="shrink-0 opacity-70 hover:opacity-100"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                </div>
               )}
               {/* Input area */}
               <AgentComposerFrame
@@ -5709,6 +6361,7 @@ const AssistantChatInner = forwardRef<
                   providerConnectStatusEnabled={providerStatusChecksEnabled}
                   draftScope={threadId || tabId}
                   interceptBuildRequestsForBuilder
+                  onAttachmentError={setComposerError}
                   extraActionButton={
                     contextXRayEnabled ||
                     composerExtraActionButton ||
@@ -5723,51 +6376,7 @@ const AssistantChatInner = forwardRef<
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  // Nuclear stop: flip forceStopped so isRunning is false
-                                  // immediately. This unblocks submission even if the
-                                  // runtime or reconnect state is stuck.
-                                  setForceStopped(true);
-                                  const activeRun = getActiveRun();
-                                  const runIdToAbort =
-                                    reconnectRunIdRef.current ??
-                                    activeRun?.runId;
-                                  userStoppedRunRef.current = {
-                                    at: Date.now(),
-                                    ...(runIdToAbort
-                                      ? { runId: runIdToAbort }
-                                      : {}),
-                                  };
-                                  setRunErrorInfo(null);
-                                  setDismissedRunErrorKey(null);
-                                  if (runIdToAbort) {
-                                    fetch(
-                                      `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
-                                      { method: "POST" },
-                                    ).catch(() => {});
-                                  }
-
-                                  if (isReconnecting) {
-                                    reconnectAbortRef.current?.abort();
-                                    reconnectAbortRef.current = null;
-                                    reconnectRunIdRef.current = null;
-                                    setIsReconnecting(false);
-                                    setReconnectFrozen(
-                                      reconnectContent.length > 0,
-                                    );
-                                  }
-
-                                  threadRuntime.cancelRun();
-
-                                  window.dispatchEvent(
-                                    new CustomEvent("agentNative.chatRunning", {
-                                      detail: {
-                                        isRunning: false,
-                                        tabId: tabId || threadId,
-                                      },
-                                    }),
-                                  );
-                                }}
+                                onClick={stopActiveRun}
                                 className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
                               >
                                 <IconPlayerStop className="h-3.5 w-3.5" />

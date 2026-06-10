@@ -1046,7 +1046,9 @@ describe("workspace deploy", () => {
     expect(routes.include).toContain("/thread-debug");
     expect(routes.include).toContain("/apps/new-app");
     expect(routes.include).toContain("/apps/*");
+    expect(routes.include).toContain("/dispatch");
     expect(routes.include).toContain("/dispatch/*");
+    expect(routes.include).toContain("/starter");
     expect(routes.include).toContain("/starter/*");
 
     const worker = fs.readFileSync(
@@ -1081,8 +1083,15 @@ describe("workspace deploy", () => {
       'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
-      'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(request, env, ctx);',
+      'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
     );
+    expect(worker).toContain(
+      'if (pathname === "/starter" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
+    );
+    expect(worker).toContain(
+      "function requestForMountedApp(request, basePath)",
+    );
+    expect(worker).toContain("url.pathname = `${basePath}//`;");
     expect(worker).not.toContain(
       'new Request(new URL("/dispatch/_agent-native',
     );

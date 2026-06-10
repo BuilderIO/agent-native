@@ -8,6 +8,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { IconBrandGithub } from "@tabler/icons-react";
+import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
 import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
@@ -28,7 +30,7 @@ import {
   PlanVisualSurface,
   type PlanVisualSurfaceMode,
 } from "./PlanVisualSurface";
-import { PlanTableOfContents } from "./PlanTableOfContents";
+import { PlanTableOfContents, PlanTocFallback } from "./PlanTableOfContents";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import {
   NestedPlanBlocksEditor,
@@ -71,6 +73,9 @@ type PlanContentRendererProps = {
   prototypeOnly?: boolean;
   /** Render as a read-only visual recap ("Visual Recap" eyebrow, recap copy). */
   isRecap?: boolean;
+  /** URL of the source PR/issue this recap covers. When set, a "View PR" chip
+   *  is shown in the recap header as a back-link. */
+  sourceUrl?: string | null;
   visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
@@ -126,6 +131,7 @@ export function PlanContentRenderer({
   visualSurfaceMode,
   onVisualSurfaceModeChange,
   isRecap = false,
+  sourceUrl,
 }: PlanContentRendererProps) {
   const planLabel = isRecap
     ? "Visual Recap"
@@ -449,6 +455,58 @@ export function PlanContentRenderer({
     [isRecap, content.blocks],
   );
 
+  /**
+   * Map from file path → first block id that references the file. Built from
+   * annotated-code, diff, and code blocks in the document. Used by the recap
+   * files rail to scroll to the matching block when a file row is clicked.
+   */
+  const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
+    if (!isRecap) return new Map();
+    const map = new Map<string, string>();
+    for (const block of content.blocks) {
+      if (
+        (block.type === "annotated-code" ||
+          block.type === "diff" ||
+          block.type === "code") &&
+        block.data.filename
+      ) {
+        if (!map.has(block.data.filename)) {
+          map.set(block.data.filename, block.id);
+        }
+      }
+    }
+    return map;
+  }, [isRecap, content.blocks]);
+
+  /**
+   * Click handler for the recap files rail aside. When a file row (carrying
+   * `data-file-path`) is clicked, scroll to the matching block in the document
+   * if one exists. The file tree's own expansion click still fires; this only
+   * adds the scroll as a side effect (no event.preventDefault so expansion
+   * still works).
+   */
+  const handleFilesRailClick = useMemo(() => {
+    if (!isRecap || fileToBlockIdMap.size === 0) return undefined;
+    return (event: React.MouseEvent<HTMLElement>) => {
+      const filePath = (event.target as HTMLElement)
+        .closest("[data-file-path]")
+        ?.getAttribute("data-file-path");
+      if (!filePath) return;
+      const blockId = fileToBlockIdMap.get(filePath);
+      if (!blockId) return;
+      const el = document.querySelector<HTMLElement>(
+        `[data-block-id="${CSS.escape(blockId)}"]`,
+      );
+      if (!el) return;
+      el.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start",
+      });
+    };
+  }, [isRecap, fileToBlockIdMap]);
+
   return (
     <BlockRegistryProvider
       registry={planBlockRegistry}
@@ -520,6 +578,17 @@ export function PlanContentRenderer({
                   linkGithubPrReferences={isRecap}
                 />
               )}
+              {isRecap && sourceUrl && (
+                <PrBackLink url={sourceUrl} className="mt-4" />
+              )}
+              {isRecap && (
+                <RecapStatStrip
+                  fileTreeBlock={
+                    filesSidebarBlock as PlanFileTreeBlock | undefined
+                  }
+                  className="mt-3"
+                />
+              )}
             </header>
 
             {/* The side rails (contents on the right, recap files on the left)
@@ -540,6 +609,7 @@ export function PlanContentRenderer({
                   <aside
                     className="plan-document-files"
                     aria-label="Files changed"
+                    onClick={handleFilesRailClick}
                   >
                     <div className="plan-document-files__nav">
                       {/* The sidebar owns the heading: a single fixed "Files
@@ -599,6 +669,13 @@ export function PlanContentRenderer({
                   ))
                 )}
               </div>
+              {/* Compact floating TOC pill for narrower viewports — hidden by
+                  global.css above 1400px where the full sidebar rail is shown. */}
+              <PlanTocFallback
+                content={content}
+                isRecap={isRecap}
+                omitBlockId={filesSidebarBlock?.id}
+              />
             </div>
           </div>
         )}
@@ -700,6 +777,38 @@ function HeaderBriefText({
     <p className={className}>
       {linkGithubPrReferences ? renderGithubPrReferences(value) : value}
     </p>
+  );
+}
+
+/**
+ * Muted chip linking back to the PR/issue that triggered this recap.
+ * Parses `owner/repo#number` from a GitHub PR URL for a compact label;
+ * falls back to "View PR" for non-GitHub URLs.
+ */
+function PrBackLink({ url, className }: { url: string; className?: string }) {
+  let label = "View PR";
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "github.com") {
+      const match = parsed.pathname.match(/^\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+      if (match) label = `${match[1]}#${match[2]}`;
+    }
+  } catch {
+    // non-parseable URL — keep "View PR"
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors",
+        className,
+      )}
+    >
+      <IconBrandGithub className="size-3.5 shrink-0" />
+      {label}
+    </a>
   );
 }
 
@@ -832,4 +941,56 @@ function findBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
     }
   }
   return null;
+}
+
+/**
+ * Compute add/remove/file counts from the first `file-tree` block in a recap.
+ * Returns null when no countable data is available (all entries lack a `change`
+ * field, meaning the recap was authored without diff awareness).
+ */
+function computeRecapStats(
+  fileTreeBlock: PlanFileTreeBlock | undefined,
+): { files: number; added: number; removed: number } | null {
+  if (!fileTreeBlock) return null;
+  const entries = fileTreeBlock.data.entries;
+  if (entries.length === 0) return null;
+
+  // Count files that have a recognized change kind. If none of them do, we
+  // can't produce a meaningful stats line.
+  const changedEntries = entries.filter((e) => e.change);
+  if (changedEntries.length === 0) return null;
+
+  const added = entries.filter(
+    (e) => e.change === "added" || e.change === "renamed",
+  ).length;
+  const removed = entries.filter((e) => e.change === "removed").length;
+  return { files: entries.length, added, removed };
+}
+
+/**
+ * Quiet one-line stat strip shown under the recap brief: "N files · +A −R".
+ * Only rendered for recaps with a file-tree block that carries change data.
+ */
+function RecapStatStrip({
+  fileTreeBlock,
+  className,
+}: {
+  fileTreeBlock: PlanFileTreeBlock | undefined;
+  className?: string;
+}) {
+  const stats = computeRecapStats(fileTreeBlock);
+  if (!stats) return null;
+  const { files, added, removed } = stats;
+  const parts: string[] = [`${files} ${files === 1 ? "file" : "files"}`];
+  if (added > 0) parts.push(`+${added}`);
+  if (removed > 0) parts.push(`−${removed}`);
+  if (parts.length === 1) return null; // only file count, not interesting
+  return (
+    <p
+      className={cn("text-xs tabular-nums text-plan-muted/80", className)}
+      aria-label="Change statistics"
+    >
+      {parts.join(" · ")}
+    </p>
+  );
 }

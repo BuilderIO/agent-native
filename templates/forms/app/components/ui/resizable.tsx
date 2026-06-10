@@ -1,5 +1,3 @@
-"use client";
-
 import { IconGripVertical } from "@tabler/icons-react";
 import * as ResizablePrimitive from "react-resizable-panels";
 

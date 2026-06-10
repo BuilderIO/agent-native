@@ -9,13 +9,16 @@ export const meta = () =>
   withDefaultSocialImage([
     { title: `${doc.title} — Agent-Native` },
     { name: "description", content: doc.description },
+    { property: "og:title", content: `${doc.title} — Agent-Native` },
+    { property: "og:description", content: doc.description },
+    { property: "og:type", content: "article" },
   ]);
 
 export default function DocsIndex() {
   const toc = doc.headings.map((h) => ({
     id: h.id,
     label: h.label,
-    indent: h.level === 3,
+    level: h.level,
   }));
 
   return (

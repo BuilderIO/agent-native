@@ -146,7 +146,7 @@ export function KpiChart({
                       fontSize: "12px",
                     }}
                     labelFormatter={formatDate}
-                    formatter={(v: number) => [formatY(v), title]}
+                    formatter={(v: any) => [formatY(Number(v)), title]}
                   />
                   <Bar dataKey={dataKey} fill={color} radius={[3, 3, 0, 0]} />
                   {referenceLine && (
@@ -196,7 +196,7 @@ export function KpiChart({
                       fontSize: "12px",
                     }}
                     labelFormatter={formatDate}
-                    formatter={(v: number) => [formatY(v), title]}
+                    formatter={(v: any) => [formatY(Number(v)), title]}
                   />
                   <Line
                     type="monotone"
@@ -264,7 +264,7 @@ export function KpiChart({
                       fontSize: "12px",
                     }}
                     labelFormatter={formatDate}
-                    formatter={(v: number) => [formatY(v), title]}
+                    formatter={(v: any) => [formatY(Number(v)), title]}
                   />
                   <Area
                     type="monotone"

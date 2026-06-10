@@ -17,7 +17,7 @@ The composer's voice button records audio in the browser, then picks a provider:
 2. **BYOK cloud providers.** Users can choose Google Gemini, Groq Whisper, or OpenAI Whisper from Settings. The route resolves user-scoped encrypted secrets before shared deployment credentials.
 3. **Browser Web Speech API (fallback).** If no server provider is available, the composer can use the browser's built-in speech recognition. Works in Chromium-based browsers (Chrome, Edge, Arc) and Safari. Less accurate; streams live.
 
-Provider choice is stored in application state under `voice-transcription-prefs` so the user can force `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"`, or `"browser"` in the sidebar settings.
+Provider choice is stored in application state under `voice-transcription-prefs` so the user can force `"auto"` (default — picks the best available provider), `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"`, or `"browser"` in the sidebar settings.
 
 The route is **same-origin only** — cross-site POSTs are rejected so an attacker can't burn transcription credits from an external page.
 

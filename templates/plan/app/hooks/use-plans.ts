@@ -1,4 +1,5 @@
 import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
+import type { RefObject } from "react";
 import { toast } from "sonner";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
@@ -182,13 +183,21 @@ export function usePlans(options?: UsePlansOptions) {
   return useActionQuery<PlanSummary[]>("list-visual-plans", {}, options);
 }
 
-export function usePlan(id?: string) {
+export function usePlan(
+  id?: string,
+  pausePollRef?: RefObject<boolean> | { current: boolean },
+) {
   return useActionQuery<PlanBundle & { html?: string }>(
     "get-visual-plan",
     { id: id ?? "" },
     {
       enabled: !!id,
-      refetchInterval: 3_000,
+      // Pause the 3-second poll while a comment mutation is in-flight so
+      // an optimistic comment inserted into the cache isn't evicted before
+      // the server write commits (Issue 4a).
+      refetchInterval: pausePollRef
+        ? () => (pausePollRef.current ? false : 3_000)
+        : 3_000,
     },
   );
 }
@@ -260,6 +269,40 @@ export function useVisualizePlan() {
 }
 
 export function useUpdatePlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<PlanBundle & { html?: string }, UpdatePlanInput>(
+    "update-visual-plan",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to update visual plan"),
+    },
+  );
+}
+
+/**
+ * A separate mutation instance used exclusively for status changes
+ * (draft / review / approved / in_progress / complete). Keeping it separate
+ * from the prose-autosave `useUpdatePlan` instance avoids any bleed between
+ * save-pending and status-pending states.
+ */
+export function useUpdatePlanStatus() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<PlanBundle & { html?: string }, UpdatePlanInput>(
+    "update-visual-plan",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to update plan status"),
+    },
+  );
+}
+
+/**
+ * A separate mutation instance used exclusively for comment writes
+ * (reply, resolve, reopen). Keeping it separate from the prose-autosave
+ * `useUpdatePlan` instance means the autosave `isPending` state cannot
+ * bleed into comment button disabled states (Issue 3).
+ */
+export function useUpdatePlanComments() {
   const invalidate = usePlanInvalidation();
   return useActionMutation<PlanBundle & { html?: string }, UpdatePlanInput>(
     "update-visual-plan",

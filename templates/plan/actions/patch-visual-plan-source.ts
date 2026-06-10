@@ -24,7 +24,7 @@ import {
 
 export default defineAction({
   description:
-    "Patch the MDX source for an Agent-Native Plan by stable semantic IDs, then normalize it back into runtime JSON. Use this when an agent needs tiny source-control friendly diffs such as one markdown block, one artboard, one annotation, or one wireframe node.",
+    "Patch the MDX source for an Agent-Native Plan by stable semantic IDs, then normalize it back into runtime JSON. Use ONLY when working with exported MDX source files (repo check-in workflows); for live plans prefer update-visual-plan with contentPatches. Suitable for tiny source-control friendly diffs: one markdown block, one artboard, one annotation, or one wireframe node.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     patches: planMdxSourcePatchesSchema.describe(

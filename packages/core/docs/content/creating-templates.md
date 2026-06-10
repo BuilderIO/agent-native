@@ -97,7 +97,7 @@ export const projects = table("projects", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
-export const projectShares = createSharesTable("project_shares", "project");
+export const projectShares = createSharesTable("project_shares");
 ```
 
 Schema changes must be additive. Add tables and columns through `runMigrations()` in `server/plugins/db.ts`; never use destructive SQL, `drizzle-kit push`, table renames, or column drops.
@@ -391,7 +391,9 @@ Community templates can be created from a GitHub repo:
 pnpm dlx @agent-native/core create my-app --template github:user/repo
 ```
 
-## Test Unpublished Framework Changes {#test-unpublished-framework-changes}
+## Contributing to the framework monorepo {#contributing}
+
+### Test unpublished framework changes {#test-unpublished-framework-changes}
 
 When you are working inside the framework monorepo and need a generated
 workspace to use unpublished package or template changes, run create with the

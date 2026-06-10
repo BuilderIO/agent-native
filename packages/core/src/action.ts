@@ -60,6 +60,17 @@ export interface ActionRunContext {
    * off mid-stream and triggers a continuation loop.
    */
   attachments?: AgentChatAttachment[];
+  /**
+   * Abort signal for the current agent run. Fires when the run is soft-timed
+   * out, user-cancelled, or the server is shutting down. Well-behaved actions
+   * can observe this signal to cancel in-flight work early instead of waiting
+   * for the per-tool 60-second hard timeout.
+   *
+   * Populated only inside the agent tool loop (`caller: "tool"`); `undefined`
+   * on every other surface. Never throws — checking `signal.aborted` or
+   * attaching an `"abort"` listener is always safe.
+   */
+  signal?: AbortSignal;
 }
 
 export interface AgentActionStopOptions {
