@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.10.1
+
+### Patch Changes
+
+- 40ed196: Lighten the outline button border in dark mode while keeping the `border-input` token (proper contrast) in light mode.
+
 ## 0.10.0
 
 ### Minor Changes
