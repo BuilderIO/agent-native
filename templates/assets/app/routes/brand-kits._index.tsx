@@ -2,11 +2,7 @@ import { Link, useNavigate } from "react-router";
 import { useMemo, useState } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { toast } from "sonner";
-import {
-  IconPalette,
-  IconPhotoPlus,
-  IconSearch,
-} from "@tabler/icons-react";
+import { IconPalette, IconPhotoPlus, IconSearch } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
