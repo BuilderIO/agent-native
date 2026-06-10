@@ -6654,6 +6654,23 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
+    // Ctrl+Option+X: switch to code tab
+    if (
+      input.control &&
+      input.alt &&
+      !input.meta &&
+      !input.shift &&
+      key === "x"
+    ) {
+      event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "x",
+        shiftKey: false,
+        altKey: true,
+      });
+      return;
+    }
+
     const isAgentSidebarToggleShortcut =
       !input.alt &&
       !input.shift &&

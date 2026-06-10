@@ -111,10 +111,11 @@ function isAgentSidebarToggleShortcut(e: KeyboardEvent): boolean {
 
 function isCodeTabShortcut(e: KeyboardEvent): boolean {
   return (
-    (e.metaKey || e.ctrlKey) &&
-    e.shiftKey &&
-    !e.altKey &&
-    (e.key ?? "").toLowerCase() === "c"
+    e.ctrlKey &&
+    e.altKey &&
+    !e.metaKey &&
+    !e.shiftKey &&
+    (e.key ?? "").toLowerCase() === "x"
   );
 }
 
@@ -568,7 +569,7 @@ export default function App() {
         return;
       }
 
-      if (shiftKey && k === "c") {
+      if (altKey && k === "x") {
         handleCodeAgentsClick();
         return;
       }
