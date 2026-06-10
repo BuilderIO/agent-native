@@ -1,5 +1,5 @@
 export const DEFAULT_GONG_CALL_LIMIT = 8;
-export const MAX_GONG_CALL_LIMIT = 25;
+export const MAX_GONG_CALL_LIMIT = 200;
 
 export interface GongCallLike {
   id: string;

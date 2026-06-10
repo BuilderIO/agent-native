@@ -87,6 +87,57 @@ details live in `.agents/skills/`.
   node_exporter scrapes and `node-exporter-full` for the Linux-focused Grafana
   1860 revision 45 full dashboard converted into native Analytics panels.
 
+## Deep Analysis Rules
+
+**The analytics agent IS Claude with provider access** — the same 200K context
+window, the same reasoning capability, plus direct access to BigQuery, Gong,
+HubSpot, Pylon, Sentry, Grafana, etc. It can do everything a standalone AI
+conversation can do, including reading large unstructured text and producing
+long-form memo-style output.
+
+**NEVER suggest the user move to a separate AI tool, project, or external service for:**
+- Reasoning or synthesis over data fetched in this session
+- Deep analysis across multiple accounts, calls, or data points
+- Holding context and judgment across a complex multi-step investigation
+- Generating written summaries, memos, findings, or recommendations
+
+### Answer with Real Data
+
+When the user asks a data question, **query real data first**, then present the
+answer directly in chat with tables, inline charts, and findings. Never deflect
+to "check the dashboard" — actually run the query, get the data, and present it.
+
+### Incident / Metric Investigations
+
+When investigating a production incident, metric anomaly, or performance issue:
+1. **Query real metrics FIRST** — Prometheus/Grafana for service metrics, Sentry
+   for errors, BigQuery for event trends. Real data tells you what happened.
+2. **Check upstream dependencies** — many incidents are caused by provider-side
+   degradation (LLM APIs, external services), not local code.
+3. **Only analyze code/config after you have data** — code tells you what *could*
+   happen; metrics tell you what *did* happen.
+
+### Batch / Large Fan-Out Analyses
+
+For analyses spanning 30+ accounts, deals, or calls:
+1. Define the cohort and chunk into groups of 5-10 items.
+2. Process each chunk, writing per-item findings as intermediate notes.
+3. Synthesize across all chunks in a final pass.
+
+Do not try to hold 30+ full records in one context pass.
+
+### Learnings Flywheel
+
+After completing any significant analysis, record discoveries to `LEARNINGS.md`
+via the `resources` tool (`action: "read"` then `action: "write"`). Capture:
+- Confirmed metric definitions
+- Provider gotchas discovered
+- Schema discoveries (table/column names, join patterns that worked)
+- Identity-stitching rules confirmed across sources
+
+The `save-memory` tool works for personal-scope learnings; `LEARNINGS.md` is the
+shared team knowledge layer.
+
 ## Skills
 
 Read the relevant skill before deeper work:
@@ -94,15 +145,19 @@ Read the relevant skill before deeper work:
 - `data-querying` for source inspection, SQL/query generation, and result
   handling.
 - `cross-source-analysis` for questions that span multiple data sources
-  (identity stitching, de-duplication, consolidated provenance).
+  (identity stitching, de-duplication, consolidated provenance). Includes the
+  default account deep-dive source order: CRM → support → community → calls →
+  product usage → service health → tickets.
 - `hubspot` for CRM deals, companies, contacts, tickets, owners, and account
-  context.
+  context. Includes stage-entry date fields and multi-dimensional loss analysis.
 - `gong` for call metadata, transcript excerpts, objections, risks, and next
-  steps.
+  steps. Includes the two-pass search algorithm and external-monologue pattern.
+- `bigquery` for warehouse SQL, data-dictionary-first discipline, table priority
+  order, and date-bounding rules.
+- `prometheus` for metrics queries and incident investigation pattern.
 - `actions` for the shared provider API pattern when a first-class action is too
   narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
 - `dashboard-management` for dashboard/chart creation and layout.
-- `adhoc-analysis` for one-off analytical answers.
-- `bigquery` and `prometheus` for provider-specific behavior.
+- `adhoc-analysis` for one-off analytical answers and batch fan-out pattern.
 - `storing-data`, `real-time-sync`, `security`, `actions`, and
   `frontend-design` for framework work.

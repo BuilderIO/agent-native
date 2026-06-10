@@ -246,3 +246,39 @@ API endpoints (for UI consumption):
 5. **Keep reports scannable** — lead with key findings, put details below
 6. **Note data gaps** — if a source was unavailable or matching was imperfect, say so
 7. **Suggest next steps** — end with actionable recommendations when appropriate
+8. **Answer in chat — never deflect** — present tables, inline charts, and findings directly. Do not say "check the dashboard" or redirect elsewhere.
+
+## Large Fan-Out Analyses (30+ Accounts, Deals, or Calls)
+
+For batch analyses spanning many items, chunk the work instead of trying to
+hold everything in one pass:
+
+1. **Define the cohort** — fetch the full list of items (accounts, deals, calls)
+   from the primary source (HubSpot, BigQuery, etc.).
+2. **Chunk and persist** — process 5-10 items per iteration. For each chunk,
+   write a short per-item findings note (key signals, gaps, theme tags) as an
+   intermediate result to `save-analysis` or agent scratch.
+3. **Synthesize** — after all chunks are complete, read the intermediate notes
+   back in and produce the final cross-item synthesis (patterns, rankings,
+   themes, recommendations).
+
+This is the same pattern as a batch document analysis: fetch → process chunk →
+write intermediate → synthesize. The chunking keeps context manageable and each
+iteration independent.
+
+## After Completing an Analysis — Record Discoveries
+
+After completing a significant analysis, update `LEARNINGS.md` (via the
+`resources` tool) or `save-memory` with newly confirmed:
+- Metric definitions (how a metric is actually calculated in this dataset)
+- Provider gotchas discovered during the analysis
+- Schema discoveries (table names, column names, join patterns that worked)
+- Identity-stitching rules confirmed across sources
+
+```
+resources(action: "read", path: "LEARNINGS.md")
+resources(action: "write", path: "LEARNINGS.md", content: "<updated>")
+```
+
+Keep entries short and actionable. This is the learning flywheel — the next
+analysis benefits from what this one confirmed.

@@ -138,6 +138,57 @@ describe("analytics data request classification", () => {
   });
 });
 
+describe("metadata and data-dictionary questions (should NOT force a provider call)", () => {
+  it("does not flag 'what tables are available' as a data request", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("what tables are available in BigQuery?"),
+    ).toBe(false);
+  });
+
+  it("does not flag 'which sources are connected' as a data request", () => {
+    expect(looksLikeAnalyticsDataRequest("which sources are connected?")).toBe(
+      false,
+    );
+  });
+
+  it("does not flag metric definition questions as data requests", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("what does conversion rate mean?"),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "how is revenue defined in the data dictionary?",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not flag schema inspection as a data request", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("describe the events table schema"),
+    ).toBe(false);
+    expect(looksLikeAnalyticsDataRequest("list the columns in dim_deals")).toBe(
+      false,
+    );
+  });
+
+  it("does not flag source availability questions as data requests", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("which providers are configured?"),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest("show me available data sources"),
+    ).toBe(false);
+  });
+
+  it("still flags real metric queries that happen to mention tables", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "how many signups happened last week in the signups table?",
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("safe no-data analytics responses", () => {
   it("allows explicit unavailable-source answers without forcing another retry", () => {
     expect(
