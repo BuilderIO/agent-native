@@ -266,6 +266,66 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 The presence kit provides Liveblocks/Figma-grade live-cursor and selection primitives on top of the existing awareness layer.
 
+Import client-side presence and editor UI from the focused browser subpath:
+
+```ts
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+```
+
+Server-side agent presence helpers stay in the lower-level collab package:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### Public API {#presence-public-api}
+
+| API                                                 | Purpose                                                                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `useCollaborativeDoc(options)`                      | Creates the stable `Y.Doc` and awareness instance, handles state-vector sync, SSE fast-path, polling fallback, active users, and agent presence flags. |
+| `usePresence(awareness, localClientId)`             | Derives remote participants and publishes arbitrary local awareness fields such as cursor, selection, viewport, or tool mode.                          |
+| `<PresenceBar>`                                     | Renders active collaborators plus the AI agent, with optional avatar-click follow mode wiring.                                                         |
+| `<LiveCursorOverlay>`                               | Renders remote cursor labels over a positioned container from normalized 0-1 coordinates.                                                              |
+| `<RemoteSelectionRings>`                            | Renders colored rings and labels around selected DOM elements resolved by your app.                                                                    |
+| `useFollowUser(options)`                            | Invokes a callback when the followed participant publishes viewport changes.                                                                           |
+| `toNormalized()` / `fromNormalized()`               | Convert pointer coordinates to/from normalized container coordinates.                                                                                  |
+| `dedupeCollabUsersByEmail()`                        | Build custom avatar stacks without one user showing once per open tab.                                                                                 |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Client hooks for Y.Map/Y.Array structured collaboration. Treat as lower-level until a template proves the exact product pattern.                       |
+
+`UseCollaborativeDocOptions`:
+
+| Option                | Description                                                         |
+| --------------------- | ------------------------------------------------------------------- |
+| `docId`               | Document id, or `null` to disable the hook.                         |
+| `pollInterval`        | Poll interval when SSE is unavailable. Default: `2000`.             |
+| `pollIntervalWithSse` | Slow poll interval while SSE is healthy. Default: `12000`.          |
+| `pauseWhenHidden`     | Pause remote update/presence polling while hidden. Default: `true`. |
+| `baseUrl`             | Collab endpoint prefix. Default: `/_agent-native/collab`.           |
+| `requestSource`       | Stable tab/source id used to ignore self-originated refresh noise.  |
+| `user`                | `{ name, email, color }` shown in cursor and presence UI.           |
+
+`UseCollaborativeDocResult`:
+
+| Field          | Description                                                          |
+| -------------- | -------------------------------------------------------------------- |
+| `ydoc`         | Stable `Y.Doc` for the current `docId`.                              |
+| `awareness`    | Yjs Awareness instance used by cursors, selections, and follow mode. |
+| `isLoading`    | Initial server state is still loading.                               |
+| `isSynced`     | The hook has caught up to server state.                              |
+| `activeUsers`  | Human collaborators from awareness.                                  |
+| `agentActive`  | The agent is actively editing right now.                             |
+| `agentPresent` | The agent has an awareness entry for this document.                  |
+
 ### Fast awareness {#fast-awareness}
 
 Awareness state changes now propagate at ~150ms instead of the 2s poll cycle:

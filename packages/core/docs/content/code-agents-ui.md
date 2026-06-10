@@ -211,7 +211,8 @@ Browser hosts should return a graceful `openTerminal` error instead of trying to
 ## Shared Composer
 
 Agent-Native Code uses the same `AgentComposerFrame` + `PromptComposer` /
-`TiptapComposer` stack as the framework agent sidebar. Do not fork a separate
+`TiptapComposer` stack exported from `@agent-native/core/client/composer` as the
+framework agent sidebar. Do not fork a separate
 textarea, coding-tool picker, upload picker, voice button, model picker, or Enter-to-submit
 implementation for Code-like surfaces. If a host needs one extra control, pass
 it through the shared composer extension points so the sidebar, Code UI, and
