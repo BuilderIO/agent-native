@@ -13,7 +13,7 @@
  * different users never share or cross-read each other's scratch data.
  */
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
 
 // ---------------------------------------------------------------------------
 // Caps
@@ -210,45 +210,31 @@ export async function upsertStagedDataset(
     );
   }
 
-  // Delete old rows for this dataset.
-  await db.execute({
-    sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
-    args: [id],
-  });
-
-  // Insert new rows in batches.
-  const BATCH = 500;
-  for (let i = 0; i < serialized.length; i += BATCH) {
-    const slice = serialized.slice(i, i + BATCH);
-    for (let j = 0; j < slice.length; j++) {
-      await db.execute({
-        sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, ?, ?)`,
-        args: [id, i + j, slice[j]],
-      });
-    }
-  }
-
   const columns = options.columns.length
     ? options.columns
     : deriveColumns(allRows);
   const columnsJson = JSON.stringify(columns);
 
-  // Upsert metadata.
-  const exists = await (async () => {
-    const { rows } = await db.execute({
-      sql: `SELECT id FROM staged_datasets WHERE id = ?`,
+  await withDbTransaction(db, async (tx) => {
+    // Delete old rows and insert the replacement row set atomically with the
+    // metadata update so a failed batch cannot leave an empty or partial dataset.
+    await tx.execute({
+      sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
       args: [id],
     });
-    return rows.length > 0;
-  })();
 
-  if (exists) {
-    await db.execute({
-      sql: `UPDATE staged_datasets SET name=?, columns=?, row_count=?, byte_size=?, updated_at=? WHERE id=?`,
-      args: [options.name, columnsJson, allRows.length, byteSize, now, id],
-    });
-  } else {
-    await db.execute({
+    const BATCH = 500;
+    for (let i = 0; i < serialized.length; i += BATCH) {
+      const slice = serialized.slice(i, i + BATCH);
+      for (let j = 0; j < slice.length; j++) {
+        await tx.execute({
+          sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, ?, ?)`,
+          args: [id, i + j, slice[j]],
+        });
+      }
+    }
+
+    await tx.execute({
       sql: isPostgres()
         ? `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at`
         : `INSERT OR REPLACE INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -264,7 +250,7 @@ export async function upsertStagedDataset(
         now,
       ],
     });
-  }
+  });
 
   return {
     id,
@@ -361,13 +347,15 @@ export async function deleteStagedDataset(options: {
   });
   if (meta.length === 0) return false;
 
-  await db.execute({
-    sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
-    args: [options.id],
-  });
-  const result = await db.execute({
-    sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
-    args: [options.id, options.appId, options.ownerEmail],
+  const result = await withDbTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+      args: [options.id],
+    });
+    return tx.execute({
+      sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+      args: [options.id, options.appId, options.ownerEmail],
+    });
   });
   return result.rowsAffected > 0;
 }
@@ -388,6 +376,23 @@ function rowToMeta(row: Record<string, unknown>): StagedDatasetMeta {
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
+}
+
+async function withDbTransaction<T>(
+  db: DbExec,
+  fn: (tx: DbExec) => Promise<T>,
+): Promise<T> {
+  if (db.transaction) return db.transaction(fn);
+
+  await db.execute("BEGIN");
+  try {
+    const result = await fn(db);
+    await db.execute("COMMIT");
+    return result;
+  } catch (err) {
+    await db.execute("ROLLBACK").catch(() => {});
+    throw err;
+  }
 }
 
 /** Reset the init promise (only used in tests). */
