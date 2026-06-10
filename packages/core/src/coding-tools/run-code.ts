@@ -106,7 +106,7 @@ export function createRunCodeEntry(
       description: [
         "Execute JavaScript (Node.js, ESM, top-level await supported) in an isolated sandbox.",
         "Use this to fetch, join, aggregate, and reduce large datasets, returning only printed output to the conversation.",
-        "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials.",
+        "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.",
         "Available globals:",
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
