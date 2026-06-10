@@ -10,6 +10,7 @@ import {
   loadAppSkillManifest,
   normalizeAppSkillManifest,
   parseAppSkillArgs,
+  resolvePluginVersion,
   resolveLaunchPlan,
 } from "./app-skill.js";
 
@@ -329,6 +330,22 @@ describe("app skill packaging", () => {
       name: "agent-native-assets",
       url: "https://assets.agent-native.com/_agent-native/mcp",
     });
+  });
+
+  it("includes the MCP server name in the Codex plugin version hash", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const loaded = loadAppSkillManifest(manifestFile);
+    const skills = exportedSkills(loaded.manifest);
+
+    const first = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+    const renamed = {
+      ...loaded.manifest,
+      mcp: { ...loaded.manifest.mcp, serverName: "assets" },
+    };
+    const second = resolvePluginVersion(renamed, loaded.dir, skills);
+
+    expect(first).not.toBe(second);
   });
 
   it("rejects pack paths that escape the manifest or output root", () => {

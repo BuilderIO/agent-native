@@ -172,7 +172,10 @@ function gh(args: string[], input?: string): { ok: boolean; stdout: string } {
     const stdout = execFileSync("gh", args, {
       encoding: "utf8",
       input,
-      stdio: input === undefined ? ["ignore", "pipe", "pipe"] : ["pipe", "pipe", "pipe"],
+      stdio:
+        input === undefined
+          ? ["ignore", "pipe", "pipe"]
+          : ["pipe", "pipe", "pipe"],
     });
     return { ok: true, stdout };
   } catch {
@@ -182,7 +185,14 @@ function gh(args: string[], input?: string): { ok: boolean; stdout: string } {
 
 function resolveGithubRepo(explicit?: string): string | undefined {
   if (explicit) return explicit;
-  const result = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+  const result = gh([
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
   const repo = result.stdout.trim();
   return result.ok && repo ? repo : undefined;
 }
@@ -307,17 +317,197 @@ export function buildRecapSetupPlan(input: {
     agent,
     appUrl,
     repo: input.repo,
-    workflowPath: path.relative(input.baseDir, recapWorkflowFile(input.baseDir)),
+    workflowPath: path.relative(
+      input.baseDir,
+      recapWorkflowFile(input.baseDir),
+    ),
     workflowExists: fs.existsSync(recapWorkflowFile(input.baseDir)),
     requiredSecrets,
     variableValues,
     secretValues: {
       PLAN_RECAP_TOKEN: planToken,
       [llmSecretName]: envValue(env, llmSecretName),
-      PLAN_RECAP_APP_URL:
-        appUrl === DEFAULT_RECAP_APP_URL ? undefined : appUrl,
+      PLAN_RECAP_APP_URL: appUrl === DEFAULT_RECAP_APP_URL ? undefined : appUrl,
     },
   };
+}
+
+function flagArg(args: Record<string, string | boolean>, key: string): boolean {
+  return args[key] === true || args[key] === "true";
+}
+
+function runSetup(args: Record<string, string | boolean>): void {
+  const baseDir = process.cwd();
+  const dryRun = flagArg(args, "dry-run");
+  const skipSecrets = flagArg(args, "skip-secrets");
+  const repo = resolveGithubRepo(optionalArg(args, "repo"));
+  const plan = buildRecapSetupPlan({
+    baseDir,
+    appUrl: optionalArg(args, "app-url"),
+    agent: optionalArg(args, "agent"),
+    repo,
+  });
+  const lines = ["PR Visual Recap setup", ""];
+
+  if (dryRun) {
+    lines.push(`Workflow: would write ${plan.workflowPath}.`);
+  } else {
+    const written = writePrVisualRecapWorkflow(baseDir);
+    lines.push(
+      `Workflow: ${written.existed ? "refreshed" : "wrote"} ${written.path}.`,
+    );
+  }
+
+  lines.push(`Plan app: ${plan.appUrl}.`);
+  lines.push(`Backend: ${plan.agent}.`);
+  lines.push(
+    repo
+      ? `GitHub repo: ${repo}.`
+      : "GitHub repo: not detected; pass --repo owner/name or run from a GitHub checkout.",
+  );
+
+  if (skipSecrets) {
+    lines.push("");
+    lines.push("GitHub secrets/variables: skipped.");
+  } else {
+    lines.push("");
+    lines.push("GitHub secrets/variables:");
+    const secretNames = [
+      ...plan.requiredSecrets,
+      ...(plan.secretValues.PLAN_RECAP_APP_URL ? ["PLAN_RECAP_APP_URL"] : []),
+    ];
+    for (const name of secretNames) {
+      const status = setGithubSecret(
+        name,
+        plan.secretValues[name],
+        repo,
+        dryRun,
+      );
+      if (status === "set") {
+        lines.push(`  ${name}: set.`);
+      } else if (status === "dry-run") {
+        lines.push(`  ${name}: would set.`);
+      } else if (status === "missing") {
+        lines.push(`  ${name}: missing value.`);
+        if (name === "PLAN_RECAP_TOKEN") {
+          lines.push(
+            `    Run agent-native connect ${plan.appUrl} --client codex, then rerun this setup.`,
+          );
+        }
+        lines.push(
+          `    Or set manually: ${commandForMissingSecret(name, repo)}`,
+        );
+      } else {
+        lines.push(`  ${name}: could not set with gh.`);
+        lines.push(`    Set manually: ${commandForMissingSecret(name, repo)}`);
+      }
+    }
+
+    for (const [name, value] of Object.entries(plan.variableValues)) {
+      const status = setGithubVariable(name, value, repo, dryRun);
+      if (status === "set") {
+        lines.push(`  ${name}: set to ${value}.`);
+      } else if (status === "dry-run") {
+        lines.push(`  ${name}: would set to ${value}.`);
+      } else if (status === "failed") {
+        lines.push(`  ${name}: could not set with gh.`);
+        lines.push(
+          `    Set manually: ${commandForMissingVariable(name, value, repo)}`,
+        );
+      }
+    }
+  }
+
+  lines.push("");
+  lines.push(
+    `Next: commit ${plan.workflowPath}, then run agent-native recap doctor.`,
+  );
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function runDoctor(args: Record<string, string | boolean>): void {
+  const baseDir = process.cwd();
+  const repo = resolveGithubRepo(optionalArg(args, "repo"));
+  const variables = listGithubVariables(repo);
+  const agent = normalizeRecapAgent(
+    optionalArg(args, "agent") ??
+      variables?.get("VISUAL_RECAP_AGENT") ??
+      process.env.VISUAL_RECAP_AGENT,
+  );
+  const plan = buildRecapSetupPlan({
+    baseDir,
+    appUrl: optionalArg(args, "app-url"),
+    agent,
+    repo,
+  });
+  const lines = ["PR Visual Recap doctor", ""];
+  let ok = true;
+
+  const workflowFile = recapWorkflowFile(baseDir);
+  if (!fs.existsSync(workflowFile)) {
+    ok = false;
+    lines.push(`[missing] Workflow missing: ${plan.workflowPath}.`);
+    lines.push(
+      "  Run agent-native skills add visual-plan --with-github-action.",
+    );
+  } else {
+    const current = fs.readFileSync(workflowFile, "utf-8");
+    if (current === PR_VISUAL_RECAP_WORKFLOW_YML) {
+      lines.push(`[ok] Workflow installed: ${plan.workflowPath}.`);
+    } else {
+      ok = false;
+      lines.push(
+        `[missing] Workflow differs from the bundled template: ${plan.workflowPath}.`,
+      );
+      lines.push("  Run agent-native recap setup to refresh it.");
+    }
+  }
+
+  if (plan.secretValues.PLAN_RECAP_TOKEN) {
+    lines.push("[ok] Local Plans publish token found.");
+  } else {
+    lines.push("[warn] Local Plans publish token not found.");
+    lines.push(
+      `  Run agent-native connect ${plan.appUrl} --client codex to mint one.`,
+    );
+  }
+
+  if (repo) {
+    lines.push(`[ok] GitHub repo detected: ${repo}.`);
+  } else {
+    ok = false;
+    lines.push("[missing] GitHub repo not detected.");
+    lines.push(
+      "  Pass --repo owner/name or run from a GitHub checkout with gh auth.",
+    );
+  }
+
+  const secretNames = listGithubNames("secret", repo);
+  if (!secretNames) {
+    ok = false;
+    lines.push("[missing] Could not read GitHub Actions secrets with gh.");
+    lines.push("  Run gh auth status, or pass --repo owner/name.");
+  } else {
+    for (const name of plan.requiredSecrets) {
+      if (secretNames.has(name)) {
+        lines.push(`[ok] GitHub secret configured: ${name}.`);
+      } else {
+        ok = false;
+        lines.push(`[missing] GitHub secret missing: ${name}.`);
+        lines.push(`  Set it with: ${commandForMissingSecret(name, repo)}`);
+      }
+    }
+  }
+
+  if (!variables) {
+    lines.push("[warn] Could not read GitHub Actions variables with gh.");
+  } else {
+    const configuredAgent = variables.get("VISUAL_RECAP_AGENT") || "claude";
+    lines.push(`[ok] Recap backend variable: ${configuredAgent}.`);
+  }
+
+  process.stdout.write(`${lines.join("\n")}\n`);
+  if (!ok) process.exitCode = 1;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -766,7 +956,10 @@ export function buildRecapPrompt(input: {
   } else {
     lines.push("## Publish (this is the only way to produce output)");
     lines.push(
-      `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`create-visual-recap\` or \`mcp__plan__create-visual-recap\` — same tool).`,
+      `The \`plan\` MCP server is configured for you. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\` or \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\` — same tools).`,
+    );
+    lines.push(
+      "First call `get-plan-blocks`, then call `create-visual-recap` and `set-resource-visibility`. If `create-visual-recap` or `set-resource-visibility` is available but `get-plan-blocks` is not, the Plan MCP is connected but the workflow/tool allowlist is stale. Report that `.github/workflows/pr-visual-recap.yml` must allow `mcp__plan__get-plan-blocks`; do not describe that case as a disconnected Plan MCP.",
     );
     lines.push(
       `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff${
@@ -2059,6 +2252,8 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
 const HELP = `agent-native recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
+  agent-native recap setup [--repo owner/name] [--agent claude|codex] [--app-url <url>] [--skip-secrets] [--dry-run]
+  agent-native recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
   agent-native recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   agent-native recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
   agent-native recap scan --diff <path>
@@ -2089,12 +2284,26 @@ Usage:
     packages/core, .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED
     on any file-list error. Writes run=<true|false> and agent=<claude|codex> to
     $GITHUB_OUTPUT.
+  agent-native recap setup
+    Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
+    Actions secrets and variables with gh when values are available from env or
+    the local Plans publish-token store. Missing values are printed as exact next
+    commands; secret values are sent to gh through stdin, never argv.
+  agent-native recap doctor
+    Check workflow presence/drift, local Plans publish-token availability, gh
+    repo access, and required GitHub Actions secrets for the selected backend.
 `;
 
 export async function runRecap(argv: string[]): Promise<void> {
   const [sub, ...rest] = argv;
   const args = parseArgs(rest);
   switch (sub) {
+    case "setup":
+      runSetup(args);
+      return;
+    case "doctor":
+      runDoctor(args);
+      return;
     case "collect-diff":
       runCollectDiff(args);
       return;

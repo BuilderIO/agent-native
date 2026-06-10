@@ -79,6 +79,10 @@ see [PR Visual Recap](/docs/pr-visual-recap).
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
+After the workflow is written, run `agent-native recap setup` to configure
+GitHub Actions secrets/variables where possible and `agent-native recap doctor`
+to verify the repo is ready.
+
 If you only want the portable instruction file through the open Skills CLI, use:
 
 ```bash

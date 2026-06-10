@@ -782,8 +782,9 @@ Usage:
                                 non-interactive shells print the connect command.
                                 --with-github-action also writes the PR Visual
                                 Recap workflow into .github/workflows/.
-  agent-native recap <cmd>      PR visual recap helpers used by the GitHub Action.
-                                cmds: scan | build-prompt | shot | comment
+  agent-native recap <cmd>      PR visual recap setup and GitHub Action helpers.
+                                cmds: setup | doctor | scan | build-prompt |
+                                shot | comment
   agent-native plan local <cmd> DB-free local plan helpers.
                                 cmds: init | check | preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use

@@ -70,6 +70,11 @@ deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
 bundles and custom adapter output.
 
+When installing visual-plan interactively, the CLI offers to add the optional PR
+Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
+run "agent-native recap setup" / "agent-native recap doctor" to configure and
+verify GitHub Actions.
+
 The status/update commands inspect copied Agent Native skill folders and refresh
 their instruction files from the current @agent-native/core package.`;
 
@@ -1758,7 +1763,7 @@ export const BUILT_IN_APP_SKILLS = {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
       },
-      mcp: { serverName: "plan" },
+      mcp: { serverName: "plan", aliases: ["agent-native-plans"] },
       auth: {
         mode: "oauth",
         setup:

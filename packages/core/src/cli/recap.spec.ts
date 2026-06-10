@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   RECAP_DIFF_BYTE_CAP,
+  buildRecapSetupPlan,
   buildCommentBody,
   buildRecapClaudeMcpConfig,
   buildRecapCodexMcpConfig,
@@ -15,9 +17,11 @@ import {
   diffContainsSecret,
   evaluateRecapGate,
   isRecapSensitivePath,
+  normalizeRecapAgent,
   parseClaudeUsage,
   parseCodexUsage,
   recapCheckOutcome,
+  recapRequiredSecrets,
   readVisualRecapSkillBundle,
   truncateDiffAtLineBoundary,
   waitForPublicRecapImage,
@@ -180,6 +184,71 @@ describe("recap mcp-config", () => {
   });
 });
 
+describe("recap setup planning", () => {
+  it("normalizes the supported recap agents", () => {
+    expect(normalizeRecapAgent(undefined)).toBe("claude");
+    expect(normalizeRecapAgent("Codex")).toBe("codex");
+    expect(() => normalizeRecapAgent("gpt")).toThrow(/Unsupported recap agent/);
+  });
+
+  it("selects required secrets for each backend", () => {
+    expect(recapRequiredSecrets("claude")).toEqual([
+      "PLAN_RECAP_TOKEN",
+      "ANTHROPIC_API_KEY",
+    ]);
+    expect(recapRequiredSecrets("codex")).toEqual([
+      "PLAN_RECAP_TOKEN",
+      "OPENAI_API_KEY",
+    ]);
+  });
+
+  it("builds a setup plan from env and detects an existing workflow", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-setup-"));
+    try {
+      const workflow = path.join(root, ".github", "workflows");
+      fs.mkdirSync(workflow, { recursive: true });
+      fs.writeFileSync(
+        path.join(workflow, "pr-visual-recap.yml"),
+        "name: old\n",
+      );
+
+      const plan = buildRecapSetupPlan({
+        baseDir: root,
+        agent: "codex",
+        appUrl: "https://plans.example.com/",
+        repo: "BuilderIO/example",
+        env: {
+          PLAN_RECAP_TOKEN: "example-plan-token",
+          OPENAI_API_KEY: "example-openai-key",
+          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_REASONING: "high",
+        } as NodeJS.ProcessEnv,
+      });
+
+      expect(plan).toMatchObject({
+        agent: "codex",
+        appUrl: "https://plans.example.com",
+        repo: "BuilderIO/example",
+        workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
+        workflowExists: true,
+        requiredSecrets: ["PLAN_RECAP_TOKEN", "OPENAI_API_KEY"],
+        variableValues: {
+          VISUAL_RECAP_AGENT: "codex",
+          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_REASONING: "high",
+        },
+      });
+      expect(plan.secretValues).toMatchObject({
+        PLAN_RECAP_TOKEN: "example-plan-token",
+        OPENAI_API_KEY: "example-openai-key",
+        PLAN_RECAP_APP_URL: "https://plans.example.com",
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("recap prompt builder", () => {
   const skillMd = "---\nname: visual-recap\n---\n\nUNIQUE_SKILL_MARKER body.";
 
@@ -203,7 +272,9 @@ describe("recap prompt builder", () => {
       "https://github.com/BuilderIO/ai-services/pull/1095",
     );
     // The publish path and the single hand-off are spelled out.
+    expect(prompt).toContain("mcp__plan__get-plan-blocks");
     expect(prompt).toContain("mcp__plan__create-visual-recap");
+    expect(prompt).toContain("workflow/tool allowlist is stale");
     expect(prompt).toContain("set-resource-visibility");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).toContain(

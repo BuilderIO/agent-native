@@ -28,13 +28,28 @@ A re-push updates the same plan and the same sticky comment in place — no orph
 
 ## Installing it
 
-The Agent-Native CLI writes the workflow into your repository and prints the secrets to set:
+When you install Plans interactively, the Agent-Native CLI asks whether to add
+automatic PR Visual Recaps. Say yes to write the GitHub Action, or add it
+explicitly at any time:
 
 ```bash
 agent-native skills add visual-plan --with-github-action
 ```
 
-This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** — `agent-native recap scan|build-prompt|shot|comment` — so nothing is copied into your repo as helper scripts. Commit the generated workflow file, set the secrets below, and open a PR to see it run.
+This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** — `agent-native recap scan|build-prompt|shot|comment` — so nothing is copied into your repo as helper scripts.
+
+Then run the guided setup helper:
+
+```bash
+agent-native recap setup
+agent-native recap doctor
+```
+
+`recap setup` refreshes the workflow, uses `gh` to set GitHub Actions
+secrets/variables when values are available from env or the local Plans
+publish-token store, and prints exact missing commands for anything it cannot
+set. Secret values are sent to `gh` through stdin, not command arguments. Commit
+the generated workflow file and open a PR to see it run.
 
 By default, the workflow builds its agent prompt from the latest bundled
 `visual-recap` guidance in `@agent-native/core@latest`, including any sibling
@@ -74,7 +89,18 @@ Set these in your repository's **Settings → Secrets and variables → Actions*
 | `PLAN_RECAP_TOKEN`  | Per-user, revocable token minted by `agent-native connect`. Authorizes publishing the recap plan and the screenshot upload. |
 | `ANTHROPIC_API_KEY` | The LLM key for the default Claude Code backend.                                                                            |
 
-Mint `PLAN_RECAP_TOKEN` with `agent-native connect` against your Plans app, then paste the printed token into the secret. Use a placeholder like `plan_recap_xxxxxxxxxxxxxxxx` only for examples — never commit a real token.
+Mint `PLAN_RECAP_TOKEN` with `agent-native connect` against your Plans app. For
+the hosted app, this also writes a local publish-token file that
+`agent-native recap setup` can read:
+
+```bash
+agent-native connect https://plan.agent-native.com --client codex
+agent-native recap setup
+```
+
+If you prefer manual setup, paste the token into the GitHub secret. Use a
+placeholder like `plan_recap_xxxxxxxxxxxxxxxx` only for examples — never commit a
+real token.
 
 ### Optional (only if you change defaults)
 

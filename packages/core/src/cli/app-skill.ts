@@ -57,6 +57,7 @@ export interface AppSkillManifest {
   };
   mcp: {
     serverName: string;
+    aliases?: string[];
   };
   local?: {
     template?: string;
@@ -310,6 +311,7 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
     },
     mcp: {
       serverName: stringValue(mcpRaw.serverName) ?? `agent-native-${id}`,
+      aliases: stringArray(mcpRaw.aliases),
     },
     ...(localRaw
       ? {
@@ -621,13 +623,21 @@ function writeJson(file: string, value: unknown): void {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n", "utf-8");
 }
 
+function mcpServerNames(
+  manifest: AppSkillManifest,
+  serverName?: string,
+): string[] {
+  if (serverName) return [serverName];
+  const names = [manifest.mcp.serverName, ...(manifest.mcp.aliases ?? [])];
+  return [...new Set(names.filter(Boolean))];
+}
+
 function mcpServerConfig(manifest: AppSkillManifest, serverName?: string) {
+  const entry = buildHttpMcpEntry(manifest.hosted.mcpUrl);
   return {
-    mcpServers: {
-      [serverName ?? manifest.mcp.serverName]: buildHttpMcpEntry(
-        manifest.hosted.mcpUrl,
-      ),
-    },
+    mcpServers: Object.fromEntries(
+      mcpServerNames(manifest, serverName).map((name) => [name, entry]),
+    ),
   };
 }
 
@@ -659,7 +669,9 @@ export function exportedSkillContentHash(
       return `${skillExportName(skill)}\n${body}`;
     })
     .sort();
-  parts.push(`mcp:${manifest.mcp.serverName}:${manifest.hosted.mcpUrl}`);
+  parts.push(
+    `mcp:${mcpServerNames(manifest).join(",")}:${manifest.hosted.mcpUrl}`,
+  );
   return createHash("sha256")
     .update(parts.join("\n \n"))
     .digest("hex")
@@ -1210,8 +1222,22 @@ export async function ensureAppSkill(
     scope,
     options.baseDir ?? process.cwd(),
   );
+  if (!options.serverName) {
+    for (const alias of manifest.mcp.aliases ?? []) {
+      result.written.push(
+        ...writeConfigs(
+          clients,
+          alias,
+          plan.mcpUrl,
+          undefined,
+          scope,
+          options.baseDir ?? process.cwd(),
+        ),
+      );
+    }
+  }
   options.log?.(
-    `Registered ${serverName} for ${clients.join(", ")} at ${plan.mcpUrl}`,
+    `Registered ${mcpServerNames(manifest, options.serverName).join(", ")} for ${clients.join(", ")} at ${plan.mcpUrl}`,
   );
   return result;
 }

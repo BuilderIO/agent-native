@@ -273,6 +273,7 @@ describe("Plans skills install — materialized output", () => {
     result: Awaited<ReturnType<typeof addAgentNativeSkill>>;
     captured: Record<string, string>;
     capturedReferences: Record<string, string>;
+    codexConfig: string;
     npxCalls: number;
   }> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
@@ -332,7 +333,11 @@ describe("Plans skills install — materialized output", () => {
           },
         },
       );
-      return { result, captured, capturedReferences, npxCalls };
+      const codexConfig = fs.readFileSync(
+        path.join(codexHome, "config.toml"),
+        "utf-8",
+      );
+      return { result, captured, capturedReferences, codexConfig, npxCalls };
     } finally {
       if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = prevCodexHome;
@@ -341,13 +346,18 @@ describe("Plans skills install — materialized output", () => {
   }
 
   it("materializes exactly the Plans SKILL.md files and points at the hosted MCP", async () => {
-    const { result, captured, capturedReferences, npxCalls } =
+    const { result, captured, capturedReferences, codexConfig, npxCalls } =
       await materializeViaAlias("visual-plan");
     expect(result.id).toBe("visual-plans");
     expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
     expect(result.mcpUrl).toBe(
       "https://plan.agent-native.com/_agent-native/mcp",
     );
+    expect(codexConfig).toContain('[mcp_servers."plan"]');
+    expect(codexConfig).toContain(
+      'url = "https://plan.agent-native.com/_agent-native/mcp"',
+    );
+    expect(codexConfig).not.toContain("agent-native-plans");
     expect(npxCalls).toBeGreaterThan(0);
 
     for (const [name, constant] of PLANS_INSTALL_SKILLS) {

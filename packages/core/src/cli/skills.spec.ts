@@ -69,6 +69,15 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("parses the PR Visual Recap GitHub Action flag and alias", () => {
+    expect(
+      parseSkillsArgs(["add", "visual-plan", "--with-github-action"]),
+    ).toMatchObject({ withGithubAction: true });
+    expect(
+      parseSkillsArgs(["add", "visual-plan", "--with-github-actions"]),
+    ).toMatchObject({ withGithubAction: true });
+  });
+
   it("parses status/update without prompting for add defaults", () => {
     expect(parseSkillsArgs(["status", "visual-plan"])).toMatchObject({
       command: "status",
@@ -761,6 +770,112 @@ describe("agent-native skills", () => {
     expect(promptClients).not.toHaveBeenCalled();
   });
 
+  it("offers the PR Visual Recap workflow during interactive Plans installs", async () => {
+    const root = tmpDir();
+    const stdout: string[] = [];
+    const promptGithubAction = vi.fn(async () => true);
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(
+      [
+        "add",
+        "visual-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--no-connect",
+      ],
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        promptGithubAction,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(promptGithubAction).toHaveBeenCalledTimes(1);
+    const workflow = path.join(
+      root,
+      ".github",
+      "workflows",
+      "pr-visual-recap.yml",
+    );
+    expect(fs.existsSync(workflow)).toBe(true);
+    expect(fs.readFileSync(workflow, "utf-8")).toContain("PR Visual Recap");
+    expect(stdout.join("")).toContain("PR Visual Recap workflow: wrote");
+    expect(stdout.join("")).toContain("agent-native recap setup");
+  });
+
+  it("prints a later command when the optional recap workflow prompt is declined", async () => {
+    const root = tmpDir();
+    const stdout: string[] = [];
+    const promptGithubAction = vi.fn(async () => false);
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(
+      [
+        "add",
+        "visual-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--no-connect",
+      ],
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        promptGithubAction,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(promptGithubAction).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(path.join(root, ".github"))).toBe(false);
+    expect(stdout.join("")).toContain(
+      "agent-native skills add visual-plan --with-github-action",
+    );
+  });
+
+  it("skips the optional recap workflow prompt when the flag is explicit", async () => {
+    const root = tmpDir();
+    const promptGithubAction = vi.fn(async () => false);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(
+      [
+        "add",
+        "visual-plan",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--no-connect",
+        "--with-github-action",
+      ],
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        promptGithubAction,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(promptGithubAction).not.toHaveBeenCalled();
+    expect(
+      fs.existsSync(
+        path.join(root, ".github", "workflows", "pr-visual-recap.yml"),
+      ),
+    ).toBe(true);
+  });
+
   it("prompts for skills when interactive add has no target", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
@@ -817,6 +932,30 @@ describe("agent-native skills", () => {
     ]);
     expect(result.commands.join("\n")).not.toContain(os.tmpdir());
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+  });
+
+  it("dry-runs the visual recap workflow install honestly", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "visual-plan",
+        "--scope",
+        "project",
+        "--dry-run",
+        "--with-github-action",
+      ]),
+      { baseDir: root },
+    );
+
+    expect(result.commands).toEqual([
+      "agent-native skills add visual-plan --client codex --scope project --with-github-action --yes",
+    ]);
+    expect(result.githubActionPath).toBe(
+      path.join(".github", "workflows", "pr-visual-recap.yml"),
+    );
+    expect(fs.existsSync(path.join(root, ".github"))).toBe(false);
   });
 
   it("reports installed skill status without running the add flow", async () => {
