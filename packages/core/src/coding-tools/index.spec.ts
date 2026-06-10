@@ -10,6 +10,7 @@ import {
   BASH_OUTPUT_TAIL_CHARS,
   createCodingToolRegistry,
   isReadOnlyShellCommand,
+  spawnBackgroundCommand,
   truncateBashOutput,
   truncateCodingOutput,
 } from "./index.js";
@@ -217,5 +218,69 @@ describe("structuredMeta side-channel via onToolMetadata", () => {
     expect(writeMeta?.filePath).toBe("new.txt");
     expect(writeMeta?.lineCount).toBe(3);
     expect(writeMeta?.content).toContain("line1");
+  });
+});
+
+describe("bash background execution", () => {
+  it("returns immediately with pid and log file path", async () => {
+    const cwd = tempDir();
+    const registry = createCodingToolRegistry({ cwd });
+    const result = await registry.bash.run({
+      command: "echo background-hello",
+      background: "true",
+    });
+    expect(typeof result).toBe("string");
+    expect(result).toMatch(/Background process spawned/);
+    expect(result).toMatch(/pid:/);
+    expect(result).toMatch(/log:/);
+  });
+
+  it("spawnBackgroundCommand returns pid and log path in output", async () => {
+    const cwd = tempDir();
+    const result = spawnBackgroundCommand("echo direct-spawn", cwd);
+    expect(result).toMatch(/Background process spawned/);
+    expect(result).toMatch(/pid:\s*\d+/);
+    expect(result).toMatch(/log:\s*\S+\.log/);
+  });
+
+  it("writes output to the log file", async () => {
+    const cwd = tempDir();
+    const result = spawnBackgroundCommand("echo logged-output", cwd);
+    const logMatch = result.match(/log:\s*(\S+)/);
+    expect(logMatch).not.toBeNull();
+    const logFile = logMatch![1];
+    // Give the process a moment to write its output.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const content = fs.readFileSync(logFile, "utf8");
+    expect(content).toContain("logged-output");
+    fs.unlinkSync(logFile);
+  });
+
+  it("beforeBash policy still applies to background commands", async () => {
+    const cwd = tempDir();
+    const registry = createCodingToolRegistry({
+      cwd,
+      beforeBash: ({ command }) => {
+        if (command.includes("blocked")) return "Error: blocked by policy";
+        return null;
+      },
+    });
+    const result = await registry.bash.run({
+      command: "echo blocked",
+      background: "true",
+    });
+    expect(result).toBe("Error: blocked by policy");
+  });
+
+  it("default timeout is 120000 ms", () => {
+    // Verify the exported default via tool description which mentions 120000.
+    const registry = createCodingToolRegistry({});
+    const bashTool = registry.bash.tool;
+    const timeoutParam = (
+      bashTool.parameters as {
+        properties: Record<string, { description: string }>;
+      }
+    ).properties.timeoutMs;
+    expect(timeoutParam.description).toContain("120000");
   });
 });

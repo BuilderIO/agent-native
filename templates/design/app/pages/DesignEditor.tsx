@@ -997,7 +997,7 @@ export default function DesignEditor() {
               'iframe[title="Design Preview"]',
             );
             const doc = iframe?.contentDocument;
-            if (doc && !doc.querySelector(prev.selector)) {
+            if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
               return null;
             }
           } catch {
@@ -1013,7 +1013,7 @@ export default function DesignEditor() {
               'iframe[title="Design Preview"]',
             );
             const doc = iframe?.contentDocument;
-            if (doc && !doc.querySelector(prev.selector)) {
+            if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
               return null;
             }
           } catch {
