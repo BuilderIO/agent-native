@@ -19,7 +19,7 @@ export default defineAction({
   run: async (args) => {
     if (args.id) {
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
+      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
       const draft = await readAppState(`compose-${safeId}`);
       if (!draft) return `No draft found with id "${safeId}"`;
       return JSON.stringify(draft, null, 2);

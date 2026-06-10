@@ -128,7 +128,7 @@ export default defineAction({
     };
   },
   run: async (args) => {
-    if (!args.q) return "Error: --q is required";
+    if (!args.q) throw new Error("--q is required");
     const view = args.view ?? "all";
     const limit = args.limit ?? 25;
     const includeCounts = args.includeCounts === true;
@@ -200,7 +200,7 @@ export default defineAction({
     }
 
     const clients = await getClients(ownerEmail);
-    if (clients.length === 0) return "Error: No Google account connected.";
+    if (clients.length === 0) throw new Error("No Google account connected.");
 
     const gmailQuery = buildGmailEmailSearchQuery({ view, q: args.q });
 
