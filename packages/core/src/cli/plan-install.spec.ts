@@ -34,12 +34,8 @@ import {
 import {
   addAgentNativeSkill,
   parseSkillsArgs,
-  PLAN_DESIGN_SKILL_MD,
-  PROTOTYPE_PLAN_SKILL_MD,
-  UI_PLAN_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
-  VISUAL_QUESTIONS_SKILL_MD,
 } from "./skills.js";
 import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
 
@@ -49,10 +45,6 @@ let origCwd: string;
 const PLANS_INSTALL_SKILLS: Array<[string, string]> = [
   ["visual-plan", VISUAL_PLANS_SKILL_MD],
   ["visual-recap", VISUAL_RECAP_SKILL_MD],
-  ["visual-questions", VISUAL_QUESTIONS_SKILL_MD],
-  ["ui-plan", UI_PLAN_SKILL_MD],
-  ["prototype-plan", PROTOTYPE_PLAN_SKILL_MD],
-  ["plan-design", PLAN_DESIGN_SKILL_MD],
 ];
 
 const PLANS_INSTALL_SKILL_NAMES = PLANS_INSTALL_SKILLS.map(([name]) => name);
@@ -63,13 +55,6 @@ const PLANS_INSTALL_ALIASES = [
   "visual-recaps",
   "code-review-recap",
   "code-review-recaps",
-  "ui-plan",
-  "prototype-plan",
-  "plan-design",
-  "plan-designs",
-  "design-plan",
-  "design-plans",
-  "visual-questions",
   "plannotate",
   "html-plan",
 ];
@@ -191,14 +176,7 @@ describe(
     it("ships the Plans skills inside the scaffold (.agents/skills)", async () => {
       await createApp("plan", { template: "plan" });
       const skillsDir = path.join(tmpDir, "plan", ".agents", "skills");
-      for (const name of [
-        "visual-plan",
-        "visual-recap",
-        "ui-plan",
-        "prototype-plan",
-        "plan-design",
-        "visual-questions",
-      ]) {
+      for (const name of ["visual-plan", "visual-recap"]) {
         expect(
           fs.existsSync(path.join(skillsDir, name, "SKILL.md")),
           `expected scaffolded skill ${name}/SKILL.md`,
@@ -358,34 +336,6 @@ describe("Plans skills install — materialized output", () => {
     }
   });
 
-  it.each(["ui-plan", "prototype-plan", "plan-design", "visual-questions"])(
-    "accepts %s as a Plans install alias",
-    async (plansAlias) => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
-      try {
-        const result = await addAgentNativeSkill(
-          parseSkillsArgs([
-            "add",
-            plansAlias,
-            "--client",
-            "codex",
-            "--scope",
-            "project",
-          ]),
-          {
-            baseDir: root,
-            runCommand: async () => 0,
-          },
-        );
-
-        expect(result.id).toBe("visual-plans");
-        expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
-      } finally {
-        fs.rmSync(root, { recursive: true, force: true });
-      }
-    },
-  );
-
   it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
     const { captured } = await materializeViaAlias("visual-plan");
     const md = captured["visual-plan"];
@@ -410,26 +360,6 @@ describe("Plans skill three-copy sync (deep)", () => {
       constant: VISUAL_RECAP_SKILL_MD,
       templateDir: "visual-recap",
       exportedDir: "visual-recap",
-    },
-    {
-      constant: UI_PLAN_SKILL_MD,
-      templateDir: "ui-plan",
-      exportedDir: "ui-plan",
-    },
-    {
-      constant: PROTOTYPE_PLAN_SKILL_MD,
-      templateDir: "prototype-plan",
-      exportedDir: "prototype-plan",
-    },
-    {
-      constant: PLAN_DESIGN_SKILL_MD,
-      templateDir: "plan-design",
-      exportedDir: "plan-design",
-    },
-    {
-      constant: VISUAL_QUESTIONS_SKILL_MD,
-      templateDir: "visual-questions",
-      exportedDir: "visual-questions",
     },
   ];
 

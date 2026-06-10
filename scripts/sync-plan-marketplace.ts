@@ -5,7 +5,7 @@
  * and Codex.
  *
  * The canonical skill content lives at the repo's top-level `skills/` directory.
- * This script copies the six exported Plan skills into a single shared plugin
+ * This script copies the two exported Plan skills into a single shared plugin
  * directory and writes the Claude + Codex marketplace catalogs and per-host
  * plugin manifests. It mirrors `sync-workspace-core-skills.ts`: it generates by
  * default and validates with `--check`, failing with a clear "run pnpm

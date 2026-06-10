@@ -775,7 +775,7 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
-  agent-native skills add assets|design-exploration|visual-plan|visual-questions|ui-plan|prototype-plan|plan-design
+  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.
                                 --no-connect skips auth (run 'connect' later);

@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Install with the Agent-Native CLI to add the /visual-plan, /visual-recap, /ui-plan, /prototype-plan, /plan-design, and /visual-questions skills plus the Plan MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
   },
   "surfaces": [
     {
@@ -36,30 +36,6 @@
       "action": "create-visual-recap",
       "path": "/plans",
       "description": "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review."
-    },
-    {
-      "id": "ui-plan",
-      "action": "create-ui-plan",
-      "path": "/plans",
-      "description": "Create a UI-first Agent-Native plan with an optional top pan/zoom wireframe canvas and a refined rich document below."
-    },
-    {
-      "id": "prototype-plan",
-      "action": "create-prototype-plan",
-      "path": "/plans",
-      "description": "Create a prototype-first Agent-Native plan with a functional live prototype above the document."
-    },
-    {
-      "id": "plan-design",
-      "action": "create-plan-design",
-      "path": "/plans",
-      "description": "Create a full-fidelity Agent-Native design plan with a Design canvas tab and optional matching Prototype tab."
-    },
-    {
-      "id": "visual-questions",
-      "action": "create-visual-questions",
-      "path": "/plans",
-      "description": "Create a rich visual intake questionnaire for explicit /visual-questions workflows."
     }
   ],
   "skills": [
@@ -72,26 +48,6 @@
       "path": ".agents/skills/visual-recap",
       "visibility": "both",
       "exportAs": "visual-recap"
-    },
-    {
-      "path": ".agents/skills/ui-plan",
-      "visibility": "both",
-      "exportAs": "ui-plan"
-    },
-    {
-      "path": ".agents/skills/prototype-plan",
-      "visibility": "both",
-      "exportAs": "prototype-plan"
-    },
-    {
-      "path": ".agents/skills/plan-design",
-      "visibility": "both",
-      "exportAs": "plan-design"
-    },
-    {
-      "path": ".agents/skills/visual-questions",
-      "visibility": "both",
-      "exportAs": "visual-questions"
     }
   ],
   "hostAdapters": [

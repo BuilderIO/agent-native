@@ -2,14 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  PLAN_DESIGN_SKILL_MD,
-  PROTOTYPE_PLAN_SKILL_MD,
-  UI_PLAN_SKILL_MD,
-  VISUAL_PLANS_SKILL_MD,
-  VISUAL_RECAP_SKILL_MD,
-  VISUAL_QUESTIONS_SKILL_MD,
-} from "./skills.js";
+import { VISUAL_PLANS_SKILL_MD, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
 /**
  * The Plans skills are stored in four places that ship to users or guide this
@@ -46,8 +39,8 @@ const ROOT = workspaceRoot();
 // the top-level mirror exports the headline command as `visual-plans` (plural).
 // `cores` lists the SHARED-CORE marker regions a skill interpolates from the
 // single-source partials in skills.ts. The `wireframe-quality` core is shared
-// across visual-plan, ui-plan, AND visual-recap; the canvas/document/exemplar
-// cores apply only to the canvas-bearing forward plans (visual-plan, ui-plan).
+// across visual-plan AND visual-recap; the canvas/document/exemplar cores apply
+// only to the canvas-bearing visual-plan.
 const PLAN_SKILLS = [
   {
     label: "visual-plan",
@@ -67,39 +60,6 @@ const PLAN_SKILLS = [
     templateDir: "visual-recap",
     exportedDir: "visual-recap",
     cores: ["wireframe-quality"],
-  },
-  {
-    label: "ui-plan",
-    constant: UI_PLAN_SKILL_MD,
-    templateDir: "ui-plan",
-    exportedDir: "ui-plan",
-    cores: [
-      "wireframe-quality",
-      "canvas-surface",
-      "document-quality",
-      "exemplar",
-    ],
-  },
-  {
-    label: "prototype-plan",
-    constant: PROTOTYPE_PLAN_SKILL_MD,
-    templateDir: "prototype-plan",
-    exportedDir: "prototype-plan",
-    cores: [],
-  },
-  {
-    label: "plan-design",
-    constant: PLAN_DESIGN_SKILL_MD,
-    templateDir: "plan-design",
-    exportedDir: "plan-design",
-    cores: [],
-  },
-  {
-    label: "visual-questions",
-    constant: VISUAL_QUESTIONS_SKILL_MD,
-    templateDir: "visual-questions",
-    exportedDir: "visual-questions",
-    cores: [],
   },
 ] as const;
 
@@ -209,8 +169,9 @@ describe("Plans skills sync guard", () => {
 
   it("keeps each shared core byte-identical across the skills that consume it", () => {
     // Each marker is single-sourced from one partial in skills.ts and
-    // interpolated into its consumers. `wireframe-quality` is shared by three
-    // skills; the canvas/document/exemplar cores by the two forward plans.
+    // interpolated into its consumers. `wireframe-quality` is shared by
+    // visual-plan and visual-recap; the canvas/document/exemplar cores by
+    // visual-plan only.
     const coreMarkers = [
       "wireframe-quality",
       "canvas-surface",
