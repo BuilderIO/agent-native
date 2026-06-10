@@ -1,0 +1,551 @@
+---
+title: "Visual recap - local-files privacy mode"
+brief: "DB-free local plan and recap flow for privacy-focused review."
+kind: "recap"
+localOnly: true
+---
+
+<FileTree
+  id="tree-local-files"
+  title="Files touched"
+  entries={[
+    {
+      path: ".changeset/local-plan-files-mode.md",
+      change: "added",
+      note: "Patch changeset for the local-files mode.",
+    },
+    {
+      path: "packages/core/src/cli/index.ts",
+      change: "modified",
+      note: "Adds the plan local CLI command group.",
+    },
+    {
+      path: "packages/core/src/cli/plan-local.ts",
+      change: "added",
+      note: "DB-free init, check, and preview helpers for local MDX folders.",
+    },
+    {
+      path: "packages/core/src/cli/plan-local.spec.ts",
+      change: "added",
+      note: "Covers folder naming, state metadata, and preview generation.",
+    },
+    {
+      path: "packages/core/src/cli/recap.ts",
+      change: "modified",
+      note: "Adds build-prompt --local-files and local handoff instructions.",
+    },
+    {
+      path: "packages/core/src/cli/recap.spec.ts",
+      change: "modified",
+      note: "Covers DB-free prompt generation and local preview instructions.",
+    },
+    {
+      path: "templates/plan/actions/get-local-plan-folder.ts",
+      change: "added",
+      note: "Read-only action that returns a synthetic bundle from local MDX.",
+    },
+    {
+      path: "templates/plan/app/routes/local-plans.$slug.tsx",
+      change: "added",
+      note: "Read-only local preview route with database-off affordances.",
+    },
+    {
+      path: "templates/plan/server/lib/local-plan-files.ts",
+      change: "modified",
+      note: "Adds local folder read support and path safety checks.",
+    },
+    {
+      path: "templates/plan/server/lib/local-plan-files.spec.ts",
+      change: "added",
+      note: "Covers local folder reads and slug/path containment.",
+    },
+    {
+      path: "templates/plan/server/lib/public-action-paths.ts",
+      change: "modified",
+      note: "Allows the local read-only action through public action routing.",
+    },
+    {
+      path: "templates/plan/server/plugins/auth.ts",
+      change: "modified",
+      note: "Permits the local preview route in local Plan runtime.",
+    },
+    {
+      path: "skills/visual-plans/SKILL.md",
+      change: "modified",
+      note: "Documents local-files privacy mode for /visual-plan.",
+    },
+    {
+      path: "skills/visual-recap/SKILL.md",
+      change: "modified",
+      note: "Documents the local-files exception for /visual-recap.",
+    },
+    {
+      path: "packages/core/docs/content/template-plan.md",
+      change: "modified",
+      note: "Adds user-facing local-files mode docs.",
+    },
+    {
+      path: "packages/core/docs/content/plan-plugin.md",
+      change: "modified",
+      note: "Explains hosted default versus explicit local-files mode.",
+    },
+    {
+      path: "packages/core/docs/content/pr-visual-recap.md",
+      change: "modified",
+      note: "Adds the local PR recap helper flow.",
+    },
+  ]}
+/>
+
+<RichText id="rt-scope" title="Scope">
+
+This local recap covers the local-files privacy mode added for `/visual-plan` and
+`/visual-recap`: local MDX authoring, local preview, local Plan app read-only
+viewing, and the documentation/skill updates that make the mode discoverable.
+The unrelated OAuth-token encryption files currently present in the working tree
+are intentionally outside this recap.
+
+</RichText>
+
+<Mermaid
+  id="flow-local-files"
+  caption="Local-files mode keeps the plan source and rendered preview on disk; hosted Plan DB writes are not part of the path."
+  source={`flowchart LR
+  Diff["Local diff and source files"] --> Agent["Agent in local-files mode"]
+  Agent --> Mdx["plans/slug/plan.mdx"]
+  Mdx --> Cli["agent-native plan local preview"]
+  Mdx --> Route["/local-plans/:slug"]
+  Route --> Action["get-local-plan-folder"]
+  Action --> Reader["readPlanLocalFolder"]
+  Reader --> Bundle["Synthetic read-only PlanBundle"]
+  Agent -. "no Plan MCP publish" .-> Db[("Plan SQL database")]
+  Action -. "no DB read or write" .-> Db
+`}
+/>
+
+<Endpoint
+  id="endpoint-local-plan-folder"
+  method="GET"
+  path="get-local-plan-folder"
+  summary="Read a local MDX plan folder without touching the Plan database"
+  change="added"
+  params={[
+    {
+      name: "slug",
+      in: "query",
+      type: "string",
+      required: true,
+      description: "Folder name under PLAN_LOCAL_DIR, restricted to A-Z, a-z, 0-9, dot, underscore, and dash.",
+      change: "added",
+    },
+    {
+      name: "kind",
+      in: "query",
+      type: '"plan" | "recap"',
+      required: false,
+      description: "Optional explicit local plan kind; otherwise frontmatter or .plan-state.json decides.",
+      change: "added",
+    },
+  ]}
+  request={{
+    contentType: "application/json",
+    example: "{\"slug\":\"checkout-review\",\"kind\":\"recap\"}",
+  }}
+  responses={[
+    {
+      status: "200",
+      description: "Synthetic local-only PlanBundle and rendered HTML/MDX export.",
+      change: "added",
+      example: "{\"planId\":\"local-checkout-review\",\"localOnly\":true,\"path\":\"/local-plans/checkout-review\",\"url\":\"/local-plans/checkout-review\"}",
+    },
+  ]}
+>
+
+The action is `readOnly`, public-agent exposed, and guarded by
+`isLocalPlanRuntime()`. It builds a synthetic `PlanBundle` from local MDX files,
+sets access to viewer/private, and returns `/local-plans/<slug>` as the local
+view path.
+
+</Endpoint>
+
+<WireframeBlock id="wf-local-route">
+  <Screen
+    surface="browser"
+    caption="After-only UI state for the new read-only local preview route."
+    html={`<div style="display:flex;flex-direction:column;gap:14px;padding:16px;box-sizing:border-box;height:100%">
+  <header style="display:flex;align-items:flex-start;width:100%;gap:12px;border-bottom:1.4px solid var(--wf-line);padding-bottom:12px">
+    <div style="display:flex;flex-direction:column;gap:8px;min-width:0;flex:1">
+      <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden">
+        <span class="wf-pill accent">Local-files mode</span>
+        <span class="wf-pill">Visual recap</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+        <h1 style="margin:0">Checkout review</h1>
+        <p class="wf-muted" style="margin:0">DB-free recap preview from local MDX.</p>
+      </div>
+    </div>
+    <button>Plans</button>
+  </header>
+  <section class="wf-card" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+      <strong style="white-space:nowrap">Folder</strong>
+      <code style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">/workspace/plans/checkout-review</code>
+    </div>
+    <p style="margin:0">This preview is read from local MDX files and does not create, read, or update rows in the Plan app database.</p>
+    <p class="wf-muted" style="margin:0">Loaded files: plan.mdx, .plan-state.json</p>
+  </section>
+  <main style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1;min-height:0">
+    <section class="wf-card" style="display:flex;flex-direction:column;gap:8px;min-width:0">
+      <span class="wf-pill accent">Files touched</span>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="wf-box" style="padding:8px;display:flex;justify-content:space-between;gap:8px"><span>packages/core/src/cli/plan-local.ts</span><span class="wf-pill">added</span></div>
+        <div class="wf-box" style="padding:8px;display:flex;justify-content:space-between;gap:8px"><span>templates/plan/actions/get-local-plan-folder.ts</span><span class="wf-pill">added</span></div>
+        <div class="wf-box" style="padding:8px;display:flex;justify-content:space-between;gap:8px"><span>skills/visual-recap/SKILL.md</span><span class="wf-pill">modified</span></div>
+      </div>
+    </section>
+    <section class="wf-card" style="display:flex;flex-direction:column;gap:8px;min-width:0">
+      <span class="wf-pill accent">Key changes</span>
+      <div style="display:flex;gap:6px;white-space:nowrap;overflow:hidden">
+        <span class="wf-chip accent">CLI</span>
+        <span class="wf-chip">Action</span>
+        <span class="wf-chip">Route</span>
+        <span class="wf-chip">Docs</span>
+      </div>
+      <pre style="margin:0;overflow:hidden;white-space:pre-wrap">agent-native plan local preview --dir plans/checkout-review --kind recap</pre>
+      <p class="wf-muted" style="margin:0">Editing, comments, sharing, publishing, and history are intentionally unavailable.</p>
+    </section>
+  </main>
+</div>`}
+  />
+</WireframeBlock>
+
+<RichText id="rt-key-heading">
+
+## Key changes
+
+</RichText>
+
+<TabsBlock
+  id="tabs-key-diffs"
+  title="Tabbed code diffs"
+  tabs={[
+    {
+      id: "tab-cli",
+      label: "CLI local helper",
+      blocks: [
+        {
+          id: "diff-plan-local",
+          type: "diff",
+          data: {
+            filename: "packages/core/src/cli/plan-local.ts",
+            language: "ts",
+            mode: "split",
+            before: "",
+            after: `/**
+ * DB-free local plan helpers.
+ *
+ * These commands are intentionally separate from the Plan app actions. They do
+ * not call MCP, HTTP, SQLite, or the Plan template runtime; they only read and
+ * write local files so privacy-focused users have an auditable no-DB path.
+ */
+
+export function localPlanFolderName(title: string): string {
+  const slug = title
+    .normalize("NFKD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/g, "");
+  return slug || "untitled-plan";
+}
+
+const HELP = \`agent-native plan - local Agent-Native Plan helpers
+
+Usage:
+agent-native plan local init --title <title> [--brief <text>] [--kind plan|recap] [--dir <folder>] [--force]
+agent-native plan local check --dir <folder>
+agent-native plan local preview --dir <folder> [--out preview.html] [--kind plan|recap]
+
+The local subcommands are the privacy-focused no-DB path.
+\`;`,
+            annotations: [
+              {
+                side: "after",
+                lines: "1-8",
+                label: "Boundary",
+                note: "The helper explicitly documents the no-MCP, no-HTTP, no-SQLite boundary.",
+              },
+              {
+                side: "after",
+                lines: "30-37",
+                label: "User path",
+                note: "The public command surface is init, check, and preview for local MDX folders.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-recap-prompt",
+      label: "Recap prompt",
+      blocks: [
+        {
+          id: "diff-recap-prompt",
+          type: "diff",
+          data: {
+            filename: "packages/core/src/cli/recap.ts",
+            language: "ts",
+            mode: "split",
+            before: `lines.push(
+\`You are running non-interactively in CI. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan, then publish it.\`,
+);
+lines.push("");
+lines.push("## Publish (this is the only way to produce output)");
+lines.push(
+\`The \`plan\` MCP server is configured for you. Call its tools by name.\`,
+);`,
+            after: `lines.push(
+input.localFiles
+? "# Task: create a DB-free local Visual Recap of this pull request"
+: "# Task: publish a Visual Recap of this pull request",
+);
+
+if (input.localFiles) {
+lines.push("## Local-Files Output (this is the only way to produce output)");
+lines.push(
+"Do NOT call the plan MCP server, create-visual-recap, import-visual-plan-source, update-visual-plan, export-visual-plan, or any hosted Plan action. This mode exists so the recap data never goes to a Plan app database.",
+);
+lines.push(
+"Create or replace the local MDX folder with plan.mdx and optional visual files. Set kind: recap and localOnly: true in source metadata/state.",
+);
+lines.push(
+"Run agent-native plan local preview --dir <localDir> --kind recap to validate the folder and generate the local preview.",
+);
+}`,
+            annotations: [
+              {
+                side: "after",
+                lines: "1-4",
+                label: "Mode switch",
+                note: "The generated prompt changes the agent objective when --local-files is set.",
+              },
+              {
+                side: "after",
+                lines: "8-11",
+                label: "No hosted writes",
+                note: "The local prompt prohibits Plan MCP and hosted Plan action calls.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-local-action",
+      label: "Local action",
+      blocks: [
+        {
+          id: "diff-local-action",
+          type: "diff",
+          data: {
+            filename: "templates/plan/actions/get-local-plan-folder.ts",
+            language: "ts",
+            mode: "split",
+            before: "",
+            after: `export default defineAction({
+description:
+"Read a DB-free local Agent-Native Plan MDX folder from PLAN*LOCAL_DIR for privacy-focused local-files preview. This never reads schema.plans and never writes to the database.",
+schema: z.object({
+slug: z.string().min(1).regex(/^[A-Za-z0-9.*-]+$/),
+    kind: localPlanKindSchema.optional(),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+    title: "Get Local Plan Folder",
+  },
+  run: async (args) => {
+    if (!isLocalPlanRuntime()) {
+      throw new Error("Local plan folder preview is only available in local Plan runtime.");
+    }
+    const local = await readPlanLocalFolder(args.slug);
+    return {
+      planId: \`local-\${args.slug}\`,
+      localOnly: true,
+      path: \`/local-plans/\${encodeURIComponent(local.slug)}\`,
+      url: \`/local-plans/\${encodeURIComponent(local.slug)}\`,
+    };
+  },
+});`,
+            annotations: [
+              {
+                side: "after",
+                lines: "1-3",
+                label: "Contract",
+                note: "The action description states the database boundary plainly.",
+              },
+              {
+                side: "after",
+                lines: "16-19",
+                label: "Local gate",
+                note: "The action is unusable outside the local Plan runtime.",
+              },
+              {
+                side: "after",
+                lines: "21-26",
+                label: "Synthetic plan",
+                note: "The returned plan id and URL are local-only route values, not DB ids.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-route",
+      label: "Preview route",
+      blocks: [
+        {
+          id: "diff-local-route",
+          type: "diff",
+          data: {
+            filename: "templates/plan/app/routes/local-plans.$slug.tsx",
+language: "tsx",
+mode: "split",
+before: "",
+after: `export default function LocalPlanRoute() {
+const params = useParams<{ slug?: string }>();
+const slug = params.slug ?? "";
+const query = useActionQuery<LocalPlanResult>(
+"get-local-plan-folder",
+{ slug },
+{ enabled: Boolean(slug), refetchInterval: false },
+);
+
+return (
+
+<main className="min-h-screen bg-background">
+<header className="border-b bg-background/95">
+<Badge variant="secondary" className="gap-2">
+<IconDatabaseOff className="size-4" />
+Local-files mode
+</Badge>
+<Badge variant="outline">
+{bundle.plan.kind === "recap" ? "Visual recap" : "Visual plan"}
+</Badge>
+</header>
+
+      <section className="mx-auto max-w-6xl px-6 py-5">
+        <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+          This preview is read from local MDX files and does not create, read,
+          or update rows in the Plan app database.
+        </div>
+      </section>
+
+      <PlanContentRenderer editingDisabled isRecap={bundle.plan.kind === "recap"} />
+    </main>
+
+);
+}`,
+            annotations: [
+              {
+                side: "after",
+                lines: "4-8",
+                label: "Action-backed",
+                note: "The route uses the shared action surface instead of hand-writing a custom fetch.",
+              },
+              {
+                side: "after",
+                lines: "13-19",
+                label: "Visible privacy state",
+                note: "The route makes local-files mode and plan/recap kind visible at the top of the screen.",
+              },
+              {
+                side: "after",
+                lines: "29",
+                label: "Read-only",
+                note: "The rendered plan is intentionally editing-disabled.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-docs",
+      label: "Skills and docs",
+      blocks: [
+        {
+          id: "diff-skill-docs",
+          type: "diff",
+          data: {
+            filename: "skills/visual-recap/SKILL.md + docs",
+            language: "md",
+            mode: "split",
+            before: `## Always Publish As An Agent-Native Plan - Never Inline
+
+The deliverable is ALWAYS a published Agent-Native Plan, created with the
+create-visual-recap tool on the plan MCP server.`,
+            after: `## Local-Files Privacy Mode Exception
+
+Use local-files privacy mode when the user explicitly asks for no DB writes,
+no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+recaps, or when AGENT_NATIVE_PLANS_MODE=local-files is set.
+
+In local-files mode:
+
+- Write the recap as a local MDX folder under plans/<slug>/.
+- Run agent-native plan local preview --dir plans/<slug> --kind recap.
+- Do not call create-visual-recap, create-visual-plan, import/update/export
+  hosted Plan tools, or any hosted Plan action for that recap.
+
+packages/core/docs/content/template-plan.md:
+
+Local-files mode prevents plan or recap content from going to the Agent-Native
+Plan database. It also disables hosted sharing, browser comments, plan history,
+and publish/export receipts until you explicitly opt into publishing.`,
+annotations: [
+{
+side: "after",
+lines: "1-5",
+label: "Trigger",
+note: "The skill now has an explicit local-files exception keyed by request text or AGENT_NATIVE_PLANS_MODE.",
+},
+{
+side: "after",
+lines: "7-12",
+label: "Prohibited tools",
+note: "Hosted Plan MCP and action writes are forbidden in the local path.",
+},
+{
+side: "after",
+lines: "16-19",
+label: "User docs",
+note: "The docs spell out the privacy boundary and the disabled hosted collaboration features.",
+},
+],
+},
+},
+],
+},
+]}
+/>
+
+<RichText id="rt-verification" title="Verification">
+
+Verified during the implementation thread:
+
+- `pnpm --filter @agent-native/core exec vitest --run src/cli/plan-local.spec.ts src/cli/recap.spec.ts src/cli/skills.sync.spec.ts`
+- `pnpm --dir templates/plan exec vitest --run server/lib/local-plan-files.spec.ts`
+- `pnpm --filter @agent-native/core typecheck`
+- `pnpm --dir templates/plan typecheck`
+- `pnpm guard:plan-marketplace`
+- CLI smoke for `agent-native plan local init` and `agent-native plan local preview`
+
+</RichText>

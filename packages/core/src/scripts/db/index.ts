@@ -12,6 +12,8 @@ export const coreDbScripts: Record<string, (args: string[]) => Promise<void>> =
       import("./migrate-user-api-keys.js").then((m) => m.default(args)),
     "db-migrate-encrypt-credentials": (args) =>
       import("./migrate-encrypt-credentials.js").then((m) => m.default(args)),
+    "db-migrate-encrypt-oauth-tokens": (args) =>
+      import("./migrate-encrypt-oauth-tokens.js").then((m) => m.default(args)),
     "db-reset-dev-owner": (args) =>
       import("./reset-dev-owner.js").then((m) => m.default(args)),
   };

@@ -198,8 +198,8 @@ pinned bottom bars, real product content, before/after comparability, the right
 `surface` preset, `--wf-*` tokens instead of hex, and no `<html>`/`<style>`/font
 tags. Before authoring ANY wireframe / `<Screen>` / `WireframeBlock`, READ
 `references/wireframe.md` in this skill directory — it is the single source of
-truth for HTML wireframe quality, shared word for word with `/visual-plan`,
-`/ui-plan`, and `/visual-recap`. Do not author wireframes from memory.
+truth for HTML wireframe quality, shared word for word with `/visual-plan`
+and `/visual-recap`. Do not author wireframes from memory.
 
 Use the standard `WireframeBlock` / `<Screen>` format so the Plan viewer owns the
 surface frame, theme, and sketchy/clean toggle. HTML wireframes are appropriate

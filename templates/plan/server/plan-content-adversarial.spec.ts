@@ -10,6 +10,7 @@ import {
   parsePlanContent,
   sanitizeCustomHtml,
   sanitizeDiagramHtml,
+  sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "./plan-content.js";
 
@@ -760,5 +761,64 @@ describe("parse and migration robustness", () => {
         blocks: [customHtmlBlock("<script>alert(1)</script>")],
       } as never),
     ).toThrow();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Legacy top-level `html` escape-hatch (full standalone documents).    */
+/* Rendered in a sandboxed iframe; sanitizeStoredPlanHtml is the        */
+/* data-layer defense-in-depth: strip the script-execution surface but  */
+/* PRESERVE document structure + styling (the field's legit purpose).   */
+/* ------------------------------------------------------------------ */
+
+describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
+  it("strips script execution while preserving document structure and styling", () => {
+    const doc = [
+      "<!doctype html>",
+      "<html><head>",
+      "<style>.brand{color:var(--accent)}</style>",
+      '<link rel="stylesheet" href="https://cdn.example.com/app.css" />',
+      "</head><body>",
+      '<h1 class="brand">Imported plan</h1>',
+      '<img src="https://cdn.example.com/logo.png" alt="logo" />',
+      "<script>document.cookie</script>",
+      '<button onclick="steal()">x</button>',
+      '<a href="javascript:alert(1)">link</a>',
+      "</body></html>",
+    ].join("\n");
+
+    const out = sanitizeStoredPlanHtml(doc);
+
+    // Active surface removed.
+    expect(out).not.toContain("<script");
+    expect(out).not.toContain("onclick");
+    expect(out).not.toMatch(/javascript:/i);
+
+    // Legitimate structure + styling preserved — these are why the field
+    // exists (importing a standalone artifact) and must NOT be stripped the
+    // way sanitizeCustomHtml strips fragment <style>/<link>.
+    expect(out).toContain("<html");
+    expect(out).toContain("<style>");
+    expect(out).toContain("<link");
+    expect(out).toContain("https://cdn.example.com/logo.png");
+    expect(out).toContain('class="brand"');
+  });
+
+  it("removes active-embedding elements (iframe/object/embed)", () => {
+    const out = sanitizeStoredPlanHtml(
+      '<div><iframe src="https://evil.example"></iframe>' +
+        '<object data="x.swf"></object><embed src="y" /></div>',
+    );
+    expect(out).not.toContain("<iframe");
+    expect(out).not.toContain("<object");
+    expect(out).not.toContain("<embed");
+    expect(out).toContain("<div>");
+  });
+
+  it("collapses nested/sequential script wrappers", () => {
+    const out = sanitizeStoredPlanHtml(
+      "<scr<script></script>ipt>alert(1)</script>",
+    );
+    expect(out.toLowerCase()).not.toContain("<script");
   });
 });

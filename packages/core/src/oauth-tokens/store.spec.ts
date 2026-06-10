@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Deterministic key so the at-rest encryption round-trips within the test.
+// Must be set before importing ./store.js (which pulls in secrets/crypto).
+process.env.SECRETS_ENCRYPTION_KEY ||= "oauth-store-test-key";
+
+const { decryptSecretValue, isEncryptedSecretValue } =
+  await import("../secrets/crypto.js");
+
 interface ExecCall {
   sql: string;
   args: unknown[];
@@ -114,11 +121,33 @@ describe("oauth token store", () => {
       "steve@builder.io",
     );
 
-    const stored = JSON.parse(lastInsert().args[4] as string);
+    const storedColumn = lastInsert().args[4] as string;
+    // Tokens are encrypted at rest, not stored as plaintext JSON.
+    expect(isEncryptedSecretValue(storedColumn)).toBe(true);
+    const stored = JSON.parse(decryptSecretValue(storedColumn));
     expect(stored).toMatchObject({
       access_token: "new-access",
       refresh_token: "keep-refresh",
       expiry_date: 200,
+    });
+  });
+
+  it("encrypts the token bundle at rest (no plaintext refresh token in the column)", async () => {
+    existingOwner = null;
+
+    await saveOAuthTokens(
+      "google",
+      "steve@builder.io",
+      { access_token: "a-token", refresh_token: "super-secret-refresh" },
+      "steve@builder.io",
+    );
+
+    const storedColumn = lastInsert().args[4] as string;
+    expect(isEncryptedSecretValue(storedColumn)).toBe(true);
+    expect(storedColumn).not.toContain("super-secret-refresh");
+    expect(JSON.parse(decryptSecretValue(storedColumn))).toMatchObject({
+      access_token: "a-token",
+      refresh_token: "super-secret-refresh",
     });
   });
 });

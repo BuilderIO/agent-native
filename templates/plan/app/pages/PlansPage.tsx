@@ -4782,6 +4782,13 @@ function PlanHistorySheet({
                 <iframe
                   title="Plan version preview"
                   srcDoc={selectedVersion.html}
+                  // Stored plan HTML is agent-authored and may carry
+                  // prompt-injected markup. Match the main document iframe
+                  // (search "allow-forms allow-scripts"): run scripts only in
+                  // an opaque origin — never allow-same-origin — so a malicious
+                  // snapshot cannot reach the app origin's cookies, DOM, or
+                  // actions.
+                  sandbox="allow-forms allow-scripts"
                   className="h-[calc(100vh-142px)] w-full border-0 bg-background"
                 />
               ) : (

@@ -33,7 +33,11 @@ import {
   parsePlanCommentAnchor,
   type PlanCommentMention,
 } from "../shared/comment-context.js";
-import { buildPlanContentHtml, parsePlanContent } from "./plan-content.js";
+import {
+  buildPlanContentHtml,
+  parsePlanContent,
+  sanitizeStoredPlanHtml,
+} from "./plan-content.js";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 type ImplementationFile = {
@@ -816,10 +820,16 @@ export function buildPlanHtml(bundle: PlanBundle): string {
 }
 
 function normalizeStoredHtml(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
-  if (value == null) return "";
-  return String(value);
+  let raw: string;
+  if (typeof value === "string") raw = value;
+  else if (value instanceof Uint8Array)
+    raw = Buffer.from(value).toString("utf8");
+  else if (value == null) raw = "";
+  else raw = String(value);
+  // Sanitize at the render/export choke point so every consumer of the legacy
+  // `html` escape-hatch — and any row written before write-time sanitization —
+  // is stripped of script execution before it reaches an iframe.
+  return raw ? sanitizeStoredPlanHtml(raw) : raw;
 }
 
 function renderSectionHtml(section: PlanSection, repoPath?: string | null) {

@@ -9,6 +9,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   createUiPlanContent,
   normalizePlanContent,
+  sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "../server/plan-content.js";
 import {
@@ -214,7 +215,7 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "ui plan review",
-        html: args.html ?? null,
+        html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null,
         markdown: args.markdown ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,

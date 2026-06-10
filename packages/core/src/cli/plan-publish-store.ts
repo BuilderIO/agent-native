@@ -110,3 +110,28 @@ export function writePlanPublishAuth(
     return null;
   }
 }
+
+/**
+ * Read the canonical Plans publish auth written by `agent-native connect`.
+ * Returns `null` for missing/corrupt/incomplete files so callers can treat the
+ * publish token as optional and guide the user to reconnect.
+ */
+export function readPlanPublishAuth(
+  filePath: string = planPublishConfigPath(),
+): { url: string; token: string } | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const urlValue = record.url ?? record.baseUrl ?? record.hostedUrl;
+    const tokenValue = record.token ?? record.accessToken ?? record.bearerToken;
+    const url = typeof urlValue === "string" ? urlValue.trim() : "";
+    const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
+    if (!url || !token) return null;
+    return { url: stripTrailingSlash(url), token };
+  } catch {
+    return null;
+  }
+}

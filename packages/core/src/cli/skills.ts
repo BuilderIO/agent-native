@@ -245,10 +245,8 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/visual-recap\`, \`/ui-plan\`,
-\`/prototype-plan\`, \`/plan-design\`, \`/visual-questions\`) generate a plan and open
-the editor. Pass \`--no-connect\` to
-register the connector without authenticating, then run
+After that, \`/visual-plan\` and \`/visual-recap\` generate plans and open the
+editor. Pass \`--no-connect\` to register the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -278,14 +276,14 @@ not put shared secrets in skill files.`;
 // distributed artifact stays a flat string, so distribution is unchanged.
 //
 // Consumers:
-//   WIREFRAME_QUALITY_CORE  — visual-plan, ui-plan, visual-recap (surface-agnostic)
-//   CANVAS_SURFACE_CORE     — visual-plan, ui-plan (canvas/artboard mechanics)
-//   DOCUMENT_QUALITY_CORE   — visual-plan, ui-plan
-//   EXEMPLAR_CORE           — visual-plan, ui-plan
+//   WIREFRAME_QUALITY_CORE  — visual-plan, visual-recap (surface-agnostic)
+//   CANVAS_SURFACE_CORE     — visual-plan modes (canvas/artboard mechanics)
+//   DOCUMENT_QUALITY_CORE   — visual-plan
+//   EXEMPLAR_CORE           — visual-plan
 
 // Surface-agnostic HTML wireframe quality rules. Applies equally to a standalone
-// WireframeBlock/<Screen> (visual-recap) and to a canvas artboard (visual-plan /
-// ui-plan). Do not put canvas/artboard placement mechanics here.
+// WireframeBlock/<Screen> (visual-recap) and to a canvas artboard (visual-plan).
+// Do not put canvas/artboard placement mechanics here.
 const WIREFRAME_QUALITY_CORE = `<!-- SHARED-CORE:wireframe-quality START -->
 
 **A wireframe is an HTML mockup. The renderer owns the look; you write the
@@ -518,8 +516,8 @@ hex colors:
 export const WIREFRAME_REFERENCE_MD = `# HTML wireframe quality — single source of truth
 
 This file is the canonical quality bar for HTML wireframes / \`<Screen>\` /
-\`WireframeBlock\` content, shared word for word by \`/visual-plan\`, \`/ui-plan\`,
-and \`/visual-recap\`. Read it in full before authoring ANY wireframe; do not
+\`WireframeBlock\` content, shared word for word by \`/visual-plan\` and
+\`/visual-recap\`. Read it in full before authoring ANY wireframe; do not
 author wireframes from memory or paraphrase these rules per command.
 
 ${WIREFRAME_QUALITY_CORE}
@@ -533,10 +531,10 @@ pinned bottom bars, real product content, before/after comparability, the right
 \`surface\` preset, \`--wf-*\` tokens instead of hex, and no \`<html>\`/\`<style>\`/font
 tags. Before authoring ANY wireframe / \`<Screen>\` / \`WireframeBlock\`, READ
 \`references/wireframe.md\` in this skill directory — it is the single source of
-truth for HTML wireframe quality, shared word for word with \`/visual-plan\`,
-\`/ui-plan\`, and \`/visual-recap\`. Do not author wireframes from memory.`;
+truth for HTML wireframe quality, shared word for word with \`/visual-plan\`
+and \`/visual-recap\`. Do not author wireframes from memory.`;
 
-// Canvas/artboard placement mechanics. Used only by visual-plan and ui-plan
+// Canvas/artboard placement mechanics. Used only by visual-plan modes
 // (visual-recap renders standalone wireframes, not a canvas).
 const CANVAS_SURFACE_CORE = `<!-- SHARED-CORE:canvas-surface START -->
 
@@ -755,7 +753,7 @@ unreadable diagrams before asking for approval.
 
 const EXEMPLAR_CORE = `<!-- SHARED-CORE:exemplar START -->
 
-**GOOD.** A \`/ui-plan\` for a todo app: a canvas with a \`desktop\` artboard whose
+**GOOD.** A UI-first plan for a todo app: a canvas with a \`desktop\` artboard whose
 \`data.html\` is a real flex layout — a sidebar of links (\`Inbox 12\`, \`Today 4\`,
 \`Done\`), a main column with an \`<h1>Today</h1>\`, accent \`.wf-pill\`s for the
 filters, a muted section label \`OVERDUE\`, and \`.wf-card\` task rows carrying real
@@ -796,6 +794,66 @@ recommendations live elsewhere. Never produce this.
 
 <!-- SHARED-CORE:exemplar END -->`;
 
+// Progressive-disclosure reference files. Like `WIREFRAME_REFERENCE_MD`, each of
+// the canvas / document-quality / exemplar cores is the single source of truth
+// for its topic and is materialized verbatim into a sibling `references/*.md`
+// file in the visual-plan skill dir instead of being interpolated inline into
+// the SKILL.md body. The body carries only the matching `*_REFERENCE_POINTER`.
+// Keeping each reference body byte-identical to its core (markers included) lets
+// the sync guard assert the on-disk copies never drift from the constant.
+export const CANVAS_REFERENCE_MD = `# Canvas & artboard placement — single source of truth
+
+This file is the canonical guide for how the visual-plan canvas works: artboard
+placement, lane layout, annotations, patching, and the legacy kit tree. Read it
+in full before authoring or editing any canvas/artboard content; do not author
+canvas layouts from memory or paraphrase these rules per mode.
+
+${CANVAS_SURFACE_CORE}
+`;
+
+export const DOCUMENT_QUALITY_REFERENCE_MD = `# Plan document quality — single source of truth
+
+This file is the canonical quality bar for the plan document below the canvas:
+how it reads, which blocks to use, how open questions are surfaced, and the
+pre-handoff check. Read it in full before authoring the plan document; it is the
+quality bar. Do not write the document from memory or paraphrase these rules per
+mode.
+
+${DOCUMENT_QUALITY_CORE}
+`;
+
+export const EXEMPLAR_REFERENCE_MD = `# Good vs. bad exemplar — single source of truth
+
+This file is the canonical worked example of a great plan (and the anti-patterns
+to avoid). Read it alongside the document-quality and canvas references before
+authoring a plan; it is the bar these plans must clear.
+
+${EXEMPLAR_CORE}
+`;
+
+// Short pointers that replace the inline canvas / document-quality / exemplar
+// cores in the SKILL.md body. Authoring detail lives in the sibling reference
+// files so the SKILL.md stays lean (progressive disclosure); the agent loads the
+// detail on demand.
+const CANVAS_REFERENCE_POINTER = `The canvas is the single source of truth for static UI mockups: artboard
+placement is locked by the \`surface\` (never coordinates), mixed surfaces lay out
+in lanes, annotations are plain-text designer notes anchored by
+\`targetId\`/\`placement\`, and edits are surgical \`contentPatches\`. Before
+authoring or editing ANY canvas, artboard, or annotation, READ
+\`references/canvas.md\` in this skill directory — it is the single source of truth
+for canvas/artboard mechanics. Do not author canvas layouts from memory.`;
+
+const DOCUMENT_QUALITY_REFERENCE_POINTER = `The document is a serious technical plan, not marketing: outcome-first,
+prose-first, self-contained, built from the right native blocks, with open
+questions in a single bottom \`question-form\` and a pre-handoff visual check.
+Before authoring the plan document, READ \`references/document-quality.md\` in this
+skill directory — it is the single source of truth for the document quality bar.
+Do not write the document from memory.`;
+
+const EXEMPLAR_REFERENCE_POINTER = `For a worked example of the bar — a great UI-first plan and \`/visual-plan\`, plus
+the anti-patterns to avoid — READ \`references/exemplar.md\` in this skill
+directory before authoring a plan.`;
+
 export const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
 description: >-
@@ -817,14 +875,14 @@ usually start in the document with local diagrams near each claim. UI and produc
 plans should still start with the top canvas/prototype when screens or behavior
 are what the user needs to review.
 
-\`/visual-plan\` is the canonical command and the main entry point. Use \`/ui-plan\`
-when the work is primarily product UI and review should start with the screens.
-Use \`/prototype-plan\` when review should start with a functional live prototype.
-Use \`/plan-design\` when review should start with full-fidelity branded design.
-Use \`/visual-questions\` only when the user explicitly wants a visual intake form
-before planning. When a Codex, Claude Code, Markdown, or pasted plan already
-exists, \`/visual-plan\` uses that source plan as the starting point and builds
-the review surface from it instead of starting over.
+\`/visual-plan\` is the packaged command and main entry point. Choose the review
+mode from the task: UI-first when the work is primarily product UI and review
+should start with screens, prototype-first when review should start with a
+functional live prototype, design-first when review needs full-fidelity branded
+screens, or visual-intake when the user explicitly wants a questionnaire before
+planning. When a Codex, Claude Code, Markdown, or pasted plan already exists,
+\`/visual-plan\` uses that source plan as the starting point and builds the review
+surface from it instead of starting over.
 
 ## When To Use
 
@@ -1002,9 +1060,9 @@ not add visual chrome by default:
   needs to operate the behavior. Keep the static wireframes in
   \`content.canvas\`, add the aligned functional prototype in
   \`content.prototype\`, and rely on the top visual tabs to switch between them.
-- **Prototype-first** when the user explicitly asks for \`/prototype-plan\`, asks
-  to operate the UI, or when interaction is the main question. Use
-  \`create-prototype-plan\`, which still preserves static mocks where useful.
+- **Prototype-first** when the user asks to operate the UI or when interaction is
+  the main question. Use \`create-prototype-plan\`, which still preserves static
+  mocks where useful.
 
 For mixed canvas + prototype plans, reuse the same real labels, app statuses,
 and screen ids across both surfaces. The canvas is the inspectable static reference;
@@ -1015,25 +1073,17 @@ design direction.
 
 ${WIREFRAME_REFERENCE_POINTER}
 
-## Canvas Core
+## Canvas — read \`references/canvas.md\`
 
-This section is shared by \`/visual-plan\` and \`/ui-plan\`, and is the single
-source of truth for how the canvas works. The canvas/artboard mechanics apply
-only to \`/visual-plan\` and \`/ui-plan\`. Do not paraphrase it per command.
+${CANVAS_REFERENCE_POINTER}
 
-${CANVAS_SURFACE_CORE}
+## Document quality — read \`references/document-quality.md\`
 
-## Document Quality Core
+${DOCUMENT_QUALITY_REFERENCE_POINTER}
 
-This section is shared, word for word, by \`/visual-plan\` and \`/ui-plan\`. It is
-the single source of truth for the document below the canvas. Do not paraphrase
-it per command.
+## Good vs. bad exemplar — read \`references/exemplar.md\`
 
-${DOCUMENT_QUALITY_CORE}
-
-## Good vs. Bad Exemplar
-
-${EXEMPLAR_CORE}
+${EXEMPLAR_REFERENCE_POINTER}
 
 ## Tool Guidance
 
@@ -1047,8 +1097,8 @@ ${EXEMPLAR_CORE}
   optional matching Prototype tab.
 - \`convert-visual-plan-to-prototype\`: convert an existing HTML wireframe canvas
   into a prototype plan.
-- \`create-visual-questions\`: use only for the explicit \`/visual-questions\`
-  command, not as \`/visual-plan\` preflight.
+- \`create-visual-questions\`: use only when the user explicitly asks for a visual
+  intake questionnaire, not as \`/visual-plan\` preflight.
 - \`update-visual-plan\`: revise content, status, or comments; prefer
   \`contentPatches\` over regenerating the whole plan.
 - \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,
@@ -1080,10 +1130,8 @@ intended), so the first tool call does not hit an OAuth wall:
 agent-native skills add visual-plan
 \`\`\`
 
-After that, \`/visual-plan\` (and \`/visual-recap\`, \`/ui-plan\`,
-\`/prototype-plan\`, \`/plan-design\`, \`/visual-questions\`) generate a plan and open
-the editor. Pass \`--no-connect\` to
-register the connector without authenticating, then run
+After that, \`/visual-plan\` and \`/visual-recap\` generate plans and open the
+editor. Pass \`--no-connect\` to register the connector without authenticating, then run
 \`agent-native connect https://plan.agent-native.com\` whenever you are ready.
 
 **Browser (people you share with).** Open the Plans editor and create & edit
@@ -1307,8 +1355,8 @@ pinned bottom bars, real product content, before/after comparability, the right
 \`surface\` preset, \`--wf-*\` tokens instead of hex, and no \`<html>\`/\`<style>\`/font
 tags. Before authoring ANY wireframe / \`<Screen>\` / \`WireframeBlock\`, READ
 \`references/wireframe.md\` in this skill directory — it is the single source of
-truth for HTML wireframe quality, shared word for word with \`/visual-plan\`,
-\`/ui-plan\`, and \`/visual-recap\`. Do not author wireframes from memory.
+truth for HTML wireframe quality, shared word for word with \`/visual-plan\`
+and \`/visual-recap\`. Do not author wireframes from memory.
 
 Use the standard \`WireframeBlock\` / \`<Screen>\` format so the Plan viewer owns the
 surface frame, theme, and sketchy/clean toggle. HTML wireframes are appropriate
@@ -1689,9 +1737,15 @@ export const BUILT_IN_APP_SKILLS = {
     },
     // Sibling reference files materialized alongside each skill's SKILL.md
     // (progressive disclosure). Keyed by skill name -> relative path -> content.
-    // Both plan skills ship the same canonical wireframe-quality reference.
+    // Both plan skills ship the same canonical wireframe-quality reference; the
+    // canvas / document-quality / exemplar references are visual-plan only.
     extraFiles: {
-      "visual-plan": { "references/wireframe.md": WIREFRAME_REFERENCE_MD },
+      "visual-plan": {
+        "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+        "references/canvas.md": CANVAS_REFERENCE_MD,
+        "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
+        "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+      },
       "visual-recap": { "references/wireframe.md": WIREFRAME_REFERENCE_MD },
     },
     manifest: normalizeAppSkillManifest({
@@ -1704,7 +1758,7 @@ export const BUILT_IN_APP_SKILLS = {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
       },
-      mcp: { serverName: "agent-native-plans" },
+      mcp: { serverName: "plan" },
       auth: {
         mode: "oauth",
         setup:
@@ -1937,6 +1991,7 @@ export interface SkillsAddResult {
    */
   githubActionPath?: string;
   githubActionExisted?: boolean;
+  githubActionSuggestedCommand?: string;
 }
 
 interface SkillInstallMetadata {
@@ -1998,6 +2053,9 @@ interface RunSkillsOptions {
   promptSkills?: (
     context: SkillsTargetPromptContext,
   ) => Promise<string[] | null>;
+  promptGithubAction?: (
+    context: SkillsGithubActionPromptContext,
+  ) => Promise<boolean | null>;
   runCommand?: (
     cmd: string,
     args: string[],
@@ -2019,6 +2077,11 @@ interface SkillsClientPromptContext {
 interface SkillsTargetPromptContext {
   initialTargets: string[];
   options: Array<{ value: string; label: string; hint: string }>;
+}
+
+interface SkillsGithubActionPromptContext {
+  workflowPath: string;
+  setupCommand: string;
 }
 
 function normalizeKnownSkillTarget(
@@ -2344,7 +2407,7 @@ function updateSkillInstallStates(
   ]);
   const updated: SkillInstallState[] = [];
   for (const state of states) {
-    if (state.current) continue;
+    if (state.current && state.managed) continue;
     const bundle = latest[state.skillName];
     if (!bundle) continue;
     if (!dryRun) writeSkillFolder(state.path, bundle);
@@ -2388,6 +2451,39 @@ function skillPromptOptions(): SkillsTargetPromptContext["options"] {
     label: entry.manifest.displayName,
     hint: entry.manifest.description,
   }));
+}
+
+function prVisualRecapWorkflowPath(baseDir: string): string {
+  return path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml");
+}
+
+function prVisualRecapWorkflowDisplayPath(): string {
+  return path.join(".github", "workflows", "pr-visual-recap.yml");
+}
+
+function prVisualRecapInstallCommand(): string {
+  return "agent-native skills add visual-plan --with-github-action";
+}
+
+function prVisualRecapSetupCommand(): string {
+  return "agent-native recap setup";
+}
+
+async function promptForGithubAction(
+  context: SkillsGithubActionPromptContext,
+): Promise<boolean | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.confirm({
+    message:
+      "Optional: add automatic PR Visual Recaps?\n" +
+      `  This writes ${context.workflowPath}; ${context.setupCommand} can finish GitHub secrets.`,
+    initialValue: false,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Skipped PR Visual Recap workflow.");
+    return null;
+  }
+  return Boolean(result);
 }
 
 function shouldPrompt(parsed: ParsedSkillsArgs, options: RunSkillsOptions) {
@@ -2684,6 +2780,7 @@ function dryRunInstallCommand(
   if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
   if (!parsed.connect) args.push("--no-connect");
+  if (parsed.withGithubAction) args.push("--with-github-action");
   if (parsed.yes || isKnownSkill(target)) args.push("--yes");
   return commandString("agent-native", args);
 }
@@ -2874,6 +2971,10 @@ export async function addAgentNativeSkill(
     const clients = parsed.clients ?? resolveClients(parsed.client);
     const skillsAgents = skillsAgentsForClients(clients);
     if (parsed.dryRun) {
+      const githubActionPath =
+        parsed.withGithubAction && knownTarget === "visual-plans"
+          ? prVisualRecapWorkflowDisplayPath()
+          : undefined;
       return {
         id: knownBuiltIn.manifest.id,
         displayName: knownBuiltIn.manifest.displayName,
@@ -2884,6 +2985,7 @@ export async function addAgentNativeSkill(
         dryRun: true,
         local: true,
         commands: [dryRunInstallCommand(parsed, target)],
+        githubActionPath,
       };
     }
     const localInstall = installLocalContextXray({
@@ -2915,6 +3017,14 @@ export async function addAgentNativeSkill(
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
+      const githubActionPath =
+        parsed.withGithubAction && knownTarget === "visual-plans"
+          ? prVisualRecapWorkflowDisplayPath()
+          : undefined;
+      const githubActionSuggestedCommand =
+        knownTarget === "visual-plans" && !parsed.withGithubAction
+          ? prVisualRecapInstallCommand()
+          : undefined;
       return {
         id: installTarget.id,
         displayName: installTarget.displayName,
@@ -2924,6 +3034,8 @@ export async function addAgentNativeSkill(
         mcpClients: clients,
         dryRun: true,
         commands: [dryRunInstallCommand(parsed, target)],
+        githubActionPath,
+        githubActionSuggestedCommand,
       };
     } finally {
       installTarget.cleanup?.();
@@ -3001,17 +3113,36 @@ export async function addAgentNativeSkill(
 
     // `--with-github-action`: also drop the PR Visual Recap workflow into the
     // repo so PRs get automatic recaps. Only meaningful for the plan family.
+    const baseDir = options.baseDir ?? process.cwd();
+    let withGithubAction = Boolean(parsed.withGithubAction);
     let githubActionPath: string | undefined;
     let githubActionExisted: boolean | undefined;
-    if (parsed.withGithubAction) {
+    let githubActionSuggestedCommand: string | undefined;
+    if (
+      knownTarget === "visual-plans" &&
+      !withGithubAction &&
+      !fs.existsSync(prVisualRecapWorkflowPath(baseDir))
+    ) {
+      if (shouldPrompt(parsed, options)) {
+        const prompt = options.promptGithubAction ?? promptForGithubAction;
+        withGithubAction =
+          (await prompt({
+            workflowPath: prVisualRecapWorkflowDisplayPath(),
+            setupCommand: prVisualRecapSetupCommand(),
+          })) === true;
+      }
+      if (!withGithubAction) {
+        githubActionSuggestedCommand = prVisualRecapInstallCommand();
+      }
+    }
+
+    if (withGithubAction) {
       if (knownTarget !== "visual-plans") {
         options.log?.(
           "--with-github-action only applies to the visual-plan skill; skipping the workflow.",
         );
       } else {
-        const written = writePrVisualRecapWorkflow(
-          options.baseDir ?? process.cwd(),
-        );
+        const written = writePrVisualRecapWorkflow(baseDir);
         githubActionPath = written.path;
         githubActionExisted = written.existed;
         commands.push(`write ${written.path}`);
@@ -3032,6 +3163,7 @@ export async function addAgentNativeSkill(
       connectCommand,
       githubActionPath,
       githubActionExisted,
+      githubActionSuggestedCommand,
     };
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -3252,7 +3384,19 @@ export async function runSkills(
     ),
   ];
   const githubActionLine = githubActions.length
-    ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nSet these GitHub repo secrets/variables for it to run:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
+    ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
+    : "";
+  const githubActionSuggestions = [
+    ...new Set(
+      results
+        .map((result) => result.githubActionSuggestedCommand)
+        .filter((command): command is string => Boolean(command)),
+    ),
+  ];
+  const githubActionSuggestionLine = githubActionSuggestions.length
+    ? `Optional PR Visual Recap workflow: run ${githubActionSuggestions.join(
+        " && ",
+      )} to add automatic recap comments on pull requests.`
     : "";
   process.stdout.write(
     [
@@ -3268,6 +3412,7 @@ export async function runSkills(
         : "",
       authLine,
       githubActionLine,
+      githubActionSuggestionLine,
       localCommands.length ? `Local command: ${localCommands.join(", ")}.` : "",
       "Restart or reload selected agent clients if the skill is not visible yet.",
       parsed.clientExplicit

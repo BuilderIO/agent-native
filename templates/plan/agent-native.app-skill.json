@@ -8,7 +8,7 @@
     "mcpUrl": "https://plan.agent-native.com/_agent-native/mcp"
   },
   "mcp": {
-    "serverName": "agent-native-plans"
+    "serverName": "plan"
   },
   "local": {
     "template": "plan",

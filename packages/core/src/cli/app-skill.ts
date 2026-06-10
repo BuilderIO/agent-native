@@ -659,7 +659,7 @@ export function exportedSkillContentHash(
       return `${skillExportName(skill)}\n${body}`;
     })
     .sort();
-  parts.push(`mcp:${manifest.hosted.mcpUrl}`);
+  parts.push(`mcp:${manifest.mcp.serverName}:${manifest.hosted.mcpUrl}`);
   return createHash("sha256")
     .update(parts.join("\n \n"))
     .digest("hex")
@@ -690,7 +690,8 @@ function collectSkillFiles(skillDir: string): string[] {
 }
 
 /**
- * Plugin version embeds a content hash of the exported skills + MCP endpoint.
+ * Plugin version embeds a content hash of the exported skills + MCP server
+ * identity/endpoint.
  * Codex keys its plugin cache on the version string, so a changed skill or MCP
  * URL yields a new version and `codex plugin marketplace upgrade` (which runs
  * on startup) delivers the update automatically — no manual semver bump per

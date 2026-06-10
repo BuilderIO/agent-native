@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   normalizePlanContent,
+  sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "../server/plan-content.js";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
@@ -520,7 +521,9 @@ export default defineAction({
       ...(nextBrief !== undefined ? { brief: nextBrief } : {}),
       ...(args.status ? { status: args.status } : {}),
       ...(args.currentFocus ? { currentFocus: args.currentFocus } : {}),
-      ...(args.html !== undefined ? { html: args.html } : {}),
+      ...(args.html !== undefined
+        ? { html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null }
+        : {}),
       ...(nextContent ? { content: serializePlanContent(nextContent) } : {}),
       ...(args.markdown !== undefined
         ? { markdown: args.markdown }

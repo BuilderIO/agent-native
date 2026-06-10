@@ -1,6 +1,48 @@
 import { getDbExec, isPostgres, intType } from "../db/client.js";
+import {
+  encryptSecretValue,
+  decryptSecretValue,
+  isEncryptedSecretValue,
+} from "../secrets/crypto.js";
 
 let _initPromise: Promise<void> | undefined;
+
+/**
+ * Encrypt the token bundle (AES-256-GCM) before it goes to the `tokens`
+ * column. OAuth access/refresh tokens are long-lived, high-value credentials;
+ * encrypting at rest means a leaked DB backup / pg_dump / read replica no
+ * longer exposes them in plaintext. {@link parseStoredTokens} decrypts
+ * transparently on read.
+ */
+function serializeTokens(tokens: Record<string, unknown>): string {
+  return encryptSecretValue(JSON.stringify(tokens));
+}
+
+/**
+ * Parse a stored `tokens` value. Encrypted rows are decrypted; rows written
+ * before encryption — or mirrored from Better Auth's `account` table — are
+ * plaintext JSON and read transparently (the `db-migrate-encrypt-oauth-tokens`
+ * script re-encrypts them in place). A row that can't be decrypted (key
+ * rotated / corrupt / tampered) is treated as empty rather than throwing into
+ * every token lookup.
+ */
+function parseStoredTokens(
+  stored: string | null | undefined,
+): Record<string, unknown> {
+  if (!stored) return {};
+  if (isEncryptedSecretValue(stored)) {
+    try {
+      return JSON.parse(decryptSecretValue(stored));
+    } catch {
+      return {};
+    }
+  }
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return {};
+  }
+}
 
 function oauthTokensTable(): string {
   return isPostgres() ? "public.oauth_tokens" : "oauth_tokens";
@@ -60,7 +102,7 @@ export async function getOAuthTokens(
     args: [provider, accountId],
   });
   if (rows.length === 0) return null;
-  return JSON.parse(rows[0].tokens as string);
+  return parseStoredTokens(rows[0].tokens as string);
 }
 
 /**
@@ -135,7 +177,7 @@ export async function saveOAuthTokens(
   if (existing.length > 0) {
     existingOwner = (existing[0].owner as string) ?? null;
     existingDisplayName = (existing[0].display_name as string) ?? null;
-    existingTokens = JSON.parse((existing[0].tokens as string) ?? "{}");
+    existingTokens = parseStoredTokens(existing[0].tokens as string);
   }
 
   if (!owner) {
@@ -171,7 +213,7 @@ export async function saveOAuthTokens(
       accountId,
       resolvedOwner,
       existingDisplayName,
-      JSON.stringify(tokensToStore),
+      serializeTokens(tokensToStore),
       Date.now(),
     ],
   });
@@ -215,7 +257,7 @@ export async function listOAuthAccounts(provider: string): Promise<
   return rows.map((row) => ({
     accountId: row.account_id as string,
     owner: (row.owner as string) ?? null,
-    tokens: JSON.parse(row.tokens as string),
+    tokens: parseStoredTokens(row.tokens as string),
   }));
 }
 
@@ -243,7 +285,7 @@ export async function listOAuthAccountsByOwner(
   return rows.map((row) => ({
     accountId: row.account_id as string,
     displayName: (row.display_name as string) ?? null,
-    tokens: JSON.parse(row.tokens as string),
+    tokens: parseStoredTokens(row.tokens as string),
   }));
 }
 

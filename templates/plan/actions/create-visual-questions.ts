@@ -9,6 +9,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   createVisualQuestionsContent,
   normalizePlanContent,
+  sanitizeStoredPlanHtml,
   serializePlanContent,
   type VisualQuestionBuilderInput,
 } from "../server/plan-content.js";
@@ -221,7 +222,7 @@ export default defineAction({
         source: args.source,
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "visual questions",
-        html: args.html ?? null,
+        html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null,
         markdown: args.markdown ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,

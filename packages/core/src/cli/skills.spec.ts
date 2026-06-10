@@ -346,6 +346,19 @@ describe("agent-native skills", () => {
       appSkillId: "visual-plans",
       skillName: "visual-recap",
     });
+
+    fs.rmSync(path.join(skillDir, "agent-native-skill.json"));
+    await runSkills(
+      ["update", "visual-recap", "--scope", "project", "--json"],
+      { baseDir: root },
+    );
+    const repaired = JSON.parse(stdout.splice(0).join(""));
+    expect(repaired.updated).toBe(1);
+    expect(repaired.skills[0]).toMatchObject({
+      skillName: "visual-recap",
+      status: "current",
+      managed: true,
+    });
   });
 
   it("keeps exported Plans skill copies aligned with template skills", () => {

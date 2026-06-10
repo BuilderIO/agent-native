@@ -33,9 +33,13 @@ import {
 } from "./create.js";
 import {
   addAgentNativeSkill,
+  CANVAS_REFERENCE_MD,
+  DOCUMENT_QUALITY_REFERENCE_MD,
+  EXEMPLAR_REFERENCE_MD,
   parseSkillsArgs,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
+  WIREFRAME_REFERENCE_MD,
 } from "./skills.js";
 import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
 
@@ -48,6 +52,18 @@ const PLANS_INSTALL_SKILLS: Array<[string, string]> = [
 ];
 
 const PLANS_INSTALL_SKILL_NAMES = PLANS_INSTALL_SKILLS.map(([name]) => name);
+
+const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
+  "visual-plan": {
+    "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+    "references/canvas.md": CANVAS_REFERENCE_MD,
+    "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
+    "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+  },
+  "visual-recap": {
+    "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+  },
+};
 
 const PLANS_INSTALL_ALIASES = [
   "visual-plans",
@@ -256,6 +272,7 @@ describe("Plans skills install — materialized output", () => {
   async function materializeViaAlias(alias: string): Promise<{
     result: Awaited<ReturnType<typeof addAgentNativeSkill>>;
     captured: Record<string, string>;
+    capturedReferences: Record<string, string>;
     npxCalls: number;
   }> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
@@ -264,6 +281,7 @@ describe("Plans skills install — materialized output", () => {
     const prevCodexHome = process.env.CODEX_HOME;
     process.env.CODEX_HOME = codexHome;
     const captured: Record<string, string> = {};
+    const capturedReferences: Record<string, string> = {};
     let npxCalls = 0;
     try {
       const result = await addAgentNativeSkill(
@@ -289,6 +307,23 @@ describe("Plans skills install — materialized output", () => {
                     if (fs.existsSync(file)) {
                       captured[name] = fs.readFileSync(file, "utf-8");
                     }
+                    const referencesDir = path.join(
+                      skillsDir,
+                      name,
+                      "references",
+                    );
+                    if (fs.existsSync(referencesDir)) {
+                      for (const entry of fs.readdirSync(referencesDir, {
+                        withFileTypes: true,
+                      })) {
+                        if (!entry.isFile()) continue;
+                        const rel = `references/${entry.name}`;
+                        capturedReferences[`${name}/${rel}`] = fs.readFileSync(
+                          path.join(referencesDir, entry.name),
+                          "utf-8",
+                        );
+                      }
+                    }
                   }
                 }
               }
@@ -297,7 +332,7 @@ describe("Plans skills install — materialized output", () => {
           },
         },
       );
-      return { result, captured, npxCalls };
+      return { result, captured, capturedReferences, npxCalls };
     } finally {
       if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = prevCodexHome;
@@ -306,7 +341,7 @@ describe("Plans skills install — materialized output", () => {
   }
 
   it("materializes exactly the Plans SKILL.md files and points at the hosted MCP", async () => {
-    const { result, captured, npxCalls } =
+    const { result, captured, capturedReferences, npxCalls } =
       await materializeViaAlias("visual-plan");
     expect(result.id).toBe("visual-plans");
     expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
@@ -324,6 +359,23 @@ describe("Plans skills install — materialized output", () => {
     expect(Object.keys(captured).sort()).toEqual(
       [...PLANS_INSTALL_SKILL_NAMES].sort(),
     );
+
+    const expectedReferenceKeys = Object.entries(PLANS_INSTALL_REFERENCES)
+      .flatMap(([name, refs]) =>
+        Object.keys(refs).map((rel) => `${name}/${rel}`),
+      )
+      .sort();
+    expect(Object.keys(capturedReferences).sort()).toEqual(
+      expectedReferenceKeys,
+    );
+    for (const [name, refs] of Object.entries(PLANS_INSTALL_REFERENCES)) {
+      for (const [rel, constant] of Object.entries(refs)) {
+        expect(
+          capturedReferences[`${name}/${rel}`],
+          `materialized ${name}/${rel}`,
+        ).toBe(constant);
+      }
+    }
   });
 
   it("normalizes every Plans alias to the same hosted Plans skill", async () => {

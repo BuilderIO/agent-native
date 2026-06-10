@@ -34,6 +34,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { readPlanPublishAuth } from "./plan-publish-store.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import { BUILT_IN_APP_SKILLS, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
@@ -103,6 +104,220 @@ export function writePrVisualRecapWorkflow(baseDir: string): {
   const existed = fs.existsSync(file);
   fs.writeFileSync(file, PR_VISUAL_RECAP_WORKFLOW_YML);
   return { path: path.relative(baseDir, file), existed };
+}
+
+export type RecapAgent = "claude" | "codex";
+
+const DEFAULT_RECAP_APP_URL = "https://plan.agent-native.com";
+
+export function normalizeRecapAgent(value: string | undefined): RecapAgent {
+  const agent = (value || "claude").toLowerCase();
+  if (agent === "codex") return "codex";
+  if (agent === "claude") return "claude";
+  throw new Error(
+    `Unsupported recap agent "${value}" (expected "claude" or "codex").`,
+  );
+}
+
+export function recapRequiredSecrets(agent: RecapAgent): string[] {
+  return [
+    "PLAN_RECAP_TOKEN",
+    agent === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY",
+  ];
+}
+
+function recapWorkflowFile(baseDir: string): string {
+  return path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml");
+}
+
+function stripTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+function sameRecapOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return stripTrailingSlash(a) === stripTrailingSlash(b);
+  }
+}
+
+function planTokenFromLocalStore(appUrl: string): string | undefined {
+  const auth = readPlanPublishAuth();
+  if (!auth) return undefined;
+  return sameRecapOrigin(auth.url, appUrl) ? auth.token : undefined;
+}
+
+function envValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const value = env[key]?.trim();
+  return value || undefined;
+}
+
+function commandForMissingSecret(name: string, repo?: string): string {
+  return `gh secret set ${name}${repo ? ` --repo ${repo}` : ""}`;
+}
+
+function commandForMissingVariable(
+  name: string,
+  value: string,
+  repo?: string,
+): string {
+  return `gh variable set ${name} --body ${JSON.stringify(value)}${
+    repo ? ` --repo ${repo}` : ""
+  }`;
+}
+
+function gh(args: string[], input?: string): { ok: boolean; stdout: string } {
+  try {
+    const stdout = execFileSync("gh", args, {
+      encoding: "utf8",
+      input,
+      stdio: input === undefined ? ["ignore", "pipe", "pipe"] : ["pipe", "pipe", "pipe"],
+    });
+    return { ok: true, stdout };
+  } catch {
+    return { ok: false, stdout: "" };
+  }
+}
+
+function resolveGithubRepo(explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  const result = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+  const repo = result.stdout.trim();
+  return result.ok && repo ? repo : undefined;
+}
+
+function listGithubNames(
+  kind: "secret" | "variable",
+  repo?: string,
+): Set<string> | null {
+  const args =
+    kind === "secret"
+      ? ["secret", "list", "--json", "name"]
+      : ["variable", "list", "--json", "name,value"];
+  if (repo) args.push("--repo", repo);
+  const result = gh(args);
+  if (!result.ok) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return new Set(
+      parsed
+        .map((entry) =>
+          entry && typeof entry === "object"
+            ? (entry as Record<string, unknown>).name
+            : undefined,
+        )
+        .filter((name): name is string => typeof name === "string"),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function listGithubVariables(repo?: string): Map<string, string> | null {
+  const args = ["variable", "list", "--json", "name,value"];
+  if (repo) args.push("--repo", repo);
+  const result = gh(args);
+  if (!result.ok) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const out = new Map<string, string>();
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      if (typeof record.name !== "string") continue;
+      out.set(
+        record.name,
+        typeof record.value === "string" ? record.value : "",
+      );
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function setGithubSecret(
+  name: string,
+  value: string | undefined,
+  repo: string | undefined,
+  dryRun: boolean,
+): "set" | "missing" | "failed" | "dry-run" {
+  if (!value) return "missing";
+  if (dryRun) return "dry-run";
+  const args = ["secret", "set", name];
+  if (repo) args.push("--repo", repo);
+  return gh(args, `${value}\n`).ok ? "set" : "failed";
+}
+
+function setGithubVariable(
+  name: string,
+  value: string | undefined,
+  repo: string | undefined,
+  dryRun: boolean,
+): "set" | "skipped" | "failed" | "dry-run" {
+  if (!value) return "skipped";
+  if (dryRun) return "dry-run";
+  const args = ["variable", "set", name, "--body", value];
+  if (repo) args.push("--repo", repo);
+  return gh(args).ok ? "set" : "failed";
+}
+
+export interface RecapSetupPlan {
+  agent: RecapAgent;
+  appUrl: string;
+  repo?: string;
+  workflowPath: string;
+  workflowExists: boolean;
+  requiredSecrets: string[];
+  variableValues: Record<string, string>;
+  secretValues: Record<string, string | undefined>;
+}
+
+export function buildRecapSetupPlan(input: {
+  baseDir: string;
+  appUrl?: string;
+  agent?: string;
+  repo?: string;
+  env?: NodeJS.ProcessEnv;
+}): RecapSetupPlan {
+  const env = input.env ?? process.env;
+  const appUrl = stripTrailingSlash(
+    input.appUrl || env.PLAN_RECAP_APP_URL || DEFAULT_RECAP_APP_URL,
+  );
+  const agent = normalizeRecapAgent(input.agent || env.VISUAL_RECAP_AGENT);
+  const requiredSecrets = recapRequiredSecrets(agent);
+  const planToken =
+    envValue(env, "PLAN_RECAP_TOKEN") ?? planTokenFromLocalStore(appUrl);
+  const llmSecretName =
+    agent === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+  const variableValues: Record<string, string> = {};
+  if (agent !== "claude") variableValues.VISUAL_RECAP_AGENT = agent;
+  for (const key of [
+    "VISUAL_RECAP_MODEL",
+    "VISUAL_RECAP_REASONING",
+    "VISUAL_RECAP_SKILL_SOURCE",
+  ]) {
+    const value = envValue(env, key);
+    if (value) variableValues[key] = value;
+  }
+  return {
+    agent,
+    appUrl,
+    repo: input.repo,
+    workflowPath: path.relative(input.baseDir, recapWorkflowFile(input.baseDir)),
+    workflowExists: fs.existsSync(recapWorkflowFile(input.baseDir)),
+    requiredSecrets,
+    variableValues,
+    secretValues: {
+      PLAN_RECAP_TOKEN: planToken,
+      [llmSecretName]: envValue(env, llmSecretName),
+      PLAN_RECAP_APP_URL:
+        appUrl === DEFAULT_RECAP_APP_URL ? undefined : appUrl,
+    },
+  };
 }
 
 /* -------------------------------------------------------------------------- */
