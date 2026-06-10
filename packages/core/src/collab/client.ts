@@ -563,7 +563,7 @@ export function useCollaborativeDoc(
                 return;
               try {
                 Y.applyUpdate(
-                  ydoc,
+                  doc,
                   base64ToUint8Array(change.update),
                   "remote",
                 );
