@@ -357,7 +357,7 @@ describe("Plans skills install — materialized output", () => {
     expect(codexConfig).toContain(
       'url = "https://plan.agent-native.com/_agent-native/mcp"',
     );
-    expect(codexConfig).not.toContain("agent-native-plans");
+    expect(codexConfig).toContain('[mcp_servers."agent-native-plans"]');
     expect(npxCalls).toBeGreaterThan(0);
 
     for (const [name, constant] of PLANS_INSTALL_SKILLS) {

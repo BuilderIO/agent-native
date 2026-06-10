@@ -12,7 +12,7 @@ The Agent-Native **Plan** app ships as one installable bundle. A single install 
 One install gives you:
 
 - **Two skills** — `/visual-plan` (the canonical entry point) and `/visual-recap`.
-- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `plan`).
+- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `plan`, with legacy alias `agent-native-plans` during migration).
 
 By default, both skills publish to the hosted Plan app — they create a plan via
 the MCP connector and hand you a link or inline plan to review. They never dump
@@ -49,7 +49,7 @@ npx @agent-native/core@latest skills add visual-plan
 agent-native skills add visual-plan
 ```
 
-This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `plan` connector and runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
+This installs `visual-plan` plus the companion `visual-recap` skill, then registers the `plan` connector and its legacy `agent-native-plans` alias, then runs auth (OAuth prompt for hosted/account-backed sharing). Useful flags:
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `codex`).
 - `--no-connect` — register the connector without authenticating; run `agent-native connect https://plan.agent-native.com` later.
@@ -83,9 +83,11 @@ The same repo is a Codex plugin marketplace. Add it, install the plugin, then au
 codex plugin marketplace add BuilderIO/agent-native
 codex plugin add agent-native-visual-plans@agent-native-apps
 codex mcp login plan   # OAuth in the browser
+# Existing installs may already be authenticated as:
+codex mcp login agent-native-plans
 ```
 
-After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login` runs the OAuth flow. The universal CLI route above also works for Codex (`agent-native skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
+After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships URL-only connectors (`[mcp_servers.plan]` and legacy `[mcp_servers.agent-native-plans]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login` runs the OAuth flow. The universal CLI route above also works for Codex (`agent-native skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
 
 ## Updates {#updates}
 

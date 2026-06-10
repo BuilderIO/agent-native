@@ -348,6 +348,39 @@ describe("app skill packaging", () => {
     expect(first).not.toBe(second);
   });
 
+  it("packs and installs MCP server aliases for compatibility", async () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.mcp.aliases = ["assets"];
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    const loaded = loadAppSkillManifest(manifestFile);
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loaded, outDir);
+
+    const packedMcp = JSON.parse(
+      fs.readFileSync(path.join(outDir, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(packedMcp.mcpServers).sort()).toEqual([
+      "agent-native-assets",
+      "assets",
+    ]);
+
+    await ensureAppSkill(loaded, {
+      clients: ["claude-code"],
+      scope: "project",
+      baseDir: root,
+    });
+    const config = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(config.mcpServers).sort()).toEqual([
+      "agent-native-assets",
+      "assets",
+    ]);
+  });
+
   it("rejects pack paths that escape the manifest or output root", () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);

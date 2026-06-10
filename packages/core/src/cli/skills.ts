@@ -1219,23 +1219,26 @@ otherwise approved by the user.
 ## Always Publish As An Agent-Native Plan — Never Inline
 
 The deliverable is ALWAYS a published Agent-Native Plan, created with the
-\`create-visual-recap\` tool on the \`plan\` MCP server. NEVER hand the recap to the
-user as inline chat content — not Markdown prose, not an ASCII sketch, not a
-table, not a fenced "wireframe", not a "here's the recap" summary. A recap's
-entire value is the hosted, interactive, annotatable plan; an inline summary is
-not a recap, it is the thing a recap replaces. The only supported output is to
-publish the plan and return its absolute URL.
+\`create-visual-recap\` tool on the Plan MCP connector. The connector is usually
+exposed as the \`plan\` server, but older installed agents may expose the same
+hosted connector as \`agent-native-plans\`; both names are valid. NEVER hand the
+recap to the user as inline chat content — not Markdown prose, not an ASCII
+sketch, not a table, not a fenced "wireframe", not a "here's the recap" summary.
+A recap's entire value is the hosted, interactive, annotatable plan; an inline
+summary is not a recap, it is the thing a recap replaces. The only supported
+output is to publish the plan and return its absolute URL.
 
-Except for the explicit local-files privacy mode above, if the \`plan\` MCP
-server's tools are not available, do NOT improvise an inline
-recap as a fallback. The usual cause is a connector that did not finish
-connecting this session (it registers zero tools), NOT necessarily an auth
-problem — so do not assume the user must authenticate. Stop and tell the user
-how to restore it: reconnect the plan MCP server (in Claude Code, run \`/mcp\` and
-reconnect, or restart the session); only if it is genuinely unauthenticated, run
-\`agent-native connect <plan-app-url>\` or re-authenticate via \`/mcp\`. Then publish
-once the tool is reachable. Falling back to inline content is a defect, not a
-degraded mode.
+Except for the explicit local-files privacy mode above, if neither the \`plan\`
+nor legacy \`agent-native-plans\` Plan MCP tools are available, do NOT improvise an
+inline recap as a fallback. Do not report the connector as disconnected just
+because it is named \`agent-native-plans\` instead of \`plan\`. The usual cause is a
+connector that did not finish connecting this session (it registers zero tools),
+NOT necessarily an auth problem — so do not assume the user must authenticate.
+Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
+Claude Code, run \`/mcp\` and reconnect, or restart the session); only if it is
+genuinely unauthenticated, run \`agent-native connect <plan-app-url>\` or
+re-authenticate via \`/mcp\`. Then publish once the tool is reachable. Falling
+back to inline content is a defect, not a degraded mode.
 
 ## When To Use
 
@@ -1525,8 +1528,9 @@ memorized tags — they drift and silently produce a wrong tag (\`ApiEndpoint\`
 instead of \`Endpoint\`, \`JsonExplorer\` instead of \`Json\`, \`Tabs\` instead of
 \`TabsBlock\`) that errors on import.
 
-**Before writing any structured plan content, call \`get-plan-blocks\` on the
-\`plan\` MCP server.** It returns the authoritative, always-current block
+**Before writing any structured plan content, call \`get-plan-blocks\` on the Plan
+MCP connector (\`plan\` or legacy \`agent-native-plans\`).** It returns the
+authoritative, always-current block
 vocabulary generated live from the app's own block registry — the same config
 the renderer and MDX round-trip use — so it can never be stale even if this
 SKILL.md is an old installed copy:
