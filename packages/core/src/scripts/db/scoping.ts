@@ -164,11 +164,13 @@ function buildScopedTables(
           .replace(/_/g, "\\_");
         const prefix = `u:${likeEmail}:`;
         // Hide per-user credential rows (u:<email>:credential:<KEY>) from the
-        // raw db-query/db-exec tools. resolveCredential() stores API keys and
-        // third-party tokens here as plaintext, and the agent never needs to
-        // read them via SQL — it uses them implicitly server-side. Excluding
-        // them from the view removes a prompt-injection exfiltration channel
-        // (read own secret → send to attacker URL). Schema-qualified attempts
+        // raw db-query/db-exec tools. saveCredential() now encrypts API keys
+        // and third-party tokens at rest (AES-256-GCM), but the agent never
+        // needs to read them via SQL — it uses them implicitly server-side.
+        // Excluding them from the view is defense-in-depth: it removes a
+        // prompt-injection exfiltration channel (read own secret → send to
+        // attacker URL) and also hides any legacy plaintext rows that predate
+        // encryption plus the recoverable last4/preview. Schema-qualified attempts
         // to reach the base table (public.settings / main.settings) are
         // rejected separately by assertNoSchemaQualifiedTables in safety.ts.
         whereSql =
